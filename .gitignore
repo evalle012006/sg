@@ -47,3 +47,6 @@ services/credentials/sargood-359200-81e0c4f5f590.json
 .sentryclirc
 nohup.out
 node_modules
+sentry.client.config.js
+sentry.edge.config.js
+sentry.server.config.js
