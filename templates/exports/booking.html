@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Booking</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body>
+    <div>
+        <img class="my-2 mb-10" src="{{app_url}}/sargood-logo.png" alt="">
+    </div>
+    <div class="bg-white">
+        <div class="mb-16">
+            <h1 class="text-2xl text-sargood-blue font-bold mb-5">Guest Details</h1>
+            <div class="flex flex-wrap">
+                <div class="info-item w-1/2 py-4">
+                    <label class="font-bold text-sm uppercase text-slate-400 whitespace-nowrap">Full name</label>
+                    <p>{{guest_name}}</p>
+                </div>
+                <div class="info-item w-1/2 py-4">
+                    <label class="font-bold text-sm uppercase text-slate-400 whitespace-nowrap">Email</label>
+                    <p>{{guest_email}}</p>
+                </div>
+
+                <div class="info-item w-1/2 py-4">
+                    <label class="font-bold text-sm uppercase text-slate-400 whitespace-nowrap">Phone</label>
+                    <p>{{guest_phone}}</p>
+                </div>
+
+                <div class="info-item w-1/2 py-4">
+                    <label class="font-bold text-sm uppercase text-slate-400 whitespace-nowrap">Alternate Contact
+                        Name</label>
+                    <p>{{alternate_contact_name}}</p>
+                </div>
+
+                <div class="info-item w-1/2 py-4">
+                    <label class="font-bold text-sm uppercase text-slate-400 whitespace-nowrap">Alternate Contact
+                        Number</label>
+                    <p>{{alternate_contact_phone}}</p>
+                </div>
+            </div>
+        </div>
+        <div class="mb-16">
+            <h1 class="text-2xl text-sargood-blue font-bold mb-5">
+                Accommodation Type
+            </h1>
+            <div class="flex space-x-5">
+                <!-- <img class="rounded-lg overflow-hidden" width=400 height=270 alt="hotel"
+                    src="{{app_url}}/hotel-sample.png" /> -->
+                <div class="flex flex-col w-full">
+                    <div class="flex justify-between items-start">
+                        <h2 class="text-2xl">{{room_label}}</h2>
+                    </div>
+                    <div class="flex justify-between space-x-2 mt-3">
+                        <div class="bg-zinc-100 p-5 rounded-lg w-1/4">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
+                                stroke="currentColor" class="w-6 h-6">
+                                <path stroke-linecap="round" stroke-linejoin="round"
+                                    d="M8.25 9V5.25A2.25 2.25 0 0 1 10.5 3h6a2.25 2.25 0 0 1 2.25 2.25v13.5A2.25 2.25 0 0 1 16.5 21h-6a2.25 2.25 0 0 1-2.25-2.25V15M12 9l3 3m0 0-3 3m3-3H2.25" />
+                            </svg>
+                            <p>Check-in</p>
+                            <p class="text-lg font-bold">{{checkin_date}}</p>
+                        </div>
+                        <div class="bg-zinc-100 p-5 rounded-lg w-1/4">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
+                                stroke="currentColor" class="w-6 h-6">
+                                <path stroke-linecap="round" stroke-linejoin="round"
+                                    d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9" />
+                            </svg>
+                            <p>Check-out</p>
+                            <p class="text-lg font-bold">{{checkout_date}}</p>
+                        </div>
+                        <div class="bg-zinc-100 p-5 rounded-lg w-1/4">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
+                                stroke="currentColor" class="w-6 h-6">
+                                <path stroke-linecap="round" stroke-linejoin="round"
+                                    d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                            </svg>
+                            <p>Package</p>
+                            <p class="text-lg font-bold">{{package_course_code}}</p>
+                        </div>
+                        <div class="bg-zinc-100 p-5 rounded-lg w-1/4">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
+                                stroke="currentColor" class="w-6 h-6">
+                                <path stroke-linecap="round" stroke-linejoin="round"
+                                    d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
+                            </svg>
+                            <p>Guest</p>
+                            <p class="text-lg font-bold">{{total_guests}}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <!-- <div class="mb-16">
+            <h1 class="text-2xl text-sargood-blue font-bold mb-5">Room Setup</h1>
+            <div class="flex space-x-2 mb-5">
+                <div class="bg-zinc-100 p-5 rounded-lg w-1/4">
+                    <p class="font-bold mb-3">Adults</p>
+                    <div class="flex items-center space-x-5">
+                        <img src="{{app_url}}/icons/check-green.png" width=20 height=20 />
+                        <p>{{adults}}</p>
+                    </div>
+                </div>
+                <div class="bg-zinc-100 p-5 rounded-lg w-1/4">
+                    <p class="font-bold mb-3">Children</p>
+                    <div class="flex items-center space-x-5">
+                        <img src="{{app_url}}/icons/check-green.png" width=20 height=20 />
+                        <p>{{children}}</p>
+                    </div>
+                </div>
+                <div class="bg-zinc-100 p-5 rounded-lg w-1/4">
+                    <p class="font-bold mb-3">Infants</p>
+                    <div class="flex items-center space-x-5">
+                        <img src="{{app_url}}/icons/check-green.png" width=20 height=20 />
+                        <p>{{infants}}</p>
+                    </div>
+                </div>
+                <div class="bg-zinc-100 p-5 rounded-lg w-1/4">
+                    <p class="font-bold mb-3">Pets</p>
+                    <div class="flex items-center space-x-5">
+                        <img src="{{app_url}}/icons/check-green.png" width=20 height=20 />
+                        <p>{{pets}}</p>
+                    </div>
+                </div>
+            </div>
+            <div class="mb-5">
+                <div class="bg-zinc-100 p-5 rounded-lg w-full">
+                    <h4 class="font-bold">{{room_label}}: Bed Configuration</h4>
+                    <div class="flex space-x-5 items-center w-1/2 mt-3 mb-5">
+                        <img src="{{app_url}}/icons/check-green.png" width=20 height=20 />
+                        <p>{{king_single_beds}} x King Single Bed/s</p>
+                    </div>
+                    <h4 class="font-bold">{{room_label}}: Ergonomic Bed</h4>
+                    <div class="flex space-x-5 items-center w-1/2 mt-3 mb-5">
+                        <img src="{{app_url}}/icons/check-green.png" width=20 height=20 />
+                        <p>{{ergonomic_king_beds}} x Ergonomic King Bed/s</p>
+                    </div>
+                    <h4 class="font-bold">{{room_label}}: Queen Fold Out Sofa Bed</h4>
+                    <div class="flex space-x-5 items-center w-1/2 mt-3 mb-5">
+                        <img src="{{app_url}}/icons/check-green.png" width=20 height=20 />
+                        <p>{{queen_sofa_beds}} x Queen Sofa Bed/s</p>
+                    </div>
+                    <hr class="my-8" />
+                    <div class="flex space-x-5 items-center w-1/2 mt-3 mb-5">
+                        <img src="{{app_url}}/icons/check-green.png" width=20 height=20 />
+                        <p>{{bedrooms}} x Bedroom/s</p>
+                    </div>
+                    <div class="flex space-x-5 items-center w-1/2 mt-3 mb-5">
+                        <img src="{{app_url}}/icons/check-green.png" } width=20 height=20 />
+                        <p>{{bathrooms}} x Bathroom/s</p>
+                    </div>
+                    {{#if ocean_view}}
+                    <div class="flex space-x-5 items-center w-1/2 mt-3 mb-5">
+                        <img src="{{app_url}}/icons/check-green.png" width=20 height=20 />
+                        <p>Ocean View</p>
+                    </div>
+                    {{/if}}
+                </div>
+            </div>
+        </div> -->
+        {{#if package}}
+        <div class="mb-16">
+            <h1 class="text-2xl text-sargood-blue font-bold mb-5">Packages</h1>
+            <div class="bg-zinc-100 p-5 rounded-lg">
+                <div class="flex items-start justify-between space-x-6">
+                    <div class="flex space-x-5 items-center w-full mt-3 mb-5">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                          </svg>
+                        <p>{{package}}</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {{/if}}
+        {{#if course}}
+        <div class="mb-16">
+            <h1 class="text-2xl text-sargood-blue font-bold mb-5">Courses</h1>
+            <div class="bg-zinc-100 p-5 rounded-lg">
+                <div class="flex items-start justify-between space-x-6">
+                    <div class="flex space-x-5 items-center w-full mt-3 mb-5">
+                        <img src="{{app_url}}/icons/check-green.png" } width=20 height=20 />
+                        <p>{{course}}</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {{/if}}
+        <div>
+            <div class="flex justify-between items-center">
+                <h1 class="text-2xl text-sargood-blue font-bold mb-5">Health Info</h1>
+                <p class="text-slate-500">Last Update: {{healthinfo_updated_date}}</p>
+            </div>
+            <div class="mt-4">
+                <div class="flex justify-between">
+                    <p class="p-4 font-bold">Description</p>
+                    <div class="flex justify-between">
+                        <p class="p-4 font-bold">Current Stay</p>
+                    </div>
+                </div>
+                {{#each healthinfo}}
+                <div class="bg-zinc-100 p-5 rounded-lg w-full my-2">
+                    <div class="flex justify-between">
+                        <p class="max-w-[50%]">{{diagnose}}</p>
+                        <div class="flex justify-between">
+                            {{#if answer}}
+                            <p class="text-emerald-400">Yes</p>
+                            {{else}}
+                            <p class="text-red-500">No</p>
+                            {{/if}}
+                        </div>
+                    </div>
+                </div>
+                {{/each}}
+            </div>
+        </div>
+        <div class="mt-4">
+            <div class="flex justify-between items-center">
+                <h1 class="text-2xl text-sargood-blue font-bold my-5">Booking Details</h1>
+            </div>
+            <div class="mt-4">
+                {{#each sections}}
+                {{#each questions}}
+                <div class="bg-zinc-100 p-5 rounded-lg w-full my-2">
+                    <p class="font-bold mb-2">
+                        {{#if label}}
+                        {{label}}
+                        {{else}}
+                        {{question}}
+                        {{/if}}
+                    </p>
+                    <div class="flex flex-row justify-between">
+                        <p class="">
+                            {{#if answer}}
+                            {{answer}}
+                            {{else}}
+                            N/A
+                            {{/if}}
+                        </p>
+                    </div>
+                </div>
+                {{/each}}
+                {{/each}}
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>

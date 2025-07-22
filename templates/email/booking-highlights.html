@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en-US">
+
+<head>
+    <meta content="text/html; charset=utf-8" http-equiv="Content-Type" />
+    <title>Booking Highlights</title>
+    <meta name="description" content="Booking Highlights Email Template.">
+    <style type="text/css">
+        a:hover {
+            text-decoration: underline !important;
+        }
+    </style>
+</head>
+
+<body marginheight="0" topmargin="0" marginwidth="0" style="margin: 0px; background-color: #f2f3f8;" leftmargin="0">
+    <div>
+        <p>Hi,</p>
+        <p>We have received a booking request from {{guest_name}}.</p>
+
+        <p>The booking request details are:</p>
+        <p><strong>Name: </strong>{{guest_name}}</p>
+        <p><strong>Email: </strong>{{guest_email}}</p>
+        <p><strong>Phone: </strong>{{guest_phone}}</p>
+
+        <p><strong>Alternate Contact Name: </strong>{{alternate_contact_name}}</p>
+        <p><strong>Alternate Contact Number: </strong>{{alternate_contact_number}}</p>
+
+        <p><strong>Arrival: </strong>{{check_in_date}}</p>
+        <p><strong>Departure: </strong>{{check_out_date}}</p>
+
+        {{#if funder}}
+            <p><strong>Funder: </strong>{{funder}}</p>
+        {{/if}}
+
+        <h3>Here are the highlights:</h3>
+
+        <div style="padding-top: 10px; padding-bottom: 10px">
+            {{#each booking_highlights}}
+            <p><strong>{{this.question}}</strong></p>
+            <p>{{this.answer}}</p>
+            {{/each}}
+        </div>
+
+
+        <p>Kind Regards,</p>
+
+        <p><strong>Sargood Team</strong></p>
+    </div>
+</body>
+
+</html>
+
+<!-- Hi < funder contact name>,
+
+We have received a booking request from <guest name>, <NDIS number>.
+
+The booking request details are;
+
+Arrival <arrival dd/mm/yy>
+
+Departure <departure dd/mm/yy)
+
+<Room Type>
+
+<Package Type>
+
+Rate per night <Room Package Rate ($)>
+
+<Reason for Stay>
+
+Link to Terms and Conditions including Cancellation Policy: https://sargoodoncollaroy.com/terms-and-conditions/
+
+Pease ensure that funds are available or contact us to discuss further.
+
+Kind Regards,
+
+The Sargood Team -->

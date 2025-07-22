@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en-US">
+
+<head>
+    <meta content="text/html; charset=utf-8" http-equiv="Content-Type" />
+    <title>Reset Password Email Template</title>
+    <meta name="description" content="Reset Password Email Template.">
+    <style type="text/css">
+        a:hover {
+            text-decoration: underline !important;
+        }
+    </style>
+</head>
+
+<body marginheight="0" topmargin="0" marginwidth="0" style="margin: 0px; background-color: #f2f3f8;" leftmargin="0">
+    <div>
+        <p>Hi,</p>
+        <p>We have received a booking request from {{guest_name}}.</p>
+
+        <p>The booking request details are:</p>
+        <p><strong>Name: </strong>{{guest_name}}</p>
+        <p><strong>Email: </strong>{{guest_email}}</p>
+        <p><strong>Phone: </strong>{{guest_phone}}</p>
+
+        <p><strong>Alternate Contact Name: </strong>{{alternate_contact_name}}</p>
+        <p><strong>Alternate Contact Number: </strong>{{alternate_contact_number}}</p>
+
+        <p><strong>Arrival: </strong>{{check_in_date}}</p>
+        <p><strong>Departure: </strong>{{check_out_date}}</p>
+
+        {{#if funder}}
+            <p><strong>Funder: </strong>{{funder}}</p>
+        {{/if}}
+
+        {{#if selected_yes_no_answer}}
+            <p>The guest has answered <strong>{{selected_yes_no_answer}}</strong> to the following question:</p>
+            <i style="margin-bottom: 4px;">{{question}}</i>
+            {{#if selected_clinical_nurse_consultation_services}}
+                <p>They have also selected the following Clinical Nurse Consultation Services:</p>
+                <ul style="margin-bottom: 4px;">
+                    {{#each selected_clinical_nurse_consultation_services}}
+                    <li>{{this}}</li>
+                    {{/each}}
+                </ul>
+            {{/if}}
+        {{/if}}
+
+        {{#if selected_list_answer}}
+            <p>The guest has answered to the following question: <i>{{question}}</i></p>
+            <ul style="margin-bottom: 4px;">
+                {{#each selected_list_answer}}
+                    <li>{{ this }}</li>
+                {{/each}}
+            </ul>
+        {{/if}}
+
+        <!-- add answer here -->
+        <!-- SF-951 -->
+
+        <p>Kind Regards,</p>
+
+        <p><strong>Sargood Team</strong></p>
+    </div>
+</body>
+
+</html>
+
+<!-- Hi < funder contact name>,
+
+We have received a booking request from <guest name>, <NDIS number>.
+
+The booking request details are;
+
+Arrival <arrival dd/mm/yy>
+
+Departure <departure dd/mm/yy)
+
+<Room Type>
+
+<Package Type>
+
+Rate per night <Room Package Rate ($)>
+
+<Reason for Stay>
+
+Link to Terms and Conditions including Cancellation Policy: https://sargoodoncollaroy.com/terms-and-conditions/
+
+Pease ensure that funds are available or contact us to discuss further.
+
+Kind Regards,
+
+The Sargood Team -->

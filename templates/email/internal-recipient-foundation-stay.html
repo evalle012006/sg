@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en-US">
+
+<head>
+    <meta content="text/html; charset=utf-8" http-equiv="Content-Type" />
+    <title>Foundation Stay Template</title>
+    <meta name="description" content="Reset Password Email Template.">
+    <style type="text/css">
+        a:hover {
+            text-decoration: underline !important;
+        }
+    </style>
+</head>
+
+<body marginheight="0" topmargin="0" marginwidth="0" style="margin: 0px; background-color: #f2f3f8;" leftmargin="0">
+    <div>
+        <p>Hi,</p>
+
+        <p>{{message}}:</p>
+        <p><strong>Name: </strong>{{guest_name}}</p>
+        <p><strong>Phone: </strong>{{guest_phone}}</p>
+        <p><strong>Email: </strong>{{guest_email}}</p>
+
+        <ul style="margin-bottom: 4px;">
+            <li style="list-style-type: none;">Arrival Date: {{ arrivalDate }}</li>
+            <li style="list-style-type: none;">Departure Date: {{ departureDate }}</li>
+        </ul>
+
+        {{#if dob}}
+            <p><strong>Date of Birth: </strong>{{dob}}</p>
+        {{/if}}
+
+        {{#if nights_stay}}
+            <p><strong>Number of Nights Staying: </strong>{{nights_stay}}</p>
+        {{/if}}
+        {{#if package}}
+            <p><strong>Package: </strong>{{package}}</p>
+        {{/if}}
+        {{#if funder}}
+            <p><strong>Funder: </strong>{{funder}}</p>
+        {{/if}}
+
+        {{#if applying_assistance}}
+            <p><strong>Why are you applying for financial assistance? </strong>{{applying_assistance}}</p>
+        {{/if}}
+        {{#if goals1}}
+            <p><strong>What goals are you looking to achieve by staying at Sargood on Collaroy? </strong>{{goals1}}</p>
+        {{/if}}
+        <p><strong>Why are yo applying for a travel grant? </strong>{{why_grant}}</p>
+        <p><strong>What goals are you looking to achieve by staying at Sargood on Collaroy? </strong>{{goals2}}</p>
+        <p><strong>Approx. how much funding within $500 are you applying for and how will you be using it for your travel to and from Sargood on Collaroy? </strong>{{how_much}}</p>
+
+        <p>Kind Regards,</p>
+        <p><strong>Sargood Team</strong></p>
+    </div>
+</body>
+
+</html>
+
+<!-- Hi < funder contact name>,
+
+We have received a booking request from <guest name>, <NDIS number>.
+
+The booking request details are;
+
+Arrival <arrival dd/mm/yy>
+
+Departure <departure dd/mm/yy)
+
+<Room Type>
+
+<Package Type>
+
+Rate per night <Room Package Rate ($)>
+
+<Reason for Stay>
+
+Link to Terms and Conditions including Cancellation Policy: https://sargoodoncollaroy.com/terms-and-conditions/
+
+Pease ensure that funds are available or contact us to discuss further.
+
+Kind Regards,
+
+The Sargood Team -->

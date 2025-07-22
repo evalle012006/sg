@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en-US">
+
+<head>
+    <meta content="text/html; charset=utf-8" http-equiv="Content-Type" />
+    <title>Booking Confirmed</title>
+    <meta name="description" content="Booking Confirmed Email Template.">
+    <style type="text/css">
+        a:hover {
+            text-decoration: underline !important;
+        }
+    </style>
+</head>
+
+<body marginheight="0" topmargin="0" marginwidth="0" style="margin: 0px; background-color: #f2f3f8;" leftmargin="0">
+    <div style="padding: 0px 4px;">
+        <p>Dear {{guest_name}},</p>
+        <p style="margin-bottom: 4px;">Your booking is confirmed!</p>
+        <p style="margin-bottom: 4px;">Booking Details:</p>
+        <ul style="margin-bottom: 4px;">
+            <li style="list-style-type: none;">Arrival Date: {{ arrivalDate }}</li>
+            <li style="list-style-type: none;">Departure Date: {{ departureDate }}</li>
+            <li style="list-style-type: none;">Room Type/s: {{ roomTypes }}</li>
+            <li style="list-style-type: none;">Package Type: {{ packages }}</li>
+            {{#if funder}}
+                <li style="list-style-type: none;">Funder: {{ funder }}</li>
+            {{/if}}
+        </ul>
+        <p style="margin-bottom: 4px;">For more details about your booking (including equipment and personal care), please <a href="https://bookings.sargoodoncollaroy.com/auth/login" target="_blank"><span style="text-decoration: underline;">log in here</span></a></p>
+        <p style="margin-bottom: 4px;">Please note that we require 7 days notice to cancel your booking without charge.  For full terms and conditions, please visit <a href="https://sargoodoncollaroy.com.au/terms-and-conditions/" target="_blank">here</a></p>
+        <p style="margin-bottom: 4px;">If you have any questions, please do not hesitate to contact us.</p>
+        <p style="margin-bottom: 4px;">We look forward to seeing you soon.</p>
+        <p>Regards,</p>
+        <p style="margin-bottom: 4px;">Reception</p>
+        <p>Ph: 02 8597 0600</p>
+        <p><a href="mailto:info@sargoodoncollaroy.com.au">info@sargoodoncollaroy.com.au</a></p>
+    </div>
+</body>
+
+</html>

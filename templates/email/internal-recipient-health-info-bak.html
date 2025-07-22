@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en-US">
+
+<head>
+    <meta content="text/html; charset=utf-8" http-equiv="Content-Type" />
+    <title>Guest Health Info</title>
+    <meta name="description" content="Guest Health Info">
+    <style type="text/css">
+        a:hover {
+            text-decoration: underline !important;
+        }
+    </style>
+</head>
+
+<body marginheight="0" topmargin="0" marginwidth="0" style="margin: 0px; background-color: #f2f3f8;" leftmargin="0">
+    <div>
+        <p>Hi,</p>
+        <p>{{guest_name}}, staying from {{ check_in_date }} - {{ check_out_date }} has answered <span
+                style="font-weight: bold;">yes</span> to the following:</p>
+        <ul style="margin-bottom: 4px;">
+            {{#each healthInfo}}
+            <li>{{ this }}</li>
+            {{/each}}
+        </ul>
+        {{#if affirmed_question}}
+        <ul style="margin-bottom: 4px;">
+            <li>{{ affirmed_question }}</li>
+        </ul>
+        {{/if}}
+        {{#if funder}}
+            <p><strong>Funder: </strong>{{funder}}</p>
+        {{/if}}
+        <p>Kind Regards,</p>
+
+        <p><strong>Sargood Team</strong></p>
+    </div>
+</body>
+
+</html>
+
+<!-- Hi < funder contact name>,
+
+We have received a booking request from <guest name>, <NDIS number>.
+
+The booking request details are;
+
+Arrival <arrival dd/mm/yy>
+
+Departure <departure dd/mm/yy)
+
+<Room Type>
+
+<Package Type>
+
+Rate per night <Room Package Rate ($)>
+
+<Reason for Stay>
+
+Link to Terms and Conditions including Cancellation Policy: https://sargoodoncollaroy.com/terms-and-conditions/
+
+Pease ensure that funds are available or contact us to discuss further.
+
+Kind Regards,
+
+The Sargood Team -->
