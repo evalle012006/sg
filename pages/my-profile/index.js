@@ -383,10 +383,6 @@ export default function GuestProfilePage() {
         return ['cervical', 'thoracic', 'lumbar', 'sacral'].includes(healthInfo.sci_injury_type);
     };
 
-    const shouldShowAsiaRadioButtons = () => {
-        return ['spina_bifida', 'cauda_equina', 'other'].includes(healthInfo.sci_injury_type);
-    };
-
     const shouldShowOtherDetailsField = () => {
         return healthInfo.sci_injury_type === 'other';
     };
@@ -873,56 +869,54 @@ export default function GuestProfilePage() {
                                                 </div>
                                             )}
                                             
-                                            {/* Radio buttons for Spina Bifida, Cauda Equina, and Other */}
-                                            {shouldShowAsiaRadioButtons() && (
-                                                <div>
-                                                    <label className="block text-sm font-medium mb-3 text-gray-700">
-                                                        Level of Function or A.S.I.A. Scale Score (Movement/Sensation)
-                                                    </label>
-                                                    <div className="space-y-3">
-                                                        <RadioButton
-                                                            label="A - Complete, no motor or sensory function below the level of injury"
-                                                            value="A"
-                                                            selectedValue={healthInfo.sci_type || ''}
-                                                            onClick={(value) => handleHealthInfoChange('sci_type', value)}
-                                                            name="asia_scale"
-                                                            size="small"
-                                                        />
-                                                        <RadioButton
-                                                            label="B - Some sensation, no motor function below the level of injury"
-                                                            value="B"
-                                                            selectedValue={healthInfo.sci_type || ''}
-                                                            onClick={(value) => handleHealthInfoChange('sci_type', value)}
-                                                            name="asia_scale"
-                                                            size="small"
-                                                        />
-                                                        <RadioButton
-                                                            label="C - Less than 50% motor function below level of injury but cannot move against gravity"
-                                                            value="C"
-                                                            selectedValue={healthInfo.sci_type || ''}
-                                                            onClick={(value) => handleHealthInfoChange('sci_type', value)}
-                                                            name="asia_scale"
-                                                            size="small"
-                                                        />
-                                                        <RadioButton
-                                                            label="D - More than 50% motor function below level of injury and can move against gravity"
-                                                            value="D"
-                                                            selectedValue={healthInfo.sci_type || ''}
-                                                            onClick={(value) => handleHealthInfoChange('sci_type', value)}
-                                                            name="asia_scale"
-                                                            size="small"
-                                                        />
-                                                        <RadioButton
-                                                            label="E - All muscle, motor and sensory functions have returned"
-                                                            value="E"
-                                                            selectedValue={healthInfo.sci_type || ''}
-                                                            onClick={(value) => handleHealthInfoChange('sci_type', value)}
-                                                            name="asia_scale"
-                                                            size="small"
-                                                        />
-                                                    </div>
+
+                                            <div>
+                                                <label className="block text-sm font-medium mb-3 text-gray-700">
+                                                    Level of Function or A.S.I.A. Scale Score (Movement/Sensation)
+                                                </label>
+                                                <div className="space-y-3">
+                                                    <RadioButton
+                                                        label="A - Complete, no motor or sensory function below the level of injury"
+                                                        value="A"
+                                                        selectedValue={healthInfo.sci_type || ''}
+                                                        onClick={(value) => handleHealthInfoChange('sci_type', value)}
+                                                        name="asia_scale"
+                                                        size="small"
+                                                    />
+                                                    <RadioButton
+                                                        label="B - Some sensation, no motor function below the level of injury"
+                                                        value="B"
+                                                        selectedValue={healthInfo.sci_type || ''}
+                                                        onClick={(value) => handleHealthInfoChange('sci_type', value)}
+                                                        name="asia_scale"
+                                                        size="small"
+                                                    />
+                                                    <RadioButton
+                                                        label="C - Less than 50% motor function below level of injury but cannot move against gravity"
+                                                        value="C"
+                                                        selectedValue={healthInfo.sci_type || ''}
+                                                        onClick={(value) => handleHealthInfoChange('sci_type', value)}
+                                                        name="asia_scale"
+                                                        size="small"
+                                                    />
+                                                    <RadioButton
+                                                        label="D - More than 50% motor function below level of injury and can move against gravity"
+                                                        value="D"
+                                                        selectedValue={healthInfo.sci_type || ''}
+                                                        onClick={(value) => handleHealthInfoChange('sci_type', value)}
+                                                        name="asia_scale"
+                                                        size="small"
+                                                    />
+                                                    <RadioButton
+                                                        label="E - All muscle, motor and sensory functions have returned"
+                                                        value="E"
+                                                        selectedValue={healthInfo.sci_type || ''}
+                                                        onClick={(value) => handleHealthInfoChange('sci_type', value)}
+                                                        name="asia_scale"
+                                                        size="small"
+                                                    />
                                                 </div>
-                                            )}
+                                            </div>
                                         </div>
                                         
                                         {/* Additional text field for "Other" option */}

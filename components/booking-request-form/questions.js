@@ -5,9 +5,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { useDispatch } from "react-redux";
 import { bookingRequestFormActions } from '../../store/bookingRequestFormSlice';
 
-const QuestionPage = ({ updatePageData, guest, updateEquipmentData, equipmentChanges }) => {
+const QuestionPage = ({ currentPage, updatePageData, guest, updateEquipmentData, equipmentChanges }) => {
     const dispatch = useDispatch();
-    const currentPage = useSelector(state => state.bookingRequestForm.currentPage);
     const [updatedCurrentPage, setUpdatedCurrentPage] = useState();
     // Track user interaction per question
     const [questionInteractions, setQuestionInteractions] = useState({});
@@ -154,6 +153,10 @@ const QuestionPage = ({ updatePageData, guest, updateEquipmentData, equipmentCha
                                 qTemp.dirty = true;
                                 qTemp[field] = value;
                             }
+                        } else if (['card-selection', 'card-selection-multi', 'horizontal-card', 'horizontal-card-multi', 'package-selection', 'package-selection-multi'].includes(qTemp.type)) {
+                            qTemp.dirty = true;
+                            qTemp[field] = value;
+                            console.log('Card selection updated:', { type: qTemp.type, field, value }); // Debug log
                         } else {
                             qTemp.dirty = true;
                             qTemp[field] = value;
@@ -315,8 +318,16 @@ const QuestionPage = ({ updatePageData, guest, updateEquipmentData, equipmentCha
                                             }
 
                                             const handleCardSelectionFieldChange = (value, secIdx, qIdx) => {
+                                                console.log("Card selection changed:", value);
                                                 markQuestionAsInteracted(secIdx, qIdx);
-                                                updateSections(value, 'answer', secIdx, qIdx);
+                                                
+                                                // Clear any existing error immediately for card selections
+                                                const currentQuestion = currentPage.Sections[secIdx]?.Questions[qIdx];
+                                                if (currentQuestion && value && (value !== null && value !== undefined && value !== '')) {
+                                                    updateSections(value, 'answer', secIdx, qIdx, [], null); // Pass null to clear error
+                                                } else {
+                                                    updateSections(value, 'answer', secIdx, qIdx);
+                                                }
                                             }
 
                                             if (q.type === "health-info") {

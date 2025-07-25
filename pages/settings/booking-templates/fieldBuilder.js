@@ -184,6 +184,21 @@ export default function FieldBuilder(props) {
         }
     }
 
+    const updateNdisOnlyStatus = async (label, checkedStatus) => {
+        setQuestion({ ...question, ndis_only: checkedStatus });
+        const response = await fetch('/api/booking-templates/questions/' + question.id, {
+            method: 'POST',
+            body: JSON.stringify({ ...question, ndis_only: checkedStatus }),
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+
+        if (response.status == 200) {
+            dispatch(fetchTemplate(template_uuid))
+        }
+    }
+
     // Update funder for package selection fields
     const updateFunder = async (selected) => {
         // Parse existing details or create new object
@@ -589,7 +604,27 @@ export default function FieldBuilder(props) {
             )}
             
             <RenderQuestion question={question} />
-            {!nonRequiredFields.includes(question.type) && <GetField className="text-right" type="simple-checkbox" label="required" value={question.required} checked={question.required} onChange={updateRequiredStatus} />}
+            {/* Required checkbox */}
+            {!nonRequiredFields.includes(question.type) && 
+                <GetField 
+                    className="text-right" 
+                    type="simple-checkbox" 
+                    label="required" 
+                    value={question.required} 
+                    checked={question.required} 
+                    onChange={updateRequiredStatus} 
+                />
+            }
+
+            {/* NDIS Only checkbox - Add this new checkbox */}
+            <GetField 
+                className="text-right" 
+                type="simple-checkbox" 
+                label="NDIS Only Question" 
+                value={question.ndis_only} 
+                checked={question.ndis_only} 
+                onChange={updateNdisOnlyStatus} 
+            />
             
             {fieldWithSelectOptions.includes(question.type) && (
                 <div className="flex flex-col mt-2">

@@ -147,18 +147,6 @@ export default async function handler(req, res) {
             if (sci_injury_type !== undefined) healthUpdateData.sci_injury_type = sci_injury_type || null;
             if (sci_other_details !== undefined) healthUpdateData.sci_other_details = sci_other_details || null;
 
-            // NEW: Clear sci_type when sci_injury_type and sci_type_level have data
-            if ((sci_injury_type && sci_injury_type.trim()) || (sci_type_level && processSciTypeLevel(sci_type_level))) {
-                healthUpdateData.sci_type = null;
-                console.log('Clearing sci_type because sci_injury_type or sci_type_level has data');
-            }
-
-            if (sci_type !== null && sci_type !== undefined && sci_type.trim()) {
-                healthUpdateData.sci_injury_type = null;
-                healthUpdateData.sci_type_level = null;
-                console.log('Clearing sci_injury_type and sci_type_level because sci_type is set');
-            }
-
             let healthResult = null;
             if (Object.keys(healthUpdateData).length > 0) {
                 // Check if health info already exists
