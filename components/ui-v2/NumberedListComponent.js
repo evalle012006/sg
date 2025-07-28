@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Check } from 'lucide-react';
 import StatusBadge from './StatusBadge';
 
@@ -102,14 +102,15 @@ const NumberedListComponent = ({
   showForms = false // New prop to control form display
 }) => {
   const [activeStep, setActiveStep] = useState(null);
-  const [stepStates, setStepStates] = useState(() => {
-    // Initialize states based on the provided steps
-    const initialStates = {};
+  
+  // OPTIMIZED: Use useMemo to compute step states and only recalculate when steps content actually changes
+  const stepStates = useMemo(() => {
+    const states = {};
     steps.forEach(step => {
-      initialStates[step.id] = step.initialState || StepState.NOT_SELECTED;
+      states[step.id] = step.initialState || StepState.NOT_SELECTED;
     });
-    return initialStates;
-  });
+    return states;
+  }, [steps]);
 
   const handleStepClick = (stepId) => {
     if (onStepClick) {
@@ -120,15 +121,6 @@ const NumberedListComponent = ({
       setActiveStep(activeStep === stepId ? null : stepId);
     }
   };
-
-  // Update step states when steps prop changes
-  React.useEffect(() => {
-    const newStates = {};
-    steps.forEach(step => {
-      newStates[step.id] = step.initialState || StepState.NOT_SELECTED;
-    });
-    setStepStates(newStates);
-  }, [steps]);
 
   return (
     <div className="w-full px-8 py-4">

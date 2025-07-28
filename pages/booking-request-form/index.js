@@ -11,6 +11,7 @@ import { getCheckInOutAnswer, getFunder, omitAttribute, validateEmail, validateP
 
 import { 
     QUESTION_KEYS,
+    questionHasKey,
     questionMatches,
 } from "../../services/booking/question-helper";
 
@@ -61,9 +62,147 @@ const BookingRequestForm = () => {
     const [processedFormData, setProcessedFormData] = useState([]);
     const [isProcessingNdis, setIsProcessingNdis] = useState(false);
     
+    // OPTIMIZATION: Add guards to prevent infinite re-renders
+    const [isUpdating, setIsUpdating] = useState(false);
+    const lastDispatchedDataRef = useRef(null);
+    
     const prevFormDataRef = useRef(null);
     const prevIsNdisFundedRef = useRef(null);
     const prevCurrentPageIdRef = useRef(null);
+
+    const layoutRef = useRef(null);
+
+    const [ndisFormFilters, setNdisFormFilters] = useState({
+        funderType: 'NDIS',
+        ndisPackageType: 'sta',
+        additionalFilters: {
+            region: 'NSW',
+            priceRange: { min: 100, max: 500 }
+        }
+    });
+
+    // OPTIMIZATION: Create a helper function to safely update Redux only when data actually changes
+    const safeDispatchData = useCallback((newData, source = 'unknown') => {
+        const newDataStr = JSON.stringify(newData);
+        const lastDataStr = lastDispatchedDataRef.current;
+        
+        if (newDataStr !== lastDataStr) {
+            console.log(`📤 Dispatching data update from: ${source}`);
+            lastDispatchedDataRef.current = newDataStr;
+            dispatch(bookingRequestFormActions.setData(newData));
+        } else {
+            console.log(`⏭️  Skipping identical data dispatch from: ${source}`);
+        }
+    }, [dispatch]);
+
+    // OPTIMIZATION: Stabilize bookingRequestFormData to prevent unnecessary re-renders
+    const stableBookingRequestFormData = useMemo(() => {
+        return bookingRequestFormData;
+    }, [JSON.stringify(bookingRequestFormData)]);
+
+    // OPTIMIZATION: Stabilize processedFormData
+    const stableProcessedFormData = useMemo(() => {
+        return processedFormData;
+    }, [JSON.stringify(processedFormData)]);
+
+    // ADDED: Function to immediately check and update NDIS funding status when questions are answered
+    const checkAndUpdateNdisFundingStatus = useCallback((updatedPages) => {
+        console.log('🔍 Checking for NDIS funding status changes...');
+        
+        let fundingDetected = false;
+        
+        // Check all pages for funding question answers
+        for (const page of updatedPages) {
+            for (const section of page.Sections || []) {
+                for (const question of section.Questions || []) {
+                    if (questionHasKey(question, QUESTION_KEYS.FUNDING_SOURCE) && question.answer) {
+                        const isNdisAnswer = question.answer?.toLowerCase().includes('ndis') || 
+                                           question.answer?.toLowerCase().includes('ndia');
+                        
+                        if (isNdisAnswer && !isNdisFunded) {
+                            console.log('✅ NDIS funding detected, updating state immediately');
+                            dispatch(bookingRequestFormActions.setIsNdisFunded(true));
+                            fundingDetected = true;
+                        } else if (!isNdisAnswer && isNdisFunded) {
+                            console.log('❌ Non-NDIS funding detected, clearing NDIS state');
+                            dispatch(bookingRequestFormActions.setIsNdisFunded(false));
+                            fundingDetected = true;
+                        }
+                        break;
+                    }
+                }
+                if (fundingDetected) break;
+            }
+            if (fundingDetected) break;
+        }
+        
+        return fundingDetected;
+    }, [isNdisFunded, dispatch]);
+
+    const calculateNdisFilters = useCallback((formData) => {
+        console.log('Calculating NDIS filters from form data...');
+        
+        let funderType = null;
+        let ndisPackageType = null;
+        
+        // Find funding source answer
+        for (const page of formData) {
+            for (const section of page.Sections || []) {
+                for (const question of section.Questions || []) {
+                    // Check funding source
+                    if (questionHasKey(question, QUESTION_KEYS.FUNDING_SOURCE) && question.answer) {
+                        if (question.answer?.toLowerCase().includes('ndis') || question.answer?.toLowerCase().includes('ndia')) {
+                            funderType = 'NDIS';
+                        } else {
+                            funderType = 'Non-NDIS';
+                        }
+                    }
+                    
+                    // Only process NDIS package type logic if NDIS funded
+                    if (funderType === 'NDIS') {
+                        // Questions that lead to holiday packages
+                        if (questionHasKey(question, QUESTION_KEYS.DO_YOU_LIVE_ALONE) && 
+                            question.answer === 'Yes') {
+                            ndisPackageType = 'holiday';
+                        }
+                        
+                        if (questionHasKey(question, QUESTION_KEYS.DO_YOU_LIVE_IN_SIL) && 
+                            question.answer === 'Yes') {
+                            ndisPackageType = 'holiday';
+                        }
+                        
+                        if (questionHasKey(question, QUESTION_KEYS.ARE_YOU_STAYING_WITH_INFORMAL_SUPPORTS) && 
+                            question.answer === 'Yes') {
+                            ndisPackageType = 'holiday';
+                        }
+                        
+                        // Question that leads to STA packages (takes precedence)
+                        if (questionHasKey(question, QUESTION_KEYS.IS_STA_STATED_SUPPORT) && 
+                            question.answer === 'Yes') {
+                            ndisPackageType = 'sta';
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Default NDIS package type if none determined
+        if (funderType === 'NDIS' && !ndisPackageType) {
+            ndisPackageType = 'sta'; // Default to STA
+        }
+        
+        const newFilters = {
+            funderType: funderType,
+            ndisPackageType: ndisPackageType,
+            additionalFilters: {
+                // Keep existing additional filters
+                ...ndisFormFilters.additionalFilters
+            }
+        };
+        
+        console.log('Calculated NDIS filters:', newFilters);
+        return newFilters;
+    }, [ndisFormFilters.additionalFilters]);
 
     const fetchProfileData = async (guestId) => {
         try {
@@ -795,7 +934,7 @@ const BookingRequestForm = () => {
             return;
         }
         
-        if (bookingRequestFormData.length === 0) {
+        if (stableBookingRequestFormData.length === 0) {
             console.log('No form data available yet for profile preload');
             return;
         }
@@ -807,11 +946,11 @@ const BookingRequestForm = () => {
             if (profileData) {
                 console.log('Profile data fetched successfully:', profileData);
                 
-                const updatedPages = mapProfileDataToQuestions(profileData, bookingRequestFormData);
+                const updatedPages = mapProfileDataToQuestions(profileData, stableBookingRequestFormData);
                 
                 // Important: Don't apply question dependencies immediately as it might clear preloaded data
                 // Just dispatch the updated pages directly
-                dispatch(bookingRequestFormActions.setData(updatedPages));
+                safeDispatchData(updatedPages, 'profile preload');
                 setProfileDataLoaded(true);
                 
                 console.log('Profile data preloaded and form updated');
@@ -819,7 +958,7 @@ const BookingRequestForm = () => {
                 // Apply dependencies after a short delay to ensure the form updates first
                 setTimeout(() => {
                     const finalPages = applyQuestionDependencies(updatedPages);
-                    dispatch(bookingRequestFormActions.setData(finalPages));
+                    safeDispatchData(finalPages, 'dependencies after profile preload');
                     console.log('Dependencies applied after profile preload');
                 }, 100);
                 
@@ -833,14 +972,147 @@ const BookingRequestForm = () => {
 
     useAutofillDetection();
 
-    // Helper function to check if question has specific key
-    const questionHasKey = (question, questionKey) => {
-        return question.question_key === questionKey;
+    const calculatePageCompletion = (page) => {
+        if (!page || !page.Sections) {
+            console.log(`❌ Page completion check failed: no page or sections for "${page?.title}"`);
+            return false;
+        }
+        
+        console.log(`🔍 Calculating completion for page: "${page.title}"`);
+        
+        let totalRequiredQuestions = 0;
+        let answeredRequiredQuestions = 0;
+        
+        for (const section of page.Sections) {
+            if (section.hidden) {
+                console.log(`⏭️ Skipping hidden section: ${section.id}`);
+                continue;
+            }
+            
+            for (const question of section.Questions || []) {
+                if (question.hidden) {
+                    console.log(`⏭️ Skipping hidden question: "${question.question}"`);
+                    continue;
+                }
+                
+                if (question.required) {
+                    totalRequiredQuestions++;
+                    
+                    // Check if question is answered based on type
+                    let isAnswered = false;
+                    
+                    if (question.type === 'checkbox' || question.type === 'checkbox-button') {
+                        isAnswered = Array.isArray(question.answer) && question.answer.length > 0;
+                    } else if (question.type === 'multi-select') {
+                        isAnswered = Array.isArray(question.answer) && question.answer.length > 0;
+                    } else if (question.type === 'simple-checkbox') {
+                        isAnswered = question.answer === true;
+                    } else if (question.type === 'radio' || question.type === 'radio-ndis') {
+                        isAnswered = question.answer !== null && 
+                                question.answer !== undefined && 
+                                question.answer !== '';
+                    } else {
+                        isAnswered = question.answer !== null && 
+                                question.answer !== undefined && 
+                                question.answer !== '';
+                    }
+                    
+                    if (isAnswered) {
+                        answeredRequiredQuestions++;
+                        console.log(`✅ Required question answered: "${question.question}" = "${question.answer}" (type: ${question.type})`);
+                    } else {
+                        console.log(`❌ Required question NOT answered: "${question.question}" (type: ${question.type}, answer: ${question.answer})`);
+                    }
+                } else {
+                    console.log(`ℹ️ Optional question: "${question.question}" (answer: ${question.answer})`);
+                }
+            }
+        }
+        
+        // Page is complete if all required questions are answered
+        const isComplete = totalRequiredQuestions > 0 && answeredRequiredQuestions === totalRequiredQuestions;
+        
+        console.log(`📊 Page "${page.title}" completion: ${answeredRequiredQuestions}/${totalRequiredQuestions} required questions answered. Complete: ${isComplete}`);
+        
+        return isComplete;
     };
 
-    // FIXED: Function to process form data and create NDIS packages page with memoization
+
+    const applyQuestionDependenciesAcrossPages = (targetPage, allPages) => {
+        if (!targetPage || !targetPage.Sections || !allPages) return targetPage;
+
+        const updatedPage = { ...targetPage };
+        updatedPage.Sections = targetPage.Sections.map(section => {
+            const updatedSection = { ...section };
+            
+            updatedSection.Questions = section.Questions.map(question => {
+                let q = { ...question };
+                
+                // Process question dependencies if they exist
+                if (q.QuestionDependencies && q.QuestionDependencies.length > 0) {
+                    let shouldShow = false;
+                    
+                    // Check each dependency
+                    q.QuestionDependencies.forEach(dependency => {
+                        // Look for the dependent question across ALL pages
+                        allPages.forEach(page => {
+                            if (page.Sections) {
+                                page.Sections.forEach(searchSection => {
+                                    if (searchSection.Questions) {
+                                        searchSection.Questions.forEach(searchQuestion => {
+                                            // Match by question_id or id
+                                            if ((searchQuestion.question_id === dependency.dependence_id) || 
+                                                (searchQuestion.id === dependency.dependence_id)) {
+                                                
+                                                // Check if the dependent question's answer matches the dependency condition
+                                                if (searchQuestion.answer === dependency.answer) {
+                                                    shouldShow = true;
+                                                }
+                                                
+                                                // Handle array answers for multi-select questions
+                                                if (Array.isArray(searchQuestion.answer) && 
+                                                    searchQuestion.answer.includes(dependency.answer)) {
+                                                    shouldShow = true;
+                                                }
+                                            }
+                                        });
+                                    }
+                                });
+                            }
+                        });
+                    });
+                    
+                    // Set question visibility based on dependencies
+                    q.hidden = !shouldShow;
+                } else {
+                    // If no dependencies, show the question (unless explicitly hidden)
+                    if (q.hidden === undefined) {
+                        q.hidden = false;
+                    }
+                }
+                
+                return q;
+            });
+            
+            // Hide section if all questions are hidden
+            const visibleQuestions = updatedSection.Questions.filter(q => !q.hidden);
+            updatedSection.hidden = visibleQuestions.length === 0;
+            
+            return updatedSection;
+        });
+        
+        return updatedPage;
+    };
+
     const processFormDataForNdisPackages = useCallback((formData) => {
         console.log('Processing form data for NDIS packages...', { isNdisFunded, dataLength: formData.length });
+        
+        // Calculate and update filters based on current form data
+        const newFilters = calculateNdisFilters(formData);
+        if (JSON.stringify(newFilters) !== JSON.stringify(ndisFormFilters)) {
+            console.log('Updating NDIS filters:', newFilters);
+            setNdisFormFilters(newFilters);
+        }
         
         // Find the funding page index
         let fundingPageIndex = -1;
@@ -876,15 +1148,73 @@ const BookingRequestForm = () => {
             console.log('Removing NDIS packages page - funding not NDIS');
             return formData.filter(page => page.id !== 'ndis_packages_page');
         } else if (ndisPageExists && isNdisFunded) {
-            // NDIS page already exists and funding is NDIS, keep it
-            console.log('NDIS packages page already exists');
-            return formData;
+            // NDIS page already exists and funding is NDIS, keep it but apply dependencies
+            console.log('NDIS packages page already exists, applying dependencies and recalculating completion');
+            const updatedFormData = formData.map(page => {
+                if (page.id === 'ndis_packages_page') {
+                    // Apply dependencies to existing NDIS page
+                    const pageWithDependencies = applyQuestionDependenciesAcrossPages(page, formData);
+                    
+                    // ENHANCED: Calculate completion status for existing NDIS page with detailed logging
+                    const calculateExistingNdisPageCompletion = (ndisPage) => {
+                        console.log('🔍 Recalculating existing NDIS page completion status...');
+                        
+                        let totalRequiredQuestions = 0;
+                        let answeredRequiredQuestions = 0;
+                        
+                        for (const section of ndisPage.Sections || []) {
+                            if (section.hidden) continue;
+                            
+                            for (const question of section.Questions || []) {
+                                if (question.hidden) continue;
+                                
+                                if (question.required) {
+                                    totalRequiredQuestions++;
+                                    
+                                    // Check if question is answered based on type
+                                    let isAnswered = false;
+                                    
+                                    if (question.type === 'checkbox' || question.type === 'checkbox-button') {
+                                        isAnswered = Array.isArray(question.answer) && question.answer.length > 0;
+                                    } else if (question.type === 'multi-select') {
+                                        isAnswered = Array.isArray(question.answer) && question.answer.length > 0;
+                                    } else if (question.type === 'simple-checkbox') {
+                                        isAnswered = question.answer === true;
+                                    } else {
+                                        isAnswered = question.answer !== null && 
+                                                question.answer !== undefined && 
+                                                question.answer !== '';
+                                    }
+                                    
+                                    if (isAnswered) {
+                                        answeredRequiredQuestions++;
+                                        console.log(`✓ Existing NDIS question answered: "${question.question}" = "${question.answer}"`);
+                                    } else {
+                                        console.log(`✗ Existing NDIS question not answered: "${question.question}"`);
+                                    }
+                                }
+                            }
+                        }
+                        
+                        const isComplete = totalRequiredQuestions > 0 && answeredRequiredQuestions === totalRequiredQuestions;
+                        console.log(`Existing NDIS page completion: ${answeredRequiredQuestions}/${totalRequiredQuestions} required questions answered. Complete: ${isComplete}`);
+                        
+                        return isComplete;
+                    };
+                    
+                    pageWithDependencies.completed = calculateExistingNdisPageCompletion(pageWithDependencies);
+                    console.log(`Existing NDIS page completion status: ${pageWithDependencies.completed}`);
+                    return pageWithDependencies;
+                }
+                return page;
+            });
+            return updatedFormData;
         }
         
         // Only create NDIS page if NDIS is funded
         if (!isNdisFunded) {
             console.log('Not NDIS funded, returning original data without modifications');
-            return formData; // Return original data unchanged
+            return formData;
         }
         
         // Collect all NDIS-only questions from all pages
@@ -893,20 +1223,31 @@ const BookingRequestForm = () => {
         
         formData.forEach((page, pageIndex) => {
             const updatedSections = [];
-            
+
             page.Sections.forEach(section => {
                 const remainingQuestions = [];
                 
                 section.Questions.forEach(question => {
                     // Check if this is an NDIS-only question that should be moved
                     if (question.ndis_only === true && question.type !== 'simple-checkbox') {
-                        console.log('Moving NDIS-only question to NDIS page:', question.question);
+                        console.log('Moving NDIS-only question to NDIS page:', {
+                            question: question.question,
+                            answer: question.answer,
+                            required: question.required,
+                            hasAnswer: question.answer !== null && question.answer !== undefined && question.answer !== ''
+                        });
                         
                         // Create a new section for this question on the NDIS page
                         const ndisSection = {
                             ...section,
                             id: `ndis_${section.id}_${question.id}`,
-                            Questions: [{ ...question }]
+                            orig_section_id: section.id,
+                            Questions: [{ 
+                                ...question,
+                                answer: question.answer,
+                                oldAnswer: question.oldAnswer || question.answer,
+                                orig_section_id: section.id
+                            }]
                         };
                         
                         ndisQuestions.push(ndisSection);
@@ -930,12 +1271,7 @@ const BookingRequestForm = () => {
                 ...page,
                 Sections: updatedSections
             });
-            
-            // ADDED: Log page processing for debugging
-            console.log(`Processed page "${page.title}": ${page.Sections.length} original sections -> ${updatedSections.length} remaining sections`);
         });
-        
-        console.log('Found NDIS questions:', ndisQuestions.length);
         
         // Create NDIS Packages page if we have NDIS questions
         if (ndisQuestions.length > 0) {
@@ -950,11 +1286,11 @@ const BookingRequestForm = () => {
                 hasBack: true,
                 lastPage: false,
                 pageQuestionDependencies: [],
-                completed: false,
+                completed: false, // Will be calculated after dependencies
                 noItems: ndisQuestions.reduce((total, section) => total + section.Questions.length, 0),
                 dirty: false,
                 hidden: false,
-                template_id: formData[0]?.template_id || null // Copy template_id from first page
+                template_id: formData[0]?.template_id || null
             };
             
             console.log('Created NDIS page with', ndisPage.noItems, 'questions');
@@ -963,6 +1299,62 @@ const BookingRequestForm = () => {
             const newFormData = [...updatedPages];
             newFormData.splice(fundingPageIndex + 1, 0, ndisPage);
             
+            // Apply dependencies to NDIS page
+            const ndisPageWithDependencies = applyQuestionDependenciesAcrossPages(ndisPage, newFormData);
+            
+            // ENHANCED: Calculate completion status for NDIS page based on existing answers
+            const calculateNdisPageCompletion = (ndisPage) => {
+                console.log('🔍 Calculating NDIS page completion status...');
+                
+                let totalRequiredQuestions = 0;
+                let answeredRequiredQuestions = 0;
+                
+                for (const section of ndisPage.Sections || []) {
+                    if (section.hidden) continue;
+                    
+                    for (const question of section.Questions || []) {
+                        if (question.hidden) continue;
+                        
+                        if (question.required) {
+                            totalRequiredQuestions++;
+                            
+                            // Check if question is answered based on type
+                            let isAnswered = false;
+                            
+                            if (question.type === 'checkbox' || question.type === 'checkbox-button') {
+                                isAnswered = Array.isArray(question.answer) && question.answer.length > 0;
+                            } else if (question.type === 'multi-select') {
+                                isAnswered = Array.isArray(question.answer) && question.answer.length > 0;
+                            } else if (question.type === 'simple-checkbox') {
+                                isAnswered = question.answer === true;
+                            } else {
+                                isAnswered = question.answer !== null && 
+                                        question.answer !== undefined && 
+                                        question.answer !== '';
+                            }
+                            
+                            if (isAnswered) {
+                                answeredRequiredQuestions++;
+                                console.log(`✓ NDIS question answered: "${question.question}" = "${question.answer}"`);
+                            } else {
+                                console.log(`✗ NDIS question not answered: "${question.question}"`);
+                            }
+                        }
+                    }
+                }
+                
+                const isComplete = totalRequiredQuestions > 0 && answeredRequiredQuestions === totalRequiredQuestions;
+                console.log(`NDIS page completion: ${answeredRequiredQuestions}/${totalRequiredQuestions} required questions answered. Complete: ${isComplete}`);
+                
+                return isComplete;
+            };
+            
+            // Calculate completion status for the newly created NDIS page
+            ndisPageWithDependencies.completed = calculateNdisPageCompletion(ndisPageWithDependencies);
+            console.log(`NDIS page completion status: ${ndisPageWithDependencies.completed}`);
+            
+            newFormData[fundingPageIndex + 1] = ndisPageWithDependencies;
+            
             // Update hasNext/hasBack and lastPage properties
             newFormData.forEach((page, index) => {
                 page.hasNext = index < newFormData.length - 1;
@@ -970,14 +1362,11 @@ const BookingRequestForm = () => {
                 page.lastPage = index === newFormData.length - 1;
             });
             
-            console.log('Inserted NDIS page at index:', fundingPageIndex + 1);
-            console.log('Final form structure:', newFormData.map(p => ({ id: p.id, title: p.title, sections: p.Sections.length })));
             return newFormData;
         }
         
-        console.log('No NDIS page created (no questions found)');
         return updatedPages;
-    }, [isNdisFunded]); // Only depend on isNdisFunded
+    }, [isNdisFunded, calculateNdisFilters, ndisFormFilters]);
 
     // Get the status of a page for accordion display
     const getPageStatus = (page) => {
@@ -991,17 +1380,38 @@ const BookingRequestForm = () => {
         );
         
         if (hasErrors) return 'error';
+        
+        // UPDATED: Use the page's completion status
         if (page.completed) return 'complete';
-        return 'pending'; // default status for non-completed pages
+        
+        // Check if page has any answers (partially completed)
+        const hasAnswers = page.Sections?.some(section => 
+            section.Questions?.some(question => {
+                if (question.hidden) return false;
+                
+                if (question.type === 'checkbox' || question.type === 'checkbox-button') {
+                    return Array.isArray(question.answer) && question.answer.length > 0;
+                } else if (question.type === 'multi-select') {
+                    return Array.isArray(question.answer) && question.answer.length > 0;
+                } else if (question.type === 'simple-checkbox') {
+                    return question.answer === true;
+                } else {
+                    return question.answer !== null && 
+                        question.answer !== undefined && 
+                        question.answer !== '';
+                }
+            })
+        );
+        
+        return hasAnswers ? 'pending' : null;
     };
 
-    // FIXED: Memoize accordion items creation to prevent unnecessary re-renders
     const accordionItems = useMemo(() => {
-        if (!processedFormData || processedFormData.length === 0) return [];
+        if (!stableProcessedFormData || stableProcessedFormData.length === 0) return [];
         
-        return processedFormData.map((page, index) => ({
+        return stableProcessedFormData.map((page, index) => ({
             title: page.title,
-            description: page.description || 'Lorem ipsum dummy text for this section', // Use page.description or fallback
+            description: page.description || 'Lorem ipsum dummy text for this section',
             status: getPageStatus(page),
             customContent: (
                 <QuestionPage 
@@ -1010,14 +1420,16 @@ const BookingRequestForm = () => {
                     guest={guest} 
                     updateEquipmentData={(data) => updateAndDispatchEquipmentData(data)} 
                     equipmentChanges={equipmentChangesState} 
+                    funderType={ndisFormFilters.funderType}
+                    ndisPackageType={ndisFormFilters.ndisPackageType}
+                    additionalFilters={ndisFormFilters.additionalFilters}
                 />
             )
         }));
-    }, [processedFormData, guest, equipmentChangesState]);
+    }, [stableProcessedFormData, guest, equipmentChangesState, ndisFormFilters]);
 
-    // Handle accordion navigation (Next/Back buttons within accordion items)
     const handleAccordionNavigation = async (targetIndex, action) => {
-        const targetPage = processedFormData[targetIndex];
+        const targetPage = stableProcessedFormData[targetIndex];
         
         if (!targetPage) return;
 
@@ -1033,7 +1445,7 @@ const BookingRequestForm = () => {
         // FIXED: Validate current page from processedFormData, not from Redux state
         if (currentPage) {
             // Find the current page in processedFormData to get the updated version
-            const currentPageInProcessed = processedFormData.find(p => p.id === currentPage.id);
+            const currentPageInProcessed = stableProcessedFormData.find(p => p.id === currentPage.id);
             const pageToValidate = currentPageInProcessed || currentPage;
             
             const updatedPage = clearPackageQuestionAnswers(pageToValidate, isNdisFunded);
@@ -1053,6 +1465,14 @@ const BookingRequestForm = () => {
                 // Update the page data with validation errors using processedFormData
                 const pages = updatePageData(updatedPage?.Sections, updatedPage.id, 'VALIDATE_DATA', true);
                 return;
+            }
+
+            const currentPageIndex = stableProcessedFormData.findIndex(p => p.id === currentPage.id);
+            if (currentPageIndex !== -1) {
+                let updatedProcessedData = structuredClone(stableProcessedFormData);
+                updatedProcessedData[currentPageIndex].completed = true;
+                console.log(`Marking page "${currentPage.title}" as completed before navigation`);
+                setProcessedFormData(updatedProcessedData);
             }
 
             // Save current page before navigation
@@ -1075,17 +1495,24 @@ const BookingRequestForm = () => {
         const newUrl = `${baseUrl}&&page_id=${targetPage.id}`;
         
         router.push(newUrl, undefined, { shallow: true });
+
+        // NEW: Scroll to top after navigation
+        if (layoutRef.current && layoutRef.current.scrollToTop) {
+            // Small delay to ensure the content has updated
+            setTimeout(() => {
+                layoutRef.current.scrollToTop();
+            }, 100);
+        }
     };
 
-    // FIXED: Prevent infinite loop in current page sync
     useEffect(() => {
-        if (currentPage && processedFormData && processedFormData.length > 0) {
-            const pageIndex = processedFormData.findIndex(p => p.id === currentPage.id);
+        if (currentPage && stableProcessedFormData && stableProcessedFormData.length > 0) {
+            const pageIndex = stableProcessedFormData.findIndex(p => p.id === currentPage.id);
             if (pageIndex !== -1) {
                 setActiveAccordionIndex(pageIndex);
                 
                 // FIXED: Only update if the page has actually changed
-                const processedCurrentPage = processedFormData[pageIndex];
+                const processedCurrentPage = stableProcessedFormData[pageIndex];
                 if (processedCurrentPage && currentPage.id === processedCurrentPage.id) {
                     // Check if we need to update the current page reference without causing loops
                     const currentPageStr = JSON.stringify(currentPage);
@@ -1099,11 +1526,9 @@ const BookingRequestForm = () => {
                 }
             }
         }
-    }, [currentPage?.id, processedFormData?.length]); // Only depend on ID and length
+    }, [currentPage?.id, stableProcessedFormData?.length]); // Only depend on ID and length
 
     const clearPackageQuestionAnswers = (pageOrPages, isNdisFunded) => {
-        // console.log('clearPackageQuestionAnswers called with isNdisFunded:', isNdisFunded);
-        
         // Helper function to check if an answer is NDIS-related
         const isNdisAnswer = (answer) => {
             if (!answer) return false;
@@ -1120,11 +1545,8 @@ const BookingRequestForm = () => {
             );
 
             if (!pageHasPackageQuestion) {
-                // console.log('No package questions found in page:', page.title);
                 return page; // Return unchanged if no package questions
             }
-
-            // console.log('Processing page with package questions:', page.title);
 
             return {
                 ...page,
@@ -1133,7 +1555,6 @@ const BookingRequestForm = () => {
                     Questions: section.Questions.map(question => {
                         // UPDATED: Use question key instead of text matching
                         if (questionHasKey(question, QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL)) {
-                            // console.log(`Found package question - Type: ${question.type}, Current Answer: ${question.answer}`);
                             
                             if (question.type === 'radio') {
                                 // For radio questions: clear if NDIS funded OR if answer is NDIS-related but not NDIS funded
@@ -1148,8 +1569,6 @@ const BookingRequestForm = () => {
                                     return { ...question, answer: null };
                                 }
                             }
-                            
-                            // console.log('No clearing needed for this question type');
                         }
                         return question;
                     })
@@ -1233,26 +1652,58 @@ const BookingRequestForm = () => {
         return updatedSections;
     }
 
+    // UPDATED: Modified updatePageData function with immediate NDIS funding detection
     const updatePageData = (updates, pageId, action = 'UPDATE_DATA', submit = false, hasError) => {
         const validatedSections = handleFieldValidationErrorMessage(updates, action)
-        const pageIndex = processedFormData.findIndex(p => p.id === pageId);
-        const pages = structuredClone(processedFormData);
+        const pageIndex = stableProcessedFormData.findIndex(p => p.id === pageId);
+        const pages = structuredClone(stableProcessedFormData);
 
         pages.map((temp, index) => {
             if (index === pageIndex) {
                 pages[index].Sections = validatedSections;
                 pages[index].dirty = !hasError;
+                
+                // ADDED: Calculate completion status for the updated page
+                pages[index].completed = calculatePageCompletion(pages[index]);
+                
+                console.log(`Updated page "${pages[index].title}" completion status: ${pages[index].completed}`);
             }
         });
 
+        // ADDED: Check for NDIS funding status changes immediately
+        const fundingStatusChanged = checkAndUpdateNdisFundingStatus(pages);
+
         const updatedPages = submit ? pages : applyQuestionDependencies(applyQuestionDependencies(pages));
+        
+        // ADDED: Recalculate completion for all pages after dependencies are applied
+        updatedPages.forEach(page => {
+            const wasCompleted = page.completed;
+            page.completed = calculatePageCompletion(page);
+            
+            if (wasCompleted !== page.completed) {
+                console.log(`Page "${page.title}" completion status changed: ${wasCompleted} → ${page.completed}`);
+            }
+        });
         
         // Update the processed form data
         setProcessedFormData(updatedPages);
         
         // FIXED: Only update Redux state if not currently processing NDIS to prevent loops
         if (!isProcessingNdis) {
-            dispatch(bookingRequestFormActions.setData(updatedPages));
+            safeDispatchData(updatedPages, 'updatePageData');
+        }
+        
+        // ADDED: If funding status changed, trigger NDIS processing after a small delay
+        if (fundingStatusChanged && !isProcessingNdis) {
+            console.log('🔄 Funding status changed, triggering NDIS processing...');
+            setTimeout(() => {
+                // Force a re-process by updating a tracking state
+                setIsProcessingNdis(true);
+                const processedData = processFormDataForNdisPackages(updatedPages);
+                setProcessedFormData(processedData);
+                safeDispatchData(processedData, 'funding status change');
+                setIsProcessingNdis(false);
+            }, 100);
         }
         
         return updatedPages;
@@ -1342,7 +1793,6 @@ const BookingRequestForm = () => {
                             // If the answer is 'Wellness', we need to clear the package question answers
                             const updatedPage = clearPackageQuestionAnswers(page, isNdisFunded);
                             const updatedPages = updatePageData(updatedPage?.Sections, page.id, 'UPDATE_DATA', false);
-                            // dispatch(bookingRequestFormActions.setData(updatedPages)); // Remove this since we're handling locally
                             errorMessage.add({ pageId: page.id, pageTitle: page.title, message: 'Missing NDIS Package Type', question: question.question, type: question.type });
                         }
                         // Required field validation (only if no existing error)
@@ -1376,7 +1826,7 @@ const BookingRequestForm = () => {
 
     const validateAllPages = () => {
         console.log('Validating all pages for validation errors...');
-        const validatingPages = processedFormData.filter(page => !page.title.includes('Equipment'));
+        const validatingPages = stableProcessedFormData.filter(page => !page.title.includes('Equipment'));
         // Get all validation errors using the existing validate method
         const allErrors = validate(validatingPages);
         console.log(`Total validation errors found across all pages: ${allErrors.length}`, allErrors);
@@ -1402,7 +1852,7 @@ const BookingRequestForm = () => {
             // Mark pages with errors as incomplete and navigate to first error page
             let firstErrorPage = null;
             
-            const updatedPages = processedFormData.map(page => {
+            const updatedPages = stableProcessedFormData.map(page => {
                 let p = {...page};
                 
                 // Check if this page has errors
@@ -1422,7 +1872,7 @@ const BookingRequestForm = () => {
 
             // Navigate to the first page with errors
             if (firstErrorPage) {
-                const pageIndex = processedFormData.findIndex(p => p.id === firstErrorPage.id);
+                const pageIndex = stableProcessedFormData.findIndex(p => p.id === firstErrorPage.id);
                 setActiveAccordionIndex(pageIndex);
                 dispatch(bookingRequestFormActions.setCurrentPage(firstErrorPage));
             }
@@ -1448,10 +1898,9 @@ const BookingRequestForm = () => {
             console.log(errorMsg)
             dispatch(globalActions.setLoading(false));
             toast.error('There are some REQUIRED questions not answered. Please input/select an answer.');
-            // dispatch(bookingRequestFormActions.setData(pages)); // Remove this since we're handling locally
         } else {
             setSubmitting(submit);
-            const dirtyQuestionsList = processedFormData.filter(page => {
+            const dirtyQuestionsList = stableProcessedFormData.filter(page => {
                 const dirtylist = page.Sections.filter(s => s.Questions.some(q => q.answer != q.oldAnswer));
                 if (dirtylist.length > 0) {
                     return dirtylist;
@@ -1467,7 +1916,6 @@ const BookingRequestForm = () => {
                         saveCurrentPage(cPage, false).then(() => {
                             // Show the summary component
                             setBookingSubmittedState(true);
-                            // getRequestFormTemplate();
                         });
                     }
                 } else {
@@ -1560,8 +2008,8 @@ const BookingRequestForm = () => {
     const submitBooking = async () => {
         dispatch(globalActions.setLoading(true));
         
-        const lastPageIndex = processedFormData.length - 1;
-        const lastPage = processedFormData[lastPageIndex];
+        const lastPageIndex = stableProcessedFormData.length - 1;
+        const lastPage = stableProcessedFormData[lastPageIndex];
         if (lastPage) {
             const response = await saveCurrentPage(lastPage, true); 
             if (response) {
@@ -1663,7 +2111,7 @@ const BookingRequestForm = () => {
                                 answer: answer,
                                 question_type: question.type,
                                 question_id: question.fromQa ? question.question_id : question.id,
-                                section_id: section.id,
+                                section_id: question.orig_section_id || section.orig_section_id || section.id,
                                 submit: submit,
                                 updatedAt: new Date(),
                                 dirty: qaPairDirty,
@@ -1685,7 +2133,7 @@ const BookingRequestForm = () => {
                                     answer: answer,
                                     question_type: question.type,
                                     question_id: question.fromQa ? question.question_id : question.id,
-                                    section_id: section.id,
+                                    section_id: question.orig_section_id || section.orig_section_id || section.id,
                                     submit: submit,
                                     updatedAt: new Date(),
                                     dirty: qaPairDirty,
@@ -1709,7 +2157,7 @@ const BookingRequestForm = () => {
                                 answer: answer,
                                 question_type: question.type,
                                 question_id: question.fromQa ? question.question_id : question.id,
-                                section_id: section.id,
+                                section_id: question.orig_section_id || section.orig_section_id || section.id,
                                 submit: submit,
                                 createdAt: new Date(),
                                 updatedAt: new Date(),
@@ -1735,35 +2183,39 @@ const BookingRequestForm = () => {
         const qaPairDirty = qa_pairs.some(qp => qp.dirty);
         if (qaPairDirty || qa_pairs.length > 0 || currentPage.Sections.every(s => s.QaPairs && s.QaPairs.length == 0)) {
             if (summaryOfStay.data.funder && (summaryOfStay.data.funder?.toLowerCase().includes('ndis') || summaryOfStay.data.funder?.toLowerCase().includes('ndia'))) {
-                // UPDATED: Use question key to filter package questions
-                const packageQuestions = qa_pairs.filter(qp => questionMatches({ question: qp.question }, 'Please select your accommodation and assistance package below', QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL));
-                const notNdisAnswer = packageQuestions.find(qp => qp.question_type !== 'radio-ndis');
-                if (notNdisAnswer) {
-                    qa_pairs = qa_pairs.map(qp => {
-                        let temp_qp = { ...qp };
-                        if (qp.id == notNdisAnswer.id) {
-                            temp_qp.delete = true;
-                            temp_qp.dirty = true;
-                        }
-
-                        return temp_qp;
-                    });
-                }
-            } else {
-                const packageQuestions = qa_pairs.filter(qp => questionMatches({ question: qp.question }, 'Please select your accommodation and assistance package below', QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL));
-                const ndisAnswer = packageQuestions.find(qp => qp.question_type == 'radio-ndis');
-                if (ndisAnswer) {
-                    qa_pairs = qa_pairs.map(qp => {
-                        let temp_qp = { ...qp };
-                        if (qp.id == ndisAnswer.id) {
-                            temp_qp.delete = true;
-                            temp_qp.dirty = true;
-                        }
-
-                        return temp_qp;
-                    });
-                }
+            const packageQuestions = qa_pairs.filter(qp => questionMatches({ question: qp.question }, 'Please select your accommodation and assistance package below', QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL));
+            
+            // Find regular radio type package questions to delete (but keep package-selection and radio-ndis)
+            const regularRadioPackageQuestion = packageQuestions.find(qp => qp.question_type === 'radio');
+            if (regularRadioPackageQuestion) {
+                qa_pairs = qa_pairs.map(qp => {
+                    let temp_qp = { ...qp };
+                    if (qp.id === regularRadioPackageQuestion.id) {
+                        temp_qp.delete = true;
+                        temp_qp.dirty = true;
+                    }
+                    return temp_qp;
+                });
             }
+        } else {
+            const packageQuestions = qa_pairs.filter(qp => questionMatches({ question: qp.question }, 'Please select your accommodation and assistance package below', QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL));
+            
+            // Find NDIS-specific package questions to delete
+            const ndisPackageQuestions = packageQuestions.filter(qp => 
+                qp.question_type === 'radio-ndis' || qp.question_type === 'package-selection'
+            );
+            
+            ndisPackageQuestions.forEach(ndisQuestion => {
+                qa_pairs = qa_pairs.map(qp => {
+                    let temp_qp = { ...qp };
+                    if (qp.id === ndisQuestion.id) {
+                        temp_qp.delete = true;
+                        temp_qp.dirty = true;
+                    }
+                    return temp_qp;
+                });
+            });
+        }
 
             let dataForm = { qa_pairs: qa_pairs, flags: { origin: origin, pageId: cPage.id, templateId: cPage.template_id }};
             if (equipmentChangesState.length > 0) {
@@ -1904,8 +2356,8 @@ const BookingRequestForm = () => {
                         summaryOfStayData.nights = checkOut.diff(checkIn, 'days');
                     }
                 }
-            } else if ((questionMatches({ question }, 'Please select your accommodation and assistance package below', QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL) ||
-                      questionMatches({ question }, 'Accommodation package options for Sargood Courses', QUESTION_KEYS.ACCOMMODATION_PACKAGE_COURSES)) && answer.includes('Wellness')) {
+            } else if (questionType !== 'package-selection' && (questionMatches({ question }, 'Please select your accommodation and assistance package below', QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL) ||
+                      questionMatches({ question }, 'Accommodation package options for Sargood Courses', QUESTION_KEYS.ACCOMMODATION_PACKAGE_COURSES)) && answer?.includes('Wellness')) {
                     summaryOfStayData.packageType = serializePackage(answer);
                     summaryOfStayData.packageTypeAnswer = answer;
                     if (answer.includes('Wellness & Support Package')) {
@@ -1915,9 +2367,18 @@ const BookingRequestForm = () => {
                     } else if (answer.includes('Wellness & Very High Support Package')) {
                         summaryOfStayData.packageCost = 1740;
                     }
-            } else if (questionMatches({ question }, 'Please select your accommodation and assistance package below', QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL)
+            } else if (questionType !== 'package-selection' && questionMatches({ question }, 'Please select your accommodation and assistance package below', QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL)
                 && (answer?.toLowerCase().includes('ndis') || answer?.toLowerCase().includes('ndia'))) {
                     summaryOfStayData.ndisPackage = answer;
+            } else if (questionType === 'package-selection' && questionMatches({ question }, 'Please select your accommodation and assistance package below', QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL)) {
+                // For package-selection, answer is the package ID
+                // Store the package ID for later processing in the summary component
+                summaryOfStayData.selectedPackageId = answer;
+                summaryOfStayData.packageSelectionType = 'package-selection';
+                
+                // Set a placeholder that will be resolved in the summary component
+                summaryOfStayData.packageType = 'PACKAGE_SELECTION';
+                summaryOfStayData.packageTypeAnswer = `Package ID: ${answer}`;
             } else if (question.includes('Is Short-Term Accommodation including Respite a stated support in your plan?')
                 || question.includes('What is the purpose of this stay and how does it align with your plan goals? ')
                 || question.includes('How is this service value for money?') 
@@ -2355,8 +2816,8 @@ const BookingRequestForm = () => {
                 url: url,
                 fromQa: true,
                 id: qa.id,
-                // ADDED: Include question_key if available
                 question_key: question.question_key || null,
+                option_type: question.option_type || null,
             };
 
             if (returnee) {
@@ -2666,14 +3127,79 @@ const BookingRequestForm = () => {
                 }, 5000);
             }
 
+            // ADDED: Debug logging before processing dependencies
+            console.log('🔍 Initial template loaded, debugging page questions...');
+            pagesArr.forEach((page, pageIndex) => {
+                console.log(`📋 Page ${pageIndex}: "${page.title}"`);
+                page.Sections?.forEach((section, sectionIndex) => {
+                    section.Questions?.forEach((question, questionIndex) => {
+                        if (questionHasKey(question, QUESTION_KEYS.FUNDING_SOURCE)) {
+                            console.log(`💰 FUNDING QUESTION FOUND: "${question.question}"`);
+                            console.log(`📝 Answer: "${question.answer}"`);
+                            console.log(`✅ Required: ${question.required}`);
+                            console.log(`👁️ Hidden: ${question.hidden}`);
+                        }
+                        if (question.ndis_only === true) {
+                            console.log(`🏥 NDIS-ONLY QUESTION: "${question.question}"`);
+                            console.log(`📝 Answer: "${question.answer}"`);
+                            console.log(`✅ Required: ${question.required}`);
+                        }
+                        if (question.answer && question.answer !== '') {
+                            console.log(`📝 Question with answer: "${question.question}" = "${question.answer}"`);
+                        }
+                    });
+                });
+            });
+
             const pagesWithDependencies = applyQuestionDependencies(pagesArr);
+            
+            // ADDED: Check for pre-existing NDIS funding and process conditional pages
+            const preloadNdisFundingCheck = (pages) => {
+                console.log('🔍 Checking for pre-existing NDIS funding on template load...');
+                
+                let foundNdisFunding = false;
+                
+                // Check all pages for existing NDIS funding answers
+                for (const page of pages) {
+                    for (const section of page.Sections || []) {
+                        for (const question of section.Questions || []) {
+                            if (questionHasKey(question, QUESTION_KEYS.FUNDING_SOURCE) && question.answer) {
+                                const isNdisAnswer = question.answer?.toLowerCase().includes('ndis') || 
+                                                   question.answer?.toLowerCase().includes('ndia');
+                                
+                                if (isNdisAnswer) {
+                                    console.log('✅ Pre-existing NDIS funding detected:', question.answer);
+                                    foundNdisFunding = true;
+                                    // Set NDIS funded state immediately
+                                    dispatch(bookingRequestFormActions.setIsNdisFunded(true));
+                                    break;
+                                }
+                            }
+                        }
+                        if (foundNdisFunding) break;
+                    }
+                    if (foundNdisFunding) break;
+                }
+                
+                // If NDIS funding was found, process the pages to create conditional NDIS page
+                if (foundNdisFunding) {
+                    console.log('🔄 Processing NDIS conditional pages for pre-existing funding...');
+                    const processedPages = processFormDataForNdisPackages(pages);
+                    return processedPages;
+                }
+                
+                return pages;
+            };
+            
+            // Check for pre-existing funding and process conditional pages
+            const finalProcessedPages = preloadNdisFundingCheck(pagesWithDependencies);
             
             await Promise.all([
                 new Promise(resolve => setTimeout(resolve, 100))
             ]);
             
-            // Store the initial form data in Redux
-            dispatch(bookingRequestFormActions.setData(pagesWithDependencies));
+            // Store the initial form data in Redux (with conditional pages if needed)
+            safeDispatchData(finalProcessedPages, 'initial template load with preload check');
 
             setTimeout(() => {
                 dispatch(globalActions.setLoading(false));
@@ -2681,66 +3207,120 @@ const BookingRequestForm = () => {
         }
     }
 
-    // FIXED: Effect to process form data when NDIS funding status changes with proper checks
+    // CRITICAL: Optimized effect to process form data when NDIS funding status changes
     useEffect(() => {
-        if (bookingRequestFormData.length > 0 && !isProcessingNdis) {
-            console.log('Processing form data for NDIS packages...', { isNdisFunded, dataLength: bookingRequestFormData.length });
+        // EMERGENCY FIX: Prevent infinite re-renders by checking the isUpdating flag
+        if (isUpdating || isProcessingNdis) return;
+
+        if (stableBookingRequestFormData.length > 0) {
+            console.log('Processing form data for NDIS packages...', { isNdisFunded, dataLength: stableBookingRequestFormData.length });
             
-            // FIXED: Check if data has actually changed to prevent infinite loops
-            const currentFormDataStr = JSON.stringify(bookingRequestFormData);
+            // Create a stable comparison key to avoid infinite loops
+            const currentFormDataKey = stableBookingRequestFormData.map(page => ({
+                id: page.id,
+                completed: page.completed,
+                sections: page.Sections?.map(section => ({
+                    id: section.id,
+                    questions: section.Questions?.map(q => ({ id: q.id, answer: q.answer }))
+                }))
+            }));
+            
+            const currentFormDataStr = JSON.stringify(currentFormDataKey);
             const currentIsNdisFundedVal = isNdisFunded;
             
-            if (prevFormDataRef.current === currentFormDataStr && 
-                prevIsNdisFundedRef.current === currentIsNdisFundedVal) {
-                // No changes, don't process
-                return;
-            }
-            
-            // Update refs to track previous values
-            prevFormDataRef.current = currentFormDataStr;
-            prevIsNdisFundedRef.current = currentIsNdisFundedVal;
-            
-            // Check if this is initial load (no funding selected yet)
-            const hasFundingAnswer = bookingRequestFormData.some(page => 
-                page.Sections?.some(section => 
-                    section.Questions?.some(question => 
-                        questionHasKey(question, QUESTION_KEYS.FUNDING_SOURCE) && 
-                        question.answer && 
-                        question.answer.trim() !== ''
+            // Only process if key data actually changed
+            if (prevFormDataRef.current !== currentFormDataStr || 
+                prevIsNdisFundedRef.current !== currentIsNdisFundedVal) {
+                
+                setIsUpdating(true); // Set flag to prevent recursive updates
+                
+                prevFormDataRef.current = currentFormDataStr;
+                prevIsNdisFundedRef.current = currentIsNdisFundedVal;
+                
+                // Check if this is initial load (no funding selected yet)
+                const hasFundingAnswer = stableBookingRequestFormData.some(page => 
+                    page.Sections?.some(section => 
+                        section.Questions?.some(question => 
+                            questionHasKey(question, QUESTION_KEYS.FUNDING_SOURCE) && 
+                            question.answer && 
+                            question.answer.trim() !== ''
+                        )
                     )
-                )
-            );
-            
-            // Only process NDIS page creation if funding has been selected
-            if (hasFundingAnswer) {
-                setIsProcessingNdis(true);
-                const processed = processFormDataForNdisPackages(bookingRequestFormData);
-                setProcessedFormData(processed);
+                );
                 
-                // FIXED: Only update Redux if the processed data is different
-                const processedStr = JSON.stringify(processed);
-                const currentReduxStr = JSON.stringify(bookingRequestFormData);
-                if (processedStr !== currentReduxStr) {
-                    dispatch(bookingRequestFormActions.setData(processed));
-                }
+                // ADDED: Check if NDIS page already exists (from preload processing)
+                const ndisPageExists = stableBookingRequestFormData.some(page => page.id === 'ndis_packages_page');
                 
-                // FIXED: Update current page only if it exists and is different
-                if (currentPage) {
-                    const updatedCurrentPage = processed.find(p => p.id === currentPage.id);
-                    if (updatedCurrentPage && JSON.stringify(updatedCurrentPage) !== JSON.stringify(currentPage)) {
-                        dispatch(bookingRequestFormActions.setCurrentPage(updatedCurrentPage));
+                if (hasFundingAnswer) {
+                    // UPDATED: Only process if changes are needed
+                    const shouldHaveNdisPage = isNdisFunded;
+                    const needsProcessing = (shouldHaveNdisPage && !ndisPageExists) || (!shouldHaveNdisPage && ndisPageExists);
+                    
+                    if (needsProcessing) {
+                        console.log('📊 NDIS processing needed:', { shouldHaveNdisPage, ndisPageExists, needsProcessing });
+                        setIsProcessingNdis(true);
+                        
+                        try {
+                            const processed = processFormDataForNdisPackages(stableBookingRequestFormData);
+                            
+                            // Only update if the processed data is actually different
+                            const processedKey = processed.map(page => ({
+                                id: page.id,
+                                completed: page.completed,
+                                sections: page.Sections?.map(section => ({
+                                    id: section.id,
+                                    questions: section.Questions?.map(q => ({ id: q.id, answer: q.answer }))
+                                }))
+                            }));
+                            
+                            const processedStr = JSON.stringify(processedKey);
+                            
+                            if (processedStr !== currentFormDataStr) {
+                                console.log('📊 NDIS processing resulted in changes, updating data');
+                                setProcessedFormData(processed);
+                                safeDispatchData(processed, 'NDIS processing');
+                                
+                                // Update current page only if it exists and is different
+                                if (currentPage) {
+                                    const updatedCurrentPage = processed.find(p => p.id === currentPage.id);
+                                    if (updatedCurrentPage && JSON.stringify(updatedCurrentPage) !== JSON.stringify(currentPage)) {
+                                        dispatch(bookingRequestFormActions.setCurrentPage(updatedCurrentPage));
+                                    }
+                                }
+                            } else {
+                                console.log('📊 NDIS processing resulted in no changes');
+                                setProcessedFormData(stableBookingRequestFormData);
+                            }
+                        } catch (error) {
+                            console.error('Error in NDIS processing:', error);
+                        } finally {
+                            setIsProcessingNdis(false);
+                        }
+                    } else {
+                        console.log('📊 NDIS page already in correct state, skipping processing');
+                        if (JSON.stringify(stableProcessedFormData) !== currentFormDataStr) {
+                            setProcessedFormData(stableBookingRequestFormData);
+                        }
+                    }
+                } else {
+                    console.log('Initial load - no funding answer yet');
+                    if (JSON.stringify(stableProcessedFormData) !== currentFormDataStr) {
+                        setProcessedFormData(stableBookingRequestFormData);
                     }
                 }
-                setIsProcessingNdis(false);
-            } else {
-                // For initial load, just set the original data without modifications
-                console.log('Initial load - setting original form data');
-                if (JSON.stringify(processedFormData) !== currentFormDataStr) {
-                    setProcessedFormData(bookingRequestFormData);
-                }
+                
+                // Reset update flag after a delay
+                setTimeout(() => setIsUpdating(false), 100);
             }
         }
-    }, [bookingRequestFormData, isNdisFunded]); // Remove currentPage.id dependency
+    }, [stableBookingRequestFormData, isNdisFunded]); // Use stable references
+
+    // OPTIMIZATION: Initialize lastDispatchedDataRef on component mount
+    useEffect(() => {
+        if (stableBookingRequestFormData.length > 0 && !lastDispatchedDataRef.current) {
+            lastDispatchedDataRef.current = JSON.stringify(stableBookingRequestFormData);
+        }
+    }, [stableBookingRequestFormData.length]);
 
     useEffect(() => {
         let mounted = true;
@@ -2766,7 +3346,7 @@ const BookingRequestForm = () => {
 
     useEffect(() => {
         // Only try to preload after form data is loaded and we have a current page
-        if (bookingRequestFormData.length > 0 && currentPage && !profileDataLoaded) {
+        if (stableBookingRequestFormData.length > 0 && currentPage && !profileDataLoaded) {
             const guestId = getGuestId();
             
             if (guestId) {
@@ -2777,11 +3357,11 @@ const BookingRequestForm = () => {
                 }, 1000);
             }
         }
-    }, [bookingRequestFormData, currentPage, profileDataLoaded]);
+    }, [stableBookingRequestFormData, currentPage, profileDataLoaded]);
 
     useEffect(() => {
         if (equipmentPageCompleted) {
-            const updatedPages = processedFormData.map(page => {
+            const updatedPages = stableProcessedFormData.map(page => {
                 let p = { ...page };
                 if (p.title == 'Equipment') {
                     p.completed = true;
@@ -2792,7 +3372,7 @@ const BookingRequestForm = () => {
 
             setProcessedFormData(updatedPages);
         }
-    }, [equipmentPageCompleted, processedFormData]);
+    }, [equipmentPageCompleted, stableProcessedFormData]);
 
     useEffect(() => {
         if (!origin || origin !== 'admin') {
@@ -2822,16 +3402,38 @@ const BookingRequestForm = () => {
         }
     }, [uuid, origin]);
 
-    // FIXED: Remove the package clearing effect that was causing loops
-    // The clearing is now handled within the processing function itself
+    useEffect(() => {
+        if (stableProcessedFormData.length > 0) {
+            // Debounce filter calculation to avoid excessive updates
+            const timeoutId = setTimeout(() => {
+                const newFilters = calculateNdisFilters(stableProcessedFormData);
+                if (JSON.stringify(newFilters) !== JSON.stringify(ndisFormFilters)) {
+                    console.log('Form data changed, updating filters:', newFilters);
+                    setNdisFormFilters(newFilters);
+                }
+            }, 300);
+            
+            return () => clearTimeout(timeoutId);
+        }
+    }, [stableProcessedFormData, calculateNdisFilters]);
+
+    // OPTIMIZATION: Add debugging to track when renders happen
+    useEffect(() => {
+        console.log('🔄 BookingRequestForm re-rendered', {
+            dataLength: stableBookingRequestFormData.length,
+            processedLength: stableProcessedFormData.length,
+            isProcessing: isProcessingNdis,
+            isUpdating: isUpdating,
+            currentPageId: currentPage?.id
+        });
+    });
 
     return (<>
-        {processedFormData && (
-            <BookingFormLayout setBookingSubmittedState={setBookingSubmittedState}>
-                {/* Updated Progress Header - Only progress bar and main actions */}
+        {stableProcessedFormData && (
+            <BookingFormLayout ref={layoutRef} setBookingSubmittedState={setBookingSubmittedState}>
                 {!bookingSubmitted && !router.asPath.includes('&submit=true') && (
                     <BookingProgressHeader
-                        bookingRequestFormData={processedFormData}
+                        bookingRequestFormData={stableProcessedFormData}
                         origin={origin}
                         onSaveExit={() => {
                             dispatch(bookingRequestFormActions.setData([]));

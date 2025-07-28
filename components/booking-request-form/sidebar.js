@@ -1,5 +1,5 @@
 import { useRouter } from "next/router";
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { bookingRequestFormActions } from '../../store/bookingRequestFormSlice';
 import NumberedListComponent, { StepState } from '../ui-v2/NumberedListComponent';
@@ -8,6 +8,7 @@ export default function RequestFormSidebar({ setBookingSubmittedState }) {
     const router = useRouter();
     const dispatch = useDispatch();
     const bookingRequestFormData = useSelector(state => state.bookingRequestForm.data);
+    const isNdisFunded = useSelector(state => state.bookingRequestForm.isNdisFunded);
     const [currentUrl, setCurrentUrl] = useState();
 
     const handleRouterChange = async (url) => {
@@ -15,6 +16,19 @@ export default function RequestFormSidebar({ setBookingSubmittedState }) {
         const cleanedUrl = url.replace('&submit=true', '');
         await router.push(cleanedUrl);
     }
+
+    // ENHANCED: Check if NDIS page should exist based on funding status
+    const shouldNdisPageExist = () => {
+        return isNdisFunded && bookingRequestFormData.some(page => 
+            page.Sections?.some(section => 
+                section.Questions?.some(question => 
+                    question.question_key === 'funding-source' && 
+                    question.answer && 
+                    (question.answer.toLowerCase().includes('ndis') || question.answer.toLowerCase().includes('ndia'))
+                )
+            )
+        );
+    };
 
     const setCurrentPage = () => {
         // If URL contains submit=true and we're in submission mode, return null or early
@@ -39,9 +53,53 @@ export default function RequestFormSidebar({ setBookingSubmittedState }) {
         } else {
             setCurrentUrl('&&' + paths[1]);
             
+            // Extract page ID from URL
+            const urlPageId = paths[1].split('=')[1];
+            
             // Check if the URL actually exists in our data
-            const foundPage = bookingRequestFormData.find(r => r.url === "&&" + paths[1]);
+            let foundPage = bookingRequestFormData.find(r => r.url === "&&" + paths[1]);
+            
+            // ENHANCED: Special handling for NDIS page
+            if (!foundPage && urlPageId === 'ndis_packages_page') {
+                // Check if NDIS page should exist but hasn't been created yet
+                if (shouldNdisPageExist()) {
+                    console.log('NDIS page should exist but not found, waiting for creation...');
+                    // Return null to wait for the page to be created
+                    return null;
+                } else {
+                    console.log('NDIS page not needed, redirecting to first page');
+                    // NDIS page shouldn't exist, redirect to first page
+                    if (bookingRequestFormData.length > 0) {
+                        const firstPage = bookingRequestFormData[0];
+                        handleRouterChange(router.asPath.split('&&')[0] + firstPage.url);
+                        return firstPage;
+                    }
+                }
+            }
+            
+            // ENHANCED: Better fallback for missing pages
             if (!foundPage) {
+                console.log(`Page not found for URL: ${paths[1]}, available pages:`, 
+                    bookingRequestFormData.map(p => ({ id: p.id, url: p.url })));
+                
+                // Try to find page by ID instead of URL
+                if (urlPageId) {
+                    foundPage = bookingRequestFormData.find(r => r.id === urlPageId);
+                    if (foundPage) {
+                        console.log(`Found page by ID: ${foundPage.title}`);
+                        // Update URL to match the found page
+                        handleRouterChange(router.asPath.split('&&')[0] + foundPage.url);
+                    }
+                }
+                
+                // If still not found, redirect to first page
+                if (!foundPage && bookingRequestFormData.length > 0) {
+                    console.log('Redirecting to first page due to missing page');
+                    const firstPage = bookingRequestFormData[0];
+                    handleRouterChange(router.asPath.split('&&')[0] + firstPage.url);
+                    return firstPage;
+                }
+                
                 return null;
             }
             
@@ -53,7 +111,7 @@ export default function RequestFormSidebar({ setBookingSubmittedState }) {
 
         // Safety check before scrolling
         const pageId = currentUrl ? currentUrl.split('=')[1] : null;
-        if (currentPage && pageId && parseInt(pageId) !== currentPage.id) {
+        if (currentPage && pageId && pageId !== currentPage.id) {
             window.scrollTo(0, 0);
         }
 
@@ -65,30 +123,61 @@ export default function RequestFormSidebar({ setBookingSubmittedState }) {
         return baseUrl.replace('&submit=true', '');
     }
 
-    // Transform bookingRequestFormData to steps format for NumberedListComponent
-    const transformToSteps = () => {
+    // ENHANCED: Include NDIS page in steps when it should exist
+    const steps = useMemo(() => {
         if (!bookingRequestFormData || bookingRequestFormData.length === 0) {
             return [];
         }
 
-        return bookingRequestFormData.map((page, index) => {
+        // ADDED: Check if we should show NDIS page in sidebar even if it doesn't exist yet
+        const ndisPageMissing = shouldNdisPageExist() && 
+            !bookingRequestFormData.find(p => p.id === 'ndis_packages_page');
+
+        let pagesForSteps = [...bookingRequestFormData];
+
+        // ADDED: Add placeholder NDIS page to sidebar if it should exist but doesn't
+        if (ndisPageMissing) {
+            // Find funding page to insert after it
+            const fundingPageIndex = pagesForSteps.findIndex(page => 
+                page.Sections?.some(section => 
+                    section.Questions?.some(question => 
+                        question.question_key === 'funding-source'
+                    )
+                )
+            );
+
+            if (fundingPageIndex !== -1) {
+                const placeholderNdisPage = {
+                    id: 'ndis_packages_page',
+                    title: 'NDIS Requirements',
+                    url: '&&page_id=ndis_packages_page',
+                    completed: false,
+                    placeholder: true // Mark as placeholder
+                };
+                pagesForSteps.splice(fundingPageIndex + 1, 0, placeholderNdisPage);
+            }
+        }
+
+        return pagesForSteps.map((page, index) => {
             // Determine the step state based on page properties
             let stepState = StepState.NOT_SELECTED;
             let status = null;
             let statusType = null;
 
-            if (page.completed) {
+            if (page.placeholder) {
+                // Placeholder page - show as pending
+                stepState = StepState.NOT_SELECTED;
+                status = 'Pending';
+                statusType = 'pending';
+            } else if (page.completed) {
                 stepState = StepState.COMPLETED;
                 status = 'Complete';
                 statusType = 'success';
             } else if (currentUrl && currentUrl === page.url) {
-                // Current active page should have blue background (SELECTED)
-                // but show shorter "Active" status badge
                 stepState = StepState.SELECTED;
                 status = 'Pending';
                 statusType = 'pending';
             }
-            // All other steps remain NOT_SELECTED (gray background, no status)
 
             return {
                 id: page.id.toString(),
@@ -97,15 +186,22 @@ export default function RequestFormSidebar({ setBookingSubmittedState }) {
                 status: status,
                 statusType: statusType,
                 pageData: page,
-                url: page.url
+                url: page.url,
+                placeholder: page.placeholder || false
             };
         });
-    };
+    }, [bookingRequestFormData, currentUrl, isNdisFunded]);
 
     // Handle step click for navigation
     const handleStepClick = (stepId) => {
-        const step = transformToSteps().find(s => s.id === stepId);
+        const step = steps.find(s => s.id === stepId);
         if (!step) return;
+
+        // Don't allow navigation to placeholder pages
+        if (step.placeholder) {
+            console.log('Cannot navigate to placeholder page');
+            return;
+        }
 
         // Only allow navigation to completed pages or current page
         if (step.pageData.completed || (currentUrl && currentUrl === step.url)) {
@@ -123,6 +219,7 @@ export default function RequestFormSidebar({ setBookingSubmittedState }) {
         }
     };
 
+    // ENHANCED: Re-run when NDIS funding status changes
     useEffect(() => {
         if (router && bookingRequestFormData && bookingRequestFormData.length > 0) {
             try {
@@ -134,7 +231,7 @@ export default function RequestFormSidebar({ setBookingSubmittedState }) {
                 console.error("Error setting current page:", error);
             }
         }
-    }, [router, bookingRequestFormData]);
+    }, [router, bookingRequestFormData, isNdisFunded]); // Added isNdisFunded dependency
 
     // Early return if no data yet
     if (!bookingRequestFormData || bookingRequestFormData.length === 0) {
@@ -147,8 +244,6 @@ export default function RequestFormSidebar({ setBookingSubmittedState }) {
         );
     }
 
-    const steps = transformToSteps();
-
     return (
         <div className="bg-zinc-100 w-full min-h-full">
             <div className="flex flex-col">
@@ -159,7 +254,7 @@ export default function RequestFormSidebar({ setBookingSubmittedState }) {
                     </h2>
                 </div>
                 
-                {/* Steps Navigation - FIXED: No height constraint, flows naturally */}
+                {/* Steps Navigation */}
                 <div className="p-4">
                     <NumberedListComponent 
                         steps={steps} 

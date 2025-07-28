@@ -1,18 +1,32 @@
 import { useSelector } from 'react-redux';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
+import { useRef, useImperativeHandle, forwardRef } from 'react';
 
 const RequestFormSidebar = dynamic(() => import('./sidebar'));
 const Avatar = dynamic(() => import('../avatar'));
 const NotificationBell = dynamic(() => import('../notification-bell'));
 const Spinner = dynamic(() => import('../ui/spinner'));
 
-export default function BookingFormLayout({ 
+const BookingFormLayout = forwardRef(({ 
     setBookingSubmittedState, 
     children
-}) {
+}, ref) => {
     const loading = useSelector(state => state.global.loading);
     const user = useSelector(state => state.user.user);
+    const mainContentRef = useRef(null);
+
+    // Expose scroll function to parent components
+    useImperativeHandle(ref, () => ({
+        scrollToTop: () => {
+            if (mainContentRef.current) {
+                mainContentRef.current.scrollTo({
+                    top: 0,
+                    behavior: 'smooth'
+                });
+            }
+        }
+    }));
 
     return (
         <div className="relative h-screen flex flex-col">
@@ -60,8 +74,8 @@ export default function BookingFormLayout({
                 </div>
             </div>
 
-            {/* Main Layout - Below Header - FIXED: Single scrollable container */}
-            <div className="flex-1 overflow-auto">
+            {/* Main Layout - Below Header - UPDATED: Single scrollable container with ref */}
+            <div className="flex-1 overflow-auto" ref={mainContentRef}>
                 <div className="flex min-h-full">
                     {/* Sidebar */}
                     <div className="hidden md:block w-96 lg:w-80 xl:w-72 flex-shrink-0">
@@ -81,4 +95,8 @@ export default function BookingFormLayout({
             </div>
         </div>
     )
-}
+});
+
+BookingFormLayout.displayName = 'BookingFormLayout';
+
+export default BookingFormLayout;

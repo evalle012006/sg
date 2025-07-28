@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useMemo } from 'react';
 import Button from '../ui-v2/Button';
 
 const BookingProgressHeader = ({ 
@@ -7,24 +7,30 @@ const BookingProgressHeader = ({
     onSaveExit,
     onCancel
 }) => {
-    const [progress, setProgress] = useState(0);
-    const [totalSteps, setTotalSteps] = useState(0);
-    const [completedSteps, setCompletedSteps] = useState(0);
-
-    // Calculate progress based on completed pages/steps
-    useEffect(() => {
-        if (bookingRequestFormData && bookingRequestFormData.length > 0) {
-            const totalPages = bookingRequestFormData.length;
-            const completedPages = bookingRequestFormData.filter(page => page.completed).length;
-            
-            setTotalSteps(totalPages);
-            setCompletedSteps(completedPages);
-            
-            // Calculate progress based on completed pages vs total pages
-            const pageProgress = totalPages > 0 ? (completedPages / totalPages) * 100 : 0;
-            setProgress(Math.round(pageProgress));
+    // FIXED: Use useMemo instead of useEffect + useState to prevent infinite re-renders
+    const progressData = useMemo(() => {
+        if (!bookingRequestFormData || bookingRequestFormData.length === 0) {
+            return {
+                progress: 0,
+                totalSteps: 0,
+                completedSteps: 0
+            };
         }
-    }, [bookingRequestFormData]);
+
+        const totalPages = bookingRequestFormData.length;
+        const completedPages = bookingRequestFormData.filter(page => page.completed).length;
+        
+        // Calculate progress based on completed pages vs total pages
+        const pageProgress = totalPages > 0 ? (completedPages / totalPages) * 100 : 0;
+        
+        return {
+            progress: Math.round(pageProgress),
+            totalSteps: totalPages,
+            completedSteps: completedPages
+        };
+    }, [bookingRequestFormData]); // Only recalculate when bookingRequestFormData actually changes
+
+    const { progress, totalSteps, completedSteps } = progressData;
 
     return (
         <>

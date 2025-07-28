@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from "react";
 
 const URLField = (props) => {
-    const [builderMode, setBuilderMode] = useState(false);
-    const [label, setLabel] = useState();
-    const [url, setUrl] = useState();
+    // Initialize builderMode based on props, defaulting to false
+    const [builderMode, setBuilderMode] = useState(props.builderMode || false);
+    const [label, setLabel] = useState(props.label || '');
+    const [url, setUrl] = useState(props.url || '');
 
     const updateData = () => {
         const data = {
@@ -11,7 +12,9 @@ const URLField = (props) => {
             url: url
         };
 
-        props.onChange(data);
+        if (props.onChange) {
+            props.onChange(data);
+        }
     }
 
     useEffect(() => {
@@ -23,19 +26,13 @@ const URLField = (props) => {
             setLabel(props.label);
         }
 
-        if (props.builderMode) {
-            setBuilderMode(true);
-        } else {
-            setBuilderMode(false);
-        }
+        // Explicitly handle builderMode prop
+        setBuilderMode(props.builderMode === true);
     }, [props]);
 
+    // Additional useEffect to handle builderMode changes specifically
     useEffect(() => {
-        if (props.builderMode) {
-            setBuilderMode(true);
-        } else {
-            setBuilderMode(false);
-        }
+        setBuilderMode(props.builderMode === true);
     }, [props.builderMode]);
 
     return (
@@ -67,9 +64,24 @@ const URLField = (props) => {
                         />
                     </React.Fragment>
                 ) : (
-                    <a href={url} target='_blank' rel="noreferrer" className="text-sm underline text-sargood-blue mt-4">{ label }</a>
+                    // Display mode - only show if we have both label and url
+                    (label && url) ? (
+                        <a 
+                            href={url} 
+                            target='_blank' 
+                            rel="noreferrer" 
+                            className="text-sm underline text-sargood-blue mt-4 hover:text-blue-700 transition-colors duration-200"
+                        >
+                            {label}
+                        </a>
+                    ) : (
+                        // Show placeholder if no data is provided
+                        <div className="text-gray-500 text-sm italic mt-4">
+                            No link configured
+                        </div>
+                    )
                 )}
-                {props.error && <span className="text-red-500 text-xs">{props.error}</span>}
+                {props.error && <span className="text-red-500 text-xs mt-1">{props.error}</span>}
             </div>
         </div>
     );

@@ -220,6 +220,51 @@ const SummaryOfStay = ({ bookingData, bookingId, origin, getRequestFormTemplate,
     return totalPackageCost + getTotalOutOfPocketExpenses();
   };
 
+  useEffect(() => {
+      const resolvePackageSelection = async () => {
+          if (bookingData?.data?.selectedPackageId && bookingData?.data?.packageSelectionType === 'package-selection') {
+              try {
+                  const response = await fetch(`/api/packages/${bookingData.data.selectedPackageId}`);
+                  if (response.ok) {
+                      const packageData = await response.json();
+                      
+                      if (packageData) {
+                          const packageName = packageData.name || packageData.title;
+                          const packagePrice = packageData.price || packageData.cost;
+                          
+                          // Update the booking data with resolved package details
+                          const updatedData = { ...bookingData };
+                          
+                          if (packageName?.includes('Wellness')) {
+                              updatedData.data.packageType = serializePackage(packageName);
+                              updatedData.data.packageTypeAnswer = packageName;
+                              updatedData.data.packageCost = packagePrice;
+                              updatedData.data.isNDISFunder = false;
+                          } else {
+                              // Assume NDIS package
+                              updatedData.data.ndisPackage = packageName;
+                              updatedData.data.packageType = serializePackage(packageName);
+                              updatedData.data.packageCost = packagePrice;
+                              updatedData.data.isNDISFunder = true;
+                          }
+                          
+                          // Update local summary data if available
+                          if (typeof setBookingData === 'function') {
+                              setBookingData(updatedData);
+                          }
+                      }
+                  } else {
+                      console.error('Failed to fetch package details for summary:', bookingData.data.selectedPackageId);
+                  }
+              } catch (error) {
+                  console.error('Error resolving package selection in summary:', error);
+              }
+          }
+      };
+      
+      resolvePackageSelection();
+  }, [bookingData?.data?.selectedPackageId, bookingData?.data?.packageSelectionType]);
+
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-6">
       <div className="flex justify-between items-start mb-6 flex-col sm:flex-row sm:items-center">

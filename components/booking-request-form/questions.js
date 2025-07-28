@@ -4,12 +4,39 @@ import { GetField } from "../fields/index";
 import { v4 as uuidv4 } from 'uuid';
 import { useDispatch } from "react-redux";
 import { bookingRequestFormActions } from '../../store/bookingRequestFormSlice';
+import { QUESTION_KEYS, questionHasKey } from "../../services/booking/question-helper";
 
-const QuestionPage = ({ currentPage, updatePageData, guest, updateEquipmentData, equipmentChanges }) => {
+const QuestionPage = ({ 
+    currentPage, 
+    updatePageData, 
+    guest, 
+    updateEquipmentData, 
+    equipmentChanges,
+    // NEW: Filter props for package selection
+    funderType = null,
+    ndisPackageType = null,
+    additionalFilters = {}
+}) => {
     const dispatch = useDispatch();
     const [updatedCurrentPage, setUpdatedCurrentPage] = useState();
     // Track user interaction per question
     const [questionInteractions, setQuestionInteractions] = useState({});
+
+    // NEW: Local state to track filter-affecting question answers for immediate updates
+    const [localFilterState, setLocalFilterState] = useState({
+        funderType: funderType,
+        ndisPackageType: ndisPackageType,
+        additionalFilters: additionalFilters
+    });
+
+    // NEW: Update local filter state when props change
+    useEffect(() => {
+        setLocalFilterState({
+            funderType: funderType,
+            ndisPackageType: ndisPackageType,
+            additionalFilters: additionalFilters
+        });
+    }, [funderType, ndisPackageType, additionalFilters]);
 
     const markQuestionAsInteracted = (secIdx, qIdx) => {
         const questionKey = `${secIdx}-${qIdx}`;
@@ -17,6 +44,77 @@ const QuestionPage = ({ currentPage, updatePageData, guest, updateEquipmentData,
             ...prev,
             [questionKey]: true
         }));
+    };
+
+    // NEW: Function to calculate filters based on current page answers
+    const calculateLocalFilters = (pageData) => {
+        let newFunderType = localFilterState.funderType;
+        let newNdisPackageType = localFilterState.ndisPackageType;
+        
+        if (!pageData || !pageData.Sections) return localFilterState;
+        
+        console.log('Calculating local filters for page:', pageData.title);
+        
+        // Check answers in current page
+        for (const section of pageData.Sections) {
+            for (const question of section.Questions || []) {
+                // Check funding source
+                if (questionHasKey(question, QUESTION_KEYS.FUNDING_SOURCE) && question.answer) {
+                    if (question.answer?.toLowerCase().includes('ndis') || question.answer?.toLowerCase().includes('ndia')) {
+                        newFunderType = 'NDIS';
+                        console.log('✅ NDIS funding detected');
+                    } else {
+                        newFunderType = 'Non-NDIS';
+                        newNdisPackageType = null; // Clear NDIS package type for non-NDIS
+                        console.log('✅ Non-NDIS funding detected');
+                    }
+                }
+                
+                // Only process NDIS package type logic if NDIS funded
+                if (newFunderType === 'NDIS') {
+                    // Questions that lead to holiday packages
+                    if (questionHasKey(question, QUESTION_KEYS.DO_YOU_LIVE_ALONE) && 
+                        question.answer === 'Yes') {
+                        newNdisPackageType = 'holiday';
+                        console.log('✅ Holiday package: Lives alone');
+                    }
+                    
+                    if (questionHasKey(question, QUESTION_KEYS.DO_YOU_LIVE_IN_SIL) && 
+                        question.answer === 'Yes') {
+                        newNdisPackageType = 'holiday';
+                        console.log('✅ Holiday package: Lives in SIL');
+                    }
+                    
+                    if (questionHasKey(question, QUESTION_KEYS.ARE_YOU_STAYING_WITH_INFORMAL_SUPPORTS) && 
+                        question.answer === 'Yes') {
+                        newNdisPackageType = 'holiday';
+                        console.log('✅ Holiday package: Staying with informal supports');
+                    }
+                    
+                    // Question that leads to STA packages (takes precedence)
+                    if (questionHasKey(question, QUESTION_KEYS.IS_STA_STATED_SUPPORT) && 
+                        question.answer === 'Yes') {
+                        newNdisPackageType = 'sta';
+                        console.log('✅ STA package: STA is stated support (takes precedence)');
+                    }
+                }
+            }
+        }
+        
+        // Default NDIS package type if none determined
+        if (newFunderType === 'NDIS' && !newNdisPackageType) {
+            newNdisPackageType = 'sta'; // Default to STA
+            console.log('✅ Default to STA package type');
+        }
+        
+        const newFilters = {
+            funderType: newFunderType,
+            ndisPackageType: newNdisPackageType,
+            additionalFilters: localFilterState.additionalFilters
+        };
+        
+        console.log('📊 Local filters calculated:', newFilters);
+        return newFilters;
     };
 
     const updateSections = (value, field, secIdx, qIdx, equipments = [], error = false) => {
@@ -156,7 +254,7 @@ const QuestionPage = ({ currentPage, updatePageData, guest, updateEquipmentData,
                         } else if (['card-selection', 'card-selection-multi', 'horizontal-card', 'horizontal-card-multi', 'package-selection', 'package-selection-multi'].includes(qTemp.type)) {
                             qTemp.dirty = true;
                             qTemp[field] = value;
-                            console.log('Card selection updated:', { type: qTemp.type, field, value }); // Debug log
+                            console.log('Card/Package selection updated:', { type: qTemp.type, field, value }); // Debug log
                         } else {
                             qTemp.dirty = true;
                             qTemp[field] = value;
@@ -176,8 +274,17 @@ const QuestionPage = ({ currentPage, updatePageData, guest, updateEquipmentData,
         if (equipments.length > 0) {
             updateEquipmentData(equipments);
         }
+        
+        const updatedPageData = { ...currentPage, Sections: list, dirty: true };
+        
+        // NEW: Calculate filters for this page update and update local state
+        const newFilters = calculateLocalFilters(updatedPageData);
+        if (JSON.stringify(newFilters) !== JSON.stringify(localFilterState)) {
+            console.log('🔄 Question answered, updating local filters:', newFilters);
+            setLocalFilterState(newFilters);
+        }
     
-        setUpdatedCurrentPage({ ...currentPage, Sections: list, dirty: true });
+        setUpdatedCurrentPage(updatedPageData);
     }
 
     useEffect(() => {
@@ -222,6 +329,16 @@ const QuestionPage = ({ currentPage, updatePageData, guest, updateEquipmentData,
         return () => clearTimeout(timer);
     }, [currentPage]);
 
+    const supportedQuestionTypes = [
+        'url', 'rich-text', 'string', 'text', 'email', 'phone-number', 'select', 
+        'multi-select', 'year', 'date', 'date-range', 'integer', 'number', 
+        'checkbox', 'simple-checkbox', 'checkbox-button', 'radio', 'time', 
+        'file-upload', 'health-info', 'rooms', 'equipment', 'radio-ndis', 
+        'goal-table', 'care-table', 'card-selection', 'card-selection-multi', 
+        'horizontal-card', 'horizontal-card-multi', 'package-selection', 
+        'package-selection-multi'
+    ];
+
     return (
         <React.Fragment>
             <div className="w-full flex flex-col">
@@ -254,7 +371,9 @@ const QuestionPage = ({ currentPage, updatePageData, guest, updateEquipmentData,
                             return (
                                 <div key={idx} className={`flex flex-col ${s.hidden && 'hidden'}`}>
                                     <div className={`${sec_css} p-2 mb-6 w-full`}>
-                                        {s.Questions && s.Questions.map((question, index) => {
+                                        {s.Questions && s.Questions
+                                            .filter(question => supportedQuestionTypes.includes(question.type) && question.question && question.question.trim() !== '')
+                                            .map((question, index) => {
                                             let q = { ...question };
                                             const options = typeof q.options === 'string' ? JSON.parse(q.options) : q.options;
                                             const details = typeof q.details === 'string' ? JSON.parse(q.details) : q.details;
@@ -962,6 +1081,7 @@ const QuestionPage = ({ currentPage, updatePageData, guest, updateEquipmentData,
                                                             </div>
                                                         </React.Fragment>
                                                     )}
+
                                                     {(q.type === 'card-selection' && !q.hidden) && (
                                                         <React.Fragment>
                                                             <div className="flex flex-col w-full flex-1 col-span-full">
@@ -970,6 +1090,7 @@ const QuestionPage = ({ currentPage, updatePageData, guest, updateEquipmentData,
                                                                     <span className="font-bold">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
                                                                 </div>
+                                                                
                                                                 <GetField 
                                                                     key={q.id} 
                                                                     type='card-selection' 
@@ -994,6 +1115,7 @@ const QuestionPage = ({ currentPage, updatePageData, guest, updateEquipmentData,
                                                                     <span className="font-bold">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
                                                                 </div>
+                                                                
                                                                 <GetField 
                                                                     key={q.id} 
                                                                     type='card-selection-multi' 
@@ -1018,6 +1140,7 @@ const QuestionPage = ({ currentPage, updatePageData, guest, updateEquipmentData,
                                                                     <span className="font-bold">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
                                                                 </div>
+                                                                {console.log(q.option_type, 'horizontal-card option_type')}
                                                                 <GetField 
                                                                     key={q.id} 
                                                                     type='horizontal-card' 
@@ -1042,6 +1165,7 @@ const QuestionPage = ({ currentPage, updatePageData, guest, updateEquipmentData,
                                                                     <span className="font-bold">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
                                                                 </div>
+                                                                
                                                                 <GetField 
                                                                     key={q.id} 
                                                                     type='horizontal-card-multi' 
@@ -1071,8 +1195,10 @@ const QuestionPage = ({ currentPage, updatePageData, guest, updateEquipmentData,
                                                                     type='package-selection' 
                                                                     value={q.answer} 
                                                                     width='100%' 
-                                                                    funder={(typeof q.details === 'string' ? JSON.parse(q.details) : q.details)?.funder || 'NDIS'}
-                                                                    ndis_package_type={(typeof q.details === 'string' ? JSON.parse(q.details) : q.details)?.ndis_package_type || 'sta'}
+                                                                    // Use local filter state for immediate updates
+                                                                    funder={localFilterState.funderType || (typeof q.details === 'string' ? JSON.parse(q.details) : q.details)?.funder || 'NDIS'}
+                                                                    ndis_package_type={localFilterState.ndisPackageType || (typeof q.details === 'string' ? JSON.parse(q.details) : q.details)?.ndis_package_type || 'sta'}
+                                                                    additionalFilters={localFilterState.additionalFilters}
                                                                     error={q.error} 
                                                                     required={q.required ? true : false} 
                                                                     size={q.size || 'medium'}
@@ -1095,8 +1221,10 @@ const QuestionPage = ({ currentPage, updatePageData, guest, updateEquipmentData,
                                                                     type='package-selection-multi' 
                                                                     value={q.answer} 
                                                                     width='100%' 
-                                                                    funder={(typeof q.details === 'string' ? JSON.parse(q.details) : q.details)?.funder || 'NDIS'}
-                                                                    ndis_package_type={(typeof q.details === 'string' ? JSON.parse(q.details) : q.details)?.ndis_package_type || 'sta'}
+                                                                    // Use local filter state for immediate updates
+                                                                    funder={localFilterState.funderType || (typeof q.details === 'string' ? JSON.parse(q.details) : q.details)?.funder || 'NDIS'}
+                                                                    ndis_package_type={localFilterState.ndisPackageType || (typeof q.details === 'string' ? JSON.parse(q.details) : q.details)?.ndis_package_type || 'sta'}
+                                                                    additionalFilters={localFilterState.additionalFilters}
                                                                     error={q.error} 
                                                                     required={q.required ? true : false} 
                                                                     size={q.size || 'medium'}

@@ -27,6 +27,18 @@ export default function CardField(props) {
   const [userInteracted, setUserInteracted] = useState(false);
   const [isValid, setIsValid] = useState(false);
 
+  // Add debugging for development
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'development') {
+      console.log('CardField received props:', {
+        option_type,
+        optionsLength: options?.length || 0,
+        hasValue: !!value,
+        multi
+      });
+    }
+  }, [option_type, options, value, multi]);
+
   // Handle image upload in builder mode
   const handleImageUpload = (index, file) => {
     if (onImageUpload) {
@@ -71,12 +83,12 @@ export default function CardField(props) {
       if (typeof value === 'string') {
         try {
           const parsed = JSON.parse(value);
-          return Array.isArray(parsed) ? parsed : [];
+          return Array.isArray(parsed) ? parsed : [value];
         } catch (e) {
-          return [];
+          return [value];
         }
       }
-      return [];
+      return [value];
     } else {
       // For single select, expect single value
       if (Array.isArray(value)) {
@@ -86,127 +98,96 @@ export default function CardField(props) {
     }
   };
 
+  // Handle change events from CardSelection
   const handleChange = (newValue) => {
-    setDirty(true);
     setUserInteracted(true);
-    
-    validateSelection(newValue);
-    
-    if (onChange) {
-      if (multi) {
-        // For multi-select, pass array of selected values
-        onChange(newValue || []);
-      } else {
-        // For single select, pass the selected value
-        onChange(newValue);
-      }
-    }
-  };
+    setDirty(true);
 
-  const validateSelection = (value) => {
-    if (error) {
-      setErrorState(true);
-      setErrorMessage(error);
-      setIsValid(false);
-      return;
-    }
-
+    // Validate the selection
     if (required) {
-      let hasSelection = false;
-      
+      let isValidSelection = false;
       if (multi) {
-        hasSelection = Array.isArray(value) && value.length > 0;
+        isValidSelection = Array.isArray(newValue) && newValue.length > 0;
       } else {
-        hasSelection = value !== null && value !== undefined && value !== '';
+        isValidSelection = newValue !== null && newValue !== undefined && newValue !== '';
       }
       
-      if (!hasSelection) {
-        setErrorState(true);
-        const fieldName = label || 'Selection';
-        setErrorMessage(`${fieldName} is required`);
-        setIsValid(false);
-        return;
-      }
-    }
-
-    setErrorState(false);
-    setErrorMessage('');
-    
-    // Set valid state
-    if (required) {
-      let hasSelection = false;
-      if (multi) {
-        hasSelection = Array.isArray(value) && value.length > 0;
-      } else {
-        hasSelection = value !== null && value !== undefined && value !== '';
-      }
-      setIsValid(hasSelection);
+      setIsValid(isValidSelection);
+      setErrorState(!isValidSelection);
+      setErrorMessage(isValidSelection ? '' : 'This field is required.');
     } else {
       setIsValid(true);
+      setErrorState(false);
+      setErrorMessage('');
+    }
+
+    // Call parent onChange
+    if (onChange) {
+      onChange(newValue);
     }
   };
 
+  // Update validation when value changes externally
   useEffect(() => {
-    validateSelection(getCurrentValue());
-    
-    if (error) {
-      setDirty(true);
+    if (required && userInteracted) {
+      let isValidSelection = false;
+      const currentValue = getCurrentValue();
+      
+      if (multi) {
+        isValidSelection = Array.isArray(currentValue) && currentValue.length > 0;
+      } else {
+        isValidSelection = currentValue !== null && currentValue !== undefined && currentValue !== '';
+      }
+      
+      setIsValid(isValidSelection);
+      setErrorState(!isValidSelection);
+      setErrorMessage(isValidSelection ? '' : 'This field is required.');
     }
-  }, [error, required, value, multi]);
+  }, [value, required, userInteracted, multi]);
 
-  const items = convertOptionsToItems(options);
-  const currentValue = getCurrentValue();
-  const shouldShowError = error || (errorState && userInteracted);
-  const shouldShowValid = !shouldShowError && isValid && userInteracted && required;
+  // Set initial validation state based on existing value
+  useEffect(() => {
+    const currentValue = getCurrentValue();
+    let hasValue = false;
+    
+    if (multi) {
+      hasValue = Array.isArray(currentValue) && currentValue.length > 0;
+    } else {
+      hasValue = currentValue !== null && currentValue !== undefined && currentValue !== '';
+    }
+    
+    setIsValid(hasValue || !required);
+    setErrorState(required && !hasValue && userInteracted);
+  }, []);
 
   return (
-    <div className="mb-2">
-      {label && (
-        <label className={`font-semibold form-label inline-block mb-1.5 ${shouldShowError ? 'text-red-700' : 'text-slate-700'}`}>
-          {label}
-          {required && <span className="text-red-500 ml-1">*</span>}
-        </label>
-      )}
+    <div className="flex flex-col w-full mt-4">
+      <CardSelection
+        items={convertOptionsToItems(options)}
+        value={getCurrentValue()}
+        onChange={handleChange}
+        required={required}
+        multi={multi}
+        size={size}
+        builderMode={builderMode}
+        optionType={option_type} // ← KEY FIX: Pass option_type as optionType
+        updateOptionLabel={updateOptionLabel}
+        handleRemoveOption={handleRemoveOption}
+        onImageUpload={handleImageUpload}
+        {...restProps}
+      />
       
-      <div className={`rounded-lg border transition-all duration-200 p-3 ${
-        shouldShowError 
-          ? 'border-red-400 bg-red-50' 
-          : shouldShowValid 
-          ? 'border-green-400 bg-green-50'
-          : 'border-gray-300 bg-white'
-      }`}>
-        <CardSelection
-          items={items}
-          value={currentValue}
-          onChange={handleChange}
-          required={required}
-          multi={multi}
-          size={size || 'medium'}
-          builderMode={builderMode || builder}
-          optionType={option_type || 'funder'} // Pass option type to CardSelection
-          updateOptionLabel={updateOptionLabel}
-          handleRemoveOption={handleRemoveOption}
-          onImageUpload={handleImageUpload}
-        />
-      </div>
-
-      {shouldShowError && (
+      {/* Error message display */}
+      {(errorState || error) && (
         <div className="mt-1.5 flex items-center">
           <svg className="h-4 w-4 text-red-500 mr-1.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
             <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
           </svg>
-          <p className="text-red-600 text-sm font-medium">{errorMessage}</p>
+          <p className="text-red-600 text-sm font-medium">
+            {error || errorMessage || 'This field is required.'}
+          </p>
         </div>
       )}
-      
-      {/* {shouldShowValid && (
-        <div className="mt-1.5 flex items-center">
-          <svg className="h-4 w-4 text-green-500 mr-1.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-          </svg>
-          <p className="text-green-600 text-sm font-medium">Selection confirmed</p>
-        </div>
-      )} */}
     </div>
   );
 }

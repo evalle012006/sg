@@ -89,8 +89,28 @@ const QUESTION_KEYS = {
     CLINICAL_NURSE_CONSULTATION: 'clinical-nurse-consultation-services',
     
     // Additional question keys discovered during full refactor
-    EQUIPMENT_ACKNOWLEDGEMENT: 'acknowledgement'  // Special equipment type
+    EQUIPMENT_ACKNOWLEDGEMENT: 'acknowledgement',  // Special equipment type
+
+    // NDIS-specific question keys for package filtering
+    IS_STA_STATED_SUPPORT: 'is-sta-a-stated-support-in-your-plan',
+    DO_YOU_LIVE_ALONE: 'do-you-live-alone',
+    DO_YOU_LIVE_IN_SIL: 'do-you-live-in-supported-independent-living-sil',
+    ARE_YOU_STAYING_WITH_INFORMAL_SUPPORTS: 'are-you-staying-with-any-informal-supports',
+    
+    // NEW: Additional NDIS package type determination questions
+    IS_STA_STATED_SUPPORT_IN_PLAN: 'is-short-term-accommodation-including-respite-a-stated-support-in-your-plan',
+    ARE_YOU_TRAVELLING_WITH_INFORMAL_SUPPORTS: 'are-you-travelling-with-any-informal-supports',
 };
+
+/**
+ * Helper function to check if a question has a specific key
+ * @param {Object} question - Question object
+ * @param {string} questionKey - The question key to check
+ * @returns {boolean} - True if question has the key
+ */
+function questionHasKey(question, questionKey) {
+    return question && question.question_key === questionKey;
+}
 
 /**
  * Find Q&A pair by question key
@@ -296,11 +316,12 @@ function questionMatches(question, searchText, questionKey = null) {
     }
     // Fallback to text search if no question key match
     return question.question && question.question.includes(searchText);
-};
+}
 
 module.exports = {
     generateQuestionKey,
     QUESTION_KEYS,
+    questionHasKey,
     findByQuestionKey,
     findByQuestionKeyWithFallback,
     getAnswerByQuestionKey,

@@ -53,13 +53,13 @@ export default function FieldBuilder(props) {
         { label: "Course", value: "course" }
     ];
 
-    // Available funder types for package selection
+    // Available funder types for package selection - REMOVED FROM BUILDER
     const funderTypes = [
         { label: "NDIS", value: "NDIS" },
         { label: "Non-NDIS", value: "Non-NDIS" }
     ];
 
-    // Available NDIS package types (only for NDIS funder)
+    // Available NDIS package types (only for NDIS funder) - REMOVED FROM BUILDER
     const ndisPackageTypes = [
         { label: "STA (Short Term Accommodation)", value: "sta" },
         { label: "Holiday", value: "holiday" }
@@ -199,63 +199,7 @@ export default function FieldBuilder(props) {
         }
     }
 
-    // Update funder for package selection fields
-    const updateFunder = async (selected) => {
-        // Parse existing details or create new object
-        let details = typeof question.details === 'string' 
-            ? JSON.parse(question.details) 
-            : (question.details || {});
-        
-        details.funder = selected.value;
-        
-        // Clear ndis_package_type if switching to Non-NDIS
-        if (selected.value === 'Non-NDIS') {
-            details.ndis_package_type = null;
-        } else if (selected.value === 'NDIS' && !details.ndis_package_type) {
-            // Set default NDIS package type if switching to NDIS
-            details.ndis_package_type = 'sta';
-        }
-        
-        const updatedQuestion = { ...question, details };
-        setQuestion(updatedQuestion);
-        
-        const response = await fetch('/api/booking-templates/questions/' + question.id, {
-            method: 'POST',
-            body: JSON.stringify(updatedQuestion),
-            headers: {
-                'Content-Type': 'application/json'
-            }
-        });
-
-        if (response.status == 200) {
-            dispatch(fetchTemplate(template_uuid))
-        }
-    }
-
-    // Update NDIS package type for package selection fields
-    const updateNdisPackageType = async (selected) => {
-        // Parse existing details or create new object
-        let details = typeof question.details === 'string' 
-            ? JSON.parse(question.details) 
-            : (question.details || {});
-        
-        details.ndis_package_type = selected.value;
-        
-        const updatedQuestion = { ...question, details };
-        setQuestion(updatedQuestion);
-        
-        const response = await fetch('/api/booking-templates/questions/' + question.id, {
-            method: 'POST',
-            body: JSON.stringify(updatedQuestion),
-            headers: {
-                'Content-Type': 'application/json'
-            }
-        });
-
-        if (response.status == 200) {
-            dispatch(fetchTemplate(template_uuid))
-        }
-    }
+    // REMOVED: updateFunder and updateNdisPackageType functions since they won't be used in builder mode
 
     const updateOptionLabel = async (e, selected, type) => {
         e.stopPropagation();
@@ -273,47 +217,40 @@ export default function FieldBuilder(props) {
                         opt.description = selected.label; // selected.label contains the new value
                     } else if (selected.field === 'value') {
                         opt.value = selected.label; // selected.label contains the new value
-                    } else if (selected.field === 'imageFilename') {
-                        opt.imageFilename = e.target.value;
-                    } else {
-                        // Default to label if no specific field specified
-                        opt.label = selected.label;
                     }
                 }
-
                 return opt;
             });
-        } else if (type === 'radio' || type === 'checkbox' || type === 'checkbox-button') {
+        } else {
+            // Handle regular options updates
             updatedOptions = question.options.map((option, index) => {
                 let opt = { ...option };
 
                 if (index === selected.index) {
-                    opt.label = selected.label;
+                    if (selected.field === 'label') {
+                        opt.label = selected.label;
+                    } else {
+                        opt.value = selected.label;
+                    }
                 }
-
-                return opt;
-            });
-        } else if (type === "select") {
-            const newValue = e.target.value;
-            updatedOptions = question.options.map((option, index) => {
-                let opt = { ...option };
-
-                if (index === selected.index) {
-                    opt.label = newValue;
-                }
-
                 return opt;
             });
         }
+
         setOptionSyncStatus(false);
         setQuestion({ ...question, options: updatedOptions });
     }
 
-    const updateUrlField = async (updates) => {
-        setQuestion({ ...question, details: updates });
+    const updateUrlField = async (field, value) => {
+        let details = typeof question.details === 'string' ? JSON.parse(question.details) : (question.details || {});
+        details[field] = value;
+        
+        const updatedQuestion = { ...question, details: details };
+        setQuestion(updatedQuestion);
+        
         const response = await fetch('/api/booking-templates/questions/' + question.id, {
             method: 'POST',
-            body: JSON.stringify({ ...question, details: updates }),
+            body: JSON.stringify(updatedQuestion),
             headers: {
                 'Content-Type': 'application/json'
             }
@@ -324,31 +261,36 @@ export default function FieldBuilder(props) {
         }
     }
 
-    const updateRichTextField = async (updates) => {
-        setQuestion({ ...question, details: updates });
+    const updateRichTextField = async (field, value) => {
+        let details = typeof question.details === 'string' ? JSON.parse(question.details) : (question.details || {});
+        details[field] = value;
+        
+        const updatedQuestion = { ...question, details: details };
+        setQuestion(updatedQuestion);
+        
         const response = await fetch('/api/booking-templates/questions/' + question.id, {
             method: 'POST',
-            body: JSON.stringify({ ...question, details: updates }),
+            body: JSON.stringify(updatedQuestion),
             headers: {
                 'Content-Type': 'application/json'
             }
         });
+
+        if (response.status == 200) {
+            dispatch(fetchTemplate(template_uuid))
+        }
     }
 
-    const handleRemoveOption = (e, index, type) => {
-        if (e && typeof e.stopPropagation === 'function') {
-            e.stopPropagation();
-        }
-        let currentOptions = [...question.options];
-        const updatedOptions = currentOptions.filter((opt, i) => i !== index);
-
+    const handleRemoveOption = async (e, selected) => {
+        e.stopPropagation();
+        const updatedOptions = question.options.filter((option, index) => index !== selected.index);
         setOptionSyncStatus(false);
         setQuestion({ ...question, options: updatedOptions });
     }
 
-    const addNewOption = async () => {
-        setOptionSyncStatus(false);
-        const currentOptions = typeof question.options === 'string' ? JSON.parse(question.options) : question.options;
+    const addOption = () => {
+        const currentOptions = typeof question.options === 'string' ? 
+            JSON.parse(question.options) : question.options;
         
         // Create enhanced option structure for card selection fields
         const newOptionToAdd = cardSelectionFields.includes(question.type) 
@@ -509,13 +451,12 @@ export default function FieldBuilder(props) {
                 return <GetField type={"rich-text"} builderMode={true} description={typeof question.details === 'string' ? JSON.parse(question.details).description : question.details.description || null} onChange={updateRichTextField} className="w-full" />;
             case 'package-selection':
             case 'package-selection-multi':
-                const packageDetails = typeof question.details === 'string' ? JSON.parse(question.details) : question.details;
+                // MODIFIED: In builderMode, show ALL packages without any filters
                 return <GetField 
                     type={question.type} 
-                    funder={packageDetails?.funder || 'NDIS'}
-                    ndis_package_type={packageDetails?.ndis_package_type || 'sta'}
                     className="w-full" 
                     builderMode={true}
+                    // Remove funder and ndis_package_type params in builderMode to show all packages
                 />;
             case 'card-selection':
             case 'card-selection-multi':
@@ -572,38 +513,10 @@ export default function FieldBuilder(props) {
                 </div>
             )}
 
-            {/* Package Selection Field Controls */}
-            {isPackageSelectionField && (
-                <div className="space-y-4 mb-4">
-                    {/* Funder Selector */}
-                    <div>
-                        <GetField 
-                            type='select' 
-                            value={funderTypes.find(f => f.value === ((typeof question.details === 'string' ? JSON.parse(question.details) : question.details)?.funder || 'NDIS'))} 
-                            width='100%' 
-                            label="Funder Type" 
-                            options={funderTypes} 
-                            onChange={updateFunder} 
-                        />
-                    </div>
-                    
-                    {/* NDIS Package Type Selector (only for NDIS funder) */}
-                    {((typeof question.details === 'string' ? JSON.parse(question.details) : question.details)?.funder || 'NDIS') === 'NDIS' && (
-                        <div>
-                            <GetField 
-                                type='select' 
-                                value={ndisPackageTypes.find(t => t.value === ((typeof question.details === 'string' ? JSON.parse(question.details) : question.details)?.ndis_package_type || 'sta'))} 
-                                width='100%' 
-                                label="NDIS Package Type" 
-                                options={ndisPackageTypes} 
-                                onChange={updateNdisPackageType} 
-                            />
-                        </div>
-                    )}
-                </div>
-            )}
+            {/* REMOVED: Package Selection Field Controls section - No longer shown in builder mode */}
             
             <RenderQuestion question={question} />
+            
             {/* Required checkbox */}
             {!nonRequiredFields.includes(question.type) && 
                 <GetField 
@@ -616,7 +529,7 @@ export default function FieldBuilder(props) {
                 />
             }
 
-            {/* NDIS Only checkbox - Add this new checkbox */}
+            {/* NDIS Only checkbox */}
             <GetField 
                 className="text-right" 
                 type="simple-checkbox" 
@@ -639,36 +552,48 @@ export default function FieldBuilder(props) {
                                 className="p-1 px-2 block w-full text-base font-normal text-gray-700 bg-white bg-clip-padding border-b border-gray-400
                                     shadow-sm transition ease-in-out focus:text-gray-700 focus:bg-white focus:outline-none disabled:opacity-80 
                                     focus:border-slate-400" 
-                                placeholder={`Option label (e.g., '${question.option_type === 'course' ? 'Advanced Therapy Program' : 'Sargood Foundation'}')`} 
+                                placeholder={`Option label (e.g., '${question.option_type === 'course' ? 'Advanced Cooking' : 'NDIS'}')`}
                                 value={newOption.label} 
                                 onChange={(e) => setNewOption({ ...newOption, label: e.target.value })} 
                             />
-                            <div className="flex justify-end">
-                                <button 
-                                    className="bg-sky-800 px-4 py-2 rounded text-white disabled:opacity-50" 
-                                    disabled={!newOption.label.trim()}
-                                    onClick={() => addNewOption()}
-                                >
-                                    Add {question.option_type === 'course' ? 'Course' : 'Card'} Option
-                                </button>
-                            </div>
+                            
+                            <button 
+                                className="bg-sargood-blue text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-blue-700 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                                onClick={addOption}
+                                disabled={!newOption.label.trim()}
+                            >
+                                Add Option
+                            </button>
                         </div>
                     ) : (
-                        // Standard form for other field types
-                        <div className="flex flex-row">
+                        // Regular form for other field types
+                        <div className="flex gap-2">
                             <input 
-                                className="p-1 px-2 m-1 block w-full text-base font-normal text-gray-700 bg-white bg-clip-padding border-b border-gray-400
+                                className="p-1 px-2 block text-base font-normal text-gray-700 bg-white bg-clip-padding border-b border-gray-400 
                                     shadow-sm transition ease-in-out focus:text-gray-700 focus:bg-white focus:outline-none disabled:opacity-80 
                                     focus:border-slate-400" 
-                                placeholder="Add new option" 
+                                placeholder="Option label" 
                                 value={newOption.label} 
-                                onChange={(e) => setNewOption({ value: false, label: e.target.value })} 
+                                onChange={(e) => setNewOption({ ...newOption, label: e.target.value })} 
                             />
-                            <button className="bg-sky-800 px-4 py-2 rounded text-white ml-2" onClick={() => addNewOption()}>Add</button>
+                            <input 
+                                className="p-1 px-2 block text-base font-normal text-gray-700 bg-white bg-clip-padding border-b border-gray-400 
+                                    shadow-sm transition ease-in-out focus:text-gray-700 focus:bg-white focus:outline-none disabled:opacity-80 
+                                    focus:border-slate-400" 
+                                placeholder="Option value" 
+                                value={newOption.value} 
+                                onChange={(e) => setNewOption({ ...newOption, value: e.target.value })} 
+                            />
+                            <button 
+                                className="bg-sargood-blue text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-blue-700 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                                onClick={addOption}
+                            >
+                                Add
+                            </button>
                         </div>
                     )}
                 </div>
             )}
         </div>
-    </>)
+    </>);
 }
