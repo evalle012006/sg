@@ -34,7 +34,7 @@ export default async function handler(request, response) {
         if (prevBooking) {
             booking = await Booking.create({
                 guest_id: data.guestId,
-                type: 'Returning Guest',
+                type: BOOKING_TYPES.RETURNING_GUEST,
                 reference_id: uniqueReferenceId,
                 type_of_spinal_injury: prevBooking && prevBooking.type_of_spinal_injury,
                 alternate_contact_name: prevBooking && prevBooking.alternate_contact_name,

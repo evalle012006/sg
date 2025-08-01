@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState, useEffect, useCallback, useRef, memo } from 'react';
 
-const HorizontalCardSelection = ({ 
+const HorizontalCardSelection = memo(({ 
   items = [], 
   value = null, 
   onChange, 
@@ -8,6 +8,14 @@ const HorizontalCardSelection = ({
   multi = false,
   size = 'medium'
 }) => {
+  // Local state for immediate UI updates
+  const [localValue, setLocalValue] = useState(value);
+  const [isUpdating, setIsUpdating] = useState(false);
+  
+  // Ref for debounced updates
+  const updateTimeoutRef = useRef(null);
+  const mountedRef = useRef(true);
+
   // Size configuration
   const sizeConfig = {
     small: {
@@ -62,39 +70,99 @@ const HorizontalCardSelection = ({
 
   // Get current size configuration
   const currentSize = sizeConfig[size] || sizeConfig.medium;
-  
-  // Handle the change event for radio (single selection)
-  const handleChange = (itemValue) => {
-    if (onChange) {
-      onChange(itemValue);
-    }
-  };
 
-  // Handle the change event for checkbox (multi selection)
-  const handleCheckboxChange = (itemValue) => {
-    if (onChange) {
-      if (Array.isArray(value)) {
-        if (value.includes(itemValue)) {
-          // Remove value if already selected
-          onChange(value.filter(v => v !== itemValue));
-        } else {
-          // Add value if not selected
-          onChange([...value, itemValue]);
-        }
-      } else {
-        // Initialize array with the first selection
-        onChange([itemValue]);
+  // Sync local value with prop changes (only when not updating)
+  useEffect(() => {
+    if (!isUpdating && JSON.stringify(value) !== JSON.stringify(localValue)) {
+      console.log('🔄 Syncing localValue with prop value:', value);
+      setLocalValue(value);
+    }
+  }, [value, isUpdating, localValue]);
+
+  // Debounced update to parent
+  const debouncedOnChange = useCallback((newValue) => {
+    if (!mountedRef.current) return;
+    
+    // Clear existing timeout
+    if (updateTimeoutRef.current) {
+      clearTimeout(updateTimeoutRef.current);
+    }
+
+    // Set updating flag to prevent sync conflicts
+    setIsUpdating(true);
+
+    // Update parent after delay
+    updateTimeoutRef.current = setTimeout(() => {
+      if (mountedRef.current && onChange) {
+        console.log('📤 Sending debounced update to parent:', newValue);
+        onChange(newValue);
+        setIsUpdating(false);
       }
-    }
-  };
+    }, 150); // Reduced debounce time for better responsiveness
 
-  // Check if an item is selected
-  const isSelected = (itemValue) => {
+    return () => {
+      if (updateTimeoutRef.current) {
+        clearTimeout(updateTimeoutRef.current);
+      }
+    };
+  }, [onChange]);
+
+  // Handle immediate local updates
+  const handleLocalChange = useCallback((itemValue) => {
+    let newValue;
+    
     if (multi) {
-      return Array.isArray(value) && value.includes(itemValue);
+      const currentArray = Array.isArray(localValue) ? localValue : [];
+      if (currentArray.includes(itemValue)) {
+        // Remove value if already selected
+        newValue = currentArray.filter(v => v !== itemValue);
+      } else {
+        // Add value if not selected
+        newValue = [...currentArray, itemValue];
+      }
+    } else {
+      // Single selection - toggle or select
+      newValue = localValue === itemValue ? null : itemValue;
     }
-    return value === itemValue;
-  };
+
+    console.log('🎯 Local change:', { itemValue, oldValue: localValue, newValue });
+    
+    // Update local state immediately for UI responsiveness
+    setLocalValue(newValue);
+    
+    // Debounce parent update
+    debouncedOnChange(newValue);
+  }, [localValue, multi, debouncedOnChange]);
+
+  // Check if an item is selected (use local value for immediate feedback)
+  const isSelected = useCallback((itemValue) => {
+    if (multi) {
+      return Array.isArray(localValue) && localValue.includes(itemValue);
+    }
+    return localValue === itemValue;
+  }, [localValue, multi]);
+
+  // Handle card click
+  const handleCardClick = useCallback((itemValue, event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    handleLocalChange(itemValue);
+  }, [handleLocalChange]);
+
+  // Handle checkbox/radio input changes
+  const handleInputChange = useCallback((itemValue) => {
+    handleLocalChange(itemValue);
+  }, [handleLocalChange]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+      if (updateTimeoutRef.current) {
+        clearTimeout(updateTimeoutRef.current);
+      }
+    };
+  }, []);
 
   return (
     <div className={`flex flex-col w-full ${currentSize.container}`}>
@@ -106,9 +174,10 @@ const HorizontalCardSelection = ({
               ? 'border-blue-600 bg-blue-50 shadow-md ring-2 ring-blue-200' 
               : 'border-gray-200 hover:border-gray-300 hover:shadow-sm'
           }`}
+          onClick={(e) => handleCardClick(item.value, e)}
         >
           <div className={`flex w-full ${currentSize.card} items-center`}>
-            {/* Image container - now uses responsive sizing with proper centering */}
+            {/* Image container */}
             <div className={`flex-shrink-0 ${currentSize.image} bg-gray-100 flex items-center justify-center overflow-hidden rounded-l-xl`}>
               {item.imageUrl ? (
                 <img 
@@ -116,9 +185,10 @@ const HorizontalCardSelection = ({
                   alt={item.label}
                   className="w-full h-full object-cover"
                   onError={(e) => {
-                    // Fallback to placeholder icon if image fails to load
                     e.target.style.display = 'none';
-                    e.target.nextSibling.style.display = 'block';
+                    if (e.target.nextSibling) {
+                      e.target.nextSibling.style.display = 'block';
+                    }
                   }}
                 />
               ) : null}
@@ -154,8 +224,8 @@ const HorizontalCardSelection = ({
                     className="sr-only" 
                     value={item.value}
                     checked={isSelected(item.value)}
-                    onChange={() => handleCheckboxChange(item.value)}
-                    required={required && (!Array.isArray(value) || value.length === 0)}
+                    onChange={() => handleInputChange(item.value)}
+                    required={required && (!Array.isArray(localValue) || localValue.length === 0)}
                   />
                 </div>
               ) : (
@@ -172,11 +242,11 @@ const HorizontalCardSelection = ({
                   )}
                   <input
                     type="radio"
-                    name="radio-selection"
+                    name="horizontal-card-selection"
                     className="sr-only" 
                     value={item.value}
                     checked={isSelected(item.value)}
-                    onChange={() => handleChange(item.value)}
+                    onChange={() => handleInputChange(item.value)}
                     required={required}
                   />
                 </div>
@@ -187,6 +257,8 @@ const HorizontalCardSelection = ({
       ))}
     </div>
   );
-};
+});
+
+HorizontalCardSelection.displayName = 'HorizontalCardSelection';
 
 export default HorizontalCardSelection;

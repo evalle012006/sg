@@ -36,7 +36,7 @@ const useRoomData = (isNdisFunded) => {
       setLoading(true);
       const response = await fetch("/api/manage-room");
       const data = await response.json();
-      
+      console.log(data, 'Fetched Room Types Data');
       const processedRooms = data
         .map(room => ({
           ...room.data,
@@ -51,7 +51,7 @@ const useRoomData = (isNdisFunded) => {
           return true;
         })
         .sort((a, b) => a.id - b.id);
-
+        console.log(processedRooms, 'Processed Rooms Data');
       setRoomTypes(processedRooms);
     } catch (error) {
       console.error('Error fetching room types:', error);
@@ -70,6 +70,8 @@ const useRoomData = (isNdisFunded) => {
 const RoomsField = (props) => {
   const dispatch = useDispatch();
   const isNdisFunded = useSelector(state => state.bookingRequestForm.isNdisFunded);
+
+  console.log(isNdisFunded, 'isNdisFunded in RoomsField');
   
   // Initialize selected rooms
   const [selectedRooms, setSelectedRooms] = useState(() => {
@@ -285,11 +287,11 @@ const RoomsField = (props) => {
     const isValid = customValidateRooms(newRooms);
     notifyParent(newRooms, !isValid);
     
-    // Hide upgrades if studio is selected
-    if (roomTypes.find(r => r.name === selectedRoomName)?.type === 'studio') {
+    // Hide upgrades if studio is selected (only relevant for NDIS users)
+    if (isNdisFunded && roomTypes.find(r => r.name === selectedRoomName)?.type === 'studio') {
       setShowUpgrades(false);
     }
-  }, [additionalRooms, roomTypes, customValidateRooms, notifyParent, updateReduxStore]);
+  }, [additionalRooms, roomTypes, customValidateRooms, notifyParent, updateReduxStore, isNdisFunded]);
 
   // Handle additional room changes
   const handleAdditionalRoomChange = useCallback((roomName, roomIndex) => {
@@ -354,7 +356,7 @@ const RoomsField = (props) => {
     notifyParent(newRooms, !isValid);
   }, [additionalRooms, selectedRooms, additionalRoomErrors, customValidateRooms, notifyParent, updateReduxStore]);
 
-  // Handle main room click
+  // Handle main room click (for NDIS users with upgrade logic)
   const handleMainRoomClick = useCallback((roomName) => {
     const roomType = roomTypes.find(r => r.name === roomName)?.type;
     if (roomType === 'upgrade') {
@@ -369,8 +371,15 @@ const RoomsField = (props) => {
   }
 
   const displayError = props.error || error;
+  
+  // NEW: Conditional room grouping based on NDIS funding status
+  const shouldSeparateRooms = isNdisFunded;
+  
+  // When NDIS funded: separate studio and upgrade rooms
+  // When not NDIS funded: show all rooms together
   const studioRooms = roomTypes.filter(room => room.type === 'studio');
   const upgradeRooms = roomTypes.filter(room => room.type !== 'studio');
+  const allRooms = roomTypes; // All rooms for non-NDIS users
 
   // Get currently selected main room
   const selectedMainRoom = selectedRooms[0]?.name || null;
@@ -386,30 +395,46 @@ const RoomsField = (props) => {
           </label>
         )}
         
-        {/* Studio rooms */}
-        <div className={`mt-4 ${getRoomContainerClasses(displayError, selectedMainRoom)}`}>
-          <HorizontalCardSelection
-            items={transformRoomData(studioRooms)}
-            value={selectedMainRoom}
-            onChange={handleMainRoomClick}
-            required={props.required}
-            size="extra-large"
-          />
-        </div>
-        
-        {/* Upgrade rooms */}
-        {showUpgrades && (
-          <div className="mt-4">
-            <h3 className="font-semibold text-slate-700 mb-2">Upgrade Options</h3>
-            <div className={getRoomContainerClasses(displayError, selectedMainRoom)}>
+        {shouldSeparateRooms ? (
+          // NDIS funded: Show studio rooms first, then upgrades conditionally
+          <>
+            {/* Studio rooms */}
+            <div className={`mt-4 ${getRoomContainerClasses(displayError, selectedMainRoom)}`}>
               <HorizontalCardSelection
-                items={transformRoomData(upgradeRooms)}
+                items={transformRoomData(studioRooms)}
                 value={selectedMainRoom}
                 onChange={handleMainRoomClick}
                 required={props.required}
                 size="extra-large"
               />
             </div>
+            
+            {/* Upgrade rooms */}
+            {showUpgrades && (
+              <div className="mt-4">
+                <h3 className="font-semibold text-slate-700 mb-2">Upgrade Options</h3>
+                <div className={getRoomContainerClasses(displayError, selectedMainRoom)}>
+                  <HorizontalCardSelection
+                    items={transformRoomData(upgradeRooms)}
+                    value={selectedMainRoom}
+                    onChange={handleMainRoomClick}
+                    required={props.required}
+                    size="extra-large"
+                  />
+                </div>
+              </div>
+            )}
+          </>
+        ) : (
+          // Non-NDIS funded: Show all rooms together
+          <div className={`mt-4 ${getRoomContainerClasses(displayError, selectedMainRoom)}`}>
+            <HorizontalCardSelection
+              items={transformRoomData(allRooms)}
+              value={selectedMainRoom}
+              onChange={handleMainRoomChange} // Use handleMainRoomChange directly for non-NDIS
+              required={props.required}
+              size="extra-large"
+            />
           </div>
         )}
         
@@ -439,6 +464,8 @@ const RoomsField = (props) => {
       {/* Additional rooms */}
       <div className="mt-4">
         {additionalRooms.map((room, roomIndex) => {
+          // For additional rooms, always filter to studio rooms only regardless of NDIS status
+          // This maintains the existing business logic for additional room selections
           const additionalRoomTypes = roomTypes.filter(r => r.type === 'studio');
           const selectedAdditionalRoom = room.name || null;
 

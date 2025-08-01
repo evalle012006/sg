@@ -1,5 +1,6 @@
 import { Guest, HealthInfo } from '../../../../models';
 import StorageService from '../../../../services/storage/storage';
+import { omitAttribute } from '../../../../utilities/common';
 
 export default async function handler(req, res) {
     try {
@@ -35,7 +36,7 @@ export default async function handler(req, res) {
 
         // Return guest data with profile URL
         const responseData = {
-            ...guest.dataValues,
+            ...omitAttribute(guest.dataValues, "password", "createdAt", "updatedAt"), 
             profileUrl
         };
 

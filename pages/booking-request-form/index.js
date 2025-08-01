@@ -62,7 +62,6 @@ const BookingRequestForm = () => {
     const [processedFormData, setProcessedFormData] = useState([]);
     const [isProcessingNdis, setIsProcessingNdis] = useState(false);
     
-    // OPTIMIZATION: Add guards to prevent infinite re-renders
     const [isUpdating, setIsUpdating] = useState(false);
     const lastDispatchedDataRef = useRef(null);
     
@@ -71,6 +70,8 @@ const BookingRequestForm = () => {
     const prevCurrentPageIdRef = useRef(null);
 
     const layoutRef = useRef(null);
+    const profilePreloadInProgressRef = useRef(false);
+    const profileSaveInProgressRef = useRef(false);
 
     const [ndisFormFilters, setNdisFormFilters] = useState({
         funderType: 'NDIS',
@@ -81,7 +82,6 @@ const BookingRequestForm = () => {
         }
     });
 
-    // OPTIMIZATION: Create a helper function to safely update Redux only when data actually changes
     const safeDispatchData = useCallback((newData, source = 'unknown') => {
         const newDataStr = JSON.stringify(newData);
         const lastDataStr = lastDispatchedDataRef.current;
@@ -95,17 +95,14 @@ const BookingRequestForm = () => {
         }
     }, [dispatch]);
 
-    // OPTIMIZATION: Stabilize bookingRequestFormData to prevent unnecessary re-renders
     const stableBookingRequestFormData = useMemo(() => {
         return bookingRequestFormData;
     }, [JSON.stringify(bookingRequestFormData)]);
 
-    // OPTIMIZATION: Stabilize processedFormData
     const stableProcessedFormData = useMemo(() => {
         return processedFormData;
     }, [JSON.stringify(processedFormData)]);
 
-    // ADDED: Function to immediately check and update NDIS funding status when questions are answered
     const checkAndUpdateNdisFundingStatus = useCallback((updatedPages) => {
         console.log('🔍 Checking for NDIS funding status changes...');
         
@@ -377,28 +374,28 @@ const BookingRequestForm = () => {
                             break;
                         // Emergency contact
                         case 'emergency-contact-name':
-                            if (profileData.HealthInfo?.emergency_name) {
+                            if (profileData.HealthInfo && profileData.HealthInfo?.emergency_name) {
                                 updatedQuestion.answer = profileData.HealthInfo.emergency_name;
                                 updatedQuestion.oldAnswer = profileData.HealthInfo.emergency_name; 
                                 mapped = true;
                             }
                             break;
                         case 'emergency-contact-phone':
-                            if (profileData.HealthInfo?.emergency_mobile_number) {
+                            if (profileData.HealthInfo && profileData.HealthInfo?.emergency_mobile_number) {
                                 updatedQuestion.answer = profileData.HealthInfo.emergency_mobile_number;
                                 updatedQuestion.oldAnswer = profileData.HealthInfo.emergency_mobile_number; 
                                 mapped = true;
                             }
                             break;
                         case 'emergency-contact-email':
-                            if (profileData.HealthInfo?.emergency_email) {
+                            if (profileData.HealthInfo && profileData.HealthInfo?.emergency_email) {
                                 updatedQuestion.answer = profileData.HealthInfo.emergency_email;
                                 updatedQuestion.oldAnswer = profileData.HealthInfo.emergency_email; 
                                 mapped = true;
                             }
                             break;
                         case 'emergency-contact-relationship-to-you':
-                            if (profileData.HealthInfo?.emergency_relationship) {
+                            if (profileData.HealthInfo && profileData.HealthInfo?.emergency_relationship) {
                                 updatedQuestion.answer = profileData.HealthInfo.emergency_relationship;
                                 updatedQuestion.oldAnswer = profileData.HealthInfo.emergency_relationship; 
                                 mapped = true;
@@ -406,7 +403,7 @@ const BookingRequestForm = () => {
                             break;
                         // GP/Specialist information - CORRECT question keys from form data
                         case 'gp-or-specialist-name':
-                            if (profileData.HealthInfo?.specialist_name) {
+                            if (profileData.HealthInfo && profileData.HealthInfo?.specialist_name) {
                                 updatedQuestion.answer = profileData.HealthInfo.specialist_name;
                                 updatedQuestion.oldAnswer = profileData.HealthInfo.specialist_name; 
                                 mapped = true;
@@ -414,14 +411,14 @@ const BookingRequestForm = () => {
                             }
                             break;
                         case 'gp-or-specialist-phone':
-                            if (profileData.HealthInfo?.specialist_mobile_number) {
+                            if (profileData.HealthInfo && profileData.HealthInfo?.specialist_mobile_number) {
                                 updatedQuestion.answer = profileData.HealthInfo.specialist_mobile_number;
                                 updatedQuestion.oldAnswer = profileData.HealthInfo.specialist_mobile_number; 
                                 mapped = true;
                             }
                             break;
                         case 'gp-or-specialist-practice-name':
-                            if (profileData.HealthInfo?.specialist_practice_name) {
+                            if (profileData.HealthInfo && profileData.HealthInfo?.specialist_practice_name) {
                                 updatedQuestion.answer = profileData.HealthInfo.specialist_practice_name;
                                 updatedQuestion.oldAnswer = profileData.HealthInfo.specialist_practice_name; 
                                 mapped = true;
@@ -430,7 +427,7 @@ const BookingRequestForm = () => {
                             break;
                         // Health info
                         case 'do-you-identify-as-aboriginal-or-torres-strait-islander-person-with-sci':
-                            if (profileData.HealthInfo?.identify_aboriginal_torres !== null) {
+                            if (profileData.HealthInfo && profileData.HealthInfo?.identify_aboriginal_torres !== null) {
                                 const answer = profileData.HealthInfo.identify_aboriginal_torres ? 'Yes' : 'No';
                                 updatedQuestion.answer = answer;
                                 updatedQuestion.oldAnswer = answer; 
@@ -438,7 +435,7 @@ const BookingRequestForm = () => {
                             }
                             break;
                         case 'do-you-speak-a-language-other-than-english-at-home-person-with-sci':
-                            if (profileData.HealthInfo?.language) {
+                            if (profileData.HealthInfo && profileData.HealthInfo?.language) {
                                 const answer = profileData.HealthInfo.language ? 'Yes' : 'No';
                                 updatedQuestion.answer = answer;
                                 updatedQuestion.oldAnswer = answer; 
@@ -446,7 +443,7 @@ const BookingRequestForm = () => {
                             }
                             break;
                         case 'language-spoken-at-home':
-                            if (profileData.HealthInfo?.language) {
+                            if (profileData.HealthInfo && profileData.HealthInfo?.language) {
                                 updatedQuestion.answer = profileData.HealthInfo.language;
                                 updatedQuestion.oldAnswer = profileData.HealthInfo.language; 
                                 mapped = true;
@@ -454,7 +451,7 @@ const BookingRequestForm = () => {
                             break;
                         // FIX 1: require_interpreter mapping - CORRECT question key from form data
                         case 'do-you-require-an-interpreter':
-                            if (profileData.HealthInfo?.require_interpreter !== null && profileData.HealthInfo?.require_interpreter !== undefined) {
+                            if (profileData.HealthInfo && profileData.HealthInfo?.require_interpreter !== null && profileData.HealthInfo && profileData.HealthInfo?.require_interpreter !== undefined) {
                                 const answer = profileData.HealthInfo.require_interpreter ? 'Yes' : 'No';
                                 updatedQuestion.answer = answer;
                                 updatedQuestion.oldAnswer = answer; 
@@ -463,7 +460,7 @@ const BookingRequestForm = () => {
                             }
                             break;
                         case 'do-you-have-any-cultural-beliefs-or-values-that-you-would-like-our-staff-to-be-aware-of':
-                            if (profileData.HealthInfo?.cultural_beliefs !== null) {
+                            if (profileData.HealthInfo && profileData.HealthInfo?.cultural_beliefs !== null) {
                                 const answer = profileData.HealthInfo.cultural_beliefs ? 'Yes' : 'No';
                                 updatedQuestion.answer = answer;
                                 updatedQuestion.oldAnswer = answer; 
@@ -472,7 +469,7 @@ const BookingRequestForm = () => {
                             break;
                         // FIX 2: cultural_beliefs text field mapping - CORRECT question key from form data
                         case 'please-give-details-on-cultural-beliefs-or-values-you-would-like-our-staff-to-be-aware-of':
-                            if (profileData.HealthInfo?.cultural_beliefs) {
+                            if (profileData.HealthInfo && profileData.HealthInfo?.cultural_beliefs) {
                                 updatedQuestion.answer = profileData.HealthInfo.cultural_beliefs;
                                 updatedQuestion.oldAnswer = profileData.HealthInfo.cultural_beliefs; 
                                 mapped = true;
@@ -481,7 +478,7 @@ const BookingRequestForm = () => {
                             break;
                         // Other SCI info
                         case 'what-year-did-you-begin-living-with-your-spinal-cord-injury':
-                            if (profileData.HealthInfo?.sci_year) {
+                            if (profileData.HealthInfo && profileData.HealthInfo?.sci_year) {
                                 updatedQuestion.answer = profileData.HealthInfo.sci_year;
                                 updatedQuestion.oldAnswer = profileData.HealthInfo.sci_year; 
                                 mapped = true;
@@ -489,7 +486,7 @@ const BookingRequestForm = () => {
                             break;
                         // FIX 3: sci_injury_type mapping with proper value conversion
                         case 'leveltype-of-spinal-cord-injury':
-                            if (profileData.HealthInfo?.sci_injury_type) {
+                            if (profileData.HealthInfo && profileData.HealthInfo?.sci_injury_type) {
                                 // Map database values to form display values
                                 const injuryTypeMap = {
                                     'cervical': '(C) Cervical',
@@ -512,8 +509,8 @@ const BookingRequestForm = () => {
                             break;
                         // UPDATED: SCI Level handling - now array-first approach
                         case 'c-cervical-level-select-all-that-apply':
-                            if (profileData.HealthInfo?.sci_injury_type === 'cervical') {
-                                const levelData = processSciTypeLevelData(profileData.HealthInfo?.sci_type_level);
+                            if (profileData.HealthInfo && profileData.HealthInfo?.sci_injury_type === 'cervical') {
+                                const levelData = processSciTypeLevelData(profileData.HealthInfo && profileData.HealthInfo?.sci_type_level);
                                 updatedQuestion.answer = levelData;
                                 updatedQuestion.oldAnswer = [...levelData];
                                 mapped = true;
@@ -521,8 +518,8 @@ const BookingRequestForm = () => {
                             }
                             break;
                         case 't-thoracic-level-select-all-that-apply':
-                            if (profileData.HealthInfo?.sci_injury_type === 'thoracic') {
-                                const levelData = processSciTypeLevelData(profileData.HealthInfo?.sci_type_level);
+                            if (profileData.HealthInfo && profileData.HealthInfo?.sci_injury_type === 'thoracic') {
+                                const levelData = processSciTypeLevelData(profileData.HealthInfo && profileData.HealthInfo?.sci_type_level);
                                 updatedQuestion.answer = levelData;
                                 updatedQuestion.oldAnswer = [...levelData];
                                 mapped = true;
@@ -530,8 +527,8 @@ const BookingRequestForm = () => {
                             }
                             break;
                         case 'l-lumbar-level-select-all-that-apply':
-                            if (profileData.HealthInfo?.sci_injury_type === 'lumbar') {
-                                const levelData = processSciTypeLevelData(profileData.HealthInfo?.sci_type_level);
+                            if (profileData.HealthInfo && profileData.HealthInfo?.sci_injury_type === 'lumbar') {
+                                const levelData = processSciTypeLevelData(profileData.HealthInfo && profileData.HealthInfo?.sci_type_level);
                                 updatedQuestion.answer = levelData;
                                 updatedQuestion.oldAnswer = [...levelData];
                                 mapped = true;
@@ -539,8 +536,8 @@ const BookingRequestForm = () => {
                             }
                             break;
                         case 's-sacral-level-select-all-that-apply':
-                            if (profileData.HealthInfo?.sci_injury_type === 'sacral') {
-                                const levelData = processSciTypeLevelData(profileData.HealthInfo?.sci_type_level);
+                            if (profileData.HealthInfo && profileData.HealthInfo?.sci_injury_type === 'sacral') {
+                                const levelData = processSciTypeLevelData(profileData.HealthInfo && profileData.HealthInfo?.sci_type_level);
                                 updatedQuestion.answer = levelData;
                                 updatedQuestion.oldAnswer = [...levelData];
                                 mapped = true;
@@ -548,7 +545,7 @@ const BookingRequestForm = () => {
                             }
                             break;
                         case 'level-of-function-or-asia-scale-score-movementsensation':
-                            if (profileData.HealthInfo?.sci_type && question.options) {
+                            if (profileData.HealthInfo && profileData.HealthInfo?.sci_type && question.options) {
                                 const sciType = profileData.HealthInfo.sci_type.toUpperCase();
                                 
                                 // Find the matching option based on the letter
@@ -578,14 +575,14 @@ const BookingRequestForm = () => {
                             }
                             break;
                         case 'where-did-you-complete-your-initial-spinal-cord-injury-rehabilitation':
-                            if (profileData.HealthInfo?.sci_intial_spinal_rehab) {
+                            if (profileData.HealthInfo && profileData.HealthInfo?.sci_intial_spinal_rehab) {
                                 updatedQuestion.answer = profileData.HealthInfo.sci_intial_spinal_rehab;
                                 updatedQuestion.oldAnswer = profileData.HealthInfo.sci_intial_spinal_rehab; 
                                 mapped = true;
                             }
                             break;
                         case 'are-you-currently-an-inpatient-at-a-hospital-or-a-rehabilitation-facility':
-                            if (profileData.HealthInfo?.sci_inpatient !== null) {
+                            if (profileData.HealthInfo && profileData.HealthInfo?.sci_inpatient !== null) {
                                 const answer = profileData.HealthInfo.sci_inpatient ? 'Yes' : 'No';
                                 updatedQuestion.answer = answer;
                                 updatedQuestion.oldAnswer = answer; 
@@ -856,14 +853,25 @@ const BookingRequestForm = () => {
 
     // Debounced function to save profile data (to avoid too many API calls)
     const debouncedBatchSaveProfileData = useDebouncedCallback(async (guestId) => {
-        if (pendingProfileSaves.size === 0) return;
+        if (pendingProfileSaves.size === 0 || profileSaveInProgressRef.current) {
+            console.log('Skipping profile save:', { 
+                pendingSize: pendingProfileSaves.size, 
+                inProgress: profileSaveInProgressRef.current 
+            });
+            return;
+        }
+        
+        profileSaveInProgressRef.current = true;
         
         try {
             console.log('Batch saving profile data:', Array.from(pendingProfileSaves.entries()));
             
+            // Create a snapshot of pending saves to avoid race conditions
+            const savesToProcess = new Map(pendingProfileSaves);
+            
             // Combine all pending saves into a single request
             const combinedUpdate = {};
-            pendingProfileSaves.forEach((value, questionKey) => {
+            savesToProcess.forEach((value, questionKey) => {
                 const profileUpdate = mapQuestionKeyToProfileData(questionKey, value);
                 if (profileUpdate) {
                     Object.assign(combinedUpdate, profileUpdate);
@@ -885,8 +893,15 @@ const BookingRequestForm = () => {
                 if (response.ok) {
                     const result = await response.json();
                     console.log('Batch profile data saved successfully:', result.message);
-                    // Clear pending saves after successful save
-                    setPendingProfileSaves(new Map());
+                    
+                    // Only clear the saves that were actually processed
+                    setPendingProfileSaves(prevSaves => {
+                        const newSaves = new Map(prevSaves);
+                        savesToProcess.forEach((_, key) => {
+                            newSaves.delete(key);
+                        });
+                        return newSaves;
+                    });
                 } else {
                     const errorResult = await response.json();
                     console.error('Failed to batch save profile data:', errorResult.message);
@@ -894,22 +909,32 @@ const BookingRequestForm = () => {
             }
         } catch (error) {
             console.error('Error batch saving profile data:', error);
+        } finally {
+            profileSaveInProgressRef.current = false;
         }
-    }, 1000);
+    }, 2000);
 
-    const queueProfileSave = (questionKey, value, guestId) => {
-        if (!guestId || !questionKey) return;
+    // const queueProfileSave = useCallback((questionKey, value, guestId) => {
+    //     if (!guestId || !questionKey) return;
         
-        // Add to pending saves
-        setPendingProfileSaves(prevSaves => {
-            const newSaves = new Map(prevSaves);
-            newSaves.set(questionKey, value);
-            return newSaves;
-        });
-        
-        // Trigger debounced batch save
-        debouncedBatchSaveProfileData(guestId);
-    };
+    //     // Add to pending saves
+    //     setPendingProfileSaves(prevSaves => {
+    //         const newSaves = new Map(prevSaves);
+            
+    //         // Only update if the value actually changed
+    //         if (newSaves.get(questionKey) !== value) {
+    //             newSaves.set(questionKey, value);
+    //             console.log(`Queued profile save: ${questionKey} = ${value}`);
+                
+    //             // Trigger debounced batch save only if not already in progress
+    //             if (!profileSaveInProgressRef.current) {
+    //                 debouncedBatchSaveProfileData(guestId);
+    //             }
+    //         }
+            
+    //         return newSaves;
+    //     });
+    // }, [debouncedBatchSaveProfileData]);
 
     const getGuestId = () => {
         // Priority: booking.Guest.id > booking.guest_id > currentUser.id
@@ -925,12 +950,16 @@ const BookingRequestForm = () => {
         return null;
     };
 
-    // Function to preload profile data for all guests if available
-    const preloadProfileData = async () => {
+    const preloadProfileData = useCallback(async () => {
         const guestId = getGuestId();
         
-        if (!guestId || profileDataLoaded) {
-            console.log('Skipping profile preload:', { guestId, profileDataLoaded });
+        // Enhanced guards to prevent multiple calls
+        if (!guestId || profileDataLoaded || profilePreloadInProgressRef.current) {
+            console.log('Skipping profile preload:', { 
+                guestId: !!guestId, 
+                profileDataLoaded, 
+                inProgress: profilePreloadInProgressRef.current 
+            });
             return;
         }
         
@@ -939,6 +968,7 @@ const BookingRequestForm = () => {
             return;
         }
         
+        profilePreloadInProgressRef.current = true;
         console.log('Starting profile preload for guest:', guestId);
         
         try {
@@ -947,51 +977,45 @@ const BookingRequestForm = () => {
                 console.log('Profile data fetched successfully:', profileData);
                 
                 const updatedPages = mapProfileDataToQuestions(profileData, stableBookingRequestFormData);
+                const finalPages = applyQuestionDependencies(updatedPages);
                 
-                // Important: Don't apply question dependencies immediately as it might clear preloaded data
-                // Just dispatch the updated pages directly
-                safeDispatchData(updatedPages, 'profile preload');
+                safeDispatchData(finalPages, 'profile preload with dependencies');
                 setProfileDataLoaded(true);
                 
                 console.log('Profile data preloaded and form updated');
-                
-                // Apply dependencies after a short delay to ensure the form updates first
-                setTimeout(() => {
-                    const finalPages = applyQuestionDependencies(updatedPages);
-                    safeDispatchData(finalPages, 'dependencies after profile preload');
-                    console.log('Dependencies applied after profile preload');
-                }, 100);
-                
             } else {
                 console.log('No profile data found for guest:', guestId);
+                setProfileDataLoaded(true);
             }
         } catch (error) {
             console.error('Error preloading profile data:', error);
+            setProfileDataLoaded(true);
+        } finally {
+            profilePreloadInProgressRef.current = false;
         }
-    };
+    }, [getGuestId, profileDataLoaded, stableBookingRequestFormData, mapProfileDataToQuestions, applyQuestionDependencies, safeDispatchData]);
+
 
     useAutofillDetection();
 
     const calculatePageCompletion = (page) => {
         if (!page || !page.Sections) {
-            console.log(`❌ Page completion check failed: no page or sections for "${page?.title}"`);
+            // console.log(`❌ Page completion check failed: no page or sections for "${page?.title}"`);
             return false;
         }
         
-        console.log(`🔍 Calculating completion for page: "${page.title}"`);
+        // console.log(`🔍 Calculating completion for page: "${page.title}"`);
         
         let totalRequiredQuestions = 0;
         let answeredRequiredQuestions = 0;
         
         for (const section of page.Sections) {
             if (section.hidden) {
-                console.log(`⏭️ Skipping hidden section: ${section.id}`);
                 continue;
             }
             
             for (const question of section.Questions || []) {
                 if (question.hidden) {
-                    console.log(`⏭️ Skipping hidden question: "${question.question}"`);
                     continue;
                 }
                 
@@ -1019,12 +1043,12 @@ const BookingRequestForm = () => {
                     
                     if (isAnswered) {
                         answeredRequiredQuestions++;
-                        console.log(`✅ Required question answered: "${question.question}" = "${question.answer}" (type: ${question.type})`);
+                        // console.log(`✅ Required question answered: "${question.question}" = "${question.answer}" (type: ${question.type})`);
                     } else {
-                        console.log(`❌ Required question NOT answered: "${question.question}" (type: ${question.type}, answer: ${question.answer})`);
+                        // console.log(`❌ Required question NOT answered: "${question.question}" (type: ${question.type}, answer: ${question.answer})`);
                     }
                 } else {
-                    console.log(`ℹ️ Optional question: "${question.question}" (answer: ${question.answer})`);
+                    // console.log(`ℹ️ Optional question: "${question.question}" (answer: ${question.answer})`);
                 }
             }
         }
@@ -1149,61 +1173,74 @@ const BookingRequestForm = () => {
             return formData.filter(page => page.id !== 'ndis_packages_page');
         } else if (ndisPageExists && isNdisFunded) {
             // NDIS page already exists and funding is NDIS, keep it but apply dependencies
-            console.log('NDIS packages page already exists, applying dependencies and recalculating completion');
+            console.log('NDIS packages page already exists, preserving completion status');
             const updatedFormData = formData.map(page => {
                 if (page.id === 'ndis_packages_page') {
                     // Apply dependencies to existing NDIS page
                     const pageWithDependencies = applyQuestionDependenciesAcrossPages(page, formData);
                     
-                    // ENHANCED: Calculate completion status for existing NDIS page with detailed logging
-                    const calculateExistingNdisPageCompletion = (ndisPage) => {
-                        console.log('🔍 Recalculating existing NDIS page completion status...');
-                        
-                        let totalRequiredQuestions = 0;
-                        let answeredRequiredQuestions = 0;
-                        
-                        for (const section of ndisPage.Sections || []) {
-                            if (section.hidden) continue;
+                    // FIXED: Don't recalculate completion if page was already complete
+                    // Only recalculate if the page structure changed significantly
+                    const questionsChanged = pageWithDependencies.Sections?.some(section =>
+                        section.Questions?.some(question => 
+                            question.hidden !== page.Sections?.find(s => s.id === section.id)?.Questions?.find(q => q.id === question.id)?.hidden
+                        )
+                    );
+                    
+                    if (questionsChanged || !page.completed) {
+                        const calculateExistingNdisPageCompletion = (ndisPage) => {
+                            console.log('🔍 Recalculating existing NDIS page completion status...');
                             
-                            for (const question of section.Questions || []) {
-                                if (question.hidden) continue;
+                            let totalRequiredQuestions = 0;
+                            let answeredRequiredQuestions = 0;
+                            
+                            for (const section of ndisPage.Sections || []) {
+                                if (section.hidden) continue;
                                 
-                                if (question.required) {
-                                    totalRequiredQuestions++;
+                                for (const question of section.Questions || []) {
+                                    if (question.hidden) continue;
                                     
-                                    // Check if question is answered based on type
-                                    let isAnswered = false;
-                                    
-                                    if (question.type === 'checkbox' || question.type === 'checkbox-button') {
-                                        isAnswered = Array.isArray(question.answer) && question.answer.length > 0;
-                                    } else if (question.type === 'multi-select') {
-                                        isAnswered = Array.isArray(question.answer) && question.answer.length > 0;
-                                    } else if (question.type === 'simple-checkbox') {
-                                        isAnswered = question.answer === true;
-                                    } else {
-                                        isAnswered = question.answer !== null && 
-                                                question.answer !== undefined && 
-                                                question.answer !== '';
-                                    }
-                                    
-                                    if (isAnswered) {
-                                        answeredRequiredQuestions++;
-                                        console.log(`✓ Existing NDIS question answered: "${question.question}" = "${question.answer}"`);
-                                    } else {
-                                        console.log(`✗ Existing NDIS question not answered: "${question.question}"`);
+                                    if (question.required) {
+                                        totalRequiredQuestions++;
+                                        
+                                        let isAnswered = false;
+                                        
+                                        if (question.type === 'checkbox' || question.type === 'checkbox-button') {
+                                            isAnswered = Array.isArray(question.answer) && question.answer.length > 0;
+                                        } else if (question.type === 'multi-select') {
+                                            isAnswered = Array.isArray(question.answer) && question.answer.length > 0;
+                                        } else if (question.type === 'simple-checkbox') {
+                                            isAnswered = question.answer === true;
+                                        } else {
+                                            isAnswered = question.answer !== null && 
+                                                    question.answer !== undefined && 
+                                                    question.answer !== '';
+                                        }
+                                        
+                                        if (isAnswered) {
+                                            answeredRequiredQuestions++;
+                                            console.log(`✓ Existing NDIS question answered: "${question.question}" = "${question.answer}"`);
+                                        } else {
+                                            console.log(`✗ Existing NDIS question not answered: "${question.question}"`);
+                                        }
                                     }
                                 }
                             }
-                        }
+                            
+                            const isComplete = totalRequiredQuestions > 0 && answeredRequiredQuestions === totalRequiredQuestions;
+                            console.log(`Existing NDIS page completion: ${answeredRequiredQuestions}/${totalRequiredQuestions} required questions answered. Complete: ${isComplete}`);
+                            
+                            return isComplete;
+                        };
                         
-                        const isComplete = totalRequiredQuestions > 0 && answeredRequiredQuestions === totalRequiredQuestions;
-                        console.log(`Existing NDIS page completion: ${answeredRequiredQuestions}/${totalRequiredQuestions} required questions answered. Complete: ${isComplete}`);
-                        
-                        return isComplete;
-                    };
+                        pageWithDependencies.completed = calculateExistingNdisPageCompletion(pageWithDependencies);
+                        console.log(`Existing NDIS page completion status: ${pageWithDependencies.completed}`);
+                    } else {
+                        // Preserve existing completion status if questions didn't change
+                        pageWithDependencies.completed = page.completed;
+                        console.log(`Preserving existing NDIS page completion status: ${page.completed}`);
+                    }
                     
-                    pageWithDependencies.completed = calculateExistingNdisPageCompletion(pageWithDependencies);
-                    console.log(`Existing NDIS page completion status: ${pageWithDependencies.completed}`);
                     return pageWithDependencies;
                 }
                 return page;
@@ -1236,17 +1273,16 @@ const BookingRequestForm = () => {
                             required: question.required,
                             hasAnswer: question.answer !== null && question.answer !== undefined && question.answer !== ''
                         });
-                        
                         // Create a new section for this question on the NDIS page
                         const ndisSection = {
                             ...section,
-                            id: `ndis_${section.id}_${question.id}`,
-                            orig_section_id: section.id,
+                            id: section.id,
+                            orig_section_id: section.orig_section_id,
                             Questions: [{ 
                                 ...question,
                                 answer: question.answer,
                                 oldAnswer: question.oldAnswer || question.answer,
-                                orig_section_id: section.id
+                                orig_section_id: section.orig_section_id
                             }]
                         };
                         
@@ -1415,6 +1451,7 @@ const BookingRequestForm = () => {
             status: getPageStatus(page),
             customContent: (
                 <QuestionPage 
+                    key={`page-${page.id}-${profileDataLoaded}`}
                     currentPage={page} 
                     updatePageData={(data) => updateAndDispatchPageData(data, page.id)} 
                     guest={guest} 
@@ -1423,10 +1460,12 @@ const BookingRequestForm = () => {
                     funderType={ndisFormFilters.funderType}
                     ndisPackageType={ndisFormFilters.ndisPackageType}
                     additionalFilters={ndisFormFilters.additionalFilters}
+                    profileDataLoaded={profileDataLoaded}
                 />
             )
         }));
-    }, [stableProcessedFormData, guest, equipmentChangesState, ndisFormFilters]);
+    }, [stableProcessedFormData, guest, equipmentChangesState, ndisFormFilters, profileDataLoaded]);
+
 
     const handleAccordionNavigation = async (targetIndex, action) => {
         const targetPage = stableProcessedFormData[targetIndex];
@@ -1442,13 +1481,14 @@ const BookingRequestForm = () => {
             return;
         }
 
-        // FIXED: Validate current page from processedFormData, not from Redux state
+        // Validate current page from processedFormData
         if (currentPage) {
             // Find the current page in processedFormData to get the updated version
             const currentPageInProcessed = stableProcessedFormData.find(p => p.id === currentPage.id);
             const pageToValidate = currentPageInProcessed || currentPage;
             
             const updatedPage = clearPackageQuestionAnswers(pageToValidate, isNdisFunded);
+            
             const errorMsg = validate([updatedPage]);
             
             if (errorMsg.length > 0) {
@@ -1462,7 +1502,7 @@ const BookingRequestForm = () => {
                     toast.error('There are some REQUIRED questions not answered or contain errors. Please correct them before proceeding.');
                 }
                 
-                // Update the page data with validation errors using processedFormData
+                // Update the page data with validation errors
                 const pages = updatePageData(updatedPage?.Sections, updatedPage.id, 'VALIDATE_DATA', true);
                 return;
             }
@@ -1496,14 +1536,46 @@ const BookingRequestForm = () => {
         
         router.push(newUrl, undefined, { shallow: true });
 
-        // NEW: Scroll to top after navigation
-        if (layoutRef.current && layoutRef.current.scrollToTop) {
-            // Small delay to ensure the content has updated
-            setTimeout(() => {
-                layoutRef.current.scrollToTop();
-            }, 100);
-        }
+        // NEW: Direct scroll with robust timing
+        const scrollToTarget = (index, attempts = 0) => {
+            const maxAttempts = 15; // Increase max attempts
+            
+            if (attempts >= maxAttempts) {
+                console.log('Max scroll attempts reached');
+                return;
+            }
+
+            const targetElement = document.getElementById(`accordion-item-${index}`);
+            
+            if (targetElement) {
+                // Check if accordion is actually open (look for open state indicators)
+                const hasOpenHeader = targetElement.querySelector('.bg-gray-50');
+                const hasOpenContent = targetElement.querySelector('.bg-white');
+                
+                if (hasOpenHeader || hasOpenContent) {
+                    console.log(`Scrolling to accordion item ${index} (attempt ${attempts + 1})`);
+                    
+                    const headerOffset = 100;
+                    const elementPosition = targetElement.getBoundingClientRect().top;
+                    const offsetPosition = elementPosition + window.pageYOffset - headerOffset;
+
+                    window.scrollTo({
+                        top: Math.max(0, offsetPosition),
+                        behavior: 'smooth'
+                    });
+                    return; // Success, stop trying
+                }
+            }
+            
+            // Not ready yet, try again
+            console.log(`Accordion not ready, attempt ${attempts + 1}/${maxAttempts}`);
+            setTimeout(() => scrollToTarget(index, attempts + 1), 150);
+        };
+
+        // Start scroll attempts after state updates
+        setTimeout(() => scrollToTarget(targetIndex), 200);
     };
+
 
     useEffect(() => {
         if (currentPage && stableProcessedFormData && stableProcessedFormData.length > 0) {
@@ -1511,7 +1583,6 @@ const BookingRequestForm = () => {
             if (pageIndex !== -1) {
                 setActiveAccordionIndex(pageIndex);
                 
-                // FIXED: Only update if the page has actually changed
                 const processedCurrentPage = stableProcessedFormData[pageIndex];
                 if (processedCurrentPage && currentPage.id === processedCurrentPage.id) {
                     // Check if we need to update the current page reference without causing loops
@@ -1526,7 +1597,7 @@ const BookingRequestForm = () => {
                 }
             }
         }
-    }, [currentPage?.id, stableProcessedFormData?.length]); // Only depend on ID and length
+    }, [currentPage?.id, stableProcessedFormData?.length]);
 
     const clearPackageQuestionAnswers = (pageOrPages, isNdisFunded) => {
         // Helper function to check if an answer is NDIS-related
@@ -1537,7 +1608,7 @@ const BookingRequestForm = () => {
         
         // Helper function to clear answers in a single page
         const clearPageAnswers = (page) => {
-            // UPDATED: Use question key to check for package questions
+            // Only check for package questions that need clearing
             const pageHasPackageQuestion = page.Sections?.some(section => 
                 section.Questions?.some(question => 
                     questionHasKey(question, QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL)
@@ -1548,24 +1619,26 @@ const BookingRequestForm = () => {
                 return page; // Return unchanged if no package questions
             }
 
-            return {
+            let pageModified = false;
+            const updatedPage = {
                 ...page,
                 Sections: page.Sections.map(section => ({
                     ...section,
                     Questions: section.Questions.map(question => {
-                        // UPDATED: Use question key instead of text matching
                         if (questionHasKey(question, QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL)) {
                             
                             if (question.type === 'radio') {
                                 // For radio questions: clear if NDIS funded OR if answer is NDIS-related but not NDIS funded
                                 if (isNdisFunded || (!isNdisFunded && isNdisAnswer(question.answer))) {
                                     console.log(`Clearing radio question - NDIS funded: ${isNdisFunded}, NDIS answer: ${isNdisAnswer(question.answer)}`);
+                                    pageModified = true;
                                     return { ...question, answer: null };
                                 }
                             } else if (question.type === 'radio-ndis') {
                                 // For radio-ndis questions: clear if not NDIS funded
                                 if (!isNdisFunded) {
                                     console.log('Clearing radio-ndis question answer (not NDIS funded)');
+                                    pageModified = true;
                                     return { ...question, answer: null };
                                 }
                             }
@@ -1574,6 +1647,14 @@ const BookingRequestForm = () => {
                     })
                 }))
             };
+
+            // FIXED: Only return modified page if something actually changed
+            if (pageModified) {
+                console.log(`Package questions cleared on page: ${page.title}`);
+                return updatedPage;
+            } else {
+                return page; // Return original page if no changes needed
+            }
         };
 
         // Handle both single page and array of pages
@@ -1592,15 +1673,17 @@ const BookingRequestForm = () => {
                 switch (action) {
                     case 'UPDATE_DATA':
                         if (currentQuestion.hidden === false && currentQuestion.required === true && (currentQuestion.hasOwnProperty('dirty') && currentQuestion.dirty)) {
-                            // FIXED: Always preserve existing errors for date fields and other validation errors
+                            // ENHANCED: Always preserve existing errors for validation fields
                             if (currentQuestion.error && (
                                 currentQuestion.type === 'date' || 
                                 currentQuestion.type === 'date-range' ||
+                                currentQuestion.type === 'phone-number' ||
+                                currentQuestion.type === 'email' ||
                                 currentQuestion.type === 'goal-table' ||
                                 currentQuestion.type === 'care-table'
                             )) {
                                 // Keep existing validation error - don't override
-                                // This preserves "Past dates are not allowed!" and other field-specific errors
+                                console.log(`Preserving validation error for ${currentQuestion.type}: ${currentQuestion.error}`);
                             }
                             else if ((currentQuestion.type == 'checkbox' || currentQuestion.type == 'checkbox-button' || currentQuestion.type == 'multi-select') && !currentQuestion.answer || (currentQuestion.answer && currentQuestion.answer.length == 0)) {
                                 currentQuestion.error = 'This is a required field.'
@@ -1619,14 +1702,17 @@ const BookingRequestForm = () => {
 
                     case 'VALIDATE_DATA':
                         if (currentQuestion.hidden === false && currentQuestion.required === true) {
-                            // FIXED: Preserve existing validation errors during validation
+                            // ENHANCED: Preserve existing validation errors during validation
                             if (currentQuestion.error && (
                                 currentQuestion.type === 'date' || 
                                 currentQuestion.type === 'date-range' ||
+                                currentQuestion.type === 'phone-number' || // ADDED: Preserve phone errors
+                                currentQuestion.type === 'email' || // ADDED: Preserve email errors
                                 currentQuestion.type === 'goal-table' ||
                                 currentQuestion.type === 'care-table'
                             )) {
                                 // Keep existing field-specific validation error
+                                console.log(`Preserving validation error during validation for ${currentQuestion.type}: ${currentQuestion.error}`);
                             }
                             else if ((currentQuestion.type == 'checkbox' || currentQuestion.type == 'checkbox-button') && !currentQuestion.answer || (currentQuestion.answer && currentQuestion.answer.length == 0)) {
                                 currentQuestion.error = 'This is a required field.'
@@ -1652,52 +1738,95 @@ const BookingRequestForm = () => {
         return updatedSections;
     }
 
-    // UPDATED: Modified updatePageData function with immediate NDIS funding detection
     const updatePageData = (updates, pageId, action = 'UPDATE_DATA', submit = false, hasError) => {
         const validatedSections = handleFieldValidationErrorMessage(updates, action)
         const pageIndex = stableProcessedFormData.findIndex(p => p.id === pageId);
         const pages = structuredClone(stableProcessedFormData);
 
+        // Update only the specific page that was modified
         pages.map((temp, index) => {
             if (index === pageIndex) {
                 pages[index].Sections = validatedSections;
                 pages[index].dirty = !hasError;
                 
-                // ADDED: Calculate completion status for the updated page
+                // Calculate completion status for the updated page only
                 pages[index].completed = calculatePageCompletion(pages[index]);
                 
                 console.log(`Updated page "${pages[index].title}" completion status: ${pages[index].completed}`);
             }
         });
 
-        // ADDED: Check for NDIS funding status changes immediately
+        // Check for NDIS funding status changes immediately
         const fundingStatusChanged = checkAndUpdateNdisFundingStatus(pages);
 
         const updatedPages = submit ? pages : applyQuestionDependencies(applyQuestionDependencies(pages));
         
-        // ADDED: Recalculate completion for all pages after dependencies are applied
-        updatedPages.forEach(page => {
-            const wasCompleted = page.completed;
-            page.completed = calculatePageCompletion(page);
-            
-            if (wasCompleted !== page.completed) {
-                console.log(`Page "${page.title}" completion status changed: ${wasCompleted} → ${page.completed}`);
+        // FIXED: Only recalculate completion for pages that might have been affected by dependencies
+        // Don't recalculate for all pages on every update
+        if (submit || fundingStatusChanged) {
+            // Only recalculate all pages on submit or when funding status actually changes
+            updatedPages.forEach(page => {
+                const wasCompleted = page.completed;
+                page.completed = calculatePageCompletion(page);
+                
+                if (wasCompleted !== page.completed) {
+                    console.log(`Page "${page.title}" completion status changed: ${wasCompleted} → ${page.completed} (reason: ${submit ? 'submit' : 'funding change'})`);
+                }
+            });
+        } else {
+            // For regular updates, only recalculate the current page and any dependent pages
+            const currentPageUpdated = updatedPages[pageIndex];
+            if (currentPageUpdated) {
+                const wasCompleted = currentPageUpdated.completed;
+                currentPageUpdated.completed = calculatePageCompletion(currentPageUpdated);
+                
+                if (wasCompleted !== currentPageUpdated.completed) {
+                    console.log(`Page "${currentPageUpdated.title}" completion status changed: ${wasCompleted} → ${currentPageUpdated.completed} (current page update)`);
+                }
             }
-        });
+            
+            // Check if any other pages have dependencies on the current page's questions
+            const currentPageQuestions = currentPageUpdated?.Sections?.flatMap(s => s.Questions || []) || [];
+            const answeredQuestionIds = currentPageQuestions
+                .filter(q => q.answer !== null && q.answer !== undefined && q.answer !== '')
+                .map(q => q.id || q.question_id);
+            
+            if (answeredQuestionIds.length > 0) {
+                updatedPages.forEach((page, index) => {
+                    if (index !== pageIndex) { // Skip the current page we already updated
+                        const hasDependentQuestions = page.Sections?.some(section =>
+                            section.Questions?.some(question =>
+                                question.QuestionDependencies?.some(dep =>
+                                    answeredQuestionIds.includes(dep.dependence_id)
+                                )
+                            )
+                        );
+                        
+                        if (hasDependentQuestions) {
+                            const wasCompleted = page.completed;
+                            page.completed = calculatePageCompletion(page);
+                            
+                            if (wasCompleted !== page.completed) {
+                                console.log(`Page "${page.title}" completion status changed: ${wasCompleted} → ${page.completed} (dependency update)`);
+                            }
+                        }
+                    }
+                });
+            }
+        }
         
         // Update the processed form data
         setProcessedFormData(updatedPages);
         
-        // FIXED: Only update Redux state if not currently processing NDIS to prevent loops
+        // Only update Redux state if not currently processing NDIS to prevent loops
         if (!isProcessingNdis) {
             safeDispatchData(updatedPages, 'updatePageData');
         }
         
-        // ADDED: If funding status changed, trigger NDIS processing after a small delay
+        // If funding status changed, trigger NDIS processing after a small delay
         if (fundingStatusChanged && !isProcessingNdis) {
             console.log('🔄 Funding status changed, triggering NDIS processing...');
             setTimeout(() => {
-                // Force a re-process by updating a tracking state
                 setIsProcessingNdis(true);
                 const processedData = processFormDataForNdisPackages(updatedPages);
                 setProcessedFormData(processedData);
@@ -1720,12 +1849,28 @@ const BookingRequestForm = () => {
 
     const validate = (pages) => {
         let errorMessage = new Set();
+        
+        console.log('🔍 Starting validation for pages:', pages.map(p => p.title));
+        
         pages.map(page => {
+            console.log(`📋 Validating page: "${page.title}"`);
+            
             page?.Sections?.map(section => {
+                if (section.hidden) {
+                    return;
+                }
+                
                 section?.Questions?.length > 0 && section.Questions.filter(q => q.hidden === false).map(question => {
-                    // ADDED: Skip validation for NDIS-only questions that should have been moved to NDIS page
+                    console.log(`🔍 Checking question: "${question.question}"`, {
+                        type: question.type,
+                        required: question.required,
+                        answer: question.answer,
+                        error: question.error, // Log current error state
+                        hidden: question.hidden
+                    });
+                    
+                    // Skip validation for NDIS-only questions that should have been moved to NDIS page
                     if (question.ndis_only && question.type !== 'simple-checkbox' && isNdisFunded) {
-                        // These questions should be on the NDIS page, not the current page
                         return;
                     }
                     
@@ -1733,13 +1878,9 @@ const BookingRequestForm = () => {
                         const required = question.required ? question.required : false;
                         const answer = question.answer ? question.answer : question.answer === 0 ? '0' : null;
 
-                        if (question.type === 'horizontal-card') {
-                            console.log(question)
-                        }
-                        
-                        // ENHANCED: Check for ANY existing errors on the question first (including date validation errors)
+                        // ENHANCED: Check for ANY existing errors on the question first
                         if (question.error && typeof question.error === 'string' && question.error.trim() !== '') {
-                            console.log(`Found existing error on question: ${question.error}`);
+                            console.log(`❌ Found existing error on question "${question.question}": ${question.error}`);
                             errorMessage.add({ 
                                 pageId: page.id, 
                                 pageTitle: page.title, 
@@ -1751,12 +1892,16 @@ const BookingRequestForm = () => {
                         // Email validation
                         else if (question.type === "email" && answer) {
                             if (answer && !validateEmail(answer)) {
+                                console.log(`❌ Email validation failed for: "${answer}"`);
                                 errorMessage.add({ pageId: page.id, pageTitle: page.title, message: 'Please input a valid email.', question: question.question, type: question.type });
+                            } else {
+                                console.log(`✅ Email validation passed for: "${answer}"`);
                             }
                         }
-                        // Phone number validation
+                        // Phone number validation - ENHANCED
                         else if (question.type === "phone-number" && answer) {
                             if (answer && !validatePhoneNumber(answer)) {
+                                console.log(`❌ Phone validation failed for: "${answer}"`);
                                 errorMessage.add({ 
                                     pageId: page.id, 
                                     pageTitle: page.title, 
@@ -1764,6 +1909,8 @@ const BookingRequestForm = () => {
                                     question: question.question, 
                                     type: question.type 
                                 });
+                            } else {
+                                console.log(`✅ Phone validation passed for: "${answer}"`);
                             }
                         }
                         // Room selection validation
@@ -1775,11 +1922,10 @@ const BookingRequestForm = () => {
                                 roomsData = question.answer;
                             }
                             
-                            // Check if no rooms are selected or if the first room is empty
                             const hasValidSelection = roomsData && roomsData.length > 0 && roomsData[0] && roomsData[0].name;
                             
                             if (!hasValidSelection) {
-                                console.log('Room validation failed - no room selected');
+                                console.log(`❌ Room validation failed - no room selected`);
                                 errorMessage.add({ 
                                     pageId: page.id, 
                                     pageTitle: page.title, 
@@ -1787,32 +1933,47 @@ const BookingRequestForm = () => {
                                     question: question.question, 
                                     type: question.type 
                                 });
+                            } else {
+                                console.log(`✅ Room validation passed`);
                             }
                         }
                         else if (question.type === 'radio-ndis' && question.answer?.includes('Wellness')) {
-                            // If the answer is 'Wellness', we need to clear the package question answers
+                            console.log(`❌ NDIS package validation failed - Wellness package selected`);
                             const updatedPage = clearPackageQuestionAnswers(page, isNdisFunded);
                             const updatedPages = updatePageData(updatedPage?.Sections, page.id, 'UPDATE_DATA', false);
                             errorMessage.add({ pageId: page.id, pageTitle: page.title, message: 'Missing NDIS Package Type', question: question.question, type: question.type });
                         }
-                        // Required field validation (only if no existing error)
+                        // Required field validation
                         else if (required && !answer) {
-                            errorMessage.add({ pageId: page.id, pageTitle: page.title, message: 'Please input/select an answer.', question: question.question, type: question.type });
+                            console.log(`❌ Required field validation failed for: "${question.question}" (answer: ${answer})`);
+                            
+                            errorMessage.add({ 
+                                pageId: page.id, 
+                                pageTitle: page.title, 
+                                message: 'Please input/select an answer.', 
+                                question: question.question, 
+                                type: question.type 
+                            });
+                        } else if (required && answer) {
+                            console.log(`✅ Required field validation passed for: "${question.question}" (answer: ${answer})`);
                         }
                     }
 
                     // Checkbox validation
                     if ((question.type == 'checkbox' || question.type == 'checkbox-button') && question.answer && question.answer.length === 0) {
+                        console.log(`❌ Checkbox validation failed for: "${question.question}"`);
                         errorMessage.add({ pageId: page.id, pageTitle: page.title, message: 'Please select at least one option.', question: question.question, type: question.type });
                     }
 
                     // Goal table validation
                     if (question.type == 'goal-table' && question.error) {
+                        console.log(`❌ Goal table validation failed for: "${question.question}"`);
                         errorMessage.add({ pageId: page.id, pageTitle: page.title, message: 'Please select at least one option.', question: question.question, type: question.type });
                     }
 
                     // Care table validation
                     if (question.type == 'care-table' && question.error) {
+                        console.log(`❌ Care table validation failed for: "${question.question}"`);
                         errorMessage.add({ pageId: page.id, pageTitle: page.title, message: 'Please fill in all table columns and rows.', question: question.question, type: question.type });
                     }
                 });
@@ -1820,9 +1981,10 @@ const BookingRequestForm = () => {
         });
 
         const errors = Array.from(errorMessage);
-        console.log(`Total validation errors found: ${errors.length}`, errors);
+        console.log(`📊 Validation complete. Total errors found: ${errors.length}`, errors);
+        
         return errors;
-    }
+    };
 
     const validateAllPages = () => {
         console.log('Validating all pages for validation errors...');
@@ -2111,13 +2273,12 @@ const BookingRequestForm = () => {
                                 answer: answer,
                                 question_type: question.type,
                                 question_id: question.fromQa ? question.question_id : question.id,
-                                section_id: question.orig_section_id || section.orig_section_id || section.id,
+                                section_id: section.id,
                                 submit: submit,
                                 updatedAt: new Date(),
                                 dirty: qaPairDirty,
                                 sectionLabel: sectionLabel,
                                 oldAnswer: question.oldAnswer,
-                                // ADD: Include question_key for profile mapping
                                 question_key: question.question_key
                             };
 
@@ -2125,7 +2286,6 @@ const BookingRequestForm = () => {
 
                             summaryOfStay.data = generateSummaryData(summaryOfStay.data, question.question, answer, question.type, qa_pairs);
                         } else {
-                            // UPDATED: Use question key to check for package question
                             if (questionHasKey(question, QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL))  {
                                 let qap = {
                                     ...qaPairs[questionIndex],
@@ -2133,13 +2293,12 @@ const BookingRequestForm = () => {
                                     answer: answer,
                                     question_type: question.type,
                                     question_id: question.fromQa ? question.question_id : question.id,
-                                    section_id: question.orig_section_id || section.orig_section_id || section.id,
+                                    section_id: section.id,
                                     submit: submit,
                                     updatedAt: new Date(),
                                     dirty: qaPairDirty,
                                     sectionLabel: sectionLabel,
                                     oldAnswer: question.oldAnswer,
-                                    // ADD: Include question_key for profile mapping
                                     question_key: question.question_key
                                 };
 
@@ -2157,7 +2316,7 @@ const BookingRequestForm = () => {
                                 answer: answer,
                                 question_type: question.type,
                                 question_id: question.fromQa ? question.question_id : question.id,
-                                section_id: question.orig_section_id || section.orig_section_id || section.id,
+                                section_id: section.id,
                                 submit: submit,
                                 createdAt: new Date(),
                                 updatedAt: new Date(),
@@ -2244,7 +2403,6 @@ const BookingRequestForm = () => {
                 const changedProfileFields = qa_pairs.filter(qp => {
                     const hasMapping = hasProfileMapping(qp.question_key);
                     const hasChanged = (() => {
-                        // Handle null/undefined cases
                         if (qp.answer === qp.oldAnswer) return false;
                         if (qp.answer == null || qp.oldAnswer == null) return qp.answer !== qp.oldAnswer;
                         
@@ -2266,17 +2424,39 @@ const BookingRequestForm = () => {
                     oldAnswer: f.oldAnswer 
                 })));
 
-                // Queue all changed fields for batch saving
-                for (const field of changedProfileFields) {
-                    queueProfileSave(field.question_key, field.answer, guestId);
-                }
+                // Batch all profile changes into a single operation
+                if (changedProfileFields.length > 0) {
+                    const batchUpdate = {};
+                    
+                    for (const field of changedProfileFields) {
+                        const profileUpdate = mapQuestionKeyToProfileData(field.question_key, field.answer);
+                        if (profileUpdate) {
+                            Object.assign(batchUpdate, profileUpdate);
+                        }
+                    }
+                    
+                    // Make a single API call for all profile updates
+                    if (Object.keys(batchUpdate).length > 0) {
+                        try {
+                            const response = await fetch('/api/my-profile/save-update', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                },
+                                body: JSON.stringify({
+                                    guest_id: guestId,
+                                    ...batchUpdate
+                                }),
+                            });
 
-                // Handle special multi-field logic (language questions, etc.)
-                for (const field of changedProfileFields) {
-                    try {
-                        await handleLanguageQuestionSave(field.question_key, field.answer, guestId);
-                    } catch (error) {
-                        console.error(`Failed to save special profile logic for ${field.question_key}:`, error);
+                            if (response.ok) {
+                                console.log('Batch profile update successful');
+                            } else {
+                                console.error('Batch profile update failed');
+                            }
+                        } catch (error) {
+                            console.error('Error in batch profile update:', error);
+                        }
                     }
                 }
             }
@@ -3207,12 +3387,10 @@ const BookingRequestForm = () => {
         }
     }
 
-    // CRITICAL: Optimized effect to process form data when NDIS funding status changes
     useEffect(() => {
-        // EMERGENCY FIX: Prevent infinite re-renders by checking the isUpdating flag
         if (isUpdating || isProcessingNdis) return;
 
-        if (stableBookingRequestFormData.length > 0) {
+        if (stableBookingRequestFormData && stableBookingRequestFormData.length > 0) {
             console.log('Processing form data for NDIS packages...', { isNdisFunded, dataLength: stableBookingRequestFormData.length });
             
             // Create a stable comparison key to avoid infinite loops
@@ -3313,51 +3491,68 @@ const BookingRequestForm = () => {
                 setTimeout(() => setIsUpdating(false), 100);
             }
         }
-    }, [stableBookingRequestFormData, isNdisFunded]); // Use stable references
+    }, [stableBookingRequestFormData, isNdisFunded]);
 
-    // OPTIMIZATION: Initialize lastDispatchedDataRef on component mount
     useEffect(() => {
-        if (stableBookingRequestFormData.length > 0 && !lastDispatchedDataRef.current) {
+        if (stableBookingRequestFormData && stableBookingRequestFormData.length > 0 && !lastDispatchedDataRef.current) {
             lastDispatchedDataRef.current = JSON.stringify(stableBookingRequestFormData);
         }
-    }, [stableBookingRequestFormData.length]);
+    }, [stableBookingRequestFormData]);
 
     useEffect(() => {
         let mounted = true;
         if (mounted) {
-          dispatch(bookingRequestFormActions.setData([]));
-          dispatch(bookingRequestFormActions.clearEquipmentChanges());
-          dispatch(bookingRequestFormActions.setRooms([]));
-          
-          const isSubmitted = router.asPath.includes('&submit=true');
-          dispatch(bookingRequestFormActions.setBookingSubmitted(isSubmitted));
-          
-          dispatch(bookingRequestFormActions.setIsNdisFunded(false));
-          dispatch(bookingRequestFormActions.setCheckinDate(null));
-          dispatch(bookingRequestFormActions.setCheckoutDate(null));
+            dispatch(bookingRequestFormActions.setData([]));
+            dispatch(bookingRequestFormActions.clearEquipmentChanges());
+            dispatch(bookingRequestFormActions.setRooms([]));
+            
+            const isSubmitted = router.asPath.includes('&submit=true');
+            dispatch(bookingRequestFormActions.setBookingSubmitted(isSubmitted));
+            
+            dispatch(bookingRequestFormActions.setIsNdisFunded(false));
+            dispatch(bookingRequestFormActions.setCheckinDate(null));
+            dispatch(bookingRequestFormActions.setCheckoutDate(null));
+            
+            // Reset loading states
+            setProfileDataLoaded(false);
         }
         
         mounted && uuid && getRequestFormTemplate();
-      
+
         return (() => {
-          mounted = false;
+            mounted = false;
         });
     }, [uuid, prevBookingId, router.asPath]);
 
     useEffect(() => {
-        // Only try to preload after form data is loaded and we have a current page
-        if (stableBookingRequestFormData.length > 0 && currentPage && !profileDataLoaded) {
+        // Only run if we have the essential data and haven't loaded profile yet
+        if (stableBookingRequestFormData?.length > 0 && 
+            currentPage && 
+            !profileDataLoaded && 
+            !profilePreloadInProgressRef.current) {
+            
             const guestId = getGuestId();
             
             if (guestId) {
                 console.log('Form ready for profile preload');
-                // Use a longer timeout to ensure everything is properly initialized
-                setTimeout(() => {
+                // Use a timeout to avoid running too early
+                const timeoutId = setTimeout(() => {
                     preloadProfileData();
-                }, 1000);
+                }, 500); // Reduced timeout
+                
+                return () => clearTimeout(timeoutId);
+            } else {
+                // No guest ID available, mark as loaded to prevent retries
+                setProfileDataLoaded(true);
             }
         }
-    }, [stableBookingRequestFormData, currentPage, profileDataLoaded]);
+    }, [
+        stableBookingRequestFormData?.length,
+        currentPage?.id, // Only depend on ID, not the whole object
+        profileDataLoaded,
+        preloadProfileData
+    ]);
+
 
     useEffect(() => {
         if (equipmentPageCompleted) {
@@ -3403,7 +3598,7 @@ const BookingRequestForm = () => {
     }, [uuid, origin]);
 
     useEffect(() => {
-        if (stableProcessedFormData.length > 0) {
+        if (stableProcessedFormData && stableProcessedFormData.length > 0) {
             // Debounce filter calculation to avoid excessive updates
             const timeoutId = setTimeout(() => {
                 const newFilters = calculateNdisFilters(stableProcessedFormData);
@@ -3420,13 +3615,86 @@ const BookingRequestForm = () => {
     // OPTIMIZATION: Add debugging to track when renders happen
     useEffect(() => {
         console.log('🔄 BookingRequestForm re-rendered', {
-            dataLength: stableBookingRequestFormData.length,
-            processedLength: stableProcessedFormData.length,
+            dataLength: stableBookingRequestFormData?.length,
+            processedLength: stableProcessedFormData?.length,
             isProcessing: isProcessingNdis,
             isUpdating: isUpdating,
             currentPageId: currentPage?.id
         });
     });
+
+    useEffect(() => {
+        console.log('🔄 Current navigation state:', {
+            profileDataLoaded,
+            currentPageId: currentPage?.id,
+            dataLength: stableBookingRequestFormData?.length,
+            processedLength: stableProcessedFormData?.length
+        });
+    }, [profileDataLoaded, currentPage?.id, stableBookingRequestFormData?.length, stableProcessedFormData?.length]);
+
+    useEffect(() => {
+        return () => {
+            // Cancel any pending profile operations
+            profilePreloadInProgressRef.current = false;
+            profileSaveInProgressRef.current = false;
+            
+            // Clear pending saves
+            setPendingProfileSaves(new Map());
+            
+            // Cancel the debounced function
+            debouncedBatchSaveProfileData.cancel();
+        };
+    }, [debouncedBatchSaveProfileData]);
+
+    useEffect(() => {
+        if (activeAccordionIndex >= 0) {
+            console.log('Active accordion index changed to:', activeAccordionIndex);
+            
+            // Use multiple animation frames and a timeout to ensure DOM is fully updated
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    setTimeout(() => {
+                        const targetElement = document.getElementById(`accordion-item-${activeAccordionIndex}`);
+                        
+                        if (targetElement) {
+                            console.log('Scrolling to accordion item:', activeAccordionIndex);
+                            
+                            // Check if the accordion item is actually open (visible content)
+                            const contentArea = targetElement.querySelector('.bg-white');
+                            if (contentArea) {
+                                // Calculate the offset to account for any fixed headers
+                                const headerOffset = 100; // Adjust based on your header height
+                                const elementPosition = targetElement.getBoundingClientRect().top;
+                                const offsetPosition = elementPosition + window.pageYOffset - headerOffset;
+
+                                window.scrollTo({
+                                    top: Math.max(0, offsetPosition),
+                                    behavior: 'smooth'
+                                });
+                            } else {
+                                // Content not visible yet, try again after a short delay
+                                setTimeout(() => {
+                                    const retryElement = document.getElementById(`accordion-item-${activeAccordionIndex}`);
+                                    if (retryElement) {
+                                        const headerOffset = 100;
+                                        const elementPosition = retryElement.getBoundingClientRect().top;
+                                        const offsetPosition = elementPosition + window.pageYOffset - headerOffset;
+
+                                        window.scrollTo({
+                                            top: Math.max(0, offsetPosition),
+                                            behavior: 'smooth'
+                                        });
+                                    }
+                                }, 200);
+                            }
+                        } else {
+                            console.log('Accordion item not found:', `accordion-item-${activeAccordionIndex}`);
+                        }
+                    }, 150);
+                });
+            });
+        }
+    }, [activeAccordionIndex]);
 
     return (<>
         {stableProcessedFormData && (

@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from "react";
+import { validateEmail, validatePhoneNumber } from "../../utilities/common";
 
 const InputField = (props) => {
     const {
@@ -39,18 +40,6 @@ const InputField = (props) => {
         if (type === "string" || type === "text") return "text";
         if (type === "integer") return "number";
         return type;
-    };
-
-    // Validation functions
-    const validateEmail = (val) => {
-        const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        return val.match(validEmail);
-    };
-
-    const validatePhoneNumber = (val) => {
-        // More flexible phone validation - accepts various formats
-        const validPhoneNumber = /^[\+]?[1-9][\d]{0,15}$|^[\+]?[(]?[\d\s\-\(\)]{10,}$/;
-        return val.match(validPhoneNumber) || val.replace(/\D/g, '').length >= 10;
     };
 
     // Enhanced validation logic with user-friendly messages
@@ -234,25 +223,64 @@ const InputField = (props) => {
         };
     }, []);
 
+    useEffect(() => {
+        // Update internal value when external value prop changes
+        if (props.value !== undefined && props.value !== value) {
+            setValue(props.value);
+        }
+    }, [props.value]);
+
+    // MODIFIED: handleOnBlur - only change for phone-number
     const handleOnBlur = (e) => {
         const val = e.target.value;
         setValue(val);
         setDirty(true);
         setIsFocused(false);
         validateInput(val, true);
-        onBlur && onBlur(val);
+        
+        // PHONE-NUMBER SPECIFIC: Pass error to parent using imported validation
+        if (onBlur) {
+            if (type === 'phone-number') {
+                let errorMsg = null;
+                if (required && val && !validatePhoneNumber(val)) {
+                    const digitCount = val.replace(/\D/g, '').length;
+                    errorMsg = digitCount < 10 
+                        ? 'Phone number must be at least 10 digits'
+                        : 'Please enter a valid phone number (e.g., (555) 123-4567)';
+                }
+                onBlur(val, errorMsg);
+            } else {
+                onBlur(val);
+            }
+        }
     };
 
     const handleOnFocus = (e) => {
         setIsFocused(true);
     };
 
+    // MODIFIED: handleOnChange - only change for phone-number
     const handleOnChange = (e) => {
         const val = e.target.value;
         setValue(val);
         setDirty(true);
         validateInput(val, true);
-        onChange && onChange(val);
+        
+        // PHONE-NUMBER SPECIFIC: Pass error to parent using imported validation
+        if (onChange) {
+            if (type === 'phone-number') {
+                let errorMsg = null;
+                if (required && val && !validatePhoneNumber(val)) {
+                    const digitCount = val.replace(/\D/g, '').length;
+                    errorMsg = digitCount < 10 
+                        ? 'Phone number must be at least 10 digits'
+                        : 'Please enter a valid phone number (e.g., (555) 123-4567)';
+                }
+                onChange(val, errorMsg);
+            } else {
+                onChange(val);
+            }
+        }
     };
 
     const shouldShowError = propsError || (error && dirty);

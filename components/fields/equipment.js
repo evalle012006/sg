@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback, useRef, memo } from "react";
 import _ from "lodash";
 import RadioField from "./radioField";
 import CheckBoxField from "./checkboxField";
@@ -8,8 +8,10 @@ import CheckBox from "./checkbox";
 import { BOOKING_TYPES } from "../constants";
 import HorizontalCardSelection from "../ui-v2/HorizontalCardSelection";
 
-const EquipmentField = (props) => {
+const EquipmentField = memo((props) => {
     const bookingType = useSelector(state => state.bookingRequestForm.bookingType);
+    
+    // State management
     const [equipmentChanges, setEquipmentChanges] = useState([]);
     const [equipments, setEquipments] = useState([]);
     const [currentBookingEquipments, setCurrentBookingEquipments] = useState([]);
@@ -22,12 +24,34 @@ const EquipmentField = (props) => {
     const [categoryTouched, setCategoryTouched] = useState({});
     const [dataLoaded, setDataLoaded] = useState(false);
 
+    // Optimization refs
+    const updateTimeoutRef = useRef({});
+    const mountedRef = useRef(true);
+    const lastValidationRef = useRef(null);
+
     const router = useRouter();
     const { uuid, prevBookingId } = router.query;
 
+    // Cleanup on unmount
+    useEffect(() => {
+        return () => {
+            mountedRef.current = false;
+            Object.values(updateTimeoutRef.current).forEach(timeout => {
+                if (timeout) clearTimeout(timeout);
+            });
+        };
+    }, []);
+
+    // Memoized props effect sync
+    useEffect(() => {
+        if (props.equipmentChanges && JSON.stringify(props.equipmentChanges) !== JSON.stringify(equipmentChanges)) {
+            setEquipmentChanges(props.equipmentChanges);
+        }
+    }, [props.equipmentChanges]);
+
+    // Load data on mount
     useEffect(() => {
         if (uuid) {
-            // Load both datasets before initializing
             Promise.all([
                 fetchEquipments(),
                 fetchCurrentBookingEquipments(uuid)
@@ -37,19 +61,42 @@ const EquipmentField = (props) => {
         }
     }, [uuid]);
 
-    useEffect(() => {
-        if (props.equipmentChanges) {
-            setEquipmentChanges(props.equipmentChanges);
+    // Debounced validation function
+    const debouncedValidation = useCallback(() => {
+        if (updateTimeoutRef.current.validation) {
+            clearTimeout(updateTimeoutRef.current.validation);
         }
-    }, [props.equipmentChanges]);
 
+        updateTimeoutRef.current.validation = setTimeout(() => {
+            if (!mountedRef.current) return;
+            
+            const validationResult = validateSelections();
+            const validationKey = JSON.stringify({
+                selections: categorySelections,
+                acknowledgement: acknowledgementChecked,
+                showTilt: showTiltQuestion
+            });
+
+            // Only trigger parent update if validation actually changed
+            if (lastValidationRef.current !== validationKey) {
+                lastValidationRef.current = validationKey;
+                
+                if (props.hasOwnProperty('onChange')) {
+                    if (validationResult.allValid) {
+                        props.onChange(true, equipmentChanges);
+                    } else {
+                        props.onChange(false);
+                    }
+                }
+            }
+        }, 150);
+    }, [categorySelections, acknowledgementChecked, showTiltQuestion, equipmentChanges, props]);
+
+    // Initialize when data is loaded
     useEffect(() => {
-        // Only initialize when both datasets are loaded
         if (equipments.length > 0 && dataLoaded) {
-            // Group equipment by category and determine category types dynamically
             const grouped = _.groupBy(equipments.filter(eq => !eq.hidden), 'EquipmentCategory.name');
             
-            // Sort equipment within each category by order field
             Object.keys(grouped).forEach(categoryName => {
                 grouped[categoryName] = grouped[categoryName].sort((a, b) => {
                     const orderA = a.order || 0;
@@ -59,22 +106,18 @@ const EquipmentField = (props) => {
             });
             
             setGroupedEquipments(grouped);
-            
-            // Determine category types based on equipment data
             const types = determineCategoryTypes(grouped);
             setCategoryTypes(types);
-            
-            // Initialize category selections based on current booking
             initializeCategorySelections(grouped, types);
         }
     }, [equipments, currentBookingEquipments, dataLoaded]);
 
+    // Debounced validation trigger
     useEffect(() => {
-        // Validate all selections and notify parent component
         if (Object.keys(groupedEquipments).length > 0) {
-            validateSelections();
+            debouncedValidation();
         }
-    }, [categorySelections, acknowledgementChecked, groupedEquipments, showTiltQuestion]);
+    }, [categorySelections, acknowledgementChecked, groupedEquipments, showTiltQuestion, debouncedValidation]);
 
     const fetchEquipments = async () => {
         try {
@@ -108,10 +151,8 @@ const EquipmentField = (props) => {
         const types = {};
         
         Object.entries(grouped).forEach(([categoryName, categoryEquipments]) => {
-            // Filter out null/invalid categories
             if (!categoryName || categoryName === 'null') return;
             
-            // Determine category type based on equipment data
             const hasGroupType = categoryEquipments.some(eq => eq.type === 'group');
             const equipmentCount = categoryEquipments.length;
             
@@ -316,14 +357,7 @@ const EquipmentField = (props) => {
         
         setCategoryErrors(touchedErrors);
         
-        // Always notify parent about overall validity (regardless of touch state)
-        if (props.hasOwnProperty('onChange')) {
-            if (allValid) {
-                props.onChange(true, equipmentChanges);
-            } else {
-                props.onChange(false);
-            }
-        }
+        return { allValid, errors };
     };
 
     const isRequiredCategory = (categoryName, categoryType) => {
@@ -344,7 +378,8 @@ const EquipmentField = (props) => {
         return categoryType === 'binary' || categoryType === 'single_select';
     };
 
-    const handleCategoryChange = (categoryName, value, isConfirmation = false) => {
+    // Optimized change handler with debouncing
+    const handleCategoryChange = useCallback((categoryName, value, isConfirmation = false) => {
         const key = isConfirmation ? `confirm_${categoryName}` : categoryName;
         const categoryType = categoryTypes[categoryName];
         
@@ -406,107 +441,116 @@ const EquipmentField = (props) => {
             return newSelections;
         });
 
-        // Handle equipment changes
-        if (categoryName === 'ceiling_hoist' && value === 'no') {
-            handleMultipleEquipmentChanges([
-                { category: 'ceiling_hoist', value: 'no' },
-                { category: 'sling', value: null } // Single value for single-select
-            ]);
-        } else if (isConfirmation && value === 'no') {
-            const nestedValue = categoryType === 'confirmation_multi' ? [] : null;
-            updateEquipmentChanges(categoryName, nestedValue, false);
-        } else {
-            updateEquipmentChanges(categoryName, value, isConfirmation);
+        // Handle equipment changes (debounced)
+        if (updateTimeoutRef.current[`equipment-${categoryName}`]) {
+            clearTimeout(updateTimeoutRef.current[`equipment-${categoryName}`]);
         }
-    };
 
-    const handleRadioFieldChange = (categoryName, label, updatedOptions, isConfirmation = false) => {
+        updateTimeoutRef.current[`equipment-${categoryName}`] = setTimeout(() => {
+            if (!mountedRef.current) return;
+            
+            if (categoryName === 'ceiling_hoist' && value === 'no') {
+                handleMultipleEquipmentChanges([
+                    { category: 'ceiling_hoist', value: 'no' },
+                    { category: 'sling', value: null } // Single value for single-select
+                ]);
+            } else if (isConfirmation && value === 'no') {
+                const nestedValue = categoryType === 'confirmation_multi' ? [] : null;
+                updateEquipmentChanges(categoryName, nestedValue, false);
+            } else {
+                updateEquipmentChanges(categoryName, value, isConfirmation);
+            }
+        }, 200);
+    }, [categoryTypes, groupedEquipments]);
+
+    // Optimized radio field change handler
+    const handleRadioFieldChange = useCallback((categoryName, label, updatedOptions, isConfirmation = false) => {
         const selectedOption = updatedOptions.find(opt => opt.value === true);
         if (selectedOption) {
             handleCategoryChange(categoryName, selectedOption.label.toLowerCase(), isConfirmation);
         }
-    };
+    }, [handleCategoryChange]);
 
     const updateEquipmentChanges = (categoryName, value, isConfirmation = false) => {
-        if (!isConfirmation) {
-            const categoryEquipments = groupedEquipments[categoryName] || [];
-            const categoryType = categoryTypes[categoryName];
-            let selectedEquipments = [];
-            const previousSelectedEquipments = currentBookingEquipments.filter(equipment => 
-                equipment?.EquipmentCategory?.name === categoryName && !equipment?.hidden
-            );
+        if (isConfirmation) return;
+        
+        const categoryEquipments = groupedEquipments[categoryName] || [];
+        const categoryType = categoryTypes[categoryName];
+        let selectedEquipments = [];
+        const previousSelectedEquipments = currentBookingEquipments.filter(equipment => 
+            equipment?.EquipmentCategory?.name === categoryName && !equipment?.hidden
+        );
 
-            if (categoryType === 'binary') {
-                const equipment = categoryEquipments[0];
-                if (equipment) {
+        if (categoryType === 'binary') {
+            const equipment = categoryEquipments[0];
+            if (equipment) {
+                selectedEquipments = [{ 
+                    ...equipment, 
+                    label: equipment.name,
+                    value: value === 'yes' 
+                }];
+            }
+        } else if (categoryType === 'multi_select' || categoryType === 'confirmation_multi') {
+            if (Array.isArray(value)) {
+                selectedEquipments = categoryEquipments
+                    .filter(eq => value.includes(eq.id))
+                    .map(eq => ({ 
+                        ...eq, 
+                        label: eq.name,
+                        value: true,
+                        type: 'group' 
+                    }));
+                
+                const prevEquipments = previousSelectedEquipments
+                    .filter(eq => !value.includes(eq.id))
+                    .map(eq => ({ 
+                        ...eq, 
+                        label: eq.name,
+                        value: false,
+                        type: 'group' 
+                    }));
+                
+                selectedEquipments = [...selectedEquipments, ...prevEquipments];
+            }
+        } else if (categoryType === 'single_select') {
+            if (value) {
+                const selectedEquipment = categoryEquipments.find(eq => eq.id === value);
+                if (selectedEquipment) {
                     selectedEquipments = [{ 
-                        ...equipment, 
-                        label: equipment.name,
-                        value: value === 'yes' 
+                        ...selectedEquipment, 
+                        label: selectedEquipment.name,
+                        value: true 
                     }];
                 }
-            } else if (categoryType === 'multi_select' || categoryType === 'confirmation_multi') {
-                if (Array.isArray(value)) {
-                    selectedEquipments = categoryEquipments
-                        .filter(eq => value.includes(eq.id))
-                        .map(eq => ({ 
-                            ...eq, 
-                            label: eq.name,
-                            value: true,
-                            type: 'group' 
-                        }));
-                    
-                    const prevEquipments = previousSelectedEquipments
-                        .filter(eq => !value.includes(eq.id))
-                        .map(eq => ({ 
-                            ...eq, 
-                            label: eq.name,
-                            value: false,
-                            type: 'group' 
-                        }));
-                    
-                    selectedEquipments = [...selectedEquipments, ...prevEquipments];
-                }
-            } else if (categoryType === 'single_select') {
-                if (value) {
-                    const selectedEquipment = categoryEquipments.find(eq => eq.id === value);
-                    if (selectedEquipment) {
-                        selectedEquipments = [{ 
-                            ...selectedEquipment, 
-                            label: selectedEquipment.name,
-                            value: true 
-                        }];
-                    }
-                }
             }
-
-            // Handle special shower commodes logic
-            if (categoryName === 'shower_commodes' && selectedEquipments.length > 0) {
-                const hasHighBackTilt = selectedEquipments.some(eq => eq.name === 'Commode: High Back Tilt');
-                if (!hasHighBackTilt) {
-                    const confirmTiltEq = equipments.find(equipment => 
-                        equipment.EquipmentCategory.name === 'shower_commodes' && equipment.hidden
-                    );
-                    if (confirmTiltEq) {
-                        selectedEquipments.push({ 
-                            ...confirmTiltEq, 
-                            value: false 
-                        });
-                    }
-                }
-            }
-
-            const change = {
-                category: categoryName,
-                equipments: selectedEquipments,
-                isDirty: true
-            };
-
-            setEquipmentChanges(prev => {
-                const filtered = prev.filter(c => c.category !== categoryName);
-                return [...filtered, change].filter(c => c.equipments.length > 0);
-            });
         }
+
+        // Handle special shower commodes logic
+        if (categoryName === 'shower_commodes' && selectedEquipments.length > 0) {
+            const hasHighBackTilt = selectedEquipments.some(eq => eq.name === 'Commode: High Back Tilt');
+            if (!hasHighBackTilt) {
+                const confirmTiltEq = equipments.find(equipment => 
+                    equipment.EquipmentCategory.name === 'shower_commodes' && equipment.hidden
+                );
+                if (confirmTiltEq) {
+                    selectedEquipments.push({ 
+                        ...confirmTiltEq, 
+                        value: false 
+                    });
+                }
+            }
+        }
+
+        const change = {
+            category: categoryName,
+            equipments: selectedEquipments,
+            isDirty: true
+        };
+
+        setEquipmentChanges(prev => {
+            const filtered = prev.filter(c => c.category !== categoryName);
+            return [...filtered, change].filter(c => c.equipments.length > 0);
+        });
     };
 
     const handleMultipleEquipmentChanges = (changes) => {
@@ -556,7 +600,7 @@ const EquipmentField = (props) => {
         });
     };
 
-    const handleTiltConfirmation = (value) => {
+    const handleTiltConfirmation = useCallback((value) => {
         const confirmTiltEquipment = equipments.find(equipment => 
             equipment.EquipmentCategory.name === 'shower_commodes' && equipment.hidden
         );
@@ -583,7 +627,7 @@ const EquipmentField = (props) => {
                 return [...filtered, change];
             });
         }
-    };
+    }, [equipments]);
 
     const getValidationStyling = (categoryName, isConfirmation = false) => {
         const key = isConfirmation ? `confirm_${categoryName}` : categoryName;
@@ -644,6 +688,112 @@ const EquipmentField = (props) => {
         }
         
         return null;
+    };
+
+    // Memoized equipment selection renderer
+    const renderEquipmentSelection = useCallback((categoryName, equipments) => {
+        const hasImages = equipments.some(eq => eq.image_url);
+        const selection = categorySelections[categoryName];
+        const categoryType = categoryTypes[categoryName];
+        const isMultiSelect = categoryType === 'multi_select' || categoryType === 'confirmation_multi';
+        const categoryDisplayName = formatCategoryName(categoryName);
+        
+        const isRequired = isRequiredCategory(categoryName, categoryType) || 
+                          (categoryName === 'sling' && categorySelections['ceiling_hoist'] === 'yes');
+
+        if (hasImages) {
+            // Equipment is already sorted by order from the grouped data
+            const cards = equipments.map(eq => ({
+                value: eq.id,
+                label: eq.name,
+                description: eq.serial_number || 'No serial number',
+                imageUrl: eq.image_url
+            }));
+
+            return (
+                <div>
+                    <div className="mb-4">
+                        <label className="font-semibold form-label inline-block mb-1.5 text-slate-700">
+                            {categoryDisplayName}
+                            {isRequired && <span className="text-red-500 ml-1">*</span>}
+                        </label>
+                    </div>
+                    <HorizontalCardSelection
+                        items={cards}
+                        value={selection}
+                        onChange={(value) => handleCategoryChange(categoryName, value)}
+                        multi={isMultiSelect}
+                        required={isRequired}
+                        size="medium"
+                    />
+                </div>
+            );
+        } else {
+            // Use existing radio/checkbox fields for equipment without images
+            // Equipment is already sorted by order from the grouped data
+            const options = equipments.map(eq => ({
+                ...eq,
+                label: eq.name,
+                value: isMultiSelect ? 
+                    (Array.isArray(selection) ? selection.includes(eq.id) : false) :
+                    selection === eq.id
+            }));
+
+            if (isMultiSelect) {
+                return (
+                    <CheckBoxField
+                        options={options}
+                        label={categoryDisplayName}
+                        required={isRequired}
+                        disabled={props?.disabled}
+                        onChange={(label, updatedOptions) => {
+                            const selectedIds = updatedOptions.filter(opt => opt.value).map(opt => opt.id);
+                            handleCategoryChange(categoryName, selectedIds);
+                        }}
+                    />
+                );
+            } else {
+                return (
+                    <RadioField
+                        options={options}
+                        label={categoryDisplayName}
+                        required={isRequired}
+                        disabled={props?.disabled}
+                        onChange={(label, updatedOptions) => {
+                            const selectedOption = updatedOptions.find(opt => opt.value);
+                            handleCategoryChange(categoryName, selectedOption?.id || null);
+                        }}
+                    />
+                );
+            }
+        }
+    }, [categorySelections, categoryTypes, handleCategoryChange, props?.disabled]);
+
+    const formatCategoryName = (categoryName) => {
+        return categoryName
+            .split('_')
+            .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+            .join(' ');
+    };
+
+    const getBinaryQuestionLabel = (categoryName) => {
+        // Generate question labels dynamically or use default patterns
+        const specialLabels = {
+            'ceiling_hoist': 'Will you be using our ceiling hoist?',
+            'slide_transfer_boards': 'Would you like to use a slide transfer board?',
+            'wheelchair_chargers': 'Do you require a wheelchair charger for this stay?',
+            'remote_room_openers': 'Do you need to be set up with a remote door opener (activated by a jelly bean switch) to access your room?',
+            'bed_controllers': 'Do you need to be set up with an accessible bed controller (activated by a jelly bean switch) to operate your adjustable bed?'
+        };
+        return specialLabels[categoryName] || `Would you like to use ${formatCategoryName(categoryName)}?`;
+    };
+
+    const getConfirmationQuestionLabel = (categoryName) => {
+        const specialLabels = {
+            'shower_commodes': 'Would you like to use one of our self-propelled or attendant-propelled Shower Commodes?',
+            'adaptive_bathroom_options': 'Would you like to use any of our adaptive bathroom options?'
+        };
+        return specialLabels[categoryName] || `Would you like to use ${formatCategoryName(categoryName)}?`;
     };
 
     const renderCategorySection = (categoryName, equipments) => {
@@ -729,112 +879,7 @@ const EquipmentField = (props) => {
         );
     };
 
-    const renderEquipmentSelection = (categoryName, equipments) => {
-        const hasImages = equipments.some(eq => eq.image_url);
-        const selection = categorySelections[categoryName];
-        const categoryType = categoryTypes[categoryName];
-        const isMultiSelect = categoryType === 'multi_select' || categoryType === 'confirmation_multi';
-        const categoryDisplayName = formatCategoryName(categoryName);
-        
-        const isRequired = isRequiredCategory(categoryName, categoryType) || 
-                          (categoryName === 'sling' && categorySelections['ceiling_hoist'] === 'yes');
-
-        if (hasImages) {
-            // Equipment is already sorted by order from the grouped data
-            const cards = equipments.map(eq => ({
-                value: eq.id,
-                label: eq.name,
-                description: eq.serial_number || 'No serial number',
-                imageUrl: eq.image_url
-            }));
-
-            return (
-                <div>
-                    <div className="mb-4">
-                        <label className="font-semibold form-label inline-block mb-1.5 text-slate-700">
-                            {categoryDisplayName}
-                            {isRequired && <span className="text-red-500 ml-1">*</span>}
-                        </label>
-                    </div>
-                    <HorizontalCardSelection
-                        items={cards}
-                        value={selection}
-                        onChange={(value) => handleCategoryChange(categoryName, value)}
-                        multi={isMultiSelect}
-                        required={isRequired}
-                        size="medium"
-                    />
-                </div>
-            );
-        } else {
-            // Use existing radio/checkbox fields for equipment without images
-            // Equipment is already sorted by order from the grouped data
-            const options = equipments.map(eq => ({
-                ...eq,
-                label: eq.name,
-                value: isMultiSelect ? 
-                    (Array.isArray(selection) ? selection.includes(eq.id) : false) :
-                    selection === eq.id
-            }));
-
-            if (isMultiSelect) {
-                return (
-                    <CheckBoxField
-                        options={options}
-                        label={categoryDisplayName}
-                        required={isRequired}
-                        disabled={props?.disabled}
-                        onChange={(label, updatedOptions) => {
-                            const selectedIds = updatedOptions.filter(opt => opt.value).map(opt => opt.id);
-                            handleCategoryChange(categoryName, selectedIds);
-                        }}
-                    />
-                );
-            } else {
-                return (
-                    <RadioField
-                        options={options}
-                        label={categoryDisplayName}
-                        required={isRequired}
-                        disabled={props?.disabled}
-                        onChange={(label, updatedOptions) => {
-                            const selectedOption = updatedOptions.find(opt => opt.value);
-                            handleCategoryChange(categoryName, selectedOption?.id || null);
-                        }}
-                    />
-                );
-            }
-        }
-    };
-
-    const formatCategoryName = (categoryName) => {
-        return categoryName
-            .split('_')
-            .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-            .join(' ');
-    };
-
-    const getBinaryQuestionLabel = (categoryName) => {
-        // Generate question labels dynamically or use default patterns
-        const specialLabels = {
-            'ceiling_hoist': 'Will you be using our ceiling hoist?',
-            'slide_transfer_boards': 'Would you like to use a slide transfer board?',
-            'wheelchair_chargers': 'Do you require a wheelchair charger for this stay?',
-            'remote_room_openers': 'Do you need to be set up with a remote door opener (activated by a jelly bean switch) to access your room?',
-            'bed_controllers': 'Do you need to be set up with an accessible bed controller (activated by a jelly bean switch) to operate your adjustable bed?'
-        };
-        return specialLabels[categoryName] || `Would you like to use ${formatCategoryName(categoryName)}?`;
-    };
-
-    const getConfirmationQuestionLabel = (categoryName) => {
-        const specialLabels = {
-            'shower_commodes': 'Would you like to use one of our self-propelled or attendant-propelled Shower Commodes?',
-            'adaptive_bathroom_options': 'Would you like to use any of our adaptive bathroom options?'
-        };
-        return specialLabels[categoryName] || `Would you like to use ${formatCategoryName(categoryName)}?`;
-    };
-
-    // NEW FUNCTION: Build ordered list of sections to render including conditional ones
+    // Build ordered list of sections to render including conditional ones
     const buildOrderedSections = () => {
         const sections = [];
         
@@ -998,6 +1043,8 @@ const EquipmentField = (props) => {
             )}
         </div>
     );
-};
+});
+
+EquipmentField.displayName = 'EquipmentField';
 
 export default EquipmentField;

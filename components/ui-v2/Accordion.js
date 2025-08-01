@@ -54,7 +54,10 @@ const AccordionItem = ({
   };
 
   return (
-    <div className="border-b border-gray-200 last:border-b-0">
+    <div 
+      id={`accordion-item-${index}`} 
+      className="border-b border-gray-200 last:border-b-0"
+    >
       {/* Header - No longer clickable */}
       <div className={`flex items-center justify-between py-6 px-8 ${isOpen ? 'bg-gray-50' : 'bg-white'} transition-colors`}>
         <div className="flex items-center space-x-4 flex-1">

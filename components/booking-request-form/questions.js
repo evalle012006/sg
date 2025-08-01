@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useSelector } from "react-redux";
 import { GetField } from "../fields/index";
 import { v4 as uuidv4 } from 'uuid';
@@ -21,6 +21,8 @@ const QuestionPage = ({
     const [updatedCurrentPage, setUpdatedCurrentPage] = useState();
     // Track user interaction per question
     const [questionInteractions, setQuestionInteractions] = useState({});
+    const updateTimeoutRef = useRef({});
+    const mountedRef = useRef(true);
 
     // NEW: Local state to track filter-affecting question answers for immediate updates
     const [localFilterState, setLocalFilterState] = useState({
@@ -40,10 +42,10 @@ const QuestionPage = ({
 
     const markQuestionAsInteracted = (secIdx, qIdx) => {
         const questionKey = `${secIdx}-${qIdx}`;
-        setQuestionInteractions(prev => ({
-            ...prev,
-            [questionKey]: true
-        }));
+        setQuestionInteractions(prev => {
+            if (prev[questionKey]) return prev;
+            return { ...prev, [questionKey]: true };
+        });
     };
 
     // NEW: Function to calculate filters based on current page answers
@@ -329,6 +331,15 @@ const QuestionPage = ({
         return () => clearTimeout(timer);
     }, [currentPage]);
 
+    useEffect(() => {
+        return () => {
+            mountedRef.current = false;
+            Object.values(updateTimeoutRef.current).forEach(timeout => {
+                if (timeout) clearTimeout(timeout);
+            });
+        };
+    }, []);
+
     const supportedQuestionTypes = [
         'url', 'rich-text', 'string', 'text', 'email', 'phone-number', 'select', 
         'multi-select', 'year', 'date', 'date-range', 'integer', 'number', 
@@ -536,7 +547,7 @@ const QuestionPage = ({
                                             const handleEquipmentFieldChange = (label, secIdx, qIdx, changes) => {
                                                 markQuestionAsInteracted(secIdx, qIdx);
                                                 updateSections(label, 'answer', secIdx, qIdx, changes);
-                                            }
+                                            };
 
                                             const handleGoalTableChange = (goalSelected, error, secIdx, qIdx) => {
                                                 markQuestionAsInteracted(secIdx, qIdx);
