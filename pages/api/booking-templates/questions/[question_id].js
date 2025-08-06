@@ -141,7 +141,7 @@ export default async function handler(req, res) {
                 const currentQuestion = await Question.findOne({ where: { id: question_id } });
                 const sectionId = updateData.section_id || currentQuestion?.section_id;
                 
-                if (sectionId) {
+                if (sectionId && currentQuestion.question_key == null) {
                     const newQuestionKey = await generateQuestionKey(updateData.question, sectionId, question_id);
                     if (newQuestionKey) {
                         updateData.question_key = newQuestionKey;

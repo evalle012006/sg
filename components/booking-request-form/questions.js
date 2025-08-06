@@ -931,7 +931,7 @@ const QuestionPage = ({
                                                     )}
                                                     {(q.type === 'radio' && !q.hidden) && (
                                                         <React.Fragment>
-                                                            <div className="flex flex-col w-full flex-1">
+                                                            <div className="flex flex-col w-full flex-1" id={q.id}>
                                                                 {q.label && <span className="font-bold text-sargood-blue text-xl mb-2">{q.label}</span>}
                                                                 <div className="text-xs flex flex-row">
                                                                     <span className="font-bold">{q.question}</span>
@@ -1151,7 +1151,6 @@ const QuestionPage = ({
                                                                     <span className="font-bold">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
                                                                 </div>
-                                                                {console.log(q.option_type, 'horizontal-card option_type')}
                                                                 <GetField 
                                                                     key={q.id} 
                                                                     type='horizontal-card' 

@@ -1,6 +1,7 @@
 import InputField from './input';
 import SelectField from './select';
 import DateField from './date';
+import DateRangeField from './dateRange';
 import FileUploadField from './fileUpload';
 import CheckBox from './checkbox';
 import RadioButton from './radioButton';
@@ -29,7 +30,7 @@ export const fields = {
     "multi-select": (props) => <SelectField {...props} multi={true} />,
     "select": (props) => <SelectField {...props} multi={false} />,
     "date": DateField,
-    "date-range": (props) => <DateField {...props} range={true} />,
+    "date-range": (props) => <DateRangeField {...props} />,
     "year": YearField,
     "checkbox": CheckBoxField,
     "checkbox-button": (props) => <CheckBoxField {...props} mode="button" />,

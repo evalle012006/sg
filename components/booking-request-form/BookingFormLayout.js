@@ -8,15 +8,15 @@ const Avatar = dynamic(() => import('../avatar'));
 const NotificationBell = dynamic(() => import('../notification-bell'));
 const Spinner = dynamic(() => import('../ui/spinner'));
 
-const BookingFormLayout = forwardRef(({ 
-    setBookingSubmittedState, 
+const BookingFormLayout = forwardRef(({
+    setBookingSubmittedState,
     children
 }, ref) => {
     const loading = useSelector(state => state.global.loading);
     const user = useSelector(state => state.user.user);
     const mainContentRef = useRef(null);
 
-    // Expose scroll function to parent components
+    // Expose scroll function and the actual ref to parent components
     useImperativeHandle(ref, () => ({
         scrollToTop: () => {
             if (mainContentRef.current) {
@@ -25,7 +25,9 @@ const BookingFormLayout = forwardRef(({
                     behavior: 'smooth'
                 });
             }
-        }
+        },
+        // ADDED: Expose the actual mainContentRef to parent
+        mainContentRef: mainContentRef.current
     }));
 
     return (
@@ -35,15 +37,15 @@ const BookingFormLayout = forwardRef(({
                 <div className="w-full flex items-center justify-between px-4">
                     <Link href="/">
                         <a>
-                            <img 
-                                src="/sargood-logo.svg" 
-                                alt="Sargood On Collaroy" 
+                            <img
+                                src="/sargood-logo.svg"
+                                alt="Sargood On Collaroy"
                                 className="h-14 w-auto max-w-full"
                                 style={{ maxHeight: '75px' }}
                             />
                         </a>
                     </Link>
-                    
+
                     <div className="flex items-center">
                         <div className="flex items-center">
                             <NotificationBell />
@@ -57,15 +59,15 @@ const BookingFormLayout = forwardRef(({
             <div className="hidden lg:flex items-center h-20 w-full justify-between px-6 shadow-sm bg-white z-10">
                 <Link href="/">
                     <a className="flex items-center">
-                        <img 
-                            src="/sargood-logo.svg" 
-                            alt="Sargood On Collaroy" 
+                        <img
+                            src="/sargood-logo.svg"
+                            alt="Sargood On Collaroy"
                             className="h-16 w-auto"
                             style={{ maxHeight: '75px' }}
                         />
                     </a>
                 </Link>
-                
+
                 <div className="flex items-center space-x-4">
                     <div className="flex items-center">
                         <NotificationBell />
@@ -81,14 +83,14 @@ const BookingFormLayout = forwardRef(({
                     <div className="hidden md:block w-96 lg:w-80 xl:w-72 flex-shrink-0">
                         <RequestFormSidebar setBookingSubmittedState={setBookingSubmittedState} />
                     </div>
-                    
+
                     {/* Main Content Area */}
                     <div className="flex-1 flex flex-col">
                         {/* Main Content */}
                         <main className='w-full flex-1'>
                             {children}
                         </main>
-                        
+
                         {loading && <Spinner small={true} />}
                     </div>
                 </div>

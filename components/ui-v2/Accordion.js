@@ -3,11 +3,11 @@ import { ChevronDown, ChevronRight, Check, AlertCircle } from 'lucide-react';
 import StatusBadge from './StatusBadge';
 import Button from './Button';
 
-const AccordionItem = ({ 
-  title, 
-  description, 
-  status, 
-  isOpen, 
+const AccordionItem = ({
+  title,
+  description,
+  status,
+  isOpen,
   customContent,
   index,
   totalItems,
@@ -54,8 +54,8 @@ const AccordionItem = ({
   };
 
   return (
-    <div 
-      id={`accordion-item-${index}`} 
+    <div
+      id={`accordion-item-${index}`}
       className="border-b border-gray-200 last:border-b-0"
     >
       {/* Header - No longer clickable */}
@@ -64,7 +64,7 @@ const AccordionItem = ({
           <div className="flex-1">
             <div className="flex items-center space-x-3 mb-1">
               <h3 className="font-semibold text-gray-800 text-lg">{title}</h3>
-              <StatusBadge 
+              <StatusBadge
                 type={getStatusBadgeType()}
                 label={getStatusBadgeLabel()}
                 size="small"
@@ -79,7 +79,7 @@ const AccordionItem = ({
           {isOpen ? <ChevronDown size={20} /> : <ChevronRight size={20} />}
         </div>
       </div>
-      
+
       {/* Content Area - Only shown when open */}
       {isOpen && (
         <div className="bg-white">
@@ -93,7 +93,7 @@ const AccordionItem = ({
               </div>
             )}
           </div>
-          
+
           {/* Navigation Footer - Right aligned buttons only */}
           <div className="px-8 py-4 bg-white border-t border-gray-200 flex items-center justify-end">
             <div className="flex items-center space-x-3">
@@ -141,8 +141,8 @@ const AccordionItem = ({
   );
 };
 
-const Accordion = ({ 
-  items = [], 
+const Accordion = ({
+  items = [],
   defaultOpenIndex = null,
   className = "",
   allowMultiple = false,
@@ -189,7 +189,7 @@ const Accordion = ({
     <div className={`w-full h-full ${className}`}>
       <div className="bg-white h-full">
         {items.map((item, index) => (
-          <AccordionItem 
+          <AccordionItem
             key={index}
             title={item.title}
             description={item.description}
