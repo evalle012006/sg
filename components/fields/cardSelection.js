@@ -17,6 +17,9 @@ const CardSelection = ({
   updateOptionLabel,
   handleRemoveOption,
   onImageUpload,
+  guestId = null,        // Guest ID for fetching course offers
+  bookingId = null,      // Booking ID as fallback
+  currentUser = null,    // Current user as fallback
   ...restProps
 }) => {
   const [dynamicItems, setDynamicItems] = useState(items);
@@ -26,6 +29,20 @@ const CardSelection = ({
   
   // Track if this component instance has been initialized
   const [initialized, setInitialized] = useState(false);
+
+  const getGuestId = () => {
+    // Priority: explicit guestId prop > bookingId > currentUser.id
+    if (guestId) {
+      return guestId;
+    }
+    if (bookingId) {
+      return bookingId;
+    }
+    if (currentUser?.id) {
+      return currentUser.id;
+    }
+    return null;
+  };
 
   // Size configurations
   const sizeConfig = {
@@ -66,10 +83,9 @@ const CardSelection = ({
     return label.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
   };
 
-  // ENHANCED: Fetch active courses from API with better error handling
   const fetchActiveCourses = async () => {
     // If already fetching or fetched, don't fetch again
-    if (coursesFetching || coursesFetched) {
+    if (coursesFetching) {
       if (globalCoursesData) {
         return globalCoursesData;
       }
@@ -80,34 +96,84 @@ const CardSelection = ({
       coursesFetching = true;
       setCoursesLoading(true);
       
-      console.log('🔄 Fetching courses from API...');
-      const response = await fetch('/api/courses?active=true');
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+      let apiUrl;
+      let courses = [];
+
+      if (builderMode) {
+        // Builder mode: Fetch all active courses (current behavior)
+        console.log('🔄 [Builder Mode] Fetching all active courses from API...');
+        apiUrl = '/api/courses?active=true';
+        
+        const response = await fetch(apiUrl);
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        if (data.success && Array.isArray(data.courses)) {
+          courses = data.courses.map(course => ({
+            label: course.title || 'Untitled Course',
+            value: course.id?.toString() || generateValueFromLabel(course.title || 'untitled-course'),
+            description: course.description || '',
+            imageFilename: course.image_filename || null,
+            imageUrl: course.imageUrl || null
+          }));
+        }
+      } else {
+        // Guest mode: Fetch only offered courses for this guest
+        const currentGuestId = getGuestId();
+        
+        if (!currentGuestId) {
+          console.warn('⚠️ No guest ID available for fetching course offers');
+          return [];
+        }
+
+        console.log('🔄 [Guest Mode] Fetching offered courses for guest:', currentGuestId);
+        apiUrl = `/api/guests/${currentGuestId}/course-offers`;
+        
+        const response = await fetch(apiUrl);
+        
+        if (!response.ok) {
+          if (response.status === 404) {
+            console.log('📭 No course offers found for guest:', currentGuestId);
+            return [];
+          }
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        if (data.success && Array.isArray(data.courseOffers)) {
+          courses = data.courseOffers.map(offer => ({
+            label: offer.courseName || 'Untitled Course',
+            value: offer.courseId?.toString() || offer.id?.toString(),
+            description: offer.courseDescription || '',
+            imageFilename: null, // Course offers don't typically have images
+            imageUrl: null,
+            // Add additional info from course offer
+            offerStatus: offer.offerStatus,
+            minStartDate: offer.minStartDate,
+            minEndDate: offer.minEndDate
+          }));
+          
+          console.log('✅ Found course offers:', courses.length);
+        } else {
+          console.log('📭 No course offers in response');
+        }
       }
       
-      const data = await response.json();
-      
-      if (data.success && Array.isArray(data.courses)) {
-        const courses = data.courses.map(course => ({
-          label: course.title || 'Untitled Course',
-          value: generateValueFromLabel(course.title || 'untitled-course'),
-          description: course.description || '',
-          imageFilename: course.image_filename || null,
-          imageUrl: course.imageUrl || null
-        }));
-        
-        // Store globally
+      // Store globally only if we have courses
+      if (courses.length > 0) {
         globalCoursesData = courses;
         coursesFetched = true;
-        
-        console.log('✅ Courses fetched successfully:', courses.length, 'courses');
-        return courses;
+        console.log(`✅ Courses fetched successfully: ${courses.length} courses (${builderMode ? 'all active' : 'offered only'})`);
       } else {
-        console.warn('❌ Invalid response format from courses API:', data);
-        return [];
+        console.log(`📭 No courses available (${builderMode ? 'no active courses' : 'no course offers'})`);
       }
+      
+      return courses;
     } catch (error) {
       console.error('❌ Error fetching courses:', error);
       return [];
@@ -116,7 +182,6 @@ const CardSelection = ({
       setCoursesLoading(false);
     }
   };
-
   // ENHANCED: One-time initialization effect - ALWAYS fetch courses for course type
   useEffect(() => {
     if (initialized) return;
@@ -654,9 +719,22 @@ const CardSelection = ({
 
       {displayItems.length === 0 && !coursesLoading && !coursesFetching && (
         <div className="text-center py-8 text-gray-500">
-          <p>No {optionType === 'course' ? 'courses' : 'options'} available</p>
+          <p>
+            {optionType === 'course' 
+              ? (builderMode 
+                  ? 'No active courses available' 
+                  : 'No course offers available for this guest'
+                )
+              : 'No options available'
+            }
+          </p>
           {optionType === 'course' && (
-            <p className="text-sm mt-2">Make sure there are active courses in the system.</p>
+            <p className="text-sm mt-2">
+              {builderMode 
+                ? 'Make sure there are active courses in the system.'
+                : 'Course offers are managed by administrators and will appear here when available.'
+              }
+            </p>
           )}
         </div>
       )}

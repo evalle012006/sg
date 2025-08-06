@@ -97,9 +97,10 @@ const QUESTION_KEYS = {
     DO_YOU_LIVE_IN_SIL: 'do-you-live-in-supported-independent-living-sil',
     ARE_YOU_STAYING_WITH_INFORMAL_SUPPORTS: 'are-you-staying-with-any-informal-supports',
     
-    // NEW: Additional NDIS package type determination questions
     IS_STA_STATED_SUPPORT_IN_PLAN: 'is-short-term-accommodation-including-respite-a-stated-support-in-your-plan',
     ARE_YOU_TRAVELLING_WITH_INFORMAL_SUPPORTS: 'are-you-travelling-with-any-informal-supports',
+
+    COURSE_OFFER_QUESTION: ['have-you-been-offered-a-place-in-a-course-for-this-stay'],
 };
 
 /**

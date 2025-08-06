@@ -12,10 +12,10 @@ const QuestionPage = ({
     guest, 
     updateEquipmentData, 
     equipmentChanges,
-    // NEW: Filter props for package selection
     funderType = null,
     ndisPackageType = null,
-    additionalFilters = {}
+    additionalFilters = {},
+    updateAndDispatchPageDataImmediate
 }) => {
     const dispatch = useDispatch();
     const [updatedCurrentPage, setUpdatedCurrentPage] = useState();
@@ -24,14 +24,12 @@ const QuestionPage = ({
     const updateTimeoutRef = useRef({});
     const mountedRef = useRef(true);
 
-    // NEW: Local state to track filter-affecting question answers for immediate updates
     const [localFilterState, setLocalFilterState] = useState({
         funderType: funderType,
         ndisPackageType: ndisPackageType,
         additionalFilters: additionalFilters
     });
 
-    // NEW: Update local filter state when props change
     useEffect(() => {
         setLocalFilterState({
             funderType: funderType,
@@ -122,6 +120,7 @@ const QuestionPage = ({
     const updateSections = (value, field, secIdx, qIdx, equipments = [], error = false) => {
         const currentValue = currentPage.Sections[secIdx]?.Questions[qIdx]?.[field];
         const currentError = currentPage.Sections[secIdx]?.Questions[qIdx]?.error;
+        const question = currentPage.Sections[secIdx]?.Questions[qIdx];
         
         const isSameValue = 
             (currentValue === value) || 
@@ -129,9 +128,34 @@ const QuestionPage = ({
         
         const isSameError = currentError === error;
         
-        // If both value and error are the same, and no equipment changes, don't update
-        if (isSameValue && isSameError && !equipments.length) {
+        const affectsOtherQuestions = () => {
+            if (!question) return false;
+            
+            // Check if any other questions depend on this question
+            const questionId = question.question_id || question.id;
+            const questionKey = question.question_key;
+            
+            // Search through all pages to see if any questions depend on this one
+            return currentPage.Sections?.some(section =>
+                section.Questions?.some(otherQuestion =>
+                    otherQuestion.QuestionDependencies?.some(dep =>
+                        dep.dependence_id === questionId ||
+                        dep.dependence_id === question.id ||
+                        dep.dependence_id === questionKey
+                    )
+                )
+            );
+        };
+        
+        // FIXED: Don't skip update if this question affects dependencies, even if value seems same
+        if (isSameValue && isSameError && !equipments.length && !affectsOtherQuestions()) {
+            console.log(`⏭️ Skipping update - same value and no dependency impact for question: ${question?.question}`);
             return;
+        }
+
+        // ENHANCED: Log when we're updating a question that affects dependencies
+        if (affectsOtherQuestions()) {
+            console.log(`🔗 Updating question with dependencies: "${question?.question}" from "${currentValue}" to "${value}"`);
         }
     
         let list = currentPage.Sections.map((section, index) => {
@@ -279,15 +303,65 @@ const QuestionPage = ({
         
         const updatedPageData = { ...currentPage, Sections: list, dirty: true };
         
-        // NEW: Calculate filters for this page update and update local state
+        // Calculate filters for this page update and update local state
         const newFilters = calculateLocalFilters(updatedPageData);
         if (JSON.stringify(newFilters) !== JSON.stringify(localFilterState)) {
             console.log('🔄 Question answered, updating local filters:', newFilters);
             setLocalFilterState(newFilters);
         }
-    
+
         setUpdatedCurrentPage(updatedPageData);
+        
+        // ENHANCED: Force immediate dependency refresh for questions that affect other questions
+        if (affectsOtherQuestions()) {
+            console.log('🔄 Question affects dependencies, forcing immediate update');
+            // Clear any pending timeouts and force immediate update
+            Object.values(updateTimeoutRef.current).forEach(timeout => {
+                if (timeout) clearTimeout(timeout);
+            });
+            
+            // Use a very short timeout to allow React to process the state update
+            setTimeout(() => {
+                updatePageData(updatedPageData.Sections, currentPage.id);
+            }, 10);
+        }
     }
+
+    useEffect(() => {
+        if (updatedCurrentPage && updatedCurrentPage.dirty) {
+            // Check if this update involves questions with dependencies
+            const hasDependencyQuestions = updatedCurrentPage.Sections?.some(section =>
+                section.Questions?.some(question => {
+                    // Check if this question has dependencies OR affects other questions
+                    const hasDependencies = question.QuestionDependencies && question.QuestionDependencies.length > 0;
+                    const questionId = question.question_id || question.id;
+                    const questionKey = question.question_key;
+                    
+                    // Check if any other question depends on this one
+                    const affectsOthers = updatedCurrentPage.Sections?.some(otherSection =>
+                        otherSection.Questions?.some(otherQuestion =>
+                            otherQuestion.QuestionDependencies?.some(dep =>
+                                dep.dependence_id === questionId ||
+                                dep.dependence_id === question.id ||
+                                dep.dependence_id === questionKey
+                            )
+                        )
+                    );
+                    
+                    return hasDependencies || affectsOthers;
+                })
+            );
+            
+            if (hasDependencyQuestions) {
+                console.log('🔗 Update involves dependency questions, ensuring immediate processing');
+                // Use immediate update for dependency-related changes
+                updateAndDispatchPageDataImmediate?.(updatedCurrentPage.Sections, currentPage.id) || updatePageData(updatedCurrentPage.Sections);
+            } else {
+                updatePageData(updatedCurrentPage.Sections);
+            }
+        }
+    }, [updatedCurrentPage]);
+
 
     useEffect(() => {
         if (updatedCurrentPage && updatedCurrentPage.dirty) {
@@ -383,7 +457,39 @@ const QuestionPage = ({
                                 <div key={idx} className={`flex flex-col ${s.hidden && 'hidden'}`}>
                                     <div className={`${sec_css} p-2 mb-6 w-full`}>
                                         {s.Questions && s.Questions
-                                            .filter(question => supportedQuestionTypes.includes(question.type) && question.question && question.question.trim() !== '')
+                                            .filter(question => {
+                                                // Must be a supported question type
+                                                if (!supportedQuestionTypes.includes(question.type)) {
+                                                    return false;
+                                                }
+                                                
+                                                // For questions with question text, it must not be empty
+                                                if (question.question && question.question.trim() !== '') {
+                                                    return true;
+                                                }
+                                                
+                                                // For questions without question text, check if they have other content
+                                                // This handles cases like checkbox questions where the text is in the options
+                                                if (!question.question || question.question.trim() === '') {
+                                                    // Allow questions that have options with labels (like checkboxes)
+                                                    if (question.options && question.options.length > 0) {
+                                                        return question.options.some(option => option.label && option.label.trim() !== '');
+                                                    }
+                                                    
+                                                    // Allow questions that have a label
+                                                    if (question.label && question.label.trim() !== '') {
+                                                        return true;
+                                                    }
+                                                    
+                                                    // Allow specific question types that might not need question text
+                                                    const questionsTypesWithoutText = ['simple-checkbox', 'checkbox'];
+                                                    if (questionsTypesWithoutText.includes(question.type)) {
+                                                        return true;
+                                                    }
+                                                }
+                                                
+                                                return false;
+                                            })
                                             .map((question, index) => {
                                             let q = { ...question };
                                             const options = typeof q.options === 'string' ? JSON.parse(q.options) : q.options;
@@ -1112,6 +1218,9 @@ const QuestionPage = ({
                                                                     required={q.required ? true : false} 
                                                                     size={q.size || 'medium'}
                                                                     option_type={q.option_type}
+                                                                    guestId={guest?.id}
+                                                                    bookingId={guest?.id} // fallback
+                                                                    currentUser={guest} // fallback
                                                                     onChange={(value) => handleCardSelectionFieldChange(value, idx, index)} 
                                                                 />
                                                             </div>
@@ -1137,6 +1246,9 @@ const QuestionPage = ({
                                                                     required={q.required ? true : false} 
                                                                     size={q.size || 'medium'}
                                                                     option_type={q.option_type}
+                                                                    guestId={guest?.id}
+                                                                    bookingId={guest?.id} // fallback
+                                                                    currentUser={guest} // fallback
                                                                     onChange={(value) => handleCardSelectionFieldChange(value, idx, index)} 
                                                                 />
                                                             </div>
@@ -1161,6 +1273,9 @@ const QuestionPage = ({
                                                                     required={q.required ? true : false} 
                                                                     size={q.size || 'medium'}
                                                                     option_type={q.option_type}
+                                                                    guestId={guest?.id}
+                                                                    bookingId={guest?.id} // fallback
+                                                                    currentUser={guest} // fallback
                                                                     onChange={(value) => handleCardSelectionFieldChange(value, idx, index)} 
                                                                 />
                                                             </div>
@@ -1186,6 +1301,9 @@ const QuestionPage = ({
                                                                     required={q.required ? true : false} 
                                                                     size={q.size || 'medium'}
                                                                     option_type={q.option_type}
+                                                                    guestId={guest?.id}
+                                                                    bookingId={guest?.id} // fallback
+                                                                    currentUser={guest} // fallback
                                                                     onChange={(value) => handleCardSelectionFieldChange(value, idx, index)} 
                                                                 />
                                                             </div>

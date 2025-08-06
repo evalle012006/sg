@@ -199,8 +199,6 @@ export default function FieldBuilder(props) {
         }
     }
 
-    // REMOVED: updateFunder and updateNdisPackageType functions since they won't be used in builder mode
-
     const updateOptionLabel = async (e, selected, type) => {
         e.stopPropagation();
         let updatedOptions = [];
@@ -222,14 +220,18 @@ export default function FieldBuilder(props) {
                 return opt;
             });
         } else {
-            // Handle regular options updates
+            // Handle regular options updates (radio, checkbox, etc.)
             updatedOptions = question.options.map((option, index) => {
                 let opt = { ...option };
 
                 if (index === selected.index) {
-                    if (selected.field === 'label') {
+                    if (selected.field === 'label' || !selected.field) {
+                        // If field is 'label' or undefined, update the label
                         opt.label = selected.label;
-                    } else {
+                        // For consistency, also update the value to match the label
+                        opt.value = selected.label;
+                    } else if (selected.field === 'value') {
+                        // If explicitly updating value
                         opt.value = selected.label;
                     }
                 }
@@ -281,30 +283,110 @@ export default function FieldBuilder(props) {
         }
     }
 
-    const handleRemoveOption = async (e, selected) => {
+    const handleRemoveOption = async (e, selected, fieldType) => {
         e.stopPropagation();
-        const updatedOptions = question.options.filter((option, index) => index !== selected.index);
-        setOptionSyncStatus(false);
-        setQuestion({ ...question, options: updatedOptions });
+        
+        // Handle both old format (direct index) and new format (object with index)
+        const indexToRemove = typeof selected === 'object' && selected.hasOwnProperty('index') 
+            ? selected.index 
+            : selected;
+        
+        const updatedOptions = question.options.filter((option, index) => index !== indexToRemove);
+        const updatedQuestion = { ...question, options: updatedOptions };
+        
+        // Update local state
+        setQuestion(updatedQuestion);
+        
+        // Set sync status to true to prevent useEffect from triggering another save
+        setOptionSyncStatus(true);
+
+        // Immediately update the backend
+        try {
+            const response = await fetch('/api/booking-templates/questions/' + question.id, {
+                method: 'POST',
+                body: JSON.stringify(updatedQuestion),
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (response.status === 200) {
+                // Update Redux state to reflect the changes
+                dispatch(fetchTemplate(template_uuid));
+                console.log('Option removed and synced to backend successfully');
+            } else {
+                console.error('Failed to sync option removal to backend');
+                // Reset sync status on error so useEffect can handle retry if needed
+                setOptionSyncStatus(false);
+            }
+        } catch (error) {
+            console.error('Error syncing option removal to backend:', error);
+            // Reset sync status on error so useEffect can handle retry if needed
+            setOptionSyncStatus(false);
+        }
     }
 
-    const addOption = () => {
+    const addOption = async () => {
         const currentOptions = typeof question.options === 'string' ? 
             JSON.parse(question.options) : question.options;
         
-        // Create enhanced option structure for card selection fields
-        const newOptionToAdd = cardSelectionFields.includes(question.type) 
-            ? {
+        // Create appropriate option structure based on field type
+        let newOptionToAdd;
+        
+        if (cardSelectionFields.includes(question.type)) {
+            // Enhanced option structure for card selection fields
+            newOptionToAdd = {
                 label: newOption.label,
                 value: newOption.value || newOption.label.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''),
                 description: "",
                 imageUrl: null,
                 imageFilename: null
-            }
-            : newOption;
+            };
+        } else {
+            // Regular option structure for radio, checkbox, etc. with value set to false
+            newOptionToAdd = {
+                label: newOption.label,
+                value: false // Set to false for radio buttons, checkboxes, etc.
+            };
+        }
 
-        setQuestion({ ...question, options: [...currentOptions, newOptionToAdd] });
+        // Create the updated question object
+        const updatedQuestion = { 
+            ...question, 
+            options: [...currentOptions, newOptionToAdd] 
+        };
+
+        // Update local state
+        setQuestion(updatedQuestion);
         setNewOption({ label: "", value: "" });
+
+        // Set optionSyncStatus to true to prevent the useEffect from triggering another save
+        setOptionSyncStatus(true);
+
+        // Immediately update the backend
+        try {
+            const response = await fetch('/api/booking-templates/questions/' + question.id, {
+                method: 'POST',
+                body: JSON.stringify(updatedQuestion),
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (response.status === 200) {
+                // Update Redux state to reflect the changes
+                dispatch(fetchTemplate(template_uuid));
+                console.log('Option added and synced to backend successfully');
+            } else {
+                console.error('Failed to sync option to backend');
+                // Reset sync status on error so useEffect can handle retry if needed
+                setOptionSyncStatus(false);
+            }
+        } catch (error) {
+            console.error('Error syncing option to backend:', error);
+            // Reset sync status on error so useEffect can handle retry if needed
+            setOptionSyncStatus(false);
+        }
     }
 
     useEffect(() => {
@@ -575,14 +657,6 @@ export default function FieldBuilder(props) {
                                 placeholder="Option label" 
                                 value={newOption.label} 
                                 onChange={(e) => setNewOption({ ...newOption, label: e.target.value })} 
-                            />
-                            <input 
-                                className="p-1 px-2 block text-base font-normal text-gray-700 bg-white bg-clip-padding border-b border-gray-400 
-                                    shadow-sm transition ease-in-out focus:text-gray-700 focus:bg-white focus:outline-none disabled:opacity-80 
-                                    focus:border-slate-400" 
-                                placeholder="Option value" 
-                                value={newOption.value} 
-                                onChange={(e) => setNewOption({ ...newOption, value: e.target.value })} 
                             />
                             <button 
                                 className="bg-sargood-blue text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-blue-700 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"

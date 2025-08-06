@@ -129,8 +129,6 @@ export const shouldMoveQuestionToNdisPage = (question, isNdisFunded) => {
 export const postProcessPagesForNdis = (pages, isNdisFunded, calculatePageCompletion) => {
     if (!isNdisFunded) return pages;
     
-    console.log('🔄 Post-processing pages for NDIS...');
-    
     const ndisQuestions = [];
     const filteredPages = [];
     let movedQuestionsCount = 0;
@@ -161,7 +159,6 @@ export const postProcessPagesForNdis = (pages, isNdisFunded, calculatePageComple
             section.Questions?.forEach(question => {
                 if (shouldMoveQuestionToNdisPage(question, isNdisFunded)) {
                     movedQuestionsCount++;
-                    console.log(`📦 Moving NDIS question to NDIS page: "${question.question}"`);
                     
                     // Create section for NDIS page
                     const ndisSection = {
@@ -182,7 +179,6 @@ export const postProcessPagesForNdis = (pages, isNdisFunded, calculatePageComple
                 const question = qaPair.Question;
                 if (question && shouldMoveQuestionToNdisPage(question, isNdisFunded)) {
                     movedQuestionsCount++;
-                    console.log(`📦 Moving NDIS QaPair to NDIS page: "${question.question}"`);
                     
                     // Find or create section for NDIS page
                     let ndisSection = ndisQuestions.find(ns => ns.id === section.id);
@@ -231,10 +227,8 @@ export const postProcessPagesForNdis = (pages, isNdisFunded, calculatePageComple
         // IMPORTANT: Preserve completion status if page was already completed
         if (page.completed) {
             filteredPage.completed = true;
-            console.log(`✅ Preserving completion status for page: "${page.title}"`);
         } else {
             filteredPage.completed = calculatePageCompletion(filteredPage);
-            console.log(`📊 Calculated completion for page "${page.title}": ${filteredPage.completed}`);
         }
         
         filteredPages.push(filteredPage);
@@ -262,7 +256,6 @@ export const postProcessPagesForNdis = (pages, isNdisFunded, calculatePageComple
         
         // Calculate completion for NDIS page
         ndisPage.completed = calculatePageCompletion(ndisPage);
-        console.log(`📊 NDIS page completion: ${ndisPage.completed}`);
         
         // Insert NDIS page after funding page
         filteredPages.splice(fundingPageIndex + 1, 0, ndisPage);
@@ -273,8 +266,6 @@ export const postProcessPagesForNdis = (pages, isNdisFunded, calculatePageComple
             page.hasBack = index > 0;
             page.lastPage = index === filteredPages.length - 1;
         });
-        
-        console.log(`✅ Created NDIS page with ${movedQuestionsCount} questions`);
     }
     
     return filteredPages;
@@ -320,12 +311,6 @@ export const analyzeNdisProcessingNeeds = (formData, isNdisFunded) => {
  * @returns {Array} - Processed form data
  */
 export const processFormDataForNdisPackages = (formData, isNdisFunded, calculatePageCompletion, applyQuestionDependenciesAcrossPages) => {
-    console.log('🔍 Processing form data for NDIS packages...', { 
-        isNdisFunded, 
-        dataLength: formData.length,
-        formDataPages: formData.map(p => p.title)
-    });
-
     // Find the funding page index
     let fundingPageIndex = -1;
     let fundingQuestionFound = false;
@@ -339,12 +324,6 @@ export const processFormDataForNdisPackages = (formData, isNdisFunded, calculate
                     fundingPageIndex = i;
                     fundingQuestionFound = true;
                     currentFundingAnswer = question.answer;
-                    console.log('📍 Found funding question:', {
-                        page: page.title,
-                        question: question.question,
-                        answer: question.answer,
-                        pageIndex: i
-                    });
                     break;
                 }
             }
@@ -353,15 +332,7 @@ export const processFormDataForNdisPackages = (formData, isNdisFunded, calculate
         if (fundingQuestionFound) break;
     }
 
-    console.log('📍 Funding page analysis:', { 
-        fundingPageIndex, 
-        fundingQuestionFound, 
-        currentFundingAnswer,
-        isNdisFunded 
-    });
-
     if (fundingPageIndex === -1) {
-        console.log('❌ No funding page found, returning original data');
         return formData;
     }
 
@@ -369,27 +340,16 @@ export const processFormDataForNdisPackages = (formData, isNdisFunded, calculate
     const ndisPageExists = formData.some(page => page.id === 'ndis_packages_page');
     const existingNdisPageIndex = formData.findIndex(page => page.id === 'ndis_packages_page');
 
-    console.log('📊 NDIS page status:', { 
-        ndisPageExists, 
-        existingNdisPageIndex,
-        isNdisFunded,
-        shouldHaveNdisPage: isNdisFunded
-    });
-
     if (ndisPageExists && !isNdisFunded) {
         // Remove NDIS page if funding is not NDIS
-        console.log('🗑️ Removing NDIS packages page - funding not NDIS');
         return formData.filter(page => page.id !== 'ndis_packages_page');
     } else if (ndisPageExists && isNdisFunded) {
         // NDIS page already exists and funding is NDIS, preserve it but apply dependencies
-        console.log('✅ NDIS packages page already exists, preserving with dependencies');
-        
         const updatedFormData = formData.map(page => {
             if (page.id === 'ndis_packages_page') {
                 // Apply dependencies to existing NDIS page
                 const pageWithDependencies = applyQuestionDependenciesAcrossPages(page, formData);
                 pageWithDependencies.completed = calculatePageCompletion(pageWithDependencies);
-                console.log(`✅ Existing NDIS page completion status: ${pageWithDependencies.completed}`);
                 
                 return pageWithDependencies;
             }
@@ -400,11 +360,8 @@ export const processFormDataForNdisPackages = (formData, isNdisFunded, calculate
 
     // Only create NDIS page if NDIS is funded
     if (!isNdisFunded) {
-        console.log('❌ Not NDIS funded, returning original data without modifications');
         return formData;
     }
-
-    console.log('🔄 Creating new NDIS page...');
 
     // ENHANCED: Collect all NDIS-only questions from all pages with improved deduplication
     const ndisQuestions = [];
@@ -455,29 +412,15 @@ export const processFormDataForNdisPackages = (formData, isNdisFunded, calculate
                 }
             });
 
-            console.log(`🔍 Section "${section.label}" NDIS questions found:`, allNdisQuestions.size);
-
             // STEP 2: Move NDIS questions to NDIS page (deduplicated)
             allNdisQuestions.forEach((ndisQuestionInfo, questionKey) => {
                 // Skip if already processed globally (avoid cross-section duplicates)
                 if (processedQuestionKeys.has(questionKey)) {
-                    console.log(`⏭️ Skipping already processed question: "${ndisQuestionInfo.question.question}"`);
                     return;
                 }
 
                 processedQuestionKeys.add(questionKey);
                 movedQuestionsCount++;
-
-                console.log(`📦 Moving NDIS question to NDIS page:`, {
-                    fromPage: page.title,
-                    fromSection: section.label || section.id,
-                    question: ndisQuestionInfo.question.question,
-                    type: ndisQuestionInfo.question.type,
-                    source: ndisQuestionInfo.source,
-                    hasAnswer: ndisQuestionInfo.hasAnswer,
-                    answer: ndisQuestionInfo.answer,
-                    questionKey: ndisQuestionInfo.question.question_key
-                });
 
                 // Create question object for NDIS page
                 const ndisQuestion = {
@@ -559,12 +502,6 @@ export const processFormDataForNdisPackages = (formData, isNdisFunded, calculate
         });
     });
 
-    console.log(`📊 NDIS questions processing summary:`, {
-        movedQuestionsCount,
-        ndisQuestionsLength: ndisQuestions.length,
-        shouldCreateNdisPage: ndisQuestions.length > 0
-    });
-
     // Create NDIS Packages page if we have NDIS questions
     if (ndisQuestions.length > 0) {
         const ndisPage = {
@@ -585,30 +522,16 @@ export const processFormDataForNdisPackages = (formData, isNdisFunded, calculate
             template_id: formData[0]?.template_id || null
         };
 
-        console.log(`✅ Created NDIS page with ${ndisPage.noItems} questions:`, {
-            title: ndisPage.title,
-            sectionsCount: ndisPage.Sections.length,
-            questions: ndisPage.Sections.map(s => s.Questions.map(q => ({
-                question: q.question,
-                type: q.type,
-                answer: q.answer,
-                fromQa: q.fromQa,
-                hasDependencies: q.QuestionDependencies?.length > 0
-            }))).flat()
-        });
-
         // Insert NDIS page after funding page
         const newFormData = [...updatedPages];
         newFormData.splice(fundingPageIndex + 1, 0, ndisPage);
 
         // ENHANCED: Apply dependencies to ALL pages including NDIS page
-        console.log('🔗 Applying dependencies to all pages including NDIS page...');
         const finalFormData = newFormData.map(page => {
             const pageWithDependencies = applyQuestionDependenciesAcrossPages(page, newFormData);
             
             // Calculate completion status for each page
             pageWithDependencies.completed = calculatePageCompletion(pageWithDependencies);
-            console.log(`📊 Page "${page.title}" completion status: ${pageWithDependencies.completed}`);
             
             return pageWithDependencies;
         });
@@ -620,15 +543,8 @@ export const processFormDataForNdisPackages = (formData, isNdisFunded, calculate
             page.lastPage = index === finalFormData.length - 1;
         });
 
-        console.log(`✅ Final form structure:`, {
-            totalPages: finalFormData.length,
-            pageOrder: finalFormData.map((p, i) => `${i}: ${p.title} (${p.id})`),
-            ndisPagePosition: fundingPageIndex + 1
-        });
-
         return finalFormData;
     } else {
-        console.log('⚠️ No NDIS questions found to move, returning updated pages without NDIS page');
         return updatedPages;
     }
 };
@@ -641,46 +557,9 @@ export const processFormDataForNdisPackages = (formData, isNdisFunded, calculate
  * @returns {Array} - Updated pages with dependencies applied
  */
 export const forceRefreshDependencies = (allPages, changedPageId, changedQuestions = []) => {
-    console.log(`🔄 Force refreshing dependencies due to changes on page: ${changedPageId}`);
-    
-    if (changedQuestions.length > 0) {
-        console.log('🔍 Changed questions:', changedQuestions.map(q => ({
-            question: q.question,
-            questionKey: q.question_key,
-            newAnswer: q.answer,
-            ndisOnly: q.ndis_only
-        })));
-    }
-    
     // Create a fresh copy of all pages and apply dependencies
     const updatedPages = allPages.map(page => {
         const pageWithDependencies = applyQuestionDependenciesAcrossPages(page, allPages);
-        
-        // Log dependency changes for debugging
-        if (page.id !== changedPageId) {
-            const changesDetected = page.Sections?.some(section =>
-                section.Questions?.some((originalQuestion, qIndex) => {
-                    const updatedQuestion = pageWithDependencies.Sections
-                        ?.find(s => s.id === section.id)
-                        ?.Questions?.[qIndex];
-                    
-                    if (updatedQuestion && originalQuestion.hidden !== updatedQuestion.hidden) {
-                        console.log(`🔄 Dependency change detected on "${page.title}":`, {
-                            question: originalQuestion.question,
-                            wasHidden: originalQuestion.hidden,
-                            nowHidden: updatedQuestion.hidden,
-                            changedBy: changedPageId
-                        });
-                        return true;
-                    }
-                    return false;
-                })
-            );
-            
-            if (changesDetected) {
-                console.log(`✅ Dependencies updated for page: "${page.title}"`);
-            }
-        }
         
         return pageWithDependencies;
     });
@@ -696,8 +575,6 @@ export const forceRefreshDependencies = (allPages, changedPageId, changedQuestio
  */
 export const applyQuestionDependenciesAcrossPages = (targetPage, allPages) => {
     if (!targetPage || !targetPage.Sections || !allPages) return targetPage;
-
-    console.log(`🔗 Applying dependencies for page: "${targetPage.title}"`);
 
     // Helper function to check if answers match
     const checkAnswerMatch = (actualAnswer, expectedAnswer) => {
@@ -737,14 +614,6 @@ export const applyQuestionDependenciesAcrossPages = (targetPage, allPages) => {
             if (q.QuestionDependencies && q.QuestionDependencies.length > 0) {
                 let shouldShow = false;
 
-                console.log(`🔍 Processing dependencies for question: "${q.question}" (${q.question_key})`, {
-                    onPage: targetPage.title,
-                    dependencies: q.QuestionDependencies.map(dep => ({
-                        dependence_id: dep.dependence_id,
-                        answer: dep.answer
-                    }))
-                });
-
                 // Check each dependency
                 q.QuestionDependencies.forEach(dependency => {
                     let dependencyMet = false;
@@ -777,19 +646,6 @@ export const applyQuestionDependenciesAcrossPages = (targetPage, allPages) => {
 
                                         if (questionMatches) {
                                             const answerMatches = checkAnswerMatch(searchQuestion.answer, dependency.answer);
-                                            
-                                            console.log(`🎯 Found dependency match in Questions:`, {
-                                                dependentQuestion: q.question,
-                                                dependentQuestionKey: q.question_key,
-                                                foundQuestion: searchQuestion.question,
-                                                foundQuestionKey: searchQuestion.question_key,
-                                                foundQuestionId: searchQuestion.question_id || searchQuestion.id,
-                                                foundAnswer: searchQuestion.answer,
-                                                expectedAnswer: dependency.answer,
-                                                foundOnPage: searchPage.title,
-                                                foundInSection: searchSection.label,
-                                                matches: answerMatches
-                                            });
 
                                             if (answerMatches) {
                                                 shouldShow = true;
@@ -821,19 +677,6 @@ export const applyQuestionDependenciesAcrossPages = (targetPage, allPages) => {
 
                                         if (questionMatches) {
                                             const answerMatches = checkAnswerMatch(qaPair.answer, dependency.answer);
-                                            
-                                            console.log(`🎯 Found dependency match in QaPairs:`, {
-                                                dependentQuestion: q.question,
-                                                dependentQuestionKey: q.question_key,
-                                                foundQuestion: searchQuestion.question || qaPair.question,
-                                                foundQuestionKey: searchQuestion.question_key,
-                                                foundQuestionId: qaPair.question_id,
-                                                foundAnswer: qaPair.answer,
-                                                expectedAnswer: dependency.answer,
-                                                foundOnPage: searchPage.title,
-                                                foundInSection: searchSection.label,
-                                                matches: answerMatches
-                                            });
 
                                             if (answerMatches) {
                                                 shouldShow = true;
@@ -845,25 +688,11 @@ export const applyQuestionDependenciesAcrossPages = (targetPage, allPages) => {
                             });
                         }
                     });
-
-                    // Log if dependency was not found
-                    if (!dependencyMet && dependency.answer) {
-                        console.log(`⚠️ Dependency not met for question "${q.question}":`, {
-                            dependence_id: dependency.dependence_id,
-                            expected_answer: dependency.answer,
-                            searching_across_pages: allPages.map(p => p.title),
-                            dependency_found: false
-                        });
-                    }
                 });
 
                 // Set question visibility based on dependencies
                 const wasHidden = q.hidden;
                 q.hidden = !shouldShow;
-                
-                if (wasHidden !== q.hidden) {
-                    console.log(`📊 Dependency visibility changed for "${q.question}": ${wasHidden ? 'HIDDEN' : 'VISIBLE'} → ${q.hidden ? 'HIDDEN' : 'VISIBLE'}`);
-                }
             } else {
                 // If no dependencies, show the question (unless explicitly hidden)
                 if (q.hidden === undefined) {
@@ -878,10 +707,6 @@ export const applyQuestionDependenciesAcrossPages = (targetPage, allPages) => {
         const visibleQuestions = updatedSection.Questions.filter(q => !q.hidden);
         updatedSection.hidden = visibleQuestions.length === 0;
 
-        if (updatedSection.hidden) {
-            console.log(`🙈 Hiding section "${section.label}" - all questions are hidden`);
-        }
-
         return updatedSection;
     });
 
@@ -894,8 +719,6 @@ export const applyQuestionDependenciesAcrossPages = (targetPage, allPages) => {
  * @param {boolean} isNdisFunded - NDIS funding status
  */
 export const debugQuestionDependencies = (allPages, isNdisFunded) => {
-    console.log('🔍 DEBUG: Analyzing question dependencies for all pages');
-    
     const dependencyMap = new Map();
     const questionMap = new Map();
     
@@ -934,50 +757,6 @@ export const debugQuestionDependencies = (allPages, isNdisFunded) => {
                 }
             });
         });
-    });
-    
-    // Second pass: analyze dependencies
-    console.log('📊 Question inventory:');
-    questionMap.forEach((questionInfo, questionId) => {
-        console.log(`  ${questionId}: "${questionInfo.question}" (${questionInfo.questionKey}) on ${questionInfo.page} - Answer: ${questionInfo.answer}`);
-        
-        if (questionInfo.dependencies.length > 0) {
-            console.log(`    Dependencies:`);
-            questionInfo.dependencies.forEach(dep => {
-                const dependentQuestion = questionMap.get(dep.dependence_id);
-                if (dependentQuestion) {
-                    console.log(`      ✅ Depends on: "${dependentQuestion.question}" (${dep.dependence_id}) = "${dep.answer}" | Current: "${dependentQuestion.answer}"`);
-                } else {
-                    console.log(`      ❌ Missing dependency: ${dep.dependence_id} = "${dep.answer}"`);
-                }
-            });
-        }
-    });
-    
-    // Third pass: check for moved NDIS questions
-    console.log('🏥 NDIS Questions Analysis:');
-    questionMap.forEach((questionInfo, questionId) => {
-        if (questionInfo.ndis_only) {
-            const shouldBeMoved = shouldMoveQuestionToNdisPage({ 
-                ndis_only: true, 
-                type: 'text', // placeholder
-                question_key: questionInfo.questionKey 
-            }, isNdisFunded);
-            
-            console.log(`  "${questionInfo.question}" on ${questionInfo.page}:`);
-            console.log(`    Should be moved: ${shouldBeMoved}`);
-            console.log(`    Current page is NDIS page: ${questionInfo.pageId === 'ndis_packages_page'}`);
-            console.log(`    Has dependencies: ${questionInfo.dependencies.length > 0}`);
-            
-            if (questionInfo.dependencies.length > 0) {
-                questionInfo.dependencies.forEach(dep => {
-                    const dependentQuestion = questionMap.get(dep.dependence_id);
-                    if (dependentQuestion) {
-                        console.log(`      Dependency "${dependentQuestion.question}" is on: ${dependentQuestion.page}`);
-                    }
-                });
-            }
-        }
     });
 };
 
@@ -1037,64 +816,7 @@ export const validateProcessedData = (processedData, isNdisFunded) => {
  * @param {boolean} isUpdating - Update status
  */
 export const debugNdisProcessingState = (stableBookingRequestFormData, stableProcessedFormData, isNdisFunded, isProcessingNdis, isUpdating) => {
-    console.log('🔍 DEBUG: Complete NDIS processing state');
-    console.log('📊 State values:', {
-        isNdisFunded,
-        stableBookingRequestFormDataLength: stableBookingRequestFormData?.length,
-        stableProcessedFormDataLength: stableProcessedFormData?.length,
-        isProcessingNdis,
-        isUpdating
-    });
-
-    if (stableBookingRequestFormData?.length > 0) {
-        let ndisQuestionCount = 0;
-        let regularQuestionCount = 0;
-        
-        stableBookingRequestFormData.forEach((page, pageIndex) => {
-            console.log(`📄 Page ${pageIndex}: "${page.title}" (${page.id})`);
-            
-            page.Sections?.forEach((section, sectionIndex) => {
-                console.log(`  📋 Section ${sectionIndex}: "${section.label}" (${section.id})`);
-                
-                // Count questions in Questions array
-                section.Questions?.forEach((question, questionIndex) => {
-                    if (question.ndis_only === true) {
-                        ndisQuestionCount++;
-                        console.log(`    🏥 NDIS Question ${questionIndex}: "${question.question}" (${question.type}, answer: ${question.answer})`);
-                    } else {
-                        regularQuestionCount++;
-                        console.log(`    📝 Regular Question ${questionIndex}: "${question.question}" (${question.type}, answer: ${question.answer})`);
-                    }
-                });
-                
-                // Count questions in QaPairs array
-                section.QaPairs?.forEach((qaPair, qaPairIndex) => {
-                    const question = qaPair.Question;
-                    if (question && question.ndis_only === true) {
-                        console.log(`    🏥 NDIS QaPair ${qaPairIndex}: "${question.question}" (${question.type}, answer: ${qaPair.answer})`);
-                    } else {
-                        console.log(`    📝 Regular QaPair ${qaPairIndex}: "${question?.question}" (${question?.type}, answer: ${qaPair.answer})`);
-                    }
-                });
-            });
-        });
-        
-        console.log('📊 Question counts:', {
-            ndisQuestionCount,
-            regularQuestionCount,
-            totalQuestions: ndisQuestionCount + regularQuestionCount
-        });
-    }
-    
-    // Also debug processed data if available
-    if (stableProcessedFormData?.length > 0) {
-        console.log('📊 Processed data structure:');
-        stableProcessedFormData.forEach((page, pageIndex) => {
-            const questionCount = page.Sections?.reduce((count, section) => 
-                count + (section.Questions?.length || 0), 0) || 0;
-            console.log(`  📄 Processed Page ${pageIndex}: "${page.title}" (${page.id}) - ${questionCount} questions`);
-        });
-    }
+    // Debug function can be implemented when needed for troubleshooting
 };
 
 /**
@@ -1139,9 +861,6 @@ export const deduplicateQuestions = (questions, qaPairs) => {
             // If duplicate, prioritize QaPairs (answered questions)
             if (question.source === 'qaPairs') {
                 resolvedQuestions.push(question);
-                console.log(`✅ Kept answered version of duplicate question: "${question.question}"`);
-            } else {
-                console.log(`🗑️ Removed unanswered duplicate question: "${question.question}"`);
             }
         } else {
             resolvedQuestions.push(question);
@@ -1160,8 +879,6 @@ export const deduplicateQuestions = (questions, qaPairs) => {
  * @returns {boolean} - True if funding status changed
  */
 export const checkAndUpdateNdisFundingStatus = (updatedPages, isNdisFunded, dispatch, bookingRequestFormActions) => {
-    console.log('🔍 Checking for NDIS funding status changes...');
-
     let fundingDetected = false;
     let newFundingStatus = isNdisFunded;
 
@@ -1174,20 +891,11 @@ export const checkAndUpdateNdisFundingStatus = (updatedPages, isNdisFunded, disp
                     const isNdisAnswer = question.answer?.toLowerCase().includes('ndis') ||
                                        question.answer?.toLowerCase().includes('ndia');
 
-                    console.log('💰 Funding answer found in Questions:', {
-                        question: question.question,
-                        answer: question.answer,
-                        isNdisAnswer,
-                        currentIsNdisFunded: isNdisFunded
-                    });
-
                     if (isNdisAnswer && !isNdisFunded) {
-                        console.log('✅ NDIS funding detected, updating state');
                         dispatch(bookingRequestFormActions.setIsNdisFunded(true));
                         newFundingStatus = true;
                         fundingDetected = true;
                     } else if (!isNdisAnswer && isNdisFunded) {
-                        console.log('❌ Non-NDIS funding detected, clearing NDIS state');
                         dispatch(bookingRequestFormActions.setIsNdisFunded(false));
                         newFundingStatus = false;
                         fundingDetected = true;
@@ -1203,20 +911,11 @@ export const checkAndUpdateNdisFundingStatus = (updatedPages, isNdisFunded, disp
                     const isNdisAnswer = qaPair.answer?.toLowerCase().includes('ndis') ||
                                        qaPair.answer?.toLowerCase().includes('ndia');
 
-                    console.log('💰 Funding answer found in QaPairs:', {
-                        question: question.question,
-                        answer: qaPair.answer,
-                        isNdisAnswer,
-                        currentIsNdisFunded: isNdisFunded
-                    });
-
                     if (isNdisAnswer && !isNdisFunded) {
-                        console.log('✅ NDIS funding detected, updating state');
                         dispatch(bookingRequestFormActions.setIsNdisFunded(true));
                         newFundingStatus = true;
                         fundingDetected = true;
                     } else if (!isNdisAnswer && isNdisFunded) {
-                        console.log('❌ Non-NDIS funding detected, clearing NDIS state');
                         dispatch(bookingRequestFormActions.setIsNdisFunded(false));
                         newFundingStatus = false;
                         fundingDetected = true;
@@ -1251,7 +950,6 @@ export const convertQAtoQuestionWithNdisFilter = (qa_pairs, sectionId, returnee,
         
         // FILTER: Skip NDIS-only questions if NDIS is funded and they should be moved
         if (isNdisFunded && question.ndis_only === true && shouldMoveQuestionToNdisPage(question, isNdisFunded)) {
-            console.log(`🚫 Filtering out NDIS question from original page during QA conversion: "${question.question}"`);
             return; // Skip this question
         }
 
@@ -1395,9 +1093,7 @@ export const convertQAtoQuestionWithNdisFilter = (qa_pairs, sectionId, returnee,
  * @returns {Array} - Updated pages with refreshed dependencies
  */
 export const forceRefreshAllDependencies = (allPages) => {
-    console.log('🔄 Force refreshing ALL dependencies across all pages...');
-    
-    // Create a comprehensive dependency map first
+    // FIXED: Create a comprehensive dependency map that prioritizes the most current answers
     const answerMap = new Map();
     
     // Build maps of all questions and their current answers
@@ -1407,59 +1103,94 @@ export const forceRefreshAllDependencies = (allPages) => {
                 const questionId = question.question_id || question.id;
                 const questionKey = question.question_key;
                 
+                // ENHANCED: Always use the most current answer from the question object
+                const currentAnswer = question.answer;
+                
                 if (questionId) {
                     answerMap.set(questionId, {
-                        answer: question.answer,
+                        answer: currentAnswer,
                         question: question.question,
                         questionKey: questionKey,
                         page: page.title,
-                        section: section.label
+                        section: section.label,
+                        questionId: questionId,
+                        source: 'Questions'
+                    });
+                    
+                    // ALSO store by string version of ID for compatibility
+                    answerMap.set(String(questionId), {
+                        answer: currentAnswer,
+                        question: question.question,
+                        questionKey: questionKey,
+                        page: page.title,
+                        section: section.label,
+                        questionId: questionId,
+                        source: 'Questions'
                     });
                 }
                 
                 if (questionKey) {
                     answerMap.set(questionKey, {
-                        answer: question.answer,
+                        answer: currentAnswer,
                         question: question.question,
                         questionKey: questionKey,
                         page: page.title,
-                        section: section.label
+                        section: section.label,
+                        questionId: questionId,
+                        source: 'Questions'
                     });
                 }
             });
             
-            // Also check QaPairs
+            // ENHANCED: Also check QaPairs but DON'T override if Questions have more current data
             section.QaPairs?.forEach(qaPair => {
                 const questionId = qaPair.question_id;
                 const question = qaPair.Question;
                 const questionKey = question?.question_key;
                 
+                // Only use QaPair data if we don't already have current data from Questions
+                const addQaPairData = (mapKey, data) => {
+                    if (!answerMap.has(mapKey)) {
+                        answerMap.set(mapKey, {
+                            ...data,
+                            source: 'QaPairs'
+                        });
+                    }
+                };
+                
                 if (questionId) {
-                    answerMap.set(questionId, {
+                    addQaPairData(questionId, {
                         answer: qaPair.answer,
                         question: question?.question || qaPair.question,
                         questionKey: questionKey,
                         page: page.title,
                         section: section.label,
-                        isQaPair: true
+                        questionId: questionId
+                    });
+                    
+                    addQaPairData(String(questionId), {
+                        answer: qaPair.answer,
+                        question: question?.question || qaPair.question,
+                        questionKey: questionKey,
+                        page: page.title,
+                        section: section.label,
+                        questionId: questionId
                     });
                 }
                 
                 if (questionKey) {
-                    answerMap.set(questionKey, {
+                    addQaPairData(questionKey, {
                         answer: qaPair.answer,
                         question: question?.question || qaPair.question,
                         questionKey: questionKey,
                         page: page.title,
                         section: section.label,
-                        isQaPair: true
+                        questionId: questionId
                     });
                 }
             });
         });
     });
-    
-    console.log('📊 Built answer map with', answerMap.size, 'questions');
     
     // Apply dependencies with the comprehensive answer map
     const updatedPages = allPages.map(page => {
@@ -1475,49 +1206,35 @@ export const forceRefreshAllDependencies = (allPages) => {
                 if (q.QuestionDependencies && q.QuestionDependencies.length > 0) {
                     let shouldShow = false;
                     
-                    console.log(`🔍 Processing dependencies for "${q.question}" on ${page.title}:`, 
-                        q.QuestionDependencies.map(dep => ({ id: dep.dependence_id, answer: dep.answer })));
-                    
                     q.QuestionDependencies.forEach(dependency => {
-                        // Check multiple possible matches including string versions
+                        // ENHANCED: Check multiple possible matches with better logging
                         const possibleMatches = [
                             dependency.dependence_id,
-                            dependency.dependence_id.toString(),
-                            String(dependency.dependence_id)
+                            String(dependency.dependence_id),
+                            dependency.dependence_id.toString()
                         ];
                         
-                        let found = false;
+                        let dependencyFound = false;
+                        let dependencyMet = false;
+                        
                         for (const matchId of possibleMatches) {
                             const dependentAnswer = answerMap.get(matchId);
                             if (dependentAnswer) {
+                                dependencyFound = true;
                                 const answerMatches = checkAnswerMatch(dependentAnswer.answer, dependency.answer);
-                                
-                                console.log(`🎯 Dependency check: "${q.question}" depends on "${dependentAnswer.question}" = "${dependency.answer}"`, {
-                                    currentAnswer: dependentAnswer.answer,
-                                    expectedAnswer: dependency.answer,
-                                    matches: answerMatches,
-                                    foundOn: dependentAnswer.page
-                                });
                                 
                                 if (answerMatches) {
                                     shouldShow = true;
-                                    found = true;
+                                    dependencyMet = true;
                                     break;
                                 }
+                                break; // Found the dependency, don't check other match patterns
                             }
-                        }
-                        
-                        if (!found) {
-                            console.log(`⚠️ Dependency not found: ${dependency.dependence_id} for question "${q.question}"`);
                         }
                     });
                     
                     const wasHidden = q.hidden;
                     q.hidden = !shouldShow;
-                    
-                    if (wasHidden !== q.hidden) {
-                        console.log(`📊 Question visibility changed: "${q.question}" ${wasHidden ? 'HIDDEN' : 'VISIBLE'} → ${q.hidden ? 'HIDDEN' : 'VISIBLE'}`);
-                    }
                 } else {
                     // No dependencies, show the question unless explicitly hidden
                     if (q.hidden === undefined) {
@@ -1620,79 +1337,7 @@ export const checkAnswerMatch = (actualAnswer, expectedAnswer) => {
  * @param {boolean} isNdisFunded - NDIS funding status
  */
 export const debugSpecificQuestionDependencies = (question, allPages, isNdisFunded) => {
-    console.log('🔍 DEBUG: Analyzing dependencies for specific question');
-    console.log('Question:', question.question);
-    console.log('Question Key:', question.question_key);
-    console.log('Question ID:', question.question_id || question.id);
-    console.log('NDIS Only:', question.ndis_only);
-    console.log('Current Answer:', question.answer);
-    console.log('Currently Hidden:', question.hidden);
-    
-    if (!question.QuestionDependencies || question.QuestionDependencies.length === 0) {
-        console.log('✅ No dependencies found for this question');
-        return;
-    }
-    
-    console.log('📋 Dependencies:');
-    
-    question.QuestionDependencies.forEach((dependency, index) => {
-        console.log(`\n  Dependency ${index + 1}:`);
-        console.log(`    Dependence ID: ${dependency.dependence_id}`);
-        console.log(`    Expected Answer: "${dependency.answer}"`);
-        
-        // Search for the dependent question
-        let found = false;
-        
-        allPages.forEach(page => {
-            page.Sections?.forEach(section => {
-                // Check Questions array
-                section.Questions?.forEach(searchQuestion => {
-                    const matches = 
-                        (searchQuestion.question_id === dependency.dependence_id) ||
-                        (searchQuestion.id === dependency.dependence_id) ||
-                        (searchQuestion.question_key === dependency.dependence_id);
-                    
-                    if (matches && !found) {
-                        found = true;
-                        const answerMatches = checkAnswerMatch(searchQuestion.answer, dependency.answer);
-                        
-                        console.log(`    ✅ Found in Questions array:`);
-                        console.log(`      Question: "${searchQuestion.question}"`);
-                        console.log(`      Current Answer: "${searchQuestion.answer}"`);
-                        console.log(`      Page: ${page.title}`);
-                        console.log(`      Section: ${section.label}`);
-                        console.log(`      Answer Matches: ${answerMatches}`);
-                        console.log(`      Question Hidden: ${searchQuestion.hidden}`);
-                    }
-                });
-                
-                // Check QaPairs array
-                section.QaPairs?.forEach(qaPair => {
-                    const searchQuestion = qaPair.Question;
-                    const matches = 
-                        (qaPair.question_id === dependency.dependence_id) ||
-                        (searchQuestion?.question_key === dependency.dependence_id) ||
-                        (searchQuestion?.question_id === dependency.dependence_id);
-                    
-                    if (matches && !found) {
-                        found = true;
-                        const answerMatches = checkAnswerMatch(qaPair.answer, dependency.answer);
-                        
-                        console.log(`    ✅ Found in QaPairs array:`);
-                        console.log(`      Question: "${searchQuestion?.question || qaPair.question}"`);
-                        console.log(`      Current Answer: "${qaPair.answer}"`);
-                        console.log(`      Page: ${page.title}`);
-                        console.log(`      Section: ${section.label}`);
-                        console.log(`      Answer Matches: ${answerMatches}`);
-                    }
-                });
-            });
-        });
-        
-        if (!found) {
-            console.log(`    ❌ Dependency not found anywhere!`);
-        }
-    });
+    // Debug function can be implemented when needed for troubleshooting
 };
 
 /**
@@ -1701,8 +1346,6 @@ export const debugSpecificQuestionDependencies = (question, allPages, isNdisFund
  * @param {boolean} isNdisFunded - NDIS funding status
  */
 export const validateNdisDependencies = (allPages, isNdisFunded) => {
-    console.log('🔍 Validating NDIS dependencies...');
-    
     const issues = [];
     let totalQuestions = 0;
     let questionsWithDependencies = 0;
@@ -1796,30 +1439,98 @@ export const validateNdisDependencies = (allPages, isNdisFunded) => {
         });
     });
     
-    console.log('📊 Dependency Validation Results:');
-    console.log(`  Total Questions: ${totalQuestions}`);
-    console.log(`  Questions with Dependencies: ${questionsWithDependencies}`);
-    console.log(`  Dependencies Working Correctly: ${dependenciesWorking}`);
-    console.log(`  Issues Found: ${issues.length}`);
-    
-    if (issues.length > 0) {
-        console.log('❌ Issues:');
-        issues.forEach((issue, index) => {
-            console.log(`  ${index + 1}. ${issue.type}: ${issue.question} on ${issue.page}`);
-            if (issue.type === 'missing_dependency') {
-                console.log(`     Missing dependency: ${issue.dependence_id} = "${issue.expected_answer}"`);
-            } else if (issue.type === 'incorrect_visibility') {
-                console.log(`     Should be visible: ${issue.shouldBeVisible}, Is visible: ${issue.isVisible}`);
-            }
-        });
-    } else {
-        console.log('✅ All dependencies are working correctly!');
-    }
-    
     return {
         totalQuestions,
         questionsWithDependencies,
         dependenciesWorking,
         issues
+    };
+};
+
+/**
+ * Check if guest answered "Yes" to course offer question
+ */
+export const hasCourseOfferAnsweredYes = (pages) => {
+    for (const page of pages) {
+        for (const section of page.Sections || []) {
+            for (const question of section.Questions || []) {
+                if (questionHasKey(question, QUESTION_KEYS.COURSE_OFFER_QUESTION)) {
+                    return question.answer?.toLowerCase() === 'yes';
+                }
+            }
+        }
+    }
+    return false;
+};
+
+/**
+ * Get check-in and check-out dates from form data
+ */
+export const getStayDatesFromForm = (pages) => {
+    let checkInDate = null;
+    let checkOutDate = null;
+
+    for (const page of pages) {
+        for (const section of page.Sections || []) {
+            for (const question of section.Questions || []) {
+                if (questionHasKey(question, QUESTION_KEYS.CHECK_IN_OUT_DATE) && question.answer) {
+                    const dates = question.answer.split(' - ');
+                    if (dates.length >= 2) {
+                        checkInDate = dates[0].trim();
+                        checkOutDate = dates[1].trim();
+                    }
+                }
+                else if (questionHasKey(question, QUESTION_KEYS.CHECK_IN_DATE) && question.answer) {
+                    checkInDate = question.answer;
+                }
+                else if (questionHasKey(question, QUESTION_KEYS.CHECK_OUT_DATE) && question.answer) {
+                    checkOutDate = question.answer;
+                }
+            }
+        }
+    }
+
+    return { checkInDate, checkOutDate };
+};
+
+/**
+ * Validate course dates against stay dates
+ */
+export const validateCourseStayDates = (pages, courseOffers) => {
+    const { checkInDate, checkOutDate } = getStayDatesFromForm(pages);
+    
+    if (!checkInDate || !checkOutDate) {
+        return {
+            isValid: false,
+            message: 'Check-in and check-out dates are required for course bookings'
+        };
+    }
+
+    if (courseOffers.length === 0) {
+        return {
+            isValid: false,
+            message: 'No valid course offers found'
+        };
+    }
+
+    // Check if dates align with any course offers
+    for (const courseOffer of courseOffers) {
+        const checkIn = new Date(checkInDate);
+        const checkOut = new Date(checkOutDate);
+        const minStartDate = new Date(courseOffer.minStartDate);
+        const minEndDate = new Date(courseOffer.minEndDate);
+
+        [checkIn, checkOut, minStartDate, minEndDate].forEach(date => {
+            date.setHours(0, 0, 0, 0);
+        });
+
+        if (checkIn <= minStartDate && checkOut >= minEndDate) {
+            return { isValid: true, message: '' };
+        }
+    }
+
+    return {
+        isValid: false,
+        message: 'Please review your stay dates to match the min dates of stay for your course offer'
     };
 };
