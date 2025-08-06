@@ -31,8 +31,8 @@ export default async function handler(req, res) {
       whereClause.funder = funder;
     }
 
-    // UPDATED: Apply NDIS package type filter with new holiday vs STA logic
-    if (ndis_package_type && funder === 'NDIS') {
+    // FIXED: Only apply NDIS package type filter when funder is NDIS
+    if (funder === 'NDIS' && ndis_package_type) {
       if (ndis_package_type === 'holiday') {
         // Holiday packages: include both 'sta' and 'holiday' NDIS packages
         whereClause.ndis_package_type = {
@@ -47,35 +47,38 @@ export default async function handler(req, res) {
         // Fallback to exact match for any other values
         whereClause.ndis_package_type = ndis_package_type;
       }
-    } else if (ndis_package_type && !funder) {
-      // If ndis_package_type is provided without funder, assume NDIS
-      whereClause.funder = 'NDIS';
-      if (ndis_package_type === 'holiday') {
-        whereClause.ndis_package_type = {
-          [Op.in]: ['sta', 'holiday']
-        };
-      } else if (ndis_package_type === 'sta') {
-        whereClause.ndis_package_type = 'sta';
-      } else {
-        whereClause.ndis_package_type = ndis_package_type;
-      }
     }
+    // REMOVED: The logic that assumes NDIS if ndis_package_type is provided without funder
+    // This was causing Non-NDIS queries to be treated as NDIS
 
-    // Apply price range filter (for Non-NDIS packages only)
+    // FIXED: Apply price range filter with proper debugging
     if (priceRange && funder === 'Non-NDIS') {
       try {
+        console.log('Parsing priceRange:', priceRange);
         const parsedPriceRange = JSON.parse(priceRange);
-        if (parsedPriceRange.min !== undefined || parsedPriceRange.max !== undefined) {
-          whereClause.price = {};
-          if (parsedPriceRange.min !== undefined) {
-            whereClause.price[Op.gte] = parsedPriceRange.min;
+        console.log('Parsed priceRange:', parsedPriceRange);
+        
+        if (parsedPriceRange && typeof parsedPriceRange === 'object') {
+          const priceConditions = {};
+          
+          if (parsedPriceRange.min !== undefined && parsedPriceRange.min !== null) {
+            priceConditions[Op.gte] = Number(parsedPriceRange.min);
+            console.log('Added min price condition:', Number(parsedPriceRange.min));
           }
-          if (parsedPriceRange.max !== undefined) {
-            whereClause.price[Op.lte] = parsedPriceRange.max;
+          
+          if (parsedPriceRange.max !== undefined && parsedPriceRange.max !== null) {
+            priceConditions[Op.lte] = Number(parsedPriceRange.max);
+            console.log('Added max price condition:', Number(parsedPriceRange.max));
+          }
+          
+          if (Object.keys(priceConditions).length > 0) {
+            whereClause.price = priceConditions;
+            console.log('Final price conditions:', whereClause.price);
           }
         }
       } catch (e) {
         console.error('Invalid priceRange format:', e);
+        console.error('priceRange value was:', priceRange);
         // Continue without price filter if parsing fails
       }
     }
@@ -190,11 +193,11 @@ export default async function handler(req, res) {
       filters: {
         applied: {
           funder: funder || null,
-          ndis_package_type: ndis_package_type || null,
+          ndis_package_type: funder === 'NDIS' ? (ndis_package_type || null) : null, // Only show if funder is NDIS
           // Include explanation of holiday filter logic
-          holidayFilterExplanation: ndis_package_type === 'holiday' 
+          holidayFilterExplanation: funder === 'NDIS' && ndis_package_type === 'holiday' 
             ? 'Holiday filter includes both STA and Holiday packages'
-            : ndis_package_type === 'sta'
+            : funder === 'NDIS' && ndis_package_type === 'sta'
               ? 'STA filter includes only STA packages'
               : null
         },
@@ -210,7 +213,8 @@ export default async function handler(req, res) {
       },
       debug: process.env.NODE_ENV === 'development' ? {
         whereClause,
-        originalParams: { funder, ndis_package_type, priceRange }
+        originalParams: { funder, ndis_package_type, priceRange },
+        parsedPriceRange: priceRange ? JSON.parse(priceRange) : null
       } : undefined
     });
 
@@ -221,76 +225,5 @@ export default async function handler(req, res) {
       error: 'Failed to fetch packages',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
-  }
-}
-
-// Helper function to get available package codes (for filtering)
-async function getAvailablePackageCodes() {
-  try {
-    const codes = await Package.findAll({
-      attributes: [[Package.sequelize.fn('DISTINCT', Package.sequelize.col('package_code')), 'package_code']],
-      where: {
-        package_code: {
-          [Op.ne]: null
-        }
-      },
-      raw: true
-    });
-    
-    return codes.map(c => c.package_code).filter(Boolean);
-  } catch (error) {
-    console.error('Error fetching available package codes:', error);
-    return [];
-  }
-}
-
-// Helper to get price range for Non-NDIS packages
-async function getPriceRangeForNonNdis() {
-  try {
-    const result = await Package.findOne({
-      attributes: [
-        [Package.sequelize.fn('MIN', Package.sequelize.col('price')), 'minPrice'],
-        [Package.sequelize.fn('MAX', Package.sequelize.col('price')), 'maxPrice']
-      ],
-      where: {
-        funder: 'Non-NDIS',
-        price: {
-          [Op.ne]: null
-        }
-      },
-      raw: true
-    });
-    
-    return {
-      min: result?.minPrice || 0,
-      max: result?.maxPrice || 1000
-    };
-  } catch (error) {
-    console.error('Error fetching price range:', error);
-    return { min: 0, max: 1000 };
-  }
-}
-
-// ADDED: Helper function to get package statistics (useful for debugging)
-export async function getPackageStatistics() {
-  try {
-    const stats = await Package.findAll({
-      attributes: [
-        'funder',
-        'ndis_package_type',
-        [Package.sequelize.fn('COUNT', Package.sequelize.col('id')), 'count']
-      ],
-      group: ['funder', 'ndis_package_type'],
-      raw: true
-    });
-    
-    return stats.reduce((acc, stat) => {
-      const key = stat.funder + (stat.ndis_package_type ? `_${stat.ndis_package_type}` : '');
-      acc[key] = parseInt(stat.count);
-      return acc;
-    }, {});
-  } catch (error) {
-    console.error('Error fetching package statistics:', error);
-    return {};
   }
 }

@@ -11,6 +11,7 @@ const PackageSelection = ({
   builderMode = false,
   error = null,
   className = '',
+  localFilterState,
   ...restProps
 }) => {
   const [packages, setPackages] = useState([]);
@@ -19,77 +20,56 @@ const PackageSelection = ({
   const [expandedPackages, setExpandedPackages] = useState(new Set());
   const [expandedCategories, setExpandedCategories] = useState(new Set(['NDIS', 'Non-NDIS'])); // Default expand all categories
   
-  // Use refs to track the last fetch parameters to prevent duplicate calls
-  const lastFetchParams = useRef(null);
   const isMounted = useRef(true);
   const fetchTimeout = useRef(null);
 
-  // Create a stable key for the current filter state
-  const getCurrentFilterKey = () => {
-    return JSON.stringify({
-      funder: funder || null,
-      ndis_package_type: ndis_package_type || null,
-      additionalFilters: additionalFilters || {},
-      builderMode: !!builderMode
-    });
-  };
-
-  // Fetch packages function with duplicate call prevention
   const fetchPackages = async () => {
-    const currentFilterKey = getCurrentFilterKey();
-    
-    if (lastFetchParams.current === currentFilterKey) {
-      return;
-    }
-    
-    if (fetchTimeout.current) {
-      clearTimeout(fetchTimeout.current);
-    }
-    
-    lastFetchParams.current = currentFilterKey;
-    
-    setLoading(true);
-    setFetchError(null);
-
     try {
-      const queryParams = new URLSearchParams();
-      
-      if (!builderMode) {
-        if (funder) queryParams.append('funder', funder);
-        if (ndis_package_type) queryParams.append('ndis_package_type', ndis_package_type);
+        setLoading(true);
         
-        if (additionalFilters && typeof additionalFilters === 'object') {
-          Object.entries(additionalFilters).forEach(([key, value]) => {
-            if (value !== null && value !== undefined && value !== '') {
-              if (typeof value === 'object') {
-                queryParams.append(key, JSON.stringify(value));
-              } else {
-                queryParams.append(key, value.toString());
-              }
-            }
-          });
+        const params = {
+            funder: localFilterState.funderType,
+            page: 1,
+            limit: 50,
+            sort: 'name'
+        };
+        
+        // Only add NDIS package type if funder is NDIS
+        if (localFilterState.funderType === 'NDIS' && localFilterState.ndisPackageType) {
+            params.ndis_package_type = localFilterState.ndisPackageType;
         }
-      }
-
-      const response = await fetch(`/api/packages?${queryParams.toString()}`);
-      const data = await response.json();
-
-      if (isMounted.current && lastFetchParams.current === currentFilterKey) {
+        
+        // Add Non-NDIS specific filters (but no price filtering - get ALL Non-NDIS packages)
+        if (localFilterState.funderType === 'Non-NDIS') {
+            console.log('Non-NDIS: Fetching all packages without price filtering');
+            // Don't add priceRange - we want ALL Non-NDIS packages
+            
+            // You can add other Non-NDIS specific filters here if needed
+            // if (localFilterState.additionalFilters?.region) {
+            //     params.region = localFilterState.additionalFilters.region;
+            // }
+        }
+        
+        const queryString = new URLSearchParams(params).toString();
+        const apiUrl = `/api/packages?${queryString}`;
+        
+        console.log('Fetching packages with URL:', apiUrl);
+        
+        const response = await fetch(apiUrl);
+        const data = await response.json();
+        
         if (data.success) {
-          setPackages(data.packages || []);
+            setPackages(data.packages);
+            console.log(`✅ Fetched ${data.packages.length} packages`);
         } else {
-          setFetchError(data.error || 'Failed to fetch packages');
+            console.error('Failed to fetch packages:', data.error);
+            setPackages([]);
         }
-      }
-    } catch (err) {
-      console.error('PackageSelection: Fetch error:', err);
-      if (isMounted.current && lastFetchParams.current === currentFilterKey) {
-        setFetchError('Failed to fetch packages');
-      }
+    } catch (error) {
+        console.error('Error fetching packages:', error);
+        setPackages([]);
     } finally {
-      if (isMounted.current && lastFetchParams.current === currentFilterKey) {
         setLoading(false);
-      }
     }
   };
 

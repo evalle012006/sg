@@ -161,6 +161,9 @@ const BookingRequestForm = () => {
                             funderType = 'NDIS';
                         } else {
                             funderType = 'Non-NDIS';
+                            // FIXED: Explicitly clear NDIS package type for Non-NDIS funding
+                            ndisPackageType = null;
+                            break; // Exit early since we know it's Non-NDIS
                         }
                     }
 
@@ -189,17 +192,21 @@ const BookingRequestForm = () => {
                         }
                     }
                 }
+                // FIXED: Break out of section loop if Non-NDIS detected
+                if (funderType === 'Non-NDIS') break;
             }
+            // FIXED: Break out of page loop if Non-NDIS detected
+            if (funderType === 'Non-NDIS') break;
         }
 
-        // Default NDIS package type if none determined
+        // Default NDIS package type if none determined AND funding is NDIS
         if (funderType === 'NDIS' && !ndisPackageType) {
             ndisPackageType = 'sta'; // Default to STA
         }
 
         const newFilters = {
             funderType: funderType,
-            ndisPackageType: ndisPackageType,
+            ndisPackageType: funderType === 'NDIS' ? ndisPackageType : null, // FIXED: Ensure null for Non-NDIS
             additionalFilters: {
                 // Keep existing additional filters
                 ...ndisFormFilters.additionalFilters
@@ -1574,7 +1581,6 @@ const BookingRequestForm = () => {
                         errorMessage.add({ pageId: page.id, pageTitle: page.title, message: 'Please fill in all table columns and rows.', question: question.question, type: question.type });
                     }
 
-                    console.log("Validating COURSE OFFER QUESTION", questionHasKey(question, QUESTION_KEYS.COURSE_OFFER_QUESTION), question.answer?.toLowerCase());
                     if (questionHasKey(question, QUESTION_KEYS.COURSE_OFFER_QUESTION)) {
                         if (question.answer?.toLowerCase() === 'yes') {
                             const activeOffers = courseOffers.filter(offer => 

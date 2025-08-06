@@ -46,7 +46,6 @@ const QuestionPage = ({
         });
     };
 
-    // NEW: Function to calculate filters based on current page answers
     const calculateLocalFilters = (pageData) => {
         let newFunderType = localFilterState.funderType;
         let newNdisPackageType = localFilterState.ndisPackageType;
@@ -67,6 +66,8 @@ const QuestionPage = ({
                         newFunderType = 'Non-NDIS';
                         newNdisPackageType = null; // Clear NDIS package type for non-NDIS
                         console.log('✅ Non-NDIS funding detected');
+                        // FIXED: Exit early since we know it's Non-NDIS
+                        break;
                     }
                 }
                 
@@ -99,9 +100,11 @@ const QuestionPage = ({
                     }
                 }
             }
+            // FIXED: Break out of section loop if Non-NDIS detected
+            if (newFunderType === 'Non-NDIS') break;
         }
         
-        // Default NDIS package type if none determined
+        // Default NDIS package type if none determined AND funding is NDIS
         if (newFunderType === 'NDIS' && !newNdisPackageType) {
             newNdisPackageType = 'sta'; // Default to STA
             console.log('✅ Default to STA package type');
@@ -109,7 +112,7 @@ const QuestionPage = ({
         
         const newFilters = {
             funderType: newFunderType,
-            ndisPackageType: newNdisPackageType,
+            ndisPackageType: newFunderType === 'NDIS' ? newNdisPackageType : null, // FIXED: Ensure null for Non-NDIS
             additionalFilters: localFilterState.additionalFilters
         };
         
@@ -1330,6 +1333,7 @@ const QuestionPage = ({
                                                                     error={q.error} 
                                                                     required={q.required ? true : false} 
                                                                     size={q.size || 'medium'}
+                                                                    localFilterState={localFilterState}
                                                                     onChange={(value) => handleCardSelectionFieldChange(value, idx, index)} 
                                                                 />
                                                             </div>
@@ -1356,6 +1360,7 @@ const QuestionPage = ({
                                                                     error={q.error} 
                                                                     required={q.required ? true : false} 
                                                                     size={q.size || 'medium'}
+                                                                    localFilterState={localFilterState}
                                                                     onChange={(value) => handleCardSelectionFieldChange(value, idx, index)} 
                                                                 />
                                                             </div>
