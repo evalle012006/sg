@@ -1,7 +1,7 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/router';
-import { Eye, Edit, Trash2 } from 'lucide-react';
+import { Eye, Edit, Trash2, Filter, List, Grid, Settings } from 'lucide-react';
 import { toast } from 'react-toastify';
 
 const Layout = dynamic(() => import('../../../components/layout'));
@@ -9,6 +9,9 @@ const Table = dynamic(() => import('../../../components/ui-v2/Table'));
 const Button = dynamic(() => import('../../../components/ui-v2/Button'));
 const Spinner = dynamic(() => import('../../../components/ui/spinner'));
 const PackageForm = dynamic(() => import('../../../components/manage-package/PackageForm'));
+const DynamicPackageFilter = dynamic(() => import('../../../components/manage-package/DynamicPackageFilter'));
+const DynamicPackageDisplay = dynamic(() => import('../../../components/manage-package/DynamicPackageDisplay'));
+const PackageRequirementsForm = dynamic(() => import('../../../components/manage-package/PackageRequirementsForm'));
 
 export default function ManagePackages() {
     const router = useRouter();
@@ -19,11 +22,22 @@ export default function ManagePackages() {
     
     // List state
     const [packages, setPackages] = useState([]);
+    const [filteredPackages, setFilteredPackages] = useState([]);
     const [isListLoading, setIsListLoading] = useState(false);
     const [showDeleteDialog, setShowDeleteDialog] = useState(false);
     const [selectedPackage, setSelectedPackage] = useState(null);
+    
+    // New filtering state
+    const [viewMode, setViewMode] = useState('table'); // 'table' | 'filtered'
+    const [displayLayout, setDisplayLayout] = useState('grid'); // 'grid' | 'list'
+    const [currentFilters, setCurrentFilters] = useState({});
+    const [filterSummary, setFilterSummary] = useState('');
+    
+    // Requirements management state
+    const [showRequirementsForm, setShowRequirementsForm] = useState(false);
+    const [requirementsPackage, setRequirementsPackage] = useState(null);
 
-    // Load packages list
+    // Load packages list (original functionality)
     const loadPackages = async () => {
         setIsListLoading(true);
         try {
@@ -43,7 +57,6 @@ export default function ManagePackages() {
                     // Format pricing based on funder type
                     if (temp.funder === 'NDIS') {
                         if (temp.ndis_line_items && temp.ndis_line_items.length > 0) {
-                            // Calculate total from line items or show count
                             const totalPrice = temp.ndis_line_items.reduce((sum, item) => sum + (parseFloat(item.price_per_night) || 0), 0);
                             temp.formattedPrice = `${temp.ndis_line_items.length} items (Total: $${totalPrice.toFixed(2)})`;
                         } else {
@@ -58,6 +71,12 @@ export default function ManagePackages() {
             }
             
             setPackages(packageList);
+            
+            // If in table mode, also set filtered packages
+            if (viewMode === 'table') {
+                setFilteredPackages(packageList);
+            }
+            
         } catch (error) {
             console.error('Error loading packages:', error);
             toast.error('Failed to load packages. Please try again later.');
@@ -65,28 +84,38 @@ export default function ManagePackages() {
         setIsListLoading(false);
     };
 
+    // Handle dynamic filtering results
+    const handleFilteredPackagesChange = useCallback((newPackages) => {
+        setFilteredPackages(newPackages);
+    }, []);
+
+    // Handle filter changes
+    const handleFiltersChange = useCallback((newFilters) => {
+        setCurrentFilters(newFilters);
+    }, []);
+
     // Load packages when in list mode
     useEffect(() => {
-        if (!isFormMode) {
+        if (!isFormMode && viewMode === 'table') {
             loadPackages();
         }
-    }, [isFormMode]);
+    }, [isFormMode, viewMode]);
 
     // Navigation functions
     const showList = () => {
-        router.push('/manage-packages', undefined, { shallow: true });
+        router.push('/settings/manage-packages', undefined, { shallow: true });
     };
 
     const showAddForm = () => {
-        router.push('/manage-packages?mode=add', undefined, { shallow: true });
+        router.push('/settings/manage-packages?mode=add', undefined, { shallow: true });
     };
 
     const showEditForm = (pkg) => {
-        router.push(`/manage-packages?mode=edit&id=${pkg.id}`, undefined, { shallow: true });
+        router.push(`/settings/manage-packages?mode=edit&id=${pkg.id}`, undefined, { shallow: true });
     };
 
     const showViewForm = (pkg) => {
-        router.push(`/manage-packages?mode=view&id=${pkg.id}`, undefined, { shallow: true });
+        router.push(`/settings/manage-packages?mode=view&id=${pkg.id}`, undefined, { shallow: true });
     };
 
     const handleDeletePackage = (pkg) => {
@@ -137,15 +166,44 @@ export default function ManagePackages() {
 
     const handleFormSuccess = (result) => {
         if (result && result.action === 'edit' && result.id) {
-            // Switch to edit mode for the same package
             showEditForm({ id: result.id });
         } else {
-            // Return to list and refresh
             showList();
         }
     };
 
-    // Configure columns for the table
+    // Handle package selection from dynamic display
+    const handlePackageSelect = useCallback((pkg) => {
+        setSelectedPackage(pkg);
+        // You could auto-open edit mode or show details
+        // showEditForm(pkg);
+    }, []);
+    
+    // Requirements management handlers
+    const handleShowRequirements = useCallback((pkg) => {
+        setRequirementsPackage(pkg);
+        setShowRequirementsForm(true);
+    }, []);
+    
+    const handleRequirementsSave = useCallback((savedRequirement) => {
+        // Refresh the package list to show updated requirements
+        if (viewMode === 'table') {
+            loadPackages();
+        } else {
+            // Trigger refresh in dynamic filter
+            setCurrentFilters(prev => ({ ...prev }));
+        }
+        setShowRequirementsForm(false);
+        setRequirementsPackage(null);
+        toast.success('Package requirements saved successfully!');
+    }, [viewMode]);
+    
+    const handleRequirementsCancel = useCallback(() => {
+        setShowRequirementsForm(false);
+        setRequirementsPackage(null);
+    }, []);
+
+    // Configure columns for the table (original functionality)
     const columns = useMemo(() => [
         {
             key: 'name',
@@ -193,28 +251,14 @@ export default function ManagePackages() {
                     <span className="text-gray-700 font-medium">
                         {value || (row.price ? `$${parseFloat(row.price).toFixed(2)}` : '$0.00')}
                     </span>
-                    {row.funder === 'NDIS' && row.ndis_line_items && row.ndis_line_items.length > 0 && (
-                        <div className="mt-1">
-                            <button 
-                                className="text-xs text-blue-600 hover:text-blue-800 underline"
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    showViewForm(row);
-                                }}
-                            >
-                                View Details
-                            </button>
-                        </div>
-                    )}
                 </div>
             )
         },
         {
             key: 'actions',
-            label: 'ACTION',
-            searchable: false,
+            label: 'ACTIONS',
             render: (value, row) => (
-                <div className="flex items-center space-x-2">
+                <div className="flex space-x-2">
                     <button 
                         className="p-2 rounded transition-colors duration-150 hover:opacity-80"
                         style={{ backgroundColor: '#00467F1A', color: '#00467F' }}
@@ -236,6 +280,17 @@ export default function ManagePackages() {
                         title="Edit Package"
                     >
                         <Edit className="w-4 h-4" />
+                    </button>
+                    <button 
+                        className="p-2 rounded transition-colors duration-150 hover:opacity-80"
+                        style={{ backgroundColor: '#6B46C11A', color: '#6B46C1' }}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            handleShowRequirements(row);
+                        }}
+                        title="Manage Requirements"
+                    >
+                        <Settings className="w-4 h-4" />
                     </button>
                     <button 
                         className="p-2 rounded transition-colors duration-150 hover:opacity-80"
@@ -266,70 +321,227 @@ export default function ManagePackages() {
 
     return (
         <Layout title="Package Management">
-            <div className="p-6">
-                {/* LIST VIEW */}
-                {!isFormMode && (
-                    <>
-                        <div className="flex justify-end items-center mb-6">
-                            <Button
-                                color="primary"
-                                size="medium"
-                                label="+ ADD PACKAGE"
-                                onClick={showAddForm}
-                                className="font-semibold"
-                            />
-                        </div>
-
-                        <Table 
-                            data={packages} 
-                            columns={columns}
-                            itemsPerPageOptions={[10, 15, 25, 50]}
-                            defaultItemsPerPage={15}
-                        />
-
-                        {/* Delete Confirmation Dialog */}
-                        {showDeleteDialog && (
-                            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                                <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
-                                    <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                                        Delete Package
-                                    </h3>
-                                    <p className="text-gray-600 mb-6">
-                                        Are you sure you want to delete &quot;{selectedPackage?.name}&quot;? This action cannot be undone.
-                                    </p>
-                                    <div className="flex justify-end space-x-3">
-                                        <Button
-                                            color="outline"
-                                            size="medium"
-                                            label="Cancel"
-                                            onClick={() => {
-                                                setShowDeleteDialog(false);
-                                                setSelectedPackage(null);
-                                            }}
-                                        />
-                                        <Button
-                                            color="secondary"
-                                            size="medium"
-                                            label="Delete"
-                                            onClick={confirmDelete}
-                                        />
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-                    </>
-                )}
-
-                {/* FORM VIEW */}
-                {isFormMode && (
-                    <PackageForm
+            {isFormMode ? (
+                /* Form Mode - Original functionality */
+                <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+                    <PackageForm 
                         mode={mode}
                         packageId={id}
                         onCancel={handleFormCancel}
                         onSuccess={handleFormSuccess}
                     />
-                )}
-            </div>
+                </div>
+            ) : (
+                /* List Mode - Enhanced with filtering */
+                <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+                    {/* Header with controls */}
+                    <div className="flex justify-between items-center mb-6">
+                        <div>
+                            <h1 className="text-2xl font-bold text-gray-900">Package Management</h1>
+                            <p className="text-gray-600">Manage and filter accommodation packages</p>
+                        </div>
+                        
+                        <div className="flex items-center gap-4">
+                            {/* View Mode Toggle */}
+                            <div className="flex bg-gray-100 rounded-lg p-1">
+                                <button
+                                    onClick={() => setViewMode('table')}
+                                    className={`px-3 py-1 rounded text-sm font-medium transition-all ${
+                                        viewMode === 'table'
+                                            ? 'bg-white text-gray-900 shadow-sm'
+                                            : 'text-gray-600 hover:text-gray-900'
+                                    }`}
+                                >
+                                    <List className="w-4 h-4 inline mr-1" />
+                                    Table View
+                                </button>
+                                <button
+                                    onClick={() => setViewMode('filtered')}
+                                    className={`px-3 py-1 rounded text-sm font-medium transition-all ${
+                                        viewMode === 'filtered'
+                                            ? 'bg-white text-gray-900 shadow-sm'
+                                            : 'text-gray-600 hover:text-gray-900'
+                                    }`}
+                                >
+                                    <Filter className="w-4 h-4 inline mr-1" />
+                                    Dynamic Filter
+                                </button>
+                            </div>
+
+                            {/* Layout Toggle for Filtered View */}
+                            {viewMode === 'filtered' && (
+                                <div className="flex bg-gray-100 rounded-lg p-1">
+                                    <button
+                                        onClick={() => setDisplayLayout('grid')}
+                                        className={`px-3 py-1 rounded text-sm font-medium transition-all ${
+                                            displayLayout === 'grid'
+                                                ? 'bg-white text-gray-900 shadow-sm'
+                                                : 'text-gray-600 hover:text-gray-900'
+                                        }`}
+                                    >
+                                        <Grid className="w-4 h-4" />
+                                    </button>
+                                    <button
+                                        onClick={() => setDisplayLayout('list')}
+                                        className={`px-3 py-1 rounded text-sm font-medium transition-all ${
+                                            displayLayout === 'list'
+                                                ? 'bg-white text-gray-900 shadow-sm'
+                                                : 'text-gray-600 hover:text-gray-900'
+                                        }`}
+                                    >
+                                        <List className="w-4 h-4" />
+                                    </button>
+                                </div>
+                            )}
+
+                            {/* Add Package Button */}
+                            <button
+                                onClick={showAddForm}
+                                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors duration-200 flex items-center gap-2"
+                            >
+                                <span className="text-lg">+</span>
+                                Add Package
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Content based on view mode */}
+                    {viewMode === 'table' ? (
+                        /* Original Table View */
+                        <div className="bg-white rounded-lg shadow">
+                            <Table 
+                                columns={columns}
+                                data={packages}
+                                loading={isListLoading}
+                                emptyMessage="No packages found"
+                                searchable
+                                pagination
+                            />
+                        </div>
+                    ) : (
+                        /* Dynamic Filtered View */
+                        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+                            {/* Filters Sidebar */}
+                            <div className="lg:col-span-1">
+                                <div className="sticky top-4">
+                                    <DynamicPackageFilter
+                                        onPackagesChange={handleFilteredPackagesChange}
+                                        onFiltersChange={handleFiltersChange}
+                                        adminMode={true} // Enable admin-specific features
+                                        showAdvancedFilters={true}
+                                    />
+
+                                    {/* Selected Package Actions */}
+                                    {selectedPackage && (
+                                        <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
+                                            <h3 className="text-sm font-medium text-blue-900 mb-2">
+                                                Selected Package
+                                            </h3>
+                                            <div className="text-sm text-blue-800">
+                                                <div className="font-medium">{selectedPackage.name}</div>
+                                                <div className="text-blue-600 mt-1">
+                                                    {selectedPackage.package_code} • {selectedPackage.formattedPrice}
+                                                </div>
+                                            </div>
+                                            <div className="mt-3 space-y-2">
+                                                <button
+                                                    onClick={() => showViewForm(selectedPackage)}
+                                                    className="w-full bg-gray-100 text-gray-800 py-2 px-3 rounded text-sm font-medium hover:bg-gray-200"
+                                                >
+                                                    View Details
+                                                </button>
+                                                <button
+                                                    onClick={() => showEditForm(selectedPackage)}
+                                                    className="w-full bg-blue-600 text-white py-2 px-3 rounded text-sm font-medium hover:bg-blue-700"
+                                                >
+                                                    Edit Package
+                                                </button>
+                                                <button
+                                                    onClick={() => handleDeletePackage(selectedPackage)}
+                                                    className="w-full bg-red-600 text-white py-2 px-3 rounded text-sm font-medium hover:bg-red-700"
+                                                >
+                                                    Delete Package
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Admin Stats */}
+                                    <div className="mt-6 bg-gray-50 rounded-lg p-4">
+                                        <h3 className="text-sm font-medium text-gray-900 mb-2">
+                                            Package Statistics
+                                        </h3>
+                                        <div className="space-y-1 text-sm text-gray-600">
+                                            <div>Total Packages: {packages.length}</div>
+                                            <div>Filtered Results: {filteredPackages.length}</div>
+                                            <div>NDIS Packages: {packages.filter(p => p.funder === 'NDIS').length}</div>
+                                            <div>Non-NDIS Packages: {packages.filter(p => p.funder === 'Non-NDIS').length}</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Package Display */}
+                            <div className="lg:col-span-3">
+                                <DynamicPackageDisplay
+                                    packages={filteredPackages}
+                                    loading={isListLoading}
+                                    onPackageSelect={handlePackageSelect}
+                                    onPackageEdit={showEditForm}
+                                    onPackageDelete={handleDeletePackage}
+                                    onPackageView={showViewForm}
+                                    onPackageRequirements={handleShowRequirements}
+                                    selectedPackage={selectedPackage}
+                                    layout={displayLayout}
+                                    showDetails={true}
+                                    adminMode={true} // Show admin-specific features
+                                />
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Delete Confirmation Dialog */}
+                    {showDeleteDialog && (
+                        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+                            <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+                                <div className="mt-3 text-center">
+                                    <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100">
+                                        <Trash2 className="h-6 w-6 text-red-600" />
+                                    </div>
+                                    <h3 className="text-lg font-medium text-gray-900 mt-4">Delete Package</h3>
+                                    <div className="mt-2 px-7 py-3">
+                                        <p className="text-sm text-gray-500">
+                                            Are you sure you want to delete "{selectedPackage?.name}"? 
+                                            This action cannot be undone.
+                                        </p>
+                                    </div>
+                                    <div className="items-center px-4 py-3">
+                                        <button
+                                            onClick={confirmDelete}
+                                            className="px-4 py-2 bg-red-600 text-white text-base font-medium rounded-md w-full shadow-sm hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-300"
+                                        >
+                                            Delete
+                                        </button>
+                                        <button
+                                            onClick={() => setShowDeleteDialog(false)}
+                                            className="mt-3 px-4 py-2 bg-white text-gray-500 text-base font-medium rounded-md w-full shadow-sm border border-gray-300 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-300"
+                                        >
+                                            Cancel
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
+            {/* Package Requirements Form Modal */}
+            <PackageRequirementsForm
+                packageData={requirementsPackage}
+                isOpen={showRequirementsForm}
+                onSave={handleRequirementsSave}
+                onCancel={handleRequirementsCancel}
+            />
         </Layout>
     );
 }

@@ -11,7 +11,11 @@ module.exports = (sequelize, DataTypes) => {
      * The `models/index` file will call this method automatically.
      */
     static associate(models) {
-      // define association here
+      // Associate with PackageRequirement
+      Package.hasMany(models.PackageRequirement, {
+        foreignKey: 'package_id',
+        as: 'requirements'
+      });
     }
   }
   
@@ -74,88 +78,70 @@ module.exports = (sequelize, DataTypes) => {
               throw new Error('At least one line item is required for NDIS packages');
             }
             
-            // Validate each line item
-            value.forEach((item, index) => {
-              if (!item.sta_package || typeof item.sta_package !== 'string' || item.sta_package.trim() === '') {
-                throw new Error(`STA Package is required for line item ${index + 1}`);
+            // Validate each line item has required fields
+            const requiredFields = ['line_item', 'price_per_night'];
+            for (const item of value) {
+              for (const field of requiredFields) {
+                if (!item[field] && item[field] !== 0) {
+                  throw new Error(`Line item missing required field: ${field}`);
+                }
               }
-              if (!item.line_item || typeof item.line_item !== 'string' || item.line_item.trim() === '') {
-                throw new Error(`Line Item is required for line item ${index + 1}`);
-              }
+              
+              // Validate price is a number
               if (typeof item.price_per_night !== 'number' || item.price_per_night < 0) {
-                throw new Error(`Valid price per night is required for line item ${index + 1}`);
+                throw new Error('Line item price must be a non-negative number');
               }
-            });
-          } else if (this.funder === 'Non-NDIS' && value && value.length > 0) {
-            throw new Error('Line items should not be set for Non-NDIS packages');
+            }
           }
         }
       }
     },
     image_filename: {
       type: DataTypes.STRING,
-      allowNull: true
+      allowNull: true,
+      validate: {
+        len: [0, 255]
+      }
     }
   }, {
     sequelize,
     modelName: 'Package',
     tableName: 'packages',
-    underscored: true,
-    validate: {
-      // Model-level validation to ensure data consistency
-      validatePackageData() {
-        if (this.funder === 'NDIS') {
-          // For NDIS packages, price should be null and ndis_package_type should be set
-          if (this.price !== null) {
-            throw new Error('Price should not be set for NDIS packages');
-          }
-          if (!this.ndis_package_type) {
-            throw new Error('NDIS package type is required for NDIS packages');
-          }
-          if (!this.ndis_line_items || this.ndis_line_items.length === 0) {
-            throw new Error('At least one line item is required for NDIS packages');
-          }
-        } else if (this.funder === 'Non-NDIS') {
-          // For Non-NDIS packages, price should be set and NDIS fields should be null
-          if (this.price === null || this.price === undefined) {
-            throw new Error('Price is required for Non-NDIS packages');
-          }
-          if (this.price < 0) {
-            throw new Error('Price must be a positive number');
-          }
-          if (this.ndis_package_type !== null) {
-            throw new Error('NDIS package type should not be set for Non-NDIS packages');
-          }
-          if (this.ndis_line_items && this.ndis_line_items.length > 0) {
-            throw new Error('Line items should not be set for Non-NDIS packages');
-          }
-        }
-      }
-    },
-    hooks: {
-      beforeCreate: async (packageInstance, options) => {
-        // Clean up data based on funder type
-        if (packageInstance.funder === 'NDIS') {
-          packageInstance.price = null;
-        } else if (packageInstance.funder === 'Non-NDIS') {
-          packageInstance.ndis_package_type = null;
-          packageInstance.ndis_line_items = [];
-        }
+    timestamps: true,
+    indexes: [
+      {
+        fields: ['package_code'],
+        unique: true
       },
-      beforeUpdate: async (packageInstance, options) => {
-        // Clean up data based on funder type
-        if (packageInstance.funder === 'NDIS') {
-          packageInstance.price = null;
-        } else if (packageInstance.funder === 'Non-NDIS') {
-          packageInstance.ndis_package_type = null;
-          packageInstance.ndis_line_items = [];
+      {
+        fields: ['funder']
+      },
+      {
+        fields: ['ndis_package_type']
+      },
+      {
+        fields: ['funder', 'ndis_package_type']
+      }
+    ],
+    hooks: {
+      beforeValidate: (pkg, options) => {
+        // Auto-set NDIS line items format
+        if (pkg.funder === 'NDIS' && pkg.ndis_line_items) {
+          pkg.ndis_line_items = pkg.ndis_line_items.map(item => ({
+            ...item,
+            // Ensure consistent format
+            price_per_night: parseFloat(item.price_per_night || 0)
+          }));
+        }
+        
+        // Clear NDIS-specific fields for Non-NDIS packages
+        if (pkg.funder === 'Non-NDIS') {
+          pkg.ndis_package_type = null;
+          pkg.ndis_line_items = [];
         }
       }
     }
   });
-
+  
   return Package;
 };
-
-// Auto-sync the model (uncomment if needed for development)
-// async () => await Package.sync();

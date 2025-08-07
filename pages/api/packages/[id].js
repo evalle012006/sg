@@ -4,8 +4,21 @@ export default async function handler(req, res) {
   const { id } = req.query;
 
   try {
-    // Find the package first
-    const packageResult = await Package.findByPk(id);
+    // Find the package first - with explicit attribute selection to avoid timestamp issues
+    const packageResult = await Package.findByPk(id, {
+      attributes: [
+        'id', 
+        'name', 
+        'package_code', 
+        'funder', 
+        'price', 
+        'ndis_package_type', 
+        'ndis_line_items', 
+        'image_filename',
+        'created_at',
+        'updated_at'
+      ]
+    });
     
     if (!packageResult) {
       return res.status(404).json({
@@ -35,7 +48,7 @@ export default async function handler(req, res) {
 
     } else if (req.method === 'PUT' || req.method === 'PATCH') {
       // Update package
-      const { name, package_code, funder, price, ndis_package_type, ndis_line_items } = req.body;
+      const { name, package_code, funder, price, ndis_package_type, ndis_line_items, image_filename } = req.body;
 
       // Basic validation
       if (!name || !name.trim()) {
@@ -64,7 +77,7 @@ export default async function handler(req, res) {
         name: name.trim(),
         package_code: package_code.trim(),
         funder: funder.trim(),
-        updated_at: new Date()
+        image_filename: image_filename || null
       };
 
       if (funder === 'NDIS') {
@@ -72,7 +85,7 @@ export default async function handler(req, res) {
         if (!ndis_package_type || !['sta', 'holiday'].includes(ndis_package_type)) {
           return res.status(400).json({
             success: false,
-            error: 'Valid NDIS package type is required for NDIS packages (sta or holiday)'
+            error: 'Valid NDIS package type is required (sta or holiday)'
           });
         }
 
@@ -83,48 +96,35 @@ export default async function handler(req, res) {
           });
         }
 
-        // Validate each line item
+        // Validate line items
         for (let i = 0; i < ndis_line_items.length; i++) {
           const item = ndis_line_items[i];
-          if (!item.sta_package || !item.sta_package.trim()) {
-            return res.status(400).json({
-              success: false,
-              error: `STA Package is required for line item ${i + 1}`
-            });
-          }
           if (!item.line_item || !item.line_item.trim()) {
             return res.status(400).json({
               success: false,
-              error: `Line Item is required for line item ${i + 1}`
+              error: `Line item ${i + 1}: Line item description is required`
             });
           }
           if (typeof item.price_per_night !== 'number' || item.price_per_night < 0) {
             return res.status(400).json({
               success: false,
-              error: `Valid price per night is required for line item ${i + 1}`
+              error: `Line item ${i + 1}: Valid price per night is required`
             });
           }
         }
 
-        // Clean and set NDIS data
         updateData.ndis_package_type = ndis_package_type;
-        updateData.ndis_line_items = ndis_line_items.map(item => ({
-          sta_package: item.sta_package.trim(),
-          line_item: item.line_item.trim(),
-          price_per_night: parseFloat(item.price_per_night)
-        }));
-        updateData.price = null; // Clear price for NDIS packages
-
-      } else if (funder === 'Non-NDIS') {
-        // Validate Non-NDIS specific fields
-        if (typeof price !== 'number' || price < 0) {
+        updateData.ndis_line_items = ndis_line_items;
+        updateData.price = null; // NDIS packages don't have direct prices
+      } else {
+        // Non-NDIS package
+        if (!price || isNaN(parseFloat(price)) || parseFloat(price) < 0) {
           return res.status(400).json({
             success: false,
             error: 'Valid price is required for Non-NDIS packages'
           });
         }
 
-        // Set Non-NDIS data
         updateData.price = parseFloat(price);
         updateData.ndis_package_type = null;
         updateData.ndis_line_items = [];
@@ -133,8 +133,21 @@ export default async function handler(req, res) {
       // Update package
       await packageResult.update(updateData);
 
-      // Fetch updated package to return
-      await packageResult.reload();
+      // Fetch updated package to return - with explicit attributes
+      await packageResult.reload({
+        attributes: [
+          'id', 
+          'name', 
+          'package_code', 
+          'funder', 
+          'price', 
+          'ndis_package_type', 
+          'ndis_line_items', 
+          'image_filename',
+          'created_at',
+          'updated_at'
+        ]
+      });
 
       return res.status(200).json({
         success: true,
@@ -179,6 +192,15 @@ export default async function handler(req, res) {
         success: false,
         error: 'Validation error',
         message: error.errors.map(e => e.message).join(', ')
+      });
+    }
+
+    // Handle Sequelize database errors
+    if (error.name === 'SequelizeDatabaseError') {
+      return res.status(500).json({
+        success: false,
+        error: 'Database error',
+        message: process.env.NODE_ENV === 'development' ? error.message : 'Database operation failed'
       });
     }
 

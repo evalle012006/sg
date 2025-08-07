@@ -1,6 +1,15 @@
 import { Package } from '../../../models';
 import { Op } from 'sequelize';
 
+// Try to import PackageRequirement - it may not exist yet during development
+let PackageRequirement = null;
+try {
+  const models = require('../../../models');
+  PackageRequirement = models.PackageRequirement;
+} catch (error) {
+  console.log('PackageRequirement model not available yet');
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ 
@@ -14,13 +23,20 @@ export default async function handler(req, res) {
       funder, 
       ndis_package_type,
       priceRange,
-      // Add other filter parameters as needed
+      search,
+      include_requirements = 'false', // New parameter for admin mode
       page = 1,
       limit = 50,
       sort = 'name'
     } = req.query;
 
-    console.log('Package API called with filters:', { funder, ndis_package_type, priceRange });
+    console.log('Package API called with filters:', { 
+      funder, 
+      ndis_package_type, 
+      priceRange, 
+      search,
+      include_requirements 
+    });
 
     // Build the where clause for filtering
     const whereClause = {};
@@ -31,155 +47,160 @@ export default async function handler(req, res) {
       whereClause.funder = funder;
     }
 
-    // FIXED: Only apply NDIS package type filter when funder is NDIS
+    // Apply NDIS package type filter when funder is NDIS
     if (funder === 'NDIS' && ndis_package_type) {
       if (ndis_package_type === 'holiday') {
-        // Holiday packages: include both 'sta' and 'holiday' NDIS packages
         whereClause.ndis_package_type = {
           [Op.in]: ['sta', 'holiday']
         };
-        console.log('Holiday filter: including both STA and holiday packages');
       } else if (ndis_package_type === 'sta') {
-        // STA packages: only include 'sta' packages, exclude 'holiday'
         whereClause.ndis_package_type = 'sta';
-        console.log('STA filter: including only STA packages');
       } else {
-        // Fallback to exact match for any other values
         whereClause.ndis_package_type = ndis_package_type;
       }
     }
-    // REMOVED: The logic that assumes NDIS if ndis_package_type is provided without funder
-    // This was causing Non-NDIS queries to be treated as NDIS
 
-    // FIXED: Apply price range filter with proper debugging
-    if (priceRange && funder === 'Non-NDIS') {
+    // Apply search filter
+    if (search) {
+      whereClause[Op.or] = [
+        { name: { [Op.like]: `%${search}%` } },
+        { package_code: { [Op.like]: `%${search}%` } }
+      ];
+    }
+
+    // Apply price range filter for Non-NDIS packages
+    if (priceRange) {
       try {
-        console.log('Parsing priceRange:', priceRange);
-        const parsedPriceRange = JSON.parse(priceRange);
-        console.log('Parsed priceRange:', parsedPriceRange);
-        
-        if (parsedPriceRange && typeof parsedPriceRange === 'object') {
-          const priceConditions = {};
-          
-          if (parsedPriceRange.min !== undefined && parsedPriceRange.min !== null) {
-            priceConditions[Op.gte] = Number(parsedPriceRange.min);
-            console.log('Added min price condition:', Number(parsedPriceRange.min));
-          }
-          
-          if (parsedPriceRange.max !== undefined && parsedPriceRange.max !== null) {
-            priceConditions[Op.lte] = Number(parsedPriceRange.max);
-            console.log('Added max price condition:', Number(parsedPriceRange.max));
-          }
-          
-          if (Object.keys(priceConditions).length > 0) {
-            whereClause.price = priceConditions;
-            console.log('Final price conditions:', whereClause.price);
-          }
+        const { min, max } = JSON.parse(priceRange);
+        if (min !== undefined || max !== undefined) {
+          whereClause.price = {};
+          if (min !== undefined) whereClause.price[Op.gte] = min;
+          if (max !== undefined) whereClause.price[Op.lte] = max;
+          // Only apply to Non-NDIS packages
+          whereClause.funder = 'Non-NDIS';
         }
-      } catch (e) {
-        console.error('Invalid priceRange format:', e);
-        console.error('priceRange value was:', priceRange);
-        // Continue without price filter if parsing fails
+      } catch (error) {
+        console.error('Invalid price range format:', priceRange);
       }
     }
 
-    // Apply sorting
-    switch (sort) {
-      case 'price_asc':
-        orderClause.push(['price', 'ASC']);
-        break;
-      case 'price_desc':
-        orderClause.push(['price', 'DESC']);
-        break;
-      case 'package_code':
-        orderClause.push(['package_code', 'ASC']);
-        break;
-      case 'funder':
-        orderClause.push(['funder', 'ASC'], ['name', 'ASC']);
-        break;
-      case 'ndis_package_type':
-        orderClause.push(['ndis_package_type', 'ASC'], ['name', 'ASC']);
-        break;
-      case 'name':
-      default:
-        orderClause.push(['name', 'ASC']);
-        break;
-    }
+    // Set up ordering
+    orderClause.push([sort, 'ASC']);
 
-    // Calculate pagination
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-
-    console.log('Final where clause:', JSON.stringify(whereClause, null, 2));
-
-    // Fetch packages with filters
-    const { rows: packages, count } = await Package.findAndCountAll({
+    // Build query options
+    const queryOptions = {
       where: whereClause,
       order: orderClause,
       limit: parseInt(limit),
-      offset: offset,
+      offset: (parseInt(page) - 1) * parseInt(limit),
+      // Explicitly specify attributes to avoid timestamp issues
       attributes: [
-        'id',
-        'name',
-        'package_code',
-        'funder',
-        'price',
-        'ndis_package_type',
-        'ndis_line_items',
+        'id', 
+        'name', 
+        'package_code', 
+        'funder', 
+        'price', 
+        'ndis_package_type', 
+        'ndis_line_items', 
+        'image_filename',
         'created_at',
         'updated_at'
       ]
+    };
+
+    // Include requirements for admin mode
+    if (include_requirements === 'true' && PackageRequirement) {
+      queryOptions.include = [
+        {
+          model: PackageRequirement,
+          as: 'requirements',
+          required: false, // LEFT JOIN so packages without requirements still show
+          where: { is_active: true }
+        }
+      ];
+    }
+
+    // Execute query
+    const { count, rows: packages } = await Package.findAndCountAll(queryOptions);
+
+    // Transform packages for response
+    const transformedPackages = packages.map(packageData => {
+      const pkg = packageData.toJSON ? packageData.toJSON() : packageData;
+      
+      // Format pricing based on funder type
+      let formattedPrice;
+      if (pkg.funder === 'NDIS') {
+        if (pkg.ndis_line_items && pkg.ndis_line_items.length > 0) {
+          const totalPrice = pkg.ndis_line_items.reduce((sum, item) => 
+            sum + (parseFloat(item.price_per_night) || 0), 0);
+          formattedPrice = `${pkg.ndis_line_items.length} items (Total: $${totalPrice.toFixed(2)})`;
+        } else {
+          formattedPrice = 'NDIS Package';
+        }
+      } else {
+        formattedPrice = pkg.price ? `$${parseFloat(pkg.price).toFixed(2)}` : '$0.00';
+      }
+
+      // Create transformed package object
+      const transformedPkg = {
+        id: pkg.id,
+        name: pkg.name,
+        package_code: pkg.package_code,
+        funder: pkg.funder,
+        price: pkg.price,
+        ndis_package_type: pkg.ndis_package_type,
+        ndis_line_items: pkg.ndis_line_items || [],
+        image_filename: pkg.image_filename,
+        formattedPrice,
+        created_at: pkg.created_at,
+        updated_at: pkg.updated_at
+      };
+
+      // Add requirements data if included and available
+      if (include_requirements === 'true' && PackageRequirement && pkg.requirements) {
+        // Get the first (primary) requirement or null
+        const primaryRequirement = pkg.requirements && pkg.requirements.length > 0 
+          ? pkg.requirements[0] 
+          : null;
+
+        if (primaryRequirement) {
+          transformedPkg.requirement = {
+            care_hours_range: {
+              min: primaryRequirement.care_hours_min,
+              max: primaryRequirement.care_hours_max
+            },
+            requires_no_care: primaryRequirement.requires_no_care,
+            requires_course: primaryRequirement.requires_course,
+            compatible_with_course: primaryRequirement.compatible_with_course,
+            living_situation: primaryRequirement.living_situation,
+            sta_requirements: primaryRequirement.sta_requirements,
+            display_priority: primaryRequirement.display_priority,
+            notes: primaryRequirement.notes,
+            is_active: primaryRequirement.is_active
+          };
+
+          // Generate summary for admin view
+          transformedPkg.summary = generatePackageSummary(transformedPkg, transformedPkg.requirement);
+        } else {
+          transformedPkg.requirement = null;
+          transformedPkg.summary = `${pkg.funder} package - Requirements not configured`;
+        }
+      } else if (include_requirements === 'true') {
+        // Requirements were requested but model not available or no requirements found
+        transformedPkg.requirement = null;
+        transformedPkg.summary = `${pkg.funder} package - Requirements system not set up`;
+      }
+
+      return transformedPkg;
     });
 
-    console.log(`Found ${count} packages matching filters`);
-
-    // Calculate pagination info
+    // Calculate pagination
     const totalPages = Math.ceil(count / parseInt(limit));
     const hasNextPage = parseInt(page) < totalPages;
     const hasPrevPage = parseInt(page) > 1;
 
-    // Transform packages for frontend
-    const transformedPackages = packages.map(pkg => {
-      const packageData = pkg.toJSON ? pkg.toJSON() : pkg;
-      
-      // Ensure ndis_line_items is properly parsed
-      if (packageData.ndis_line_items && typeof packageData.ndis_line_items === 'string') {
-        try {
-          packageData.ndis_line_items = JSON.parse(packageData.ndis_line_items);
-        } catch (e) {
-          console.error('Error parsing ndis_line_items:', e);
-          packageData.ndis_line_items = [];
-        }
-      } else if (!packageData.ndis_line_items) {
-        packageData.ndis_line_items = [];
-      }
-      
-      return {
-        ...packageData,
-        // Add frontend-specific transformations
-        displayPrice: packageData.funder === 'Non-NDIS' && packageData.price 
-          ? `$${packageData.price}` 
-          : packageData.funder === 'NDIS' ? 'NDIS Funded' : 'Contact for pricing',
-        
-        // Process NDIS line items for display
-        lineItemsCount: packageData.ndis_line_items ? packageData.ndis_line_items.length : 0,
-        
-        // Create summary for NDIS packages
-        summary: packageData.funder === 'NDIS' && packageData.ndis_line_items && packageData.ndis_line_items.length > 0
-          ? `${packageData.ndis_line_items.length} NDIS line item${packageData.ndis_line_items.length !== 1 ? 's' : ''} (${packageData.ndis_package_type?.toUpperCase() || 'STA'})`
-          : packageData.funder === 'Non-NDIS' && packageData.price
-            ? `$${packageData.price}`
-            : 'Contact for details',
-        
-        // Add package type indicator for filtering context
-        packageTypeContext: packageData.funder === 'NDIS' && ndis_package_type === 'holiday' 
-          ? `Available for ${packageData.ndis_package_type?.toUpperCase()} stays`
-          : packageData.funder === 'NDIS' && packageData.ndis_package_type
-            ? `${packageData.ndis_package_type?.toUpperCase()} package`
-            : null
-      };
-    });
-
-    return res.status(200).json({
+    // Prepare response
+    const response = {
       success: true,
       packages: transformedPackages,
       pagination: {
@@ -192,38 +213,90 @@ export default async function handler(req, res) {
       },
       filters: {
         applied: {
-          funder: funder || null,
-          ndis_package_type: funder === 'NDIS' ? (ndis_package_type || null) : null, // Only show if funder is NDIS
-          // Include explanation of holiday filter logic
-          holidayFilterExplanation: funder === 'NDIS' && ndis_package_type === 'holiday' 
-            ? 'Holiday filter includes both STA and Holiday packages'
-            : funder === 'NDIS' && ndis_package_type === 'sta'
-              ? 'STA filter includes only STA packages'
-              : null
+          funder,
+          ndis_package_type: funder === 'NDIS' ? ndis_package_type : null,
+          search,
+          priceRange
         },
         available: {
           funders: ['NDIS', 'Non-NDIS'],
-          ndisPackageTypes: ['sta', 'holiday'],
-          // Add context about filter behavior
-          filterBehavior: {
-            holiday: 'Includes both STA and Holiday NDIS packages',
-            sta: 'Includes only STA NDIS packages (excludes Holiday packages)'
-          }
+          ndisPackageTypes: ['sta', 'holiday']
         }
-      },
-      debug: process.env.NODE_ENV === 'development' ? {
+      }
+    };
+
+    // Add admin-specific stats if requirements are included
+    if (include_requirements === 'true') {
+      response.admin_stats = {
+        total_packages: count,
+        packages_with_requirements: PackageRequirement ? transformedPackages.filter(p => p.requirement).length : 0,
+        packages_without_requirements: PackageRequirement ? transformedPackages.filter(p => !p.requirement).length : count,
+        ndis_packages: transformedPackages.filter(p => p.funder === 'NDIS').length,
+        non_ndis_packages: transformedPackages.filter(p => p.funder === 'Non-NDIS').length,
+        requirements_system_available: !!PackageRequirement
+      };
+    }
+
+    // Add debug info in development
+    if (process.env.NODE_ENV === 'development') {
+      response.debug = {
+        queryOptions,
         whereClause,
-        originalParams: { funder, ndis_package_type, priceRange },
-        parsedPriceRange: priceRange ? JSON.parse(priceRange) : null
-      } : undefined
-    });
+        include_requirements: include_requirements === 'true',
+        packageRequirement_available: !!PackageRequirement
+      };
+    }
+
+    return res.status(200).json(response);
 
   } catch (error) {
     console.error('Error fetching packages:', error);
     return res.status(500).json({
       success: false,
       error: 'Failed to fetch packages',
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      message: error.message,
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 }
+
+/**
+ * Generate a human-readable summary for the package based on requirements
+ */
+function generatePackageSummary(pkg, requirement) {
+  const parts = [];
+  
+  // Funder info
+  parts.push(pkg.funder);
+  if (pkg.funder === 'NDIS' && pkg.ndis_package_type) {
+    parts.push(pkg.ndis_package_type.toUpperCase());
+  }
+  
+  if (!requirement) {
+    parts.push('Requirements not set');
+    return parts.join(' • ');
+  }
+  
+  // Care requirements
+  if (requirement.requires_no_care) {
+    parts.push('No care');
+  } else if (requirement.care_hours_range && (requirement.care_hours_range.min !== null || requirement.care_hours_range.max !== null)) {
+    const min = requirement.care_hours_range.min || 0;
+    const max = requirement.care_hours_range.max || '∞';
+    parts.push(`${min}-${max} hours care`);
+  }
+  
+  // Course requirements
+  if (requirement.requires_course === true) {
+    parts.push('Requires course');
+  } else if (requirement.requires_course === false) {
+    parts.push('No course');
+  } else if (requirement.compatible_with_course) {
+    parts.push('Course optional');
+  }
+  
+  return parts.join(' • ');
+}
+
+// Export the summary generator for use in other files
+export { generatePackageSummary };
