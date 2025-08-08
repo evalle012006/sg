@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useState, useRef } from "react";
-import { useSelector } from "react-redux";
 
 const TIME_OPTIONS = {
   morning: ['6:30 am', '7:30 am', '8:30 am', '9:30 am', '10:30 am', '11:30 am'],
@@ -214,10 +213,15 @@ const validateAllFieldsFilled = (tableData) => {
   return errors;
 };
 
-export default function CareTable({ value = [], onChange, required = false }) {
+export default function CareTable({ 
+  value = [], 
+  onChange, 
+  required = false,
+  stayDates = { checkInDate: null, checkOutDate: null }
+}) {
   // Get dates from Redux state
-  const startDate = useSelector(state => state.bookingRequestForm.checkinDate);
-  const endDate = useSelector(state => state.bookingRequestForm.checkoutDate);
+  const startDate = stayDates.checkInDate;
+  const endDate = stayDates.checkOutDate;
   const [dates, setDates] = useState([]);
   const [tableData, setTableData] = useState({});
   const [defaultValues, setDefaultValues] = useState({

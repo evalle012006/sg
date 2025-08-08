@@ -37,6 +37,7 @@ const packageModel = require('./package');
 const courseModel = require('./course');
 const courseOfferModel = require('./courseoffer');
 const courseRateModel = require('./courserate');
+const packageRequirementModel = require('./packagerequirement');
 
 const env = process.env.NODE_ENV || 'development';
 const config = require(__dirname + '/../config/config.js')[env];
@@ -84,6 +85,7 @@ const Package = packageModel(sequelize, Sequelize.DataTypes);
 const Course = courseModel(sequelize, Sequelize.DataTypes);
 const CourseOffer = courseOfferModel(sequelize, Sequelize.DataTypes);
 const CourseRate = courseRateModel(sequelize, Sequelize.DataTypes);
+const PackageRequirement = packageRequirementModel(sequelize, Sequelize.DataTypes);
 
 //ASSOCIATIONS
 Role.belongsToMany(Permission, { through: RoleHasPermission, foreignKey: 'role_id' });
@@ -250,6 +252,15 @@ CourseOffer.belongsTo(User, {
   as: 'offeredBy'
 });
 
+Package.hasMany(PackageRequirement, {
+  foreignKey: 'package_id',
+  as: 'requirements'
+});
+PackageRequirement.belongsTo(Package, {
+  foreignKey: 'package_id',
+  as: 'package'
+});
+
 
 module.exports = {
   sequelize,
@@ -290,4 +301,5 @@ module.exports = {
   Course,
   CourseOffer,
   CourseRate,
+  PackageRequirement,
 };

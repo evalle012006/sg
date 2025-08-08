@@ -1,6 +1,10 @@
 import { Package } from '../../../models';
 import { Op } from 'sequelize';
 
+/**
+ * Enhanced package filtering API with care requirements support
+ * Supports both simple filtering and advanced care-based matching
+ */
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ 
@@ -11,12 +15,20 @@ export default async function handler(req, res) {
 
   try {
     const { 
-      // Dynamic filtering criteria
+      // Care-specific filtering criteria
+      care_hours = 0,
+      care_pattern = 'no-care',
+      recommended_packages = [],
+      
+      // Standard filtering criteria
       funder_type,
       ndis_package_type,
       search,
+      has_course = false,
+      sta_in_plan = null,
+      living_situation = null,
       
-      // Standard filters
+      // Pagination and sorting
       sort = 'name',
       order = 'ASC',
       page = 1,
@@ -26,29 +38,50 @@ export default async function handler(req, res) {
       debug = false
     } = req.body;
 
-    console.log('🔍 Simple package filter request:', {
-      funder_type,
-      ndis_package_type,
-      search
-    });
+    const debugInfo = debug ? {
+      receivedCriteria: req.body,
+      processingSteps: [],
+      matchingResults: [],
+      finalPackages: []
+    } : null;
 
-    // Build the filtering logic (simplified version)
-    const whereClause = {
-      // Basic package filters
-      ...(funder_type && { funder: funder_type }),
-      ...(ndis_package_type && funder_type === 'NDIS' && { ndis_package_type })
-    };
+    if (debug) {
+      console.log('🔍 Enhanced package filter request:', {
+        care_hours,
+        care_pattern,
+        recommended_packages,
+        funder_type,
+        ndis_package_type
+      });
+    }
+
+    // Build the basic WHERE clause
+    const whereClause = {};
+    
+    // Funder filtering
+    if (funder_type) {
+      whereClause.funder = funder_type;
+      if (debug) debugInfo.processingSteps.push(`Added funder filter: ${funder_type}`);
+    }
+
+    // NDIS package type filtering
+    if (ndis_package_type && funder_type === 'NDIS') {
+      whereClause.ndis_package_type = ndis_package_type;
+      if (debug) debugInfo.processingSteps.push(`Added NDIS package type filter: ${ndis_package_type}`);
+    }
 
     // Search filtering
     if (search) {
       whereClause[Op.or] = [
         { name: { [Op.like]: `%${search}%` } },
-        { package_code: { [Op.like]: `%${search}%` } }
+        { package_code: { [Op.like]: `%${search}%` } },
+        { description: { [Op.like]: `%${search}%` } }
       ];
+      if (debug) debugInfo.processingSteps.push(`Added search filter: ${search}`);
     }
 
-    // Execute the query
-    const { count, rows: packages } = await Package.findAndCountAll({
+    // Execute the base query
+    const { count, rows: basePackages } = await Package.findAndCountAll({
       where: whereClause,
       attributes: [
         'id', 
@@ -59,6 +92,7 @@ export default async function handler(req, res) {
         'ndis_package_type', 
         'ndis_line_items', 
         'image_filename',
+        'description',
         'created_at',
         'updated_at'
       ],
@@ -68,25 +102,47 @@ export default async function handler(req, res) {
       distinct: true
     });
 
-    // Transform the results (simplified)
-    const transformedPackages = packages.map(packageData => {
+    if (debug) {
+      debugInfo.processingSteps.push(`Found ${basePackages.length} packages after basic filtering`);
+    }
+
+    // Apply care-based filtering and scoring
+    const enhancedPackages = basePackages.map(packageData => {
       const pkg = packageData.toJSON ? packageData.toJSON() : packageData;
       
+      // Calculate match score based on care requirements
+      const matchScore = calculateCareMatchScore(pkg, {
+        care_hours,
+        care_pattern,
+        recommended_packages,
+        has_course,
+        sta_in_plan,
+        living_situation,
+        funder_type
+      });
+
       // Format pricing
       let formattedPrice;
       if (pkg.funder === 'NDIS') {
         if (pkg.ndis_line_items && pkg.ndis_line_items.length > 0) {
           const totalPrice = pkg.ndis_line_items.reduce((sum, item) => 
             sum + (parseFloat(item.price_per_night) || 0), 0);
-          formattedPrice = `${pkg.ndis_line_items.length} items (Total: $${totalPrice.toFixed(2)})`;
+          formattedPrice = `${pkg.ndis_line_items.length} items (Total: $${totalPrice.toFixed(2)}/night)`;
         } else {
           formattedPrice = 'NDIS Package';
         }
       } else {
-        formattedPrice = pkg.price ? `$${parseFloat(pkg.price).toFixed(2)}` : '$0.00';
+        formattedPrice = pkg.price ? `$${parseFloat(pkg.price).toFixed(2)}/night` : 'Price on request';
       }
+
+      // Generate summary
+      const summary = generatePackageSummary(pkg, {
+        care_hours,
+        matchScore,
+        has_course
+      });
       
-      return {
+      const enhancedPkg = {
         id: pkg.id,
         name: pkg.name,
         package_code: pkg.package_code,
@@ -94,67 +150,181 @@ export default async function handler(req, res) {
         price: pkg.price,
         ndis_package_type: pkg.ndis_package_type,
         ndis_line_items: pkg.ndis_line_items || [],
+        description: pkg.description,
         
-        // Add placeholder requirement information
-        requirement: null, // Will be populated once requirements system is set up
-        
-        // Computed fields
+        // Enhanced fields
+        matchScore,
         formattedPrice,
-        summary: `${pkg.funder}${pkg.ndis_package_type ? ' ' + pkg.ndis_package_type.toUpperCase() : ''} package`,
-        
-        // Placeholder match score
-        matchScore: 0
+        summary,
+        isRecommended: recommended_packages.includes(pkg.package_code),
+        careCompatible: matchScore > 0.3 // Packages with >30% match are considered compatible
       };
+
+      if (debug) {
+        debugInfo.matchingResults.push({
+          package_code: pkg.package_code,
+          name: pkg.name,
+          matchScore,
+          isRecommended: enhancedPkg.isRecommended,
+          careCompatible: enhancedPkg.careCompatible
+        });
+      }
+
+      return enhancedPkg;
     });
 
-    // Calculate pagination
-    const totalPages = Math.ceil(count / parseInt(limit));
-    const hasNextPage = parseInt(page) < totalPages;
-    const hasPrevPage = parseInt(page) > 1;
+    // Filter out packages with very low match scores (unless no care is required)
+    let filteredPackages = enhancedPackages;
+    if (care_hours > 0) {
+      // Only show packages that have some compatibility or are specifically recommended
+      filteredPackages = enhancedPackages.filter(pkg => 
+        pkg.matchScore > 0.2 || pkg.isRecommended
+      );
+      
+      if (debug) {
+        debugInfo.processingSteps.push(
+          `Filtered ${enhancedPackages.length} packages down to ${filteredPackages.length} care-compatible packages`
+        );
+      }
+    }
+
+    // Sort packages by relevance
+    filteredPackages.sort((a, b) => {
+      // First priority: recommended packages
+      if (a.isRecommended && !b.isRecommended) return -1;
+      if (!a.isRecommended && b.isRecommended) return 1;
+      
+      // Second priority: match score
+      if (a.matchScore !== b.matchScore) {
+        return b.matchScore - a.matchScore;
+      }
+      
+      // Third priority: alphabetical
+      return (a.name || '').localeCompare(b.name || '');
+    });
+
+    if (debug) {
+      debugInfo.finalPackages = filteredPackages.map(pkg => ({
+        package_code: pkg.package_code,
+        name: pkg.name,
+        matchScore: pkg.matchScore,
+        isRecommended: pkg.isRecommended
+      }));
+    }
 
     const response = {
       success: true,
-      packages: transformedPackages,
-      pagination: {
-        currentPage: parseInt(page),
-        totalPages,
-        totalItems: count,
-        itemsPerPage: parseInt(limit),
-        hasNextPage,
-        hasPrevPage
-      },
-      filters: {
-        applied: {
-          funder_type,
-          ndis_package_type,
-          search
-        },
-        summary: `${count} packages found${funder_type ? ` for ${funder_type}` : ''}${search ? ` matching "${search}"` : ''}`
-      },
-      system_status: {
-        requirements_available: false,
-        message: 'Advanced filtering will be available once requirements system is set up'
+      packages: filteredPackages,
+      total: filteredPackages.length,
+      page: parseInt(page),
+      limit: parseInt(limit),
+      totalPages: Math.ceil(filteredPackages.length / parseInt(limit)),
+      
+      // Care analysis summary
+      careAnalysis: {
+        care_hours,
+        care_pattern,
+        recommended_packages,
+        compatible_packages: filteredPackages.filter(pkg => pkg.careCompatible).length,
+        total_analyzed: basePackages.length
       }
     };
 
-    // Add debug information in development
-    if (debug && process.env.NODE_ENV === 'development') {
-      response.debug = {
-        packageWhere: whereClause,
-        totalPackagesFound: count,
-        message: 'Using simplified filtering - requirements system not set up yet'
-      };
+    if (debug) {
+      response.debug = debugInfo;
     }
 
     return res.status(200).json(response);
 
   } catch (error) {
-    console.error('❌ Simple package filtering error:', error);
+    console.error('Error in enhanced package filtering:', error);
     return res.status(500).json({
       success: false,
-      error: 'Failed to filter packages',
-      message: error.message,
-      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      error: 'Internal server error while filtering packages',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
+}
+
+/**
+ * Calculate how well a package matches the care requirements
+ * @param {Object} pkg - Package data
+ * @param {Object} criteria - Care and guest criteria
+ * @returns {number} - Match score between 0 and 1
+ */
+function calculateCareMatchScore(pkg, criteria) {
+  let score = 0.5; // Base score for all packages
+  const { care_hours, recommended_packages, has_course, funder_type } = criteria;
+
+  // Strong bonus for recommended packages
+  if (recommended_packages.includes(pkg.package_code)) {
+    score += 0.4;
+  }
+
+  // Care hours compatibility based on package requirements logic
+  if (care_hours === 0) {
+    // No care required - suitable for WS, NDIS SP, Holiday Support
+    if (['WS', 'NDIS_SP', 'HOLIDAY_SUPPORT'].includes(pkg.package_code)) {
+      score += 0.3;
+    }
+  } else if (care_hours <= 6) {
+    // Up to 6 hours - suitable for WHS, NDIS CSP, Holiday Support Plus
+    if (['WHS', 'WHSP', 'NDIS_CSP', 'HOLIDAY_SUPPORT_PLUS'].includes(pkg.package_code)) {
+      score += 0.3;
+    }
+  } else {
+    // More than 6 hours - suitable for WVHS, HCSP
+    if (['WVHS', 'WVHSP', 'HCSP'].includes(pkg.package_code)) {
+      score += 0.3;
+    }
+  }
+
+  // Funder type compatibility
+  if (funder_type) {
+    if ((funder_type === 'NDIS' && pkg.funder === 'NDIS') ||
+        (funder_type === 'Non-NDIS' && pkg.funder !== 'NDIS')) {
+      score += 0.1;
+    } else {
+      score -= 0.2; // Penalty for funder mismatch
+    }
+  }
+
+  // Course compatibility
+  if (has_course) {
+    // Holiday packages are more suitable for course participants
+    if (pkg.package_code.includes('HOLIDAY') || 
+        ['WHS', 'WVHS'].includes(pkg.package_code)) {
+      score += 0.1;
+    }
+  }
+
+  // Ensure score stays within bounds
+  return Math.max(0, Math.min(1, score));
+}
+
+/**
+ * Generate a descriptive summary for a package
+ * @param {Object} pkg - Package data
+ * @param {Object} context - Context for summary generation
+ * @returns {string} - Package summary
+ */
+function generatePackageSummary(pkg, context) {
+  const { care_hours, matchScore } = context;
+  
+  let summary = `${pkg.funder} package`;
+  
+  if (pkg.ndis_package_type) {
+    summary += ` (${pkg.ndis_package_type.toUpperCase()})`;
+  }
+  
+  // Add care compatibility note
+  if (care_hours > 0 && matchScore > 0.7) {
+    summary += ' - Highly compatible with your care needs';
+  } else if (care_hours > 0 && matchScore > 0.5) {
+    summary += ' - Compatible with your care needs';
+  } else if (care_hours === 0) {
+    summary += ' - Suitable for guests not requiring care assistance';
+  }
+  
+  return summary;
 }

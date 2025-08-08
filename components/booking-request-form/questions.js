@@ -4,7 +4,7 @@ import { GetField } from "../fields/index";
 import { v4 as uuidv4 } from 'uuid';
 import { useDispatch } from "react-redux";
 import { bookingRequestFormActions } from '../../store/bookingRequestFormSlice';
-import { QUESTION_KEYS, questionHasKey } from "../../services/booking/question-helper";
+import { findByQuestionKey, QUESTION_KEYS, questionHasKey } from "../../services/booking/question-helper";
 
 const QuestionPage = ({ 
     currentPage, 
@@ -15,7 +15,11 @@ const QuestionPage = ({
     funderType = null,
     ndisPackageType = null,
     additionalFilters = {},
-    updateAndDispatchPageDataImmediate
+    updateAndDispatchPageDataImmediate,
+    careAnalysisData = null,
+    packageFilterCriteria = {},
+    enhancedFormData = {},
+    stayDates = { checkInDate: null, checkOutDate: null }
 }) => {
     const dispatch = useDispatch();
     const [updatedCurrentPage, setUpdatedCurrentPage] = useState();
@@ -45,6 +49,36 @@ const QuestionPage = ({
             return { ...prev, [questionKey]: true };
         });
     };
+
+    const getCurrentFormQAData = useCallback(() => {
+        const qaPairs = [];
+        
+        if (!currentPage?.Sections) return qaPairs;
+
+        currentPage.Sections.forEach(section => {
+            section.Questions?.forEach(question => {
+                if (question.answer !== null && question.answer !== undefined && question.answer !== '') {
+                    qaPairs.push({
+                        question_key: question.question_key,
+                        question: question.question,
+                        answer: question.answer,
+                        Question: {
+                            question_key: question.question_key
+                        }
+                    });
+                }
+            });
+        });
+
+        return qaPairs;
+    }, [currentPage]);
+
+    // Check if care schedule has been provided
+    const hasCareScheduleData = useCallback(() => {
+        const currentQAData = getCurrentFormQAData();
+        const careScheduleQA = findByQuestionKey(currentQAData, QUESTION_KEYS.WHEN_DO_YOU_REQUIRE_CARE);
+        return careScheduleQA && careScheduleQA.answer;
+    }, [getCurrentFormQAData]);
 
     const calculateLocalFilters = (pageData) => {
         let newFunderType = localFilterState.funderType;
@@ -327,6 +361,19 @@ const QuestionPage = ({
             setTimeout(() => {
                 updatePageData(updatedPageData.Sections, currentPage.id);
             }, 10);
+        }
+    }
+
+    const handleCardSelectionFieldChange = (value, secIdx, qIdx) => {
+        console.log("Card selection changed:", value);
+        markQuestionAsInteracted(secIdx, qIdx);
+        
+        // Clear any existing error immediately for card selections
+        const currentQuestion = currentPage.Sections[secIdx]?.Questions[qIdx];
+        if (currentQuestion && value && (value !== null && value !== undefined && value !== '')) {
+            updateSections(value, 'answer', secIdx, qIdx, [], null); // Pass null to clear error
+        } else {
+            updateSections(value, 'answer', secIdx, qIdx);
         }
     }
 
@@ -1195,6 +1242,7 @@ const QuestionPage = ({
                                                                     name={`care-table`}
                                                                     value={q.answer}
                                                                     required={q.required ? true : false}
+                                                                    stayDates={stayDates} // Add this line
                                                                     onChange={(careData, error) => handleCareTableChange(careData, error, idx, index)}
                                                                 />
                                                                 {q.error && <p className="mt-1.5 text-red-500 text-xs">{q.error}</p>}
@@ -1321,6 +1369,40 @@ const QuestionPage = ({
                                                                     <span className="font-bold">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
                                                                 </div>
+
+                                                                {/* NEW: Care Analysis Display */}
+                                                                {careAnalysisData && careAnalysisData.requiresCare && (
+                                                                    <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                                                                        <h4 className="text-sm font-semibold text-blue-800 mb-2">
+                                                                            Care Requirements Analysis
+                                                                        </h4>
+                                                                        <div className="text-sm text-blue-700">
+                                                                            <p className="mb-1">
+                                                                                <span className="font-medium">Daily Care Hours:</span> {careAnalysisData.totalHoursPerDay} hours
+                                                                            </p>
+                                                                            <p className="mb-1">
+                                                                                <span className="font-medium">Care Pattern:</span> {careAnalysisData.carePattern}
+                                                                            </p>
+                                                                            <p className="text-xs text-blue-600 mt-2">
+                                                                                📦 Showing packages compatible with your care requirements
+                                                                            </p>
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+
+                                                                {/* NEW: Warning if no care data but package selection is shown */}
+                                                                {!hasCareScheduleData() && (
+                                                                    <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                                                                        <div className="flex items-center gap-2">
+                                                                            <span className="text-amber-600">⚠️</span>
+                                                                            <div className="text-sm text-amber-700">
+                                                                                <p className="font-medium">Care schedule needed</p>
+                                                                                <p className="text-xs">Please complete the care schedule question to see packages suited to your needs.</p>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+
                                                                 <GetField 
                                                                     key={q.id} 
                                                                     type='package-selection' 
@@ -1334,6 +1416,11 @@ const QuestionPage = ({
                                                                     required={q.required ? true : false} 
                                                                     size={q.size || 'medium'}
                                                                     localFilterState={localFilterState}
+                                                                    // NEW: Pass care analysis data
+                                                                    careAnalysisData={careAnalysisData}
+                                                                    packageFilterCriteria={packageFilterCriteria}
+                                                                    formData={enhancedFormData}
+                                                                    qaData={getCurrentFormQAData()}
                                                                     onChange={(value) => handleCardSelectionFieldChange(value, idx, index)} 
                                                                 />
                                                             </div>

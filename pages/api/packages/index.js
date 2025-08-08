@@ -1,14 +1,5 @@
-import { Package } from '../../../models';
+import { Package, PackageRequirement } from '../../../models';
 import { Op } from 'sequelize';
-
-// Try to import PackageRequirement - it may not exist yet during development
-let PackageRequirement = null;
-try {
-  const models = require('../../../models');
-  PackageRequirement = models.PackageRequirement;
-} catch (error) {
-  console.log('PackageRequirement model not available yet');
-}
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -24,7 +15,7 @@ export default async function handler(req, res) {
       ndis_package_type,
       priceRange,
       search,
-      include_requirements = 'false', // New parameter for admin mode
+      include_requirements = 'false',
       page = 1,
       limit = 50,
       sort = 'name'
@@ -85,155 +76,120 @@ export default async function handler(req, res) {
     }
 
     // Set up ordering
-    orderClause.push([sort, 'ASC']);
+    switch (sort) {
+      case 'name':
+        orderClause.push(['name', 'ASC']);
+        break;
+      case 'price':
+        orderClause.push(['price', 'ASC']);
+        break;
+      case 'funder':
+        orderClause.push(['funder', 'ASC'], ['name', 'ASC']);
+        break;
+      default:
+        orderClause.push(['name', 'ASC']);
+    }
 
-    // Build query options
+    // Set up query options
     const queryOptions = {
       where: whereClause,
       order: orderClause,
       limit: parseInt(limit),
-      offset: (parseInt(page) - 1) * parseInt(limit),
-      // Explicitly specify attributes to avoid timestamp issues
-      attributes: [
-        'id', 
-        'name', 
-        'package_code', 
-        'funder', 
-        'price', 
-        'ndis_package_type', 
-        'ndis_line_items', 
-        'image_filename',
-        'created_at',
-        'updated_at'
-      ]
+      offset: (parseInt(page) - 1) * parseInt(limit)
     };
 
-    // Include requirements for admin mode
-    if (include_requirements === 'true' && PackageRequirement) {
-      queryOptions.include = [
-        {
-          model: PackageRequirement,
-          as: 'requirements',
-          required: false, // LEFT JOIN so packages without requirements still show
-          where: { is_active: true }
-        }
-      ];
+    // Include requirements if requested (admin mode)
+    if (include_requirements === 'true') {
+      queryOptions.include = [{
+        model: PackageRequirement,
+        as: 'requirements',
+        required: false // LEFT JOIN to include packages without requirements
+      }];
     }
 
     // Execute query
     const { count, rows: packages } = await Package.findAndCountAll(queryOptions);
+    
+    // Calculate total pages
+    const totalPages = Math.ceil(count / parseInt(limit));
 
     // Transform packages for response
-    const transformedPackages = packages.map(packageData => {
-      const pkg = packageData.toJSON ? packageData.toJSON() : packageData;
-      
-      // Format pricing based on funder type
-      let formattedPrice;
-      if (pkg.funder === 'NDIS') {
-        if (pkg.ndis_line_items && pkg.ndis_line_items.length > 0) {
-          const totalPrice = pkg.ndis_line_items.reduce((sum, item) => 
-            sum + (parseFloat(item.price_per_night) || 0), 0);
-          formattedPrice = `${pkg.ndis_line_items.length} items (Total: $${totalPrice.toFixed(2)})`;
-        } else {
-          formattedPrice = 'NDIS Package';
-        }
-      } else {
-        formattedPrice = pkg.price ? `$${parseFloat(pkg.price).toFixed(2)}` : '$0.00';
-      }
-
-      // Create transformed package object
-      const transformedPkg = {
+    const transformedPackages = packages.map(pkg => {
+      const transformed = {
         id: pkg.id,
         name: pkg.name,
         package_code: pkg.package_code,
         funder: pkg.funder,
         price: pkg.price,
         ndis_package_type: pkg.ndis_package_type,
-        ndis_line_items: pkg.ndis_line_items || [],
-        image_filename: pkg.image_filename,
-        formattedPrice,
+        ndis_line_items: pkg.ndis_line_items,
         created_at: pkg.created_at,
         updated_at: pkg.updated_at
       };
 
-      // Add requirements data if included and available
-      if (include_requirements === 'true' && PackageRequirement && pkg.requirements) {
-        // Get the first (primary) requirement or null
-        const primaryRequirement = pkg.requirements && pkg.requirements.length > 0 
-          ? pkg.requirements[0] 
-          : null;
-
-        if (primaryRequirement) {
-          transformedPkg.requirement = {
-            care_hours_range: {
-              min: primaryRequirement.care_hours_min,
-              max: primaryRequirement.care_hours_max
-            },
-            requires_no_care: primaryRequirement.requires_no_care,
-            requires_course: primaryRequirement.requires_course,
-            compatible_with_course: primaryRequirement.compatible_with_course,
-            living_situation: primaryRequirement.living_situation,
-            sta_requirements: primaryRequirement.sta_requirements,
-            display_priority: primaryRequirement.display_priority,
-            notes: primaryRequirement.notes,
-            is_active: primaryRequirement.is_active
-          };
-
-          // Generate summary for admin view
-          transformedPkg.summary = generatePackageSummary(transformedPkg, transformedPkg.requirement);
+      // Format price display
+      if (pkg.funder === 'NDIS') {
+        if (pkg.ndis_line_items && pkg.ndis_line_items.length > 0) {
+          const priceRange = pkg.ndis_line_items.map(item => item.price_per_night);
+          const minPrice = Math.min(...priceRange);
+          const maxPrice = Math.max(...priceRange);
+          transformed.formattedPrice = minPrice === maxPrice 
+            ? `$${minPrice}/night` 
+            : `$${minPrice}-$${maxPrice}/night`;
         } else {
-          transformedPkg.requirement = null;
-          transformedPkg.summary = `${pkg.funder} package - Requirements not configured`;
+          transformed.formattedPrice = 'NDIS Funded';
         }
-      } else if (include_requirements === 'true') {
-        // Requirements were requested but model not available or no requirements found
-        transformedPkg.requirement = null;
-        transformedPkg.summary = `${pkg.funder} package - Requirements system not set up`;
+      } else {
+        transformed.formattedPrice = pkg.price ? `$${pkg.price}` : 'Price TBA';
       }
 
-      return transformedPkg;
-    });
+      // Add requirement data if included
+      if (include_requirements === 'true' && pkg.requirements && pkg.requirements.length > 0) {
+        const requirement = pkg.requirements[0]; // Should only be one requirement per package
+        
+        // Transform requirement for easier frontend use
+        transformed.requirement = {
+          ...requirement.dataValues,
+          care_hours_range: {
+            min: requirement.care_hours_min,
+            max: requirement.care_hours_max
+          }
+        };
+        
+        // Generate summary
+        transformed.summary = generatePackageSummary(transformed, transformed.requirement);
+      } else if (include_requirements === 'true') {
+        // No requirements found
+        transformed.requirement = null;
+        transformed.summary = generatePackageSummary(transformed, null);
+      }
 
-    // Calculate pagination
-    const totalPages = Math.ceil(count / parseInt(limit));
-    const hasNextPage = parseInt(page) < totalPages;
-    const hasPrevPage = parseInt(page) > 1;
+      return transformed;
+    });
 
     // Prepare response
     const response = {
       success: true,
       packages: transformedPackages,
       pagination: {
-        currentPage: parseInt(page),
-        totalPages,
-        totalItems: count,
-        itemsPerPage: parseInt(limit),
-        hasNextPage,
-        hasPrevPage
-      },
-      filters: {
-        applied: {
-          funder,
-          ndis_package_type: funder === 'NDIS' ? ndis_package_type : null,
-          search,
-          priceRange
-        },
-        available: {
-          funders: ['NDIS', 'Non-NDIS'],
-          ndisPackageTypes: ['sta', 'holiday']
-        }
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total_items: count,
+        total_pages: totalPages,
+        has_next: parseInt(page) < totalPages,
+        has_prev: parseInt(page) > 1
       }
     };
 
-    // Add admin-specific stats if requirements are included
+    // Add stats for admin mode
     if (include_requirements === 'true') {
-      response.admin_stats = {
+      response.stats = {
         total_packages: count,
-        packages_with_requirements: PackageRequirement ? transformedPackages.filter(p => p.requirement).length : 0,
-        packages_without_requirements: PackageRequirement ? transformedPackages.filter(p => !p.requirement).length : count,
+        packages_with_requirements: transformedPackages.filter(p => p.requirement).length,
+        packages_without_requirements: transformedPackages.filter(p => !p.requirement).length,
         ndis_packages: transformedPackages.filter(p => p.funder === 'NDIS').length,
         non_ndis_packages: transformedPackages.filter(p => p.funder === 'Non-NDIS').length,
-        requirements_system_available: !!PackageRequirement
+        requirements_system_available: true
       };
     }
 
@@ -243,7 +199,7 @@ export default async function handler(req, res) {
         queryOptions,
         whereClause,
         include_requirements: include_requirements === 'true',
-        packageRequirement_available: !!PackageRequirement
+        packageRequirement_available: true
       };
     }
 

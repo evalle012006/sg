@@ -100,7 +100,22 @@ const QUESTION_KEYS = {
     IS_STA_STATED_SUPPORT_IN_PLAN: 'is-short-term-accommodation-including-respite-a-stated-support-in-your-plan',
     ARE_YOU_TRAVELLING_WITH_INFORMAL_SUPPORTS: 'are-you-travelling-with-any-informal-supports',
 
+    // Course-related questions
     COURSE_OFFER_QUESTION: ['have-you-been-offered-a-place-in-a-course-for-this-stay'],
+    WHICH_COURSE: 'which-course',
+    
+    // Additional care-related questions for better package matching
+    ASSISTANCE_WITH_PERSONAL_CARE: 'do-you-require-assistance-with-personal-care',
+    CARE_REQUIREMENTS_DETAILS: 'care-requirements-details',
+    OVERNIGHT_CARE_REQUIRED: 'overnight-care-required',
+    
+    // Living situation questions for NDIS package filtering
+    LIVING_SITUATION: 'living-situation',
+    INFORMAL_SUPPORT_BREAK: 'are-you-having-a-break-from-your-informal-support',
+    
+    // Package selection related
+    PACKAGE_SELECTION: 'package-selection',
+    PREFERRED_PACKAGE_TYPE: 'preferred-package-type'
 };
 
 /**
@@ -132,19 +147,19 @@ function findByQuestionKey(qaPairs, questionKey) {
         return foundByNestedKey;
     }
     
-    // Fallback: If no nested Question object exists, generate question key from question text
+    // Second, try to find by direct question_key property
+    const foundByDirectKey = qaPairs.find(qa => qa.question_key === questionKey);
+    if (foundByDirectKey) {
+        return foundByDirectKey;
+    }
+    
+    // Third, try to generate question key from question text and match
     const foundByGeneratedKey = qaPairs.find(qa => {
-        // Skip if this qa already has a Question object (already checked above)
-        if (qa.Question?.question_key) {
-            return false;
-        }
-        
-        // Generate question key from the question text and compare
-        if (qa.question && typeof qa.question === 'string') {
-            const generatedKey = generateQuestionKey(qa.question);
+        const questionText = qa.question || qa.Question?.question;
+        if (questionText) {
+            const generatedKey = generateQuestionKey(questionText);
             return generatedKey === questionKey;
         }
-        
         return false;
     });
     
@@ -311,12 +326,67 @@ function getCoordinatorInfo(qaPairs, emailQuestionKey) {
     return coordinatorInfo;
 }
 
-function questionMatches(question, searchText, questionKey = null) {
-    if (questionKey && question.question_key === questionKey) {
-        return true;
+/**
+ * Check if question matches any criteria (key or text)
+ * @param {Object} question - Question object
+ * @param {string|Array<string>} criteria - Question key(s) to match
+ * @returns {boolean} - True if question matches criteria
+ */
+function questionMatches(question, criteria) {
+    if (!question || !criteria) return false;
+    
+    const keys = Array.isArray(criteria) ? criteria : [criteria];
+    
+    return keys.some(key => {
+        // Check direct question_key match
+        if (question.question_key === key) return true;
+        
+        // Check generated key match from question text
+        if (question.question) {
+            const generatedKey = generateQuestionKey(question.question);
+            return generatedKey === key;
+        }
+        
+        return false;
+    });
+}
+
+/**
+ * Extract care schedule data from Q&A pairs
+ * @param {Array} qaPairs - Array of Q&A pairs
+ * @returns {Object|null} - Care schedule data or null
+ */
+function extractCareScheduleData(qaPairs) {
+    const careScheduleQA = findByQuestionKey(qaPairs, QUESTION_KEYS.WHEN_DO_YOU_REQUIRE_CARE);
+    
+    if (!careScheduleQA || !careScheduleQA.answer) {
+        return null;
     }
-    // Fallback to text search if no question key match
-    return question.question && question.question.includes(searchText);
+    
+    try {
+        return typeof careScheduleQA.answer === 'string' 
+            ? JSON.parse(careScheduleQA.answer)
+            : careScheduleQA.answer;
+    } catch (error) {
+        console.error('Error parsing care schedule data:', error);
+        return null;
+    }
+}
+
+/**
+ * Check if guest requires personal care assistance
+ * @param {Array} qaPairs - Array of Q&A pairs
+ * @returns {boolean} - True if guest requires care
+ */
+function requiresPersonalCare(qaPairs) {
+    const personalCareQA = findByQuestionKey(qaPairs, QUESTION_KEYS.REQUIRE_PERSONAL_CARE);
+    
+    if (!personalCareQA || !personalCareQA.answer) {
+        return false;
+    }
+    
+    const answer = personalCareQA.answer.toLowerCase();
+    return answer.includes('yes') && !answer.includes('no');
 }
 
 module.exports = {
@@ -332,5 +402,7 @@ module.exports = {
     mapQuestionTextToKey,
     findByQuestionTextUsingKey,
     getCoordinatorInfo,
-    questionMatches
+    questionMatches,
+    extractCareScheduleData,
+    requiresPersonalCare
 };

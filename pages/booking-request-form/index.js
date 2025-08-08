@@ -10,6 +10,7 @@ import _, { get, update } from "lodash";
 import { getCheckInOutAnswer, getFunder, omitAttribute, validateEmail, validatePhoneNumber } from "../../utilities/common";
 
 import {
+    findByQuestionKey,
     QUESTION_KEYS,
     questionHasKey,
     questionMatches,
@@ -36,6 +37,7 @@ import SummaryOfStay from "../../components/booking-request-form/summary";
 import { tryParseJSON } from "../../services/booking/create-summary-data";
 import { useAutofillDetection } from "../../hooks/useAutofillDetection";
 import { BOOKING_TYPES } from "../../components/constants";
+import { calculateCareHours, createPackageFilterCriteria } from '../../utilities/careHoursCalculator';
 
 const BookingProgressHeader = dynamic(() => import('../../components/booking-request-form/booking-progress-header'));
 const QuestionPage = dynamic(() => import('../../components/booking-request-form/questions'));
@@ -100,6 +102,117 @@ const BookingRequestForm = () => {
     const [courseOffers, setCourseOffers] = useState([]);
     const [courseOffersLoaded, setCourseOffersLoaded] = useState(false);
 
+    const [careAnalysisData, setCareAnalysisData] = useState(null);
+    const [packageFilterCriteria, setPackageFilterCriteria] = useState({});
+
+    const [stayDates, setStayDates] = useState({ checkInDate: null, checkOutDate: null });
+
+    // Helper function to extract current Q&A pairs
+    const extractQaPairsFromCurrentForm = useCallback(() => {
+        const qaPairs = [];
+        
+        if (!currentPage?.Sections) return qaPairs;
+
+        currentPage.Sections.forEach(section => {
+            section.Questions?.forEach(question => {
+                if (question.answer !== null && question.answer !== undefined && question.answer !== '') {
+                    qaPairs.push({
+                        question_key: question.question_key,
+                        question: question.question,
+                        answer: question.answer,
+                        Question: {
+                            question_key: question.question_key
+                        }
+                    });
+                }
+            });
+        });
+
+        return qaPairs;
+    }, [currentPage]);
+
+    const currentCareAnalysis = useMemo(() => {
+        // Get current Q&A pairs from form data
+        const currentQaPairs = extractQaPairsFromCurrentForm();
+        
+        // Look for care schedule data
+        const careScheduleQA = findByQuestionKey(currentQaPairs, QUESTION_KEYS.WHEN_DO_YOU_REQUIRE_CARE);
+        
+        if (!careScheduleQA || !careScheduleQA.answer) {
+            return {
+                requiresCare: false,
+                totalHoursPerDay: 0,
+                carePattern: 'no-care',
+                recommendedPackages: ['WS', 'NDIS_SP', 'HOLIDAY_SUPPORT'],
+                analysis: 'No care schedule provided'
+            };
+        }
+
+        try {
+            // Parse the care data (should be in the format from your attached JSON)
+            const careData = typeof careScheduleQA.answer === 'string' 
+                ? JSON.parse(careScheduleQA.answer) 
+                : careScheduleQA.answer;
+
+            // Calculate care hours using existing utility
+            const analysis = calculateCareHours(careData);
+            
+            console.log('🏥 Care Analysis Update:', {
+                totalHours: analysis.totalHoursPerDay,
+                pattern: analysis.carePattern,
+                recommended: analysis.recommendedPackages
+            });
+
+            return {
+                requiresCare: true,
+                ...analysis,
+                rawCareData: careData
+            };
+        } catch (error) {
+            console.error('Error parsing care schedule data:', error);
+            return {
+                requiresCare: true,
+                totalHoursPerDay: 0,
+                carePattern: 'care-error',
+                recommendedPackages: [],
+                analysis: 'Error parsing care schedule'
+            };
+        }
+    }, [bookingRequestFormData, currentPage]);
+
+    // Update care analysis when form changes
+    useEffect(() => {
+        setCareAnalysisData(currentCareAnalysis);
+        
+        // Create package filter criteria for package selection components
+        const filterCriteria = createPackageFilterCriteria(currentCareAnalysis.rawCareData || []);
+        setPackageFilterCriteria({
+            ...filterCriteria,
+            funder_type: funder,
+            // Add other form-derived criteria here
+        });
+    }, [currentCareAnalysis, funder]);
+
+    // Enhanced function to get care-specific form data for package selection
+    const getEnhancedFormDataForPackages = useCallback(() => {
+        const baseFormData = {
+            funder,
+            isNdisFunded,
+            careAnalysis: careAnalysisData,
+            filterCriteria: packageFilterCriteria
+        };
+
+        // Add care-specific data if available
+        if (careAnalysisData?.rawCareData) {
+            baseFormData.careSchedule = careAnalysisData.rawCareData;
+            baseFormData.careHours = careAnalysisData.totalHoursPerDay;
+            baseFormData.carePattern = careAnalysisData.carePattern;
+            baseFormData.recommendedPackages = careAnalysisData.recommendedPackages;
+        }
+
+        return baseFormData;
+    }, [funder, isNdisFunded, careAnalysisData, packageFilterCriteria]);
+
     const fetchCourseOffers = useCallback(async () => {
         const guestId = getGuestId();
         if (!guestId) {
@@ -142,7 +255,6 @@ const BookingRequestForm = () => {
         return processedFormData;
     }, [JSON.stringify(processedFormData)]);
 
-    // ENHANCED: checkAndUpdateNdisFundingStatus using utility function
     const checkFundingStatus = useCallback((updatedPages) => {
         return checkAndUpdateNdisFundingStatus(updatedPages, isNdisFunded, dispatch, bookingRequestFormActions);
     }, [isNdisFunded, dispatch]);
@@ -1076,6 +1188,10 @@ const BookingRequestForm = () => {
                     additionalFilters={ndisFormFilters.additionalFilters}
                     profileDataLoaded={profileDataLoaded}
                     updateAndDispatchPageDataImmediate={updateAndDispatchPageDataImmediate}
+                    careAnalysisData={careAnalysisData}
+                    packageFilterCriteria={packageFilterCriteria}
+                    enhancedFormData={getEnhancedFormDataForPackages()}
+                    stayDates={stayDates}
                 />
             )
         }));
@@ -3162,6 +3278,15 @@ const BookingRequestForm = () => {
         profileDataLoaded,
         preloadProfileData
     ]);
+
+    useEffect(() => {
+        if (stableProcessedFormData && stableProcessedFormData.length > 0) {
+            const extractedDates = getStayDatesFromForm(stableProcessedFormData);
+            setStayDates(extractedDates);
+        } else {
+            setStayDates({ checkInDate: null, checkOutDate: null });
+        }
+    }, [stableProcessedFormData]);
 
     useEffect(() => {
         if (equipmentPageCompleted) {

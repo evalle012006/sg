@@ -11,11 +11,7 @@ module.exports = (sequelize, DataTypes) => {
      * The `models/index` file will call this method automatically.
      */
     static associate(models) {
-      // Associate with PackageRequirement
-      Package.hasMany(models.PackageRequirement, {
-        foreignKey: 'package_id',
-        as: 'requirements'
-      });
+      // Associate 
     }
   }
   
@@ -98,21 +94,15 @@ module.exports = (sequelize, DataTypes) => {
     },
     image_filename: {
       type: DataTypes.STRING,
-      allowNull: true,
-      validate: {
-        len: [0, 255]
-      }
+      allowNull: true
     }
   }, {
     sequelize,
     modelName: 'Package',
     tableName: 'packages',
     timestamps: true,
+    underscored: true,
     indexes: [
-      {
-        fields: ['package_code'],
-        unique: true
-      },
       {
         fields: ['funder']
       },
@@ -120,27 +110,13 @@ module.exports = (sequelize, DataTypes) => {
         fields: ['ndis_package_type']
       },
       {
-        fields: ['funder', 'ndis_package_type']
+        fields: ['package_code']
+      },
+      {
+        unique: true,
+        fields: ['package_code']
       }
-    ],
-    hooks: {
-      beforeValidate: (pkg, options) => {
-        // Auto-set NDIS line items format
-        if (pkg.funder === 'NDIS' && pkg.ndis_line_items) {
-          pkg.ndis_line_items = pkg.ndis_line_items.map(item => ({
-            ...item,
-            // Ensure consistent format
-            price_per_night: parseFloat(item.price_per_night || 0)
-          }));
-        }
-        
-        // Clear NDIS-specific fields for Non-NDIS packages
-        if (pkg.funder === 'Non-NDIS') {
-          pkg.ndis_package_type = null;
-          pkg.ndis_line_items = [];
-        }
-      }
-    }
+    ]
   });
   
   return Package;

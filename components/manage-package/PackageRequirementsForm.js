@@ -7,11 +7,11 @@ const PackageRequirementsForm = ({
   onCancel, 
   isOpen = false 
 }) => {
-  const [requirements, setRequirements] = useState({
-    care_hours_min: '',
-    care_hours_max: '',
+  const getInitialState = () => ({
+    care_hours_min: null,
+    care_hours_max: null,
     requires_no_care: false,
-    requires_course: null, // null = optional, true = required, false = not allowed
+    requires_course: null,
     compatible_with_course: true,
     living_situation: [],
     sta_requirements: {},
@@ -19,12 +19,25 @@ const PackageRequirementsForm = ({
     notes: ''
   });
 
+  const [requirements, setRequirements] = useState(getInitialState);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  // Reset state when modal is closed
+  useEffect(() => {
+    if (!isOpen) {
+      setRequirements(getInitialState());
+      setError(null);
+      setLoading(false);
+    }
+  }, [isOpen]);
 
   // Load existing requirements when component opens
   useEffect(() => {
     if (isOpen && packageData?.id) {
+      // Reset state first, then load new data
+      setRequirements(getInitialState());
+      setError(null);
       loadExistingRequirements();
     }
   }, [isOpen, packageData?.id]);
@@ -38,8 +51,9 @@ const PackageRequirementsForm = ({
         const data = await response.json();
         if (data.success && data.requirement) {
           setRequirements({
-            care_hours_min: data.requirement.care_hours_min || '',
-            care_hours_max: data.requirement.care_hours_max || '',
+            // FIX: Preserve null values instead of converting to empty strings
+            care_hours_min: data.requirement.care_hours_min,
+            care_hours_max: data.requirement.care_hours_max,
             requires_no_care: data.requirement.requires_no_care || false,
             requires_course: data.requirement.requires_course,
             compatible_with_course: data.requirement.compatible_with_course !== false,
@@ -48,10 +62,18 @@ const PackageRequirementsForm = ({
             display_priority: data.requirement.display_priority || 0,
             notes: data.requirement.notes || ''
           });
+        } else {
+          // If no requirements exist, ensure we start with clean state
+          setRequirements(getInitialState());
         }
+      } else {
+        // If API call fails, reset to initial state
+        setRequirements(getInitialState());
       }
     } catch (error) {
       console.error('Error loading requirements:', error);
+      // Reset to initial state on error
+      setRequirements(getInitialState());
     } finally {
       setLoading(false);
     }
@@ -65,7 +87,15 @@ const PackageRequirementsForm = ({
   };
 
   const handleCareHoursChange = (field, value) => {
-    const numValue = value === '' ? null : parseInt(value);
+    // FIX: Handle empty strings properly and ensure we send null for empty values
+    let numValue;
+    if (value === '' || value === null || value === undefined) {
+      numValue = null;
+    } else {
+      const parsed = parseInt(value);
+      numValue = isNaN(parsed) ? null : parsed;
+    }
+    
     setRequirements(prev => ({
       ...prev,
       [field]: numValue
@@ -124,21 +154,29 @@ const PackageRequirementsForm = ({
     setLoading(true);
     
     try {
+      // FIX: Clean the data before sending to ensure proper null values
+      const cleanedRequirements = {
+        ...requirements,
+        package_id: packageData.id,
+        // Ensure care hours are properly null if not set
+        care_hours_min: requirements.care_hours_min === '' ? null : requirements.care_hours_min,
+        care_hours_max: requirements.care_hours_max === '' ? null : requirements.care_hours_max,
+      };
+
       const response = await fetch(`/api/packages/${packageData.id}/requirements`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          ...requirements,
-          package_id: packageData.id
-        })
+        body: JSON.stringify(cleanedRequirements)
       });
 
       const data = await response.json();
       
       if (data.success) {
         onSave?.(data.requirement);
+        // Reset form after successful save
+        setRequirements(getInitialState());
       } else {
         throw new Error(data.message || 'Failed to save requirements');
       }
@@ -148,6 +186,14 @@ const PackageRequirementsForm = ({
     } finally {
       setLoading(false);
     }
+  };
+
+  // Enhanced cancel handler that clears state
+  const handleCancel = () => {
+    setRequirements(getInitialState());
+    setError(null);
+    setLoading(false);
+    onCancel?.();
   };
 
   if (!isOpen) return null;
@@ -167,7 +213,7 @@ const PackageRequirementsForm = ({
             </div>
           </div>
           <button
-            onClick={onCancel}
+            onClick={handleCancel}
             className="text-gray-400 hover:text-gray-600"
           >
             <X className="w-6 h-6" />
@@ -209,11 +255,11 @@ const PackageRequirementsForm = ({
                   className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                 />
                 <label htmlFor="requires_no_care" className="ml-2 text-sm text-gray-700">
-                  This package requires <strong>no care</strong>
+                  This package requires no care/support
                 </label>
               </div>
 
-              {/* Care Hours Range */}
+              {/* Care Hours */}
               {!requirements.requires_no_care && (
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -223,10 +269,10 @@ const PackageRequirementsForm = ({
                     <input
                       type="number"
                       min="0"
-                      max="24"
-                      value={requirements.care_hours_min || ''}
-                      onChange={(e) => handleCareHoursChange('care_hours_min', e.target.value)}
                       placeholder="0"
+                      // FIX: Handle null values properly in the input
+                      value={requirements.care_hours_min === null ? '' : requirements.care_hours_min}
+                      onChange={(e) => handleCareHoursChange('care_hours_min', e.target.value)}
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                     <p className="text-xs text-gray-500 mt-1">Leave empty for no minimum</p>
@@ -238,10 +284,10 @@ const PackageRequirementsForm = ({
                     <input
                       type="number"
                       min="0"
-                      max="24"
-                      value={requirements.care_hours_max || ''}
-                      onChange={(e) => handleCareHoursChange('care_hours_max', e.target.value)}
                       placeholder="24"
+                      // FIX: Handle null values properly in the input
+                      value={requirements.care_hours_max === null ? '' : requirements.care_hours_max}
+                      onChange={(e) => handleCareHoursChange('care_hours_max', e.target.value)}
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                     <p className="text-xs text-gray-500 mt-1">Leave empty for no maximum</p>
@@ -258,42 +304,33 @@ const PackageRequirementsForm = ({
               Course Requirements
             </h4>
             
-            <div className="space-y-3">
+            <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Course Participation
+                  Course Requirement Status
                 </label>
                 <div className="space-y-2">
-                  <label className="flex items-center">
-                    <input
-                      type="radio"
-                      name="requires_course"
-                      checked={requirements.requires_course === null}
-                      onChange={() => handleInputChange('requires_course', null)}
-                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
-                    />
-                    <span className="ml-2 text-sm text-gray-700">Course is optional</span>
-                  </label>
-                  <label className="flex items-center">
-                    <input
-                      type="radio"
-                      name="requires_course"
-                      checked={requirements.requires_course === true}
-                      onChange={() => handleInputChange('requires_course', true)}
-                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
-                    />
-                    <span className="ml-2 text-sm text-gray-700">Course is required</span>
-                  </label>
-                  <label className="flex items-center">
-                    <input
-                      type="radio"
-                      name="requires_course"
-                      checked={requirements.requires_course === false}
-                      onChange={() => handleInputChange('requires_course', false)}
-                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
-                    />
-                    <span className="ml-2 text-sm text-gray-700">No course allowed</span>
-                  </label>
+                  {[
+                    { value: null, label: 'Course is optional' },
+                    { value: true, label: 'Course is required' },
+                    { value: false, label: 'Course not allowed' }
+                  ].map((option) => (
+                    <label key={String(option.value)} className="flex items-center">
+                      <input
+                        type="radio"
+                        name="requires_course"
+                        value={String(option.value)}
+                        checked={requirements.requires_course === option.value}
+                        onChange={(e) => {
+                          const value = e.target.value === 'null' ? null : 
+                                       e.target.value === 'true' ? true : false;
+                          handleInputChange('requires_course', value);
+                        }}
+                        className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                      />
+                      <span className="ml-2 text-sm text-gray-700">{option.label}</span>
+                    </label>
+                  ))}
                 </div>
               </div>
 
@@ -306,7 +343,7 @@ const PackageRequirementsForm = ({
                   className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                 />
                 <label htmlFor="compatible_with_course" className="ml-2 text-sm text-gray-700">
-                  Package can be combined with courses
+                  Compatible with concurrent course enrollment
                 </label>
               </div>
             </div>
@@ -336,15 +373,15 @@ const PackageRequirementsForm = ({
 
           {/* Living Situation Requirements */}
           <div className="bg-gray-50 rounded-lg p-4">
-            <h4 className="text-md font-medium text-gray-900 mb-3">Living Situation Compatibility</h4>
-            <p className="text-sm text-gray-600 mb-3">Select which living situations this package supports (leave empty for all):</p>
-            
+            <h4 className="text-md font-medium text-gray-900 mb-3">
+              Living Situation Requirements
+            </h4>
             <div className="space-y-2">
               {[
                 { value: 'alone', label: 'Lives alone' },
                 { value: 'with_supports', label: 'Lives with informal supports' },
                 { value: 'sil', label: 'Supported Independent Living (SIL)' }
-              ].map(situation => (
+              ].map((situation) => (
                 <label key={situation.value} className="flex items-center">
                   <input
                     type="checkbox"
@@ -391,7 +428,7 @@ const PackageRequirementsForm = ({
         {/* Action Buttons */}
         <div className="flex items-center justify-end gap-3 mt-6 pt-4 border-t">
           <button
-            onClick={onCancel}
+            onClick={handleCancel}
             className="px-4 py-2 text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300 transition-colors"
           >
             Cancel

@@ -1,19 +1,30 @@
-import { Package } from "../../../../models";
+import { Package, PackageRequirement } from "../../../../models";
 
 export default async function handler(req, res) {
   const { id } = req.query;
 
-  // For now, we'll simulate the API until the PackageRequirement model is set up
   if (req.method === 'GET') {
     // Get existing requirements for a package
     try {
-      // TODO: Replace with actual PackageRequirement.findOne when model is available
-      // For now, return 404 to indicate no requirements exist
-      return res.status(404).json({
-        success: false,
-        message: 'No requirements found for this package'
+      const requirement = await PackageRequirement.findOne({
+        where: { package_id: id }
       });
+
+      if (requirement) {
+        return res.status(200).json({
+          success: true,
+          requirement: requirement
+        });
+      } else {
+        // No requirements found - return empty state so form can open
+        return res.status(200).json({
+          success: true,
+          requirement: null,
+          message: 'No requirements found for this package'
+        });
+      }
     } catch (error) {
+      console.error('Error fetching requirements:', error);
       return res.status(500).json({
         success: false,
         error: 'Failed to fetch requirements',
@@ -37,23 +48,31 @@ export default async function handler(req, res) {
         });
       }
 
-      // TODO: Replace with actual PackageRequirement.create when model is available
-      // For now, simulate successful creation
-      const mockRequirement = {
-        id: Date.now(), // Mock ID
+      // Check if requirements already exist
+      const existingRequirement = await PackageRequirement.findOne({
+        where: { package_id: id }
+      });
+
+      if (existingRequirement) {
+        return res.status(409).json({
+          success: false,
+          error: 'Requirements already exist for this package. Use PUT to update.'
+        });
+      }
+
+      // Create new requirement
+      const newRequirement = await PackageRequirement.create({
         package_id: parseInt(id),
-        ...requirementData,
-        created_at: new Date(),
-        updated_at: new Date()
-      };
+        ...requirementData
+      });
 
       return res.status(201).json({
         success: true,
         message: 'Requirements created successfully',
-        requirements: mockRequirement,
-        note: 'This is a simulation - actual requirements will be saved once the database model is set up'
+        requirement: newRequirement
       });
     } catch (error) {
+      console.error('Error creating requirements:', error);
       return res.status(500).json({
         success: false,
         error: 'Failed to create requirements',
@@ -67,22 +86,35 @@ export default async function handler(req, res) {
     try {
       const requirementData = req.body;
 
-      // TODO: Replace with actual PackageRequirement.update when model is available
-      // For now, simulate successful update
-      const mockRequirement = {
-        id: Date.now(), // Mock ID
-        package_id: parseInt(id),
-        ...requirementData,
-        updated_at: new Date()
-      };
-
-      return res.status(200).json({
-        success: true,
-        message: 'Requirements updated successfully',
-        requirements: mockRequirement,
-        note: 'This is a simulation - actual requirements will be saved once the database model is set up'
+      // Find existing requirement
+      const existingRequirement = await PackageRequirement.findOne({
+        where: { package_id: id }
       });
+
+      if (existingRequirement) {
+        // Update existing requirement
+        await existingRequirement.update(requirementData);
+        
+        return res.status(200).json({
+          success: true,
+          message: 'Requirements updated successfully',
+          requirement: existingRequirement
+        });
+      } else {
+        // Create new requirement if it doesn't exist
+        const newRequirement = await PackageRequirement.create({
+          package_id: parseInt(id),
+          ...requirementData
+        });
+
+        return res.status(201).json({
+          success: true,
+          message: 'Requirements created successfully',
+          requirement: newRequirement
+        });
+      }
     } catch (error) {
+      console.error('Error updating requirements:', error);
       return res.status(500).json({
         success: false,
         error: 'Failed to update requirements',
@@ -94,13 +126,23 @@ export default async function handler(req, res) {
   if (req.method === 'DELETE') {
     // Delete requirements for a package
     try {
-      // TODO: Replace with actual PackageRequirement.destroy when model is available
-      return res.status(200).json({
-        success: true,
-        message: 'Requirements deleted successfully',
-        note: 'This is a simulation - actual requirements will be deleted once the database model is set up'
+      const deletedCount = await PackageRequirement.destroy({
+        where: { package_id: id }
       });
+
+      if (deletedCount > 0) {
+        return res.status(200).json({
+          success: true,
+          message: 'Requirements deleted successfully'
+        });
+      } else {
+        return res.status(404).json({
+          success: false,
+          message: 'No requirements found to delete'
+        });
+      }
     } catch (error) {
+      console.error('Error deleting requirements:', error);
       return res.status(500).json({
         success: false,
         error: 'Failed to delete requirements',

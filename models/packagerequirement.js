@@ -6,11 +6,7 @@ const {
 module.exports = (sequelize, DataTypes) => {
   class PackageRequirement extends Model {
     static associate(models) {
-      // Associate with Package model
-      PackageRequirement.belongsTo(models.Package, {
-        foreignKey: 'package_id',
-        as: 'package'
-      });
+      // none
     }
   }
   
@@ -97,6 +93,7 @@ module.exports = (sequelize, DataTypes) => {
     modelName: 'PackageRequirement',
     tableName: 'package_requirements',
     timestamps: true,
+    underscored: true, // Important: matches other models
     indexes: [
       {
         fields: ['package_id']
