@@ -29,6 +29,7 @@ import {
     hasCourseOfferAnsweredYes,
     getStayDatesFromForm,
     validateCourseStayDates,
+    clearHiddenQuestionAnswers,
 } from "../../utilities/bookingRequestForm";
 
 import dynamic from 'next/dynamic';
@@ -1175,8 +1176,8 @@ const BookingRequestForm = () => {
                 <QuestionPage
                     key={`page-${page.id}-${profileDataLoaded}`}
                     currentPage={page}
+                    allPages={stableProcessedFormData}
                     updatePageData={(data) => {
-                        // FIXED: Use appropriate update handler based on page type
                         const updateHandler = getUpdateHandler(page.id);
                         updateHandler(data, page.id);
                     }}
@@ -1500,11 +1501,20 @@ const BookingRequestForm = () => {
 
         // Check for NDIS funding status changes
         const fundingStatusChanged = checkFundingStatus(pages);
+        
         let updatedPages;
         if (submit) {
             updatedPages = pages;
         } else {
+            // STEP 1: Refresh dependencies with cascade support
+            console.log('🔄 Refreshing dependencies with cascade support...');
             updatedPages = forceRefreshAllDependencies(pages);
+            
+            // STEP 2: Clear answers from questions that are now hidden
+            updatedPages = clearHiddenQuestionAnswers(updatedPages);
+            
+            // STEP 3: Final dependency refresh after clearing hidden answers
+            updatedPages = forceRefreshAllDependencies(updatedPages);
             
             // Recalculate completion status for all pages after dependency changes
             updatedPages.forEach(page => {
@@ -1522,7 +1532,7 @@ const BookingRequestForm = () => {
 
         // Always update Redux state
         if (!isProcessingNdis || pageId === 'ndis_packages_page') {
-            safeDispatchData(updatedPages, `updatePageData with current dependencies`);
+            safeDispatchData(updatedPages, `updatePageData with cascade dependencies`);
         }
 
         return updatedPages;
@@ -3282,8 +3292,10 @@ const BookingRequestForm = () => {
     useEffect(() => {
         if (stableProcessedFormData && stableProcessedFormData.length > 0) {
             const extractedDates = getStayDatesFromForm(stableProcessedFormData);
+            console.log('📅 Extracted stay dates:', extractedDates); // Debug log
             setStayDates(extractedDates);
         } else {
+            console.log('📅 No form data available for date extraction'); // Debug log
             setStayDates({ checkInDate: null, checkOutDate: null });
         }
     }, [stableProcessedFormData]);

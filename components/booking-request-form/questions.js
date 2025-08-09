@@ -8,6 +8,7 @@ import { findByQuestionKey, QUESTION_KEYS, questionHasKey } from "../../services
 
 const QuestionPage = ({ 
     currentPage, 
+    allPages = [],
     updatePageData, 
     guest, 
     updateEquipmentData, 
@@ -164,21 +165,39 @@ const QuestionPage = ({
             (JSON.stringify(currentValue) === JSON.stringify(value));
         
         const isSameError = currentError === error;
-        
+
         const affectsOtherQuestions = () => {
             if (!question) return false;
             
-            // Check if any other questions depend on this question
-            const questionId = question.question_id || question.id;
-            const questionKey = question.question_key;
+            // For questions moved from QaPairs, we need to find the original question ID
+            let questionId = question.question_id || question.id;
             
-            // Search through all pages to see if any questions depend on this one
-            return currentPage.Sections?.some(section =>
-                section.Questions?.some(otherQuestion =>
-                    otherQuestion.QuestionDependencies?.some(dep =>
-                        dep.dependence_id === questionId ||
-                        dep.dependence_id === question.id ||
-                        dep.dependence_id === questionKey
+            // FIXED: For moved questions (fromQa = true), find the original question ID from QaPairs
+            if (question.fromQa && currentPage.Sections) {
+                const currentSection = currentPage.Sections[secIdx];
+                if (currentSection && currentSection.QaPairs) {
+                    const correspondingQaPair = currentSection.QaPairs.find(qa => qa.id === question.id);
+                    if (correspondingQaPair && correspondingQaPair.question_id) {
+                        questionId = correspondingQaPair.question_id;
+                        console.log(`🔧 Using original question ID ${questionId} instead of QaPair ID ${question.id} for dependency checking`);
+                    }
+                }
+            }
+            
+            const questionKey = question.question_key;
+
+            console.log(`🔍 Checking dependencies for question: ${question.question}`);
+            console.log("Question ID for dependency checking:", questionId);
+            console.log("Current question key:", questionKey);
+            
+            // FIXED: Search through ALL pages (not just current page) to see if any questions depend on this one
+            return allPages.some(page =>
+                page.Sections?.some(section =>
+                    section.Questions?.some(otherQuestion =>
+                        otherQuestion.QuestionDependencies?.some(dep =>
+                            dep.dependence_id === questionId ||
+                            dep.dependence_id === questionKey
+                        )
                     )
                 )
             );
@@ -364,19 +383,6 @@ const QuestionPage = ({
         }
     }
 
-    const handleCardSelectionFieldChange = (value, secIdx, qIdx) => {
-        console.log("Card selection changed:", value);
-        markQuestionAsInteracted(secIdx, qIdx);
-        
-        // Clear any existing error immediately for card selections
-        const currentQuestion = currentPage.Sections[secIdx]?.Questions[qIdx];
-        if (currentQuestion && value && (value !== null && value !== undefined && value !== '')) {
-            updateSections(value, 'answer', secIdx, qIdx, [], null); // Pass null to clear error
-        } else {
-            updateSections(value, 'answer', secIdx, qIdx);
-        }
-    }
-
     useEffect(() => {
         if (updatedCurrentPage && updatedCurrentPage.dirty) {
             // Check if this update involves questions with dependencies
@@ -384,16 +390,26 @@ const QuestionPage = ({
                 section.Questions?.some(question => {
                     // Check if this question has dependencies OR affects other questions
                     const hasDependencies = question.QuestionDependencies && question.QuestionDependencies.length > 0;
-                    const questionId = question.question_id || question.id;
+                    
+                    // FIXED: Get the correct question ID for moved questions
+                    let questionId = question.question_id || question.id;
+                    if (question.fromQa && section.QaPairs) {
+                        const correspondingQaPair = section.QaPairs.find(qa => qa.id === question.id);
+                        if (correspondingQaPair && correspondingQaPair.question_id) {
+                            questionId = correspondingQaPair.question_id;
+                        }
+                    }
+                    
                     const questionKey = question.question_key;
                     
-                    // Check if any other question depends on this one
-                    const affectsOthers = updatedCurrentPage.Sections?.some(otherSection =>
-                        otherSection.Questions?.some(otherQuestion =>
-                            otherQuestion.QuestionDependencies?.some(dep =>
-                                dep.dependence_id === questionId ||
-                                dep.dependence_id === question.id ||
-                                dep.dependence_id === questionKey
+                    // FIXED: Check across ALL pages if any other question depends on this one
+                    const affectsOthers = allPages.some(page =>
+                        page.Sections?.some(otherSection =>
+                            otherSection.Questions?.some(otherQuestion =>
+                                otherQuestion.QuestionDependencies?.some(dep =>
+                                    dep.dependence_id === questionId ||
+                                    dep.dependence_id === questionKey
+                                )
                             )
                         )
                     );
@@ -404,13 +420,12 @@ const QuestionPage = ({
             
             if (hasDependencyQuestions) {
                 console.log('🔗 Update involves dependency questions, ensuring immediate processing');
-                // Use immediate update for dependency-related changes
                 updateAndDispatchPageDataImmediate?.(updatedCurrentPage.Sections, currentPage.id) || updatePageData(updatedCurrentPage.Sections);
             } else {
                 updatePageData(updatedCurrentPage.Sections);
             }
         }
-    }, [updatedCurrentPage]);
+    }, [updatedCurrentPage, allPages]);
 
 
     useEffect(() => {
@@ -604,7 +619,6 @@ const QuestionPage = ({
                                             }
 
                                             const handleCardSelectionFieldChange = (value, secIdx, qIdx) => {
-                                                console.log("Card selection changed:", value);
                                                 markQuestionAsInteracted(secIdx, qIdx);
                                                 
                                                 // Clear any existing error immediately for card selections

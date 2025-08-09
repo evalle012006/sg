@@ -428,7 +428,7 @@ export const processFormDataForNdisPackages = (formData, isNdisFunded, calculate
                     answer: ndisQuestionInfo.answer,
                     oldAnswer: ndisQuestionInfo.answer,
                     orig_section_id: section.orig_section_id,
-                    section_id: section.id, // IMPORTANT: Preserve section_id for dependencies
+                    section_id: section.id,
                     question_key: ndisQuestionInfo.question.question_key,
                     options: ndisQuestionInfo.question.options,
                     required: ndisQuestionInfo.question.required,
@@ -1085,177 +1085,197 @@ export const convertQAtoQuestionWithNdisFilter = (qa_pairs, sectionId, returnee,
     return { questionList: questionList, answered: answered };
 };
 
-// NEW FUNCTIONS FOR NDIS DEPENDENCY FIX:
-
 /**
- * Enhanced function to force refresh all dependencies with comprehensive answer mapping
+ * Enhanced function to force refresh all dependencies with cascade support
  * @param {Array} allPages - All form pages
  * @returns {Array} - Updated pages with refreshed dependencies
  */
 export const forceRefreshAllDependencies = (allPages) => {
-    // FIXED: Create a comprehensive dependency map that prioritizes the most current answers
-    const answerMap = new Map();
+    // console.log('🔄 Starting comprehensive dependency refresh with cascade support...');
     
-    // Build maps of all questions and their current answers
-    allPages.forEach(page => {
-        page.Sections?.forEach(section => {
-            section.Questions?.forEach(question => {
-                const questionId = question.question_id || question.id;
-                const questionKey = question.question_key;
-                
-                // ENHANCED: Always use the most current answer from the question object
-                const currentAnswer = question.answer;
-                
-                if (questionId) {
-                    answerMap.set(questionId, {
-                        answer: currentAnswer,
-                        question: question.question,
-                        questionKey: questionKey,
-                        page: page.title,
-                        section: section.label,
-                        questionId: questionId,
-                        source: 'Questions'
-                    });
-                    
-                    // ALSO store by string version of ID for compatibility
-                    answerMap.set(String(questionId), {
-                        answer: currentAnswer,
-                        question: question.question,
-                        questionKey: questionKey,
-                        page: page.title,
-                        section: section.label,
-                        questionId: questionId,
-                        source: 'Questions'
-                    });
-                }
-                
-                if (questionKey) {
-                    answerMap.set(questionKey, {
-                        answer: currentAnswer,
-                        question: question.question,
-                        questionKey: questionKey,
-                        page: page.title,
-                        section: section.label,
-                        questionId: questionId,
-                        source: 'Questions'
-                    });
-                }
-            });
-            
-            // ENHANCED: Also check QaPairs but DON'T override if Questions have more current data
-            section.QaPairs?.forEach(qaPair => {
-                const questionId = qaPair.question_id;
-                const question = qaPair.Question;
-                const questionKey = question?.question_key;
-                
-                // Only use QaPair data if we don't already have current data from Questions
-                const addQaPairData = (mapKey, data) => {
-                    if (!answerMap.has(mapKey)) {
-                        answerMap.set(mapKey, {
-                            ...data,
-                            source: 'QaPairs'
-                        });
-                    }
-                };
-                
-                if (questionId) {
-                    addQaPairData(questionId, {
-                        answer: qaPair.answer,
-                        question: question?.question || qaPair.question,
-                        questionKey: questionKey,
-                        page: page.title,
-                        section: section.label,
-                        questionId: questionId
-                    });
-                    
-                    addQaPairData(String(questionId), {
-                        answer: qaPair.answer,
-                        question: question?.question || qaPair.question,
-                        questionKey: questionKey,
-                        page: page.title,
-                        section: section.label,
-                        questionId: questionId
-                    });
-                }
-                
-                if (questionKey) {
-                    addQaPairData(questionKey, {
-                        answer: qaPair.answer,
-                        question: question?.question || qaPair.question,
-                        questionKey: questionKey,
-                        page: page.title,
-                        section: section.label,
-                        questionId: questionId
-                    });
-                }
-            });
-        });
-    });
+    // Create a working copy of all pages
+    let workingPages = structuredClone(allPages);
     
-    // Apply dependencies with the comprehensive answer map
-    const updatedPages = allPages.map(page => {
-        const updatedPage = { ...page };
+    // Build the initial answer map from current question states
+    const buildAnswerMap = (pages) => {
+        const answerMap = new Map();
         
-        updatedPage.Sections = page.Sections.map(section => {
-            const updatedSection = { ...section };
-            
-            updatedSection.Questions = section.Questions.map(question => {
-                let q = { ...question };
-                
-                // Process dependencies if they exist
-                if (q.QuestionDependencies && q.QuestionDependencies.length > 0) {
-                    let shouldShow = false;
+        pages.forEach((page, pageIndex) => {
+            page.Sections?.forEach((section, sectionIndex) => {
+                // Process Questions array
+                section.Questions?.forEach((question, questionIndex) => {
+                    // Skip hidden questions - they shouldn't contribute to dependencies
+                    if (question.hidden) {
+                        return;
+                    }
                     
-                    q.QuestionDependencies.forEach(dependency => {
-                        // ENHANCED: Check multiple possible matches with better logging
-                        const possibleMatches = [
-                            dependency.dependence_id,
-                            String(dependency.dependence_id),
-                            dependency.dependence_id.toString()
-                        ];
-                        
-                        let dependencyFound = false;
-                        let dependencyMet = false;
-                        
-                        for (const matchId of possibleMatches) {
-                            const dependentAnswer = answerMap.get(matchId);
-                            if (dependentAnswer) {
-                                dependencyFound = true;
-                                const answerMatches = checkAnswerMatch(dependentAnswer.answer, dependency.answer);
-                                
-                                if (answerMatches) {
-                                    shouldShow = true;
-                                    dependencyMet = true;
-                                    break;
-                                }
-                                break; // Found the dependency, don't check other match patterns
-                            }
+                    const questionId = question.question_id || question.id;
+                    const questionKey = question.question_key;
+                    
+                    // For moved questions (fromQa = true), get the original question ID
+                    let originalQuestionId = questionId;
+                    if (question.fromQa && section.QaPairs) {
+                        const correspondingQaPair = section.QaPairs.find(qa => qa.id === question.id);
+                        if (correspondingQaPair && correspondingQaPair.question_id) {
+                            originalQuestionId = correspondingQaPair.question_id;
                         }
+                    }
+                    
+                    const currentAnswer = question.answer;
+                    
+                    const answerData = {
+                        answer: currentAnswer,
+                        question: question.question,
+                        questionKey: questionKey,
+                        page: page.title,
+                        section: section.label,
+                        questionId: originalQuestionId,
+                        originalQuestionId: originalQuestionId,
+                        source: 'Questions',
+                        hidden: question.hidden,
+                        pageIndex,
+                        sectionIndex,
+                        questionIndex
+                    };
+                    
+                    // Store by original question ID
+                    if (originalQuestionId) {
+                        answerMap.set(originalQuestionId, answerData);
+                        answerMap.set(String(originalQuestionId), answerData);
+                    }
+                    
+                    // Also store by question key
+                    if (questionKey) {
+                        answerMap.set(questionKey, answerData);
+                    }
+                });
+                
+                // Process QaPairs but only if we don't already have data from Questions
+                section.QaPairs?.forEach(qaPair => {
+                    const questionId = qaPair.question_id;
+                    const question = qaPair.Question;
+                    const questionKey = question?.question_key;
+                    
+                    // ENHANCED: Check if the corresponding question is hidden
+                    const correspondingQuestion = section.Questions?.find(q => {
+                        if (q.fromQa && q.id === qaPair.id) return true;
+                        return q.question_id === questionId || q.id === questionId;
                     });
                     
-                    const wasHidden = q.hidden;
-                    q.hidden = !shouldShow;
-                } else {
-                    // No dependencies, show the question unless explicitly hidden
-                    if (q.hidden === undefined) {
-                        q.hidden = false;
-                    }
-                }
-                
-                return q;
+                    // Skip QaPairs for hidden questions OR if we already have data from Questions
+                    if (questionId && !answerMap.has(questionId) && (!correspondingQuestion || !correspondingQuestion.hidden)) {
+                        const answerData = {
+                            answer: qaPair.answer,
+                            question: question?.question || qaPair.question,
+                            questionKey: questionKey,
+                            page: page.title,
+                            section: section.label,
+                            questionId: questionId,
+                            originalQuestionId: questionId,
+                            source: 'QaPairs',
+                            hidden: false // QaPairs are considered available only if corresponding question isn't hidden
+                        };
+                        
+                        answerMap.set(questionId, answerData);
+                        answerMap.set(String(questionId), answerData);
+                        
+                        if (questionKey) {
+                            answerMap.set(questionKey, answerData);
+                        }
+                        
+                    } 
+                    // else if (correspondingQuestion?.hidden) {
+                    //     console.log(`⏭️ Skipping QaPair for hidden question ID ${questionId}: "${question?.question || qaPair.question}"`);
+                    // }
+                });
             });
-            
-            // Hide section if all questions are hidden
-            const visibleQuestions = updatedSection.Questions.filter(q => !q.hidden);
-            updatedSection.hidden = visibleQuestions.length === 0;
-            
-            return updatedSection;
         });
         
-        return updatedPage;
-    });
+        return answerMap;
+    };
     
-    return updatedPages;
+    // Process dependencies in multiple passes to handle cascading
+    let hasChanges = true;
+    let passCount = 0;
+    const maxPasses = 5; // Prevent infinite loops
+    
+    while (hasChanges && passCount < maxPasses) {
+        hasChanges = false;
+        passCount++;
+        
+        // console.log(`🔄 Dependency pass ${passCount}`);
+        
+        // Build answer map for this pass (only including visible questions)
+        const answerMap = buildAnswerMap(workingPages);
+        
+        // Apply dependencies
+        workingPages = workingPages.map(page => {
+            const updatedPage = { ...page };
+            
+            updatedPage.Sections = page.Sections.map(section => {
+                const updatedSection = { ...section };
+                
+                updatedSection.Questions = section.Questions.map(question => {
+                    let q = { ...question };
+                    
+                    // Store previous hidden state to detect changes
+                    const wasHidden = q.hidden;
+                    
+                    // Process dependencies if they exist
+                    if (q.QuestionDependencies && q.QuestionDependencies.length > 0) {
+                        let shouldShow = false;
+                        
+                        q.QuestionDependencies.forEach(dependency => {
+                            // Check multiple possible matches
+                            const possibleMatches = [
+                                dependency.dependence_id,
+                                String(dependency.dependence_id)
+                            ];
+                            
+                            for (const matchId of possibleMatches) {
+                                const dependentAnswer = answerMap.get(matchId);
+                                if (dependentAnswer && !dependentAnswer.hidden) { // CRITICAL: Only consider non-hidden questions
+                                    const answerMatches = checkAnswerMatch(dependentAnswer.answer, dependency.answer);
+                                    
+                                    if (answerMatches) {
+                                        shouldShow = true;
+                                        break;
+                                    }
+                                    break; // Found the dependency, don't check other match patterns
+                                }
+                            }
+                        });
+                        
+                        q.hidden = !shouldShow;
+                    } else {
+                        // No dependencies, show the question unless explicitly hidden
+                        if (q.hidden === undefined) {
+                            q.hidden = false;
+                        }
+                    }
+                    
+                    // Check if visibility changed
+                    if (wasHidden !== q.hidden) {
+                        hasChanges = true;
+                        // console.log(`  📋 Pass ${passCount}: Question "${q.question}" visibility changed: ${wasHidden ? 'hidden' : 'visible'} → ${q.hidden ? 'hidden' : 'visible'}`);
+                    }
+                    
+                    return q;
+                });
+                
+                // Hide section if all questions are hidden
+                const visibleQuestions = updatedSection.Questions.filter(q => !q.hidden);
+                updatedSection.hidden = visibleQuestions.length === 0;
+                
+                return updatedSection;
+            });
+            
+            return updatedPage;
+        });
+    }
+    
+    // console.log(`✅ Dependency refresh completed after ${passCount} passes`);
+    return workingPages;
 };
 
 /**
@@ -1331,13 +1351,60 @@ export const checkAnswerMatch = (actualAnswer, expectedAnswer) => {
 };
 
 /**
- * Enhanced function to debug dependencies for a specific question
- * @param {Object} question - The question to debug
- * @param {Array} allPages - All form pages
- * @param {boolean} isNdisFunded - NDIS funding status
+ * Clear answers from questions that are now hidden to prevent them from affecting dependencies
+ * @param {Array} pages - All form pages
+ * @returns {Array} - Updated pages with cleared answers for hidden questions
  */
-export const debugSpecificQuestionDependencies = (question, allPages, isNdisFunded) => {
-    // Debug function can be implemented when needed for troubleshooting
+export const clearHiddenQuestionAnswers = (pages) => {
+    return pages.map(page => {
+        const updatedPage = { ...page };
+        
+        updatedPage.Sections = page.Sections.map(section => {
+            const updatedSection = { ...section };
+            
+            // STEP 1: Clear answers from hidden Questions
+            updatedSection.Questions = section.Questions.map(question => {
+                let q = { ...question };
+                
+                // Clear answer if question is hidden to prevent it from affecting other dependencies
+                if (q.hidden && q.answer !== null && q.answer !== undefined && q.answer !== '') {
+                    // console.log(`🧹 Clearing answer from hidden question: "${q.question}"`);
+                    q.answer = null;
+                    q.dirty = true; // Mark as dirty so it gets saved
+                }
+                
+                return q;
+            });
+            
+            // STEP 2: Also clear answers from QaPairs for hidden questions
+            updatedSection.QaPairs = section.QaPairs?.map(qaPair => {
+                // Find the corresponding question to check if it's hidden
+                const correspondingQuestion = updatedSection.Questions.find(q => {
+                    // For moved questions, match by QaPair ID
+                    if (q.fromQa && q.id === qaPair.id) {
+                        return true;
+                    }
+                    // For regular questions, match by question_id
+                    return q.question_id === qaPair.question_id || q.id === qaPair.question_id;
+                });
+                
+                if (correspondingQuestion && correspondingQuestion.hidden) {
+                    // console.log(`🧹 Clearing QaPair answer for hidden question: "${qaPair.question}"`);
+                    return {
+                        ...qaPair,
+                        answer: null,
+                        dirty: true
+                    };
+                }
+                
+                return qaPair;
+            }) || [];
+            
+            return updatedSection;
+        });
+        
+        return updatedPage;
+    });
 };
 
 /**
