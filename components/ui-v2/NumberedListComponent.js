@@ -23,10 +23,10 @@ const Step = ({
 }) => {
   const getNumberStyle = () => {
     switch (state) {
-      case StepState.COMPLETED:
-        return 'bg-[#00467F] border-2 border-[#00467F] text-white'; // Blue background with checkmark
       case StepState.SELECTED:
         return 'border-2 border-[#00467F] text-[#00467F]'; // Blue background with number
+      case StepState.COMPLETED:
+        return 'bg-[#00467F] border-2 border-[#00467F] text-white'; // Blue background with checkmark
       default:
         return 'bg-gray-200 border-2 border-gray-200 text-gray-600'; // Gray background
     }
@@ -52,6 +52,16 @@ const Step = ({
     }
   };
 
+  const displayCheckOrNumber = () => {
+    console.log('Displaying check or number for state:', state);
+    if (state === StepState.SELECTED) {
+      return number;
+    } else if (state === StepState.COMPLETED) {
+      return <Check className="w-4 h-4" strokeWidth={3} />;
+    }
+    return number;
+  };
+
   return (
     <div className="relative">
       {/* Connecting line - properly centered on the circle */}
@@ -65,11 +75,7 @@ const Step = ({
         <div 
           className={`relative w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold z-10 flex-shrink-0 ${getNumberStyle()}`}
         >
-          {state === StepState.COMPLETED ? (
-            <Check className="w-4 h-4" strokeWidth={3} />
-          ) : (
-            number
-          )}
+          {displayCheckOrNumber()}
         </div>
         
         {/* Label and status - always same height */}

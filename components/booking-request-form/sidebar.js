@@ -169,14 +169,19 @@ export default function RequestFormSidebar({ setBookingSubmittedState }) {
                 stepState = StepState.NOT_SELECTED;
                 status = 'Pending';
                 statusType = 'pending';
+            } else if (currentUrl && currentUrl === page.url) {
+                stepState = StepState.SELECTED;
+                if (page.completed) {
+                    status = 'Complete';
+                    statusType = 'success';
+                } else {
+                    status = 'Pending';
+                    statusType = 'pending';
+                }
             } else if (page.completed) {
                 stepState = StepState.COMPLETED;
                 status = 'Complete';
                 statusType = 'success';
-            } else if (currentUrl && currentUrl === page.url) {
-                stepState = StepState.SELECTED;
-                status = 'Pending';
-                statusType = 'pending';
             }
 
             return {

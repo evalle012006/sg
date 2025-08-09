@@ -1077,6 +1077,10 @@ const BookingRequestForm = () => {
             return false;
         }
 
+        if (page.title === 'Equipment' && equipmentPageCompleted) {
+            return true;
+        }
+
         let totalRequiredQuestions = 0;
         let answeredRequiredQuestions = 0;
 
@@ -1106,6 +1110,13 @@ const BookingRequestForm = () => {
                         isAnswered = question.answer !== null &&
                                 question.answer !== undefined &&
                                 question.answer !== '';
+                    } else if (question.type === 'equipment') {
+                        // For equipment questions, check if any equipment has been selected
+                        // This could be handled by checking the equipmentChanges state or 
+                        // by checking if the page has equipment selections
+                        isAnswered = equipmentPageCompleted || 
+                                    (equipmentChangesState && equipmentChangesState.length > 0) ||
+                                    (question.answer !== null && question.answer !== undefined && question.answer !== '');
                     } else {
                         isAnswered = question.answer !== null &&
                                 question.answer !== undefined &&
