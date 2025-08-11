@@ -8,6 +8,7 @@ import moment from 'moment';
 import { useDebouncedCallback } from "use-debounce";
 import _, { get, update } from "lodash";
 import { getCheckInOutAnswer, getFunder, omitAttribute, validateEmail, validatePhoneNumber } from "../../utilities/common";
+import { analyzeCourseFromBookingData, createCourseFilterCriteria } from '../../utilities/courseAnalysisHelper';
 
 import {
     findByQuestionKey,
@@ -108,6 +109,86 @@ const BookingRequestForm = () => {
 
     const [stayDates, setStayDates] = useState({ checkInDate: null, checkOutDate: null });
 
+    const [courseAnalysisData, setCourseAnalysisData] = useState({
+        hasCourse: false,
+        courseId: null,
+        courseName: null,
+        courseOffered: false,
+        analysis: 'Initializing...',
+        dataSource: 'none'
+    });
+
+    const extractAllQAPairsFromForm = useCallback((formData = null) => {
+        // Use provided data or fall back to stableProcessedFormData
+        const dataToUse = formData || stableProcessedFormData;
+        const allQAPairs = [];
+        
+        console.log('🔍 extractAllQAPairsFromForm called with:', {
+            formDataLength: dataToUse?.length || 0,
+            formDataExists: !!dataToUse,
+            dataSource: formData ? 'parameter' : 'stableProcessedFormData'
+        });
+        
+        if (!dataToUse || dataToUse.length === 0) {
+            console.warn('⚠️ No form data available for QA extraction');
+            return allQAPairs;
+        }
+
+        dataToUse.forEach((page, pageIndex) => {
+            page.Sections?.forEach((section, sectionIndex) => {
+                // Add QaPairs (answered questions from previous sessions)
+                if (section.QaPairs && section.QaPairs.length > 0) {
+                    section.QaPairs.forEach(qaPair => {
+                        const qaData = {
+                            question_key: qaPair.Question?.question_key,
+                            question: qaPair.question || qaPair.Question?.question,
+                            answer: qaPair.answer,
+                            Question: qaPair.Question,
+                            source: 'QaPairs',
+                            pageTitle: page.title,
+                            sectionId: section.id
+                        };
+                        allQAPairs.push(qaData);
+                        
+                        // Log course-related questions specifically
+                        if (qaData.question?.toLowerCase().includes('course') || 
+                            qaData.question_key?.includes('course')) {
+                        }
+                    });
+                }
+                
+                // Add Questions that have answers (current form state)
+                if (section.Questions && section.Questions.length > 0) {
+                    const answeredQuestions = section.Questions.filter(question => 
+                        question.answer !== null && question.answer !== undefined && question.answer !== ''
+                    );
+                    
+                    answeredQuestions.forEach(question => {
+                        const qaData = {
+                            question_key: question.question_key,
+                            question: question.question,
+                            answer: question.answer,
+                            Question: {
+                                question_key: question.question_key
+                            },
+                            source: 'Questions',
+                            pageTitle: page.title,
+                            sectionId: section.id
+                        };
+                        allQAPairs.push(qaData);
+                        
+                        // Log course-related questions specifically
+                        if (qaData.question?.toLowerCase().includes('course') || 
+                            qaData.question_key?.includes('course')) {
+                        }
+                    });
+                }
+            });
+        });
+
+        return allQAPairs;
+    }, [stableProcessedFormData]);
+
     // Helper function to extract current Q&A pairs
     const extractQaPairsFromCurrentForm = useCallback(() => {
         const qaPairs = [];
@@ -181,25 +262,29 @@ const BookingRequestForm = () => {
         }
     }, [bookingRequestFormData, currentPage]);
 
-    // Update care analysis when form changes
     useEffect(() => {
         setCareAnalysisData(currentCareAnalysis);
+        setCourseAnalysisData(courseAnalysisData); // Remove this line since we're now setting it in the useEffect above
         
         // Create package filter criteria for package selection components
-        const filterCriteria = createPackageFilterCriteria(currentCareAnalysis.rawCareData || []);
+        const careFilterCriteria = createPackageFilterCriteria(currentCareAnalysis.rawCareData || []);
+        const courseFilterCriteria = createCourseFilterCriteria(courseAnalysisData); // Use courseAnalysisData instead
+        
         setPackageFilterCriteria({
-            ...filterCriteria,
+            ...careFilterCriteria,
+            ...courseFilterCriteria, // Merge course criteria
             funder_type: funder,
             // Add other form-derived criteria here
         });
-    }, [currentCareAnalysis, funder]);
+    }, [currentCareAnalysis, courseAnalysisData, funder]); // Update dependency
 
-    // Enhanced function to get care-specific form data for package selection
+    // Enhanced function to get course-specific and care-specific form data for package selection
     const getEnhancedFormDataForPackages = useCallback(() => {
         const baseFormData = {
             funder,
             isNdisFunded,
             careAnalysis: careAnalysisData,
+            courseAnalysis: courseAnalysisData, // Use courseAnalysisData instead of currentCourseAnalysis
             filterCriteria: packageFilterCriteria
         };
 
@@ -211,8 +296,16 @@ const BookingRequestForm = () => {
             baseFormData.recommendedPackages = careAnalysisData.recommendedPackages;
         }
 
+        // Add course-specific data if available
+        if (courseAnalysisData) {
+            baseFormData.hasCourse = courseAnalysisData.hasCourse;
+            baseFormData.courseOffered = courseAnalysisData.courseOffered;
+            baseFormData.courseId = courseAnalysisData.courseId;
+            baseFormData.courseName = courseAnalysisData.courseName;
+        }
+
         return baseFormData;
-    }, [funder, isNdisFunded, careAnalysisData, packageFilterCriteria]);
+    }, [funder, isNdisFunded, careAnalysisData, courseAnalysisData, packageFilterCriteria]);
 
     const fetchCourseOffers = useCallback(async () => {
         const guestId = getGuestId();
@@ -245,6 +338,13 @@ const BookingRequestForm = () => {
         if (newDataStr !== lastDataStr) {
             lastDispatchedDataRef.current = newDataStr;
             dispatch(bookingRequestFormActions.setData(newData));
+            
+            // Verify dispatch worked
+            setTimeout(() => {
+                console.log('⏰ Verifying Redux update...');
+            }, 100);
+        } else {
+            console.log('⏭️ Data unchanged, skipping dispatch');
         }
     }, [dispatch]);
 
@@ -1201,6 +1301,7 @@ const BookingRequestForm = () => {
                     profileDataLoaded={profileDataLoaded}
                     updateAndDispatchPageDataImmediate={updateAndDispatchPageDataImmediate}
                     careAnalysisData={careAnalysisData}
+                    courseAnalysisData={courseAnalysisData} // Use courseAnalysisData instead of currentCourseAnalysis
                     packageFilterCriteria={packageFilterCriteria}
                     enhancedFormData={getEnhancedFormDataForPackages()}
                     stayDates={stayDates}
@@ -3386,6 +3487,120 @@ const BookingRequestForm = () => {
             return () => clearTimeout(refreshTimer);
         }
     }, [currentPage?.id]);
+
+    useEffect(() => {
+        console.log('🎓 Course analysis useEffect triggered:', {
+            hasProcessedData: !!(stableProcessedFormData && stableProcessedFormData.length > 0),
+            processedDataLength: stableProcessedFormData?.length || 0,
+            hasRawData: !!(stableBookingRequestFormData && stableBookingRequestFormData.length > 0),
+            rawDataLength: stableBookingRequestFormData?.length || 0,
+            funder,
+            isNdisFunded
+        });
+
+        // Determine which data source to use
+        let dataToAnalyze = null;
+        let dataSource = 'none';
+        
+        // First preference: fully processed form data
+        if (stableProcessedFormData && stableProcessedFormData.length > 0) {
+            dataToAnalyze = stableProcessedFormData;
+            dataSource = 'processed';
+            console.log('🎓 Using stableProcessedFormData for course analysis');
+        }
+        // Fallback: use raw booking request form data if processed data isn't ready yet
+        else if (stableBookingRequestFormData && stableBookingRequestFormData.length > 0) {
+            dataToAnalyze = stableBookingRequestFormData;
+            dataSource = 'raw';
+            console.log('🎓 Fallback: Using stableBookingRequestFormData for course analysis');
+        }
+        // No data available yet
+        else {
+            console.log('⏸️ No form data available yet for course analysis');
+            setCourseAnalysisData({
+                hasCourse: false,
+                courseId: null,
+                courseName: null,
+                courseOffered: false,
+                analysis: 'Waiting for form data to load...',
+                dataSource: 'none'
+            });
+            return;
+        }
+
+        // Extract QA pairs from the available data
+        const allQAPairs = extractAllQAPairsFromForm(dataToAnalyze);
+        
+        console.log('🎓 Running course analysis with data:', {
+            totalQAPairs: allQAPairs.length,
+            formDataPages: dataToAnalyze?.length || 0,
+            dataSource: dataSource
+        });
+
+        if (allQAPairs.length === 0) {
+            console.warn('⚠️ No QA pairs found in form data');
+            setCourseAnalysisData({
+                hasCourse: false,
+                courseId: null,
+                courseName: null,
+                courseOffered: false,
+                analysis: 'No answered questions found',
+                dataSource: dataSource
+            });
+            return;
+        }
+
+        try {
+            const analysis = analyzeCourseFromBookingData({
+                allQAPairs: allQAPairs,
+                allBookingData: {
+                    sections: dataToAnalyze?.map(page => page.Sections || []).flat()
+                },
+                formData: {
+                    funder,
+                    isNdisFunded,
+                    sections: dataToAnalyze
+                }
+            });
+            
+            const finalAnalysis = {
+                ...analysis,
+                dataSource: dataSource
+            };
+            
+            console.log('🎓 Course Analysis Complete:', finalAnalysis);
+            setCourseAnalysisData(finalAnalysis);
+            
+        } catch (error) {
+            console.error('❌ Error in course analysis:', error);
+            setCourseAnalysisData({
+                hasCourse: false,
+                courseId: null,
+                courseName: null,
+                courseOffered: false,
+                analysis: 'Error analyzing course data',
+                error: error.message,
+                dataSource: dataSource
+            });
+        }
+    }, [
+        stableProcessedFormData, 
+        stableBookingRequestFormData, 
+        funder, 
+        isNdisFunded, 
+        extractAllQAPairsFromForm
+    ]);
+
+    // Debug logging for course analysis changes
+    useEffect(() => {
+        console.log('🎓 Course analysis data updated:', {
+            hasCourse: courseAnalysisData.hasCourse,
+            courseId: courseAnalysisData.courseId,
+            courseOffered: courseAnalysisData.courseOffered,
+            analysis: courseAnalysisData.analysis,
+            dataSource: courseAnalysisData.dataSource
+        });
+    }, [courseAnalysisData]);
 
     useEffect(() => {
         return () => {

@@ -359,21 +359,9 @@ const DynamicPackageDisplay = ({
               <div className="bg-yellow-50 border border-yellow-200 rounded p-3">
                 <h4 className="text-sm font-medium text-yellow-800 mb-1">Missing Requirements</h4>
                 <p className="text-sm text-yellow-700">
-                  This package doesn't have filtering requirements set up. 
+                  This package doesn&apos;t have filtering requirements set up. 
                   Click the settings icon to configure requirements.
                 </p>
-              </div>
-            )}
-
-            {/* Admin Debug Info */}
-            {adminMode && process.env.NODE_ENV === 'development' && (
-              <div className="border-t pt-2">
-                <details className="text-xs text-gray-500">
-                  <summary className="cursor-pointer">Debug Info</summary>
-                  <pre className="mt-1 bg-gray-100 p-2 rounded text-xs overflow-auto">
-                    {JSON.stringify(pkg, null, 2)}
-                  </pre>
-                </details>
               </div>
             )}
           </div>

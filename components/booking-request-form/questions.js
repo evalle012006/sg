@@ -18,6 +18,7 @@ const QuestionPage = ({
     additionalFilters = {},
     updateAndDispatchPageDataImmediate,
     careAnalysisData = null,
+    courseAnalysisData = null,
     packageFilterCriteria = {},
     enhancedFormData = {},
     stayDates = { checkInDate: null, checkOutDate: null }
@@ -1379,13 +1380,13 @@ const QuestionPage = ({
                                                         <React.Fragment>
                                                             <div className="flex flex-col w-full flex-1 col-span-full">
                                                                 {q.label && <span className="font-bold text-sargood-blue text-xl mb-2">{q.label}</span>}
-                                                                <div className="text-xs flex flex-row">
+                                                                <div className="text-xs flex flex-row mb-4">
                                                                     <span className="font-bold">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
                                                                 </div>
 
                                                                 {/* NEW: Care Analysis Display */}
-                                                                {careAnalysisData && careAnalysisData.requiresCare && (
+                                                                {/* {careAnalysisData && careAnalysisData.requiresCare && (
                                                                     <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                                                                         <h4 className="text-sm font-semibold text-blue-800 mb-2">
                                                                             Care Requirements Analysis
@@ -1402,10 +1403,33 @@ const QuestionPage = ({
                                                                             </p>
                                                                         </div>
                                                                     </div>
-                                                                )}
+                                                                )} */}
+
+                                                                {/* NEW: Course Analysis Display */}
+                                                                {/* {courseAnalysisData && courseAnalysisData.hasCourse && (
+                                                                    <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+                                                                        <h4 className="text-sm font-semibold text-green-800 mb-2">
+                                                                            Course Participation Analysis
+                                                                        </h4>
+                                                                        <div className="text-sm text-green-700">
+                                                                            <p className="mb-1">
+                                                                                <span className="font-medium">Course Offered:</span> {courseAnalysisData.courseOffered ? 'Yes' : 'No'}
+                                                                            </p>
+                                                                            {courseAnalysisData.courseId && (
+                                                                                <p className="mb-1">
+                                                                                    <span className="font-medium">Course ID:</span> {courseAnalysisData.courseId}
+                                                                                </p>
+                                                                            )}
+                                                                            <p className="text-xs text-green-600 mt-2">
+                                                                                🎓 Showing packages compatible with course participation
+                                                                            </p>
+                                                                        </div>
+                                                                    </div>
+                                                                )} */}
+
 
                                                                 {/* NEW: Warning if no care data but package selection is shown */}
-                                                                {!hasCareScheduleData() && (
+                                                                {/* {!hasCareScheduleData() && (
                                                                     <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
                                                                         <div className="flex items-center gap-2">
                                                                             <span className="text-amber-600">⚠️</span>
@@ -1415,14 +1439,13 @@ const QuestionPage = ({
                                                                             </div>
                                                                         </div>
                                                                     </div>
-                                                                )}
+                                                                )} */}
 
                                                                 <GetField 
                                                                     key={q.id} 
                                                                     type='package-selection' 
                                                                     value={q.answer} 
                                                                     width='100%' 
-                                                                    // Use local filter state for immediate updates
                                                                     funder={localFilterState.funderType || (typeof q.details === 'string' ? JSON.parse(q.details) : q.details)?.funder || 'NDIS'}
                                                                     ndis_package_type={localFilterState.ndisPackageType || (typeof q.details === 'string' ? JSON.parse(q.details) : q.details)?.ndis_package_type || 'sta'}
                                                                     additionalFilters={localFilterState.additionalFilters}
@@ -1430,8 +1453,8 @@ const QuestionPage = ({
                                                                     required={q.required ? true : false} 
                                                                     size={q.size || 'medium'}
                                                                     localFilterState={localFilterState}
-                                                                    // NEW: Pass care analysis data
                                                                     careAnalysisData={careAnalysisData}
+                                                                    courseAnalysisData={courseAnalysisData}
                                                                     packageFilterCriteria={packageFilterCriteria}
                                                                     formData={enhancedFormData}
                                                                     qaData={getCurrentFormQAData()}

@@ -53,7 +53,6 @@ const Step = ({
   };
 
   const displayCheckOrNumber = () => {
-    console.log('Displaying check or number for state:', state);
     if (state === StepState.SELECTED) {
       return number;
     } else if (state === StepState.COMPLETED) {

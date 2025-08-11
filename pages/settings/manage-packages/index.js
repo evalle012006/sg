@@ -511,7 +511,7 @@ export default function ManagePackages() {
                                     <h3 className="text-lg font-medium text-gray-900 mt-4">Delete Package</h3>
                                     <div className="mt-2 px-7 py-3">
                                         <p className="text-sm text-gray-500">
-                                            Are you sure you want to delete "{selectedPackage?.name}"? 
+                                            Are you sure you want to delete &quot;{selectedPackage?.name}&quot;? 
                                             This action cannot be undone.
                                         </p>
                                     </div>

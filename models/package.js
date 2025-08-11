@@ -11,7 +11,11 @@ module.exports = (sequelize, DataTypes) => {
      * The `models/index` file will call this method automatically.
      */
     static associate(models) {
-      // Associate 
+      // Add association with PackageRequirement
+      Package.hasMany(models.PackageRequirement, {
+        foreignKey: 'package_id',
+        as: 'requirements'
+      });
     }
   }
   

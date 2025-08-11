@@ -1,4 +1,4 @@
-import { Package } from '../../../models';
+import { Package, PackageRequirement } from '../../../models';
 import { Op } from 'sequelize';
 
 /**
@@ -45,15 +45,15 @@ export default async function handler(req, res) {
       finalPackages: []
     } : null;
 
-    if (debug) {
-      console.log('🔍 Enhanced package filter request:', {
-        care_hours,
-        care_pattern,
-        recommended_packages,
-        funder_type,
-        ndis_package_type
-      });
-    }
+    // if (debug) {
+    //   console.log('🔍 Enhanced package filter request:', {
+    //     care_hours,
+    //     care_pattern,
+    //     recommended_packages,
+    //     funder_type,
+    //     ndis_package_type
+    //   });
+    // }
 
     // Build the basic WHERE clause
     const whereClause = {};
@@ -80,8 +80,7 @@ export default async function handler(req, res) {
       if (debug) debugInfo.processingSteps.push(`Added search filter: ${search}`);
     }
 
-    // Execute the base query
-    const { count, rows: basePackages } = await Package.findAndCountAll({
+    const queryOptions = {
       where: whereClause,
       attributes: [
         'id', 
@@ -100,7 +99,18 @@ export default async function handler(req, res) {
       limit: parseInt(limit),
       offset: (parseInt(page) - 1) * parseInt(limit),
       distinct: true
-    });
+    };
+
+    // ADD THIS: Include requirements if requested
+    if (req.body.include_requirements === true) {
+      queryOptions.include = [{
+        model: PackageRequirement,
+        as: 'requirements',
+        required: false // LEFT JOIN to include packages without requirements
+      }];
+    }
+
+    const { count, rows: basePackages } = await Package.findAndCountAll(queryOptions);
 
     if (debug) {
       debugInfo.processingSteps.push(`Found ${basePackages.length} packages after basic filtering`);
@@ -110,67 +120,34 @@ export default async function handler(req, res) {
     const enhancedPackages = basePackages.map(packageData => {
       const pkg = packageData.toJSON ? packageData.toJSON() : packageData;
       
-      // Calculate match score based on care requirements
-      const matchScore = calculateCareMatchScore(pkg, {
-        care_hours,
-        care_pattern,
-        recommended_packages,
-        has_course,
-        sta_in_plan,
-        living_situation,
-        funder_type
-      });
-
-      // Format pricing
-      let formattedPrice;
-      if (pkg.funder === 'NDIS') {
-        if (pkg.ndis_line_items && pkg.ndis_line_items.length > 0) {
-          const totalPrice = pkg.ndis_line_items.reduce((sum, item) => 
-            sum + (parseFloat(item.price_per_night) || 0), 0);
-          formattedPrice = `${pkg.ndis_line_items.length} items (Total: $${totalPrice.toFixed(2)}/night)`;
-        } else {
-          formattedPrice = 'NDIS Package';
-        }
-      } else {
-        formattedPrice = pkg.price ? `$${parseFloat(pkg.price).toFixed(2)}/night` : 'Price on request';
+      // Include requirement data if requested
+      if (req.body.include_requirements === true && pkg.requirements && pkg.requirements.length > 0) {
+        const requirement = pkg.requirements[0]; // Should only be one requirement per package
+        pkg.requirement = {
+          ...requirement,
+          care_hours_range: {
+            min: requirement.care_hours_min,
+            max: requirement.care_hours_max
+          }
+        };
+      } else if (req.body.include_requirements === true) {
+        pkg.requirement = null;
       }
 
-      // Generate summary
-      const summary = generatePackageSummary(pkg, {
-        care_hours,
-        matchScore,
-        has_course
-      });
+      // Existing care analysis logic...
+      const matchScore = calculateCareMatchScore(pkg, criteria);
+      const isRecommended = recommended_packages.includes(pkg.package_code);
       
-      const enhancedPkg = {
-        id: pkg.id,
-        name: pkg.name,
-        package_code: pkg.package_code,
-        funder: pkg.funder,
-        price: pkg.price,
-        ndis_package_type: pkg.ndis_package_type,
-        ndis_line_items: pkg.ndis_line_items || [],
-        description: pkg.description,
-        
-        // Enhanced fields
+      return {
+        ...pkg,
         matchScore,
-        formattedPrice,
-        summary,
-        isRecommended: recommended_packages.includes(pkg.package_code),
-        careCompatible: matchScore > 0.3 // Packages with >30% match are considered compatible
+        isRecommended,
+        careCompatible: matchScore > 0.3,
+        summary: generatePackageSummary(pkg, { care_hours, matchScore }),
+        formattedPrice: pkg.funder === 'NDIS' 
+          ? 'NDIS Funded' 
+          : (pkg.price ? `$${parseFloat(pkg.price).toFixed(2)}` : 'Price TBA')
       };
-
-      if (debug) {
-        debugInfo.matchingResults.push({
-          package_code: pkg.package_code,
-          name: pkg.name,
-          matchScore,
-          isRecommended: enhancedPkg.isRecommended,
-          careCompatible: enhancedPkg.careCompatible
-        });
-      }
-
-      return enhancedPkg;
     });
 
     // Filter out packages with very low match scores (unless no care is required)
