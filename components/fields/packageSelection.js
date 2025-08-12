@@ -716,9 +716,21 @@ const PackageSelection = ({
               }
             }
           } else if (ndisPackages.length > 0) {
-            // For NDIS: Show all packages, no auto-selection
-            fetchedPackages = ndisPackages;
-            console.log('📋 Showing all NDIS packages for selection:', ndisPackages.length);
+            const bestMatch = findBestMatchPackage(ndisPackages);
+            if (bestMatch) {
+              fetchedPackages = [bestMatch]; // Show only one NDIS package
+              
+              // Auto-select the NDIS package if not already selected
+              if (!value && !autoSelected) {
+                console.log('🎯 Auto-selecting NDIS package:', bestMatch.name);
+                onChange?.(bestMatch.id); // Use package ID
+                setAutoSelected(true);
+              }
+            } else {
+              // Fallback: if no best match found, show all NDIS packages
+              fetchedPackages = ndisPackages;
+              console.log('📋 Fallback: Showing all NDIS packages (no best match found):', ndisPackages.length);
+            }
           }
         }
 

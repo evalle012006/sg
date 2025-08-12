@@ -904,7 +904,7 @@ export const checkAndUpdateNdisFundingStatus = (updatedPages, isNdisFunded, disp
                 }
             }
             
-            // Also check QaPairs array
+            // Also check QaPairs array with the same fix
             for (const qaPair of section.QaPairs || []) {
                 const question = qaPair.Question;
                 if (question && questionHasKey(question, QUESTION_KEYS.FUNDING_SOURCE) && qaPair.answer) {

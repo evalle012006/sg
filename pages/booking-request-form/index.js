@@ -91,6 +91,7 @@ const BookingRequestForm = () => {
     const layoutRef = useRef(null);
     const profilePreloadInProgressRef = useRef(false);
     const profileSaveInProgressRef = useRef(false);
+    const lastProcessingTimeRef = useRef(0);
 
     const [ndisFormFilters, setNdisFormFilters] = useState({
         funderType: 'NDIS',
@@ -3230,19 +3231,16 @@ const BookingRequestForm = () => {
 
             // If template was already loaded with NDIS awareness, apply dependencies
             if (analysis.templateAlreadyNdisAware) {
-                // console.log('✅ Template already NDIS-aware, applying dependencies only');
-                
                 // FIXED: Always refresh dependencies for NDIS-aware templates
                 const updatedData = forceRefreshAllDependencies(stableBookingRequestFormData);
                 
                 if (JSON.stringify(stableProcessedFormData) !== JSON.stringify(updatedData)) {
-                    // console.log('📝 Updating processed data with refreshed dependencies');
                     setProcessedFormData(updatedData);
                 }
                 return;
             }
             
-            // Create a comprehensive key for change detection
+            // Create a comprehensive key for change detection with stability check
             const createFormDataKey = (formData, isNdisFunded) => {
                 return {
                     pages: formData.map(page => ({
@@ -3250,7 +3248,7 @@ const BookingRequestForm = () => {
                         completed: page.completed,
                         sections: page.Sections?.map(section => ({
                             id: section.id,
-                            questions: section.Questions?.map(q => ({ 
+                            questions: section.Questions?.map(q => ({
                                 id: q.id || q.question_id,
                                 question_key: q.question_key,
                                 answer: q.answer,
@@ -3274,19 +3272,27 @@ const BookingRequestForm = () => {
             const currentFormDataKey = createFormDataKey(stableBookingRequestFormData, isNdisFunded);
             const currentFormDataStr = JSON.stringify(currentFormDataKey);
 
-            // Only process if key data actually changed
+            // FIXED: Add cooldown period to prevent rapid successive processing
+            const now = Date.now();
+            const timeSinceLastUpdate = now - (lastProcessingTimeRef.current || 0);
+            const PROCESSING_COOLDOWN = 500; // 500ms cooldown
+
+            // Only process if key data actually changed AND enough time has passed
             const dataChanged = prevFormDataRef.current !== currentFormDataStr;
             const fundingChanged = prevIsNdisFundedRef.current !== isNdisFunded;
+            const canProcess = timeSinceLastUpdate > PROCESSING_COOLDOWN;
 
-            if (dataChanged || fundingChanged) {
+            if ((dataChanged || fundingChanged) && canProcess) {
                 console.log('📊 Form data or NDIS funding status changed, processing...', {
                     dataChanged,
                     fundingChanged,
                     newFundingStatus: isNdisFunded,
-                    analysis
+                    analysis,
+                    timeSinceLastUpdate
                 });
 
                 setIsUpdating(true);
+                lastProcessingTimeRef.current = now;
                 prevFormDataRef.current = currentFormDataStr;
                 prevIsNdisFundedRef.current = isNdisFunded;
 
@@ -3322,6 +3328,8 @@ const BookingRequestForm = () => {
                         safeDispatchData(fallbackData, 'NDIS processing fallback');
                     } finally {
                         setIsProcessingNdis(false);
+                        // FIXED: Add delay before allowing next update
+                        setTimeout(() => setIsUpdating(false), 200);
                     }
                 } else {
                     // Apply comprehensive dependency refresh
@@ -3329,18 +3337,21 @@ const BookingRequestForm = () => {
                     
                     setProcessedFormData(updatedData);
                     safeDispatchData(updatedData, 'Comprehensive dependency refresh');
+                    
+                    // FIXED: Add delay before allowing next update
+                    setTimeout(() => setIsUpdating(false), 200);
                 }
-
-                setTimeout(() => setIsUpdating(false), 100);
-            } else {
-                // No significant changes detected
-                if (!stableProcessedFormData || stableProcessedFormData.length === 0) {
-                    console.log('📋 No processed data yet, initializing...');
-                    setProcessedFormData(stableBookingRequestFormData);
-                }
+            } else if ((dataChanged || fundingChanged) && !canProcess) {
+                // If we need to process but are in cooldown, schedule it
+                console.log('⏳ Processing needed but in cooldown, scheduling...');
+                setTimeout(() => {
+                    // Trigger a re-evaluation by updating a dummy state
+                    setIsUpdating(prev => !prev);
+                    setTimeout(() => setIsUpdating(prev => !prev), 50);
+                }, PROCESSING_COOLDOWN - timeSinceLastUpdate);
             }
         }
-    }, [stableBookingRequestFormData, isNdisFunded, isUpdating]);
+    }, [stableBookingRequestFormData, isNdisFunded]);
 
     useEffect(() => {
         if (stableBookingRequestFormData && stableBookingRequestFormData.length > 0 && !lastDispatchedDataRef.current) {
