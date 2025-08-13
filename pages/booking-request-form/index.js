@@ -31,6 +31,7 @@ import {
     getStayDatesFromForm,
     validateCourseStayDates,
     clearHiddenQuestionAnswers,
+    shouldMoveQuestionToNdisPage,
 } from "../../utilities/bookingRequestForm";
 
 import dynamic from 'next/dynamic';
@@ -92,6 +93,7 @@ const BookingRequestForm = () => {
     const profilePreloadInProgressRef = useRef(false);
     const profileSaveInProgressRef = useRef(false);
     const lastProcessingTimeRef = useRef(0);
+    const processingTimeoutRef = useRef(null);
 
     const [ndisFormFilters, setNdisFormFilters] = useState({
         funderType: 'NDIS',
@@ -118,6 +120,188 @@ const BookingRequestForm = () => {
         analysis: 'Initializing...',
         dataSource: 'none'
     });
+
+    const cleanReduxStateBeforeDispatch = useCallback((pages, isNdisFunded) => {
+        console.log('🧹 Cleaning Redux state before dispatch...');
+        
+        const ndisPageExists = pages.some(p => p.id === 'ndis_packages_page');
+        let movedQuestionKeys = new Set();
+        
+        // Collect all question keys that are on NDIS page
+        if (ndisPageExists) {
+            const ndisPage = pages.find(p => p.id === 'ndis_packages_page');
+            ndisPage.Sections.forEach(section => {
+                section.Questions?.forEach(question => {
+                    const questionKey = question.question_key || question.question || question.id;
+                    movedQuestionKeys.add(questionKey);
+                    // Also add composite key with section
+                    movedQuestionKeys.add(`${questionKey}_${section.id}`);
+                });
+                section.QaPairs?.forEach(qaPair => {
+                    const question = qaPair.Question;
+                    if (question) {
+                        const questionKey = question.question_key || question.question || qaPair.question_id;
+                        movedQuestionKeys.add(questionKey);
+                        movedQuestionKeys.add(`${questionKey}_${section.id}`);
+                    }
+                });
+            });
+        }
+        
+        console.log('📋 Questions moved to NDIS page:', Array.from(movedQuestionKeys));
+        
+        // Clean original pages
+        const cleanedPages = pages.map(page => {
+            if (page.id === 'ndis_packages_page') return page; // Skip NDIS page
+            
+            return {
+                ...page,
+                Sections: page.Sections.map(section => ({
+                    ...section,
+                    Questions: section.Questions?.filter(question => {
+                        const questionKey = question.question_key || question.question || question.id;
+                        const compositeKey = `${questionKey}_${section.id}`;
+                        
+                        // Remove if it's an NDIS question that should be moved
+                        const isNdisQuestion = question.ndis_only || shouldMoveQuestionToNdisPage?.(question, isNdisFunded);
+                        const shouldRemove = isNdisQuestion && isNdisFunded && ndisPageExists && 
+                                        (movedQuestionKeys.has(questionKey) || movedQuestionKeys.has(compositeKey));
+                        
+                        if (shouldRemove) {
+                            console.log(`🗑️ Removing NDIS question from ${page.title}: "${question.question}"`);
+                            return false;
+                        }
+                        
+                        return true;
+                    }) || [],
+                    QaPairs: section.QaPairs?.filter(qaPair => {
+                        const question = qaPair.Question;
+                        if (!question) return true;
+                        
+                        const questionKey = question.question_key || question.question || qaPair.question_id;
+                        const compositeKey = `${questionKey}_${section.id}`;
+                        
+                        const isNdisQuestion = question.ndis_only || shouldMoveQuestionToNdisPage?.(question, isNdisFunded);
+                        const shouldRemove = isNdisQuestion && isNdisFunded && ndisPageExists && 
+                                        (movedQuestionKeys.has(questionKey) || movedQuestionKeys.has(compositeKey));
+                        
+                        if (shouldRemove) {
+                            console.log(`🗑️ Removing NDIS QaPair from ${page.title}: "${question.question}"`);
+                            return false;
+                        }
+                        
+                        return true;
+                    }) || []
+                }))
+            };
+        });
+        
+        // Recalculate completion after cleanup
+        cleanedPages.forEach(page => {
+            const oldCompleted = page.completed;
+            page.completed = calculatePageCompletion(page);
+            
+            if (oldCompleted !== page.completed) {
+                console.log(`📊 Redux cleanup - Page "${page.title}" completion: ${oldCompleted} → ${page.completed}`);
+            }
+        });
+        
+        return cleanedPages;
+    }, [isNdisFunded, calculatePageCompletion]);
+
+    const removeDuplicateQuestions = useCallback((pages, isNdisFunded) => {
+        const seenQuestions = new Set();
+        const ndisPageExists = pages.some(p => p.id === 'ndis_packages_page');
+        
+        return pages.map(page => ({
+            ...page,
+            Sections: page.Sections.map(section => ({
+                ...section,
+                Questions: section.Questions.filter(question => {
+                    const questionKey = question.question_key || question.question || question.id;
+                    
+                    // Skip if already seen
+                    if (seenQuestions.has(questionKey)) {
+                        console.log(`🗑️ Removing duplicate: ${question.question} from ${page.title}`);
+                        return false;
+                    }
+                    
+                    // For NDIS questions, only keep on NDIS page if it exists and NDIS is funded
+                    if (question.ndis_only && isNdisFunded && ndisPageExists) {
+                        const shouldKeepHere = page.id === 'ndis_packages_page';
+                        if (!shouldKeepHere) {
+                            console.log(`📤 Skipping NDIS question on non-NDIS page: ${question.question}`);
+                            return false;
+                        }
+                    }
+                    
+                    seenQuestions.add(questionKey);
+                    return true;
+                }),
+                QaPairs: section.QaPairs?.filter(qaPair => {
+                    const question = qaPair.Question;
+                    if (!question) return true;
+                    
+                    const questionKey = question.question_key || question.question || qaPair.question_id;
+                    return !seenQuestions.has(questionKey);
+                }) || []
+            }))
+        }));
+    }, []);
+
+    const processNdisWithDebounce = useCallback((formData, ndisFunded) => {
+        // Clear any pending processing
+        if (processingTimeoutRef.current) {
+            clearTimeout(processingTimeoutRef.current);
+        }
+        
+        // Debounce the processing to prevent rapid-fire execution
+        processingTimeoutRef.current = setTimeout(async () => {
+            if (isProcessingNdis) {
+                console.log('⏳ NDIS processing already in progress, skipping...');
+                return;
+            }
+            
+            setIsProcessingNdis(true);
+            
+            try {
+                console.log('🔄 Running debounced NDIS processing...');
+                
+                // Process in sequence - CRITICAL: Don't call forceRefreshAllDependencies until after
+                const processed = processFormDataForNdisPackages(
+                    formData,
+                    ndisFunded,
+                    calculatePageCompletion,
+                    applyQuestionDependenciesAcrossPages
+                );
+                
+                // IMPORTANT: Remove duplicates BEFORE applying dependencies
+                const deduplicated = removeDuplicateQuestions(processed, ndisFunded);
+                
+                // NOW apply dependencies
+                const withDependencies = forceRefreshAllDependencies(deduplicated);
+                
+                // Final validation
+                const validation = validateProcessedData(withDependencies, ndisFunded);
+                if (!validation.isValid) {
+                    console.warn('⚠️ Processed data validation failed:', validation.issues);
+                }
+                
+                setProcessedFormData(withDependencies);
+                safeDispatchData(withDependencies, 'Debounced NDIS processing');
+                
+            } catch (error) {
+                console.error('❌ NDIS processing error:', error);
+                const fallback = forceRefreshAllDependencies(formData);
+                setProcessedFormData(fallback);
+                safeDispatchData(fallback, 'NDIS processing fallback');
+            } finally {
+                setIsProcessingNdis(false);
+                setTimeout(() => setIsUpdating(false), 300); // Increased delay
+            }
+        }, 150); // 150ms debounce
+    }, [isProcessingNdis, calculatePageCompletion, applyQuestionDependenciesAcrossPages, removeDuplicateQuestions]);
+
 
     const extractAllQAPairsFromForm = useCallback((formData = null) => {
         // Use provided data or fall back to stableProcessedFormData
@@ -332,22 +516,47 @@ const BookingRequestForm = () => {
         setCourseOffersLoaded(true);
     }, [getGuestId]);
 
-    const safeDispatchData = useCallback((newData, source = 'unknown') => {
-        const newDataStr = JSON.stringify(newData);
-        const lastDataStr = lastDispatchedDataRef.current;
-
-        if (newDataStr !== lastDataStr) {
-            lastDispatchedDataRef.current = newDataStr;
-            dispatch(bookingRequestFormActions.setData(newData));
+    const safeDispatchData = useCallback((data, context) => {
+        try {
+            // Clean the data before dispatching to Redux
+            const cleanedData = cleanReduxStateBeforeDispatch(data, isNdisFunded);
             
-            // Verify dispatch worked
-            setTimeout(() => {
-                console.log('⏰ Verifying Redux update...');
-            }, 100);
-        } else {
-            console.log('⏭️ Data unchanged, skipping dispatch');
+            const dataStr = JSON.stringify(cleanedData);
+            const lastDataStr = JSON.stringify(lastDispatchedDataRef.current);
+            
+            if (dataStr !== lastDataStr) {
+                console.log(`📤 Dispatching cleaned data to Redux: ${context}`);
+                
+                // Additional verification - check if funding page still has NDIS questions
+                const fundingPage = cleanedData.find(p => p.title === 'Funding' || p.id === 'funding');
+                if (fundingPage && isNdisFunded) {
+                    const remainingNdisQuestions = [];
+                    fundingPage.Sections?.forEach(section => {
+                        section.Questions?.forEach(question => {
+                            if (question.ndis_only || shouldMoveQuestionToNdisPage?.(question, isNdisFunded)) {
+                                remainingNdisQuestions.push(question.question);
+                            }
+                        });
+                    });
+                    
+                    if (remainingNdisQuestions.length > 0) {
+                        console.warn('⚠️ WARNING: Funding page still has NDIS questions after cleanup:', remainingNdisQuestions);
+                    } else {
+                        console.log('✅ Funding page successfully cleaned of NDIS questions');
+                    }
+                }
+                
+                dispatch(bookingRequestFormActions.setData(cleanedData));
+                lastDispatchedDataRef.current = structuredClone(cleanedData);
+            } else {
+                console.log(`⏭️ Skipping Redux dispatch - no changes detected: ${context}`);
+            }
+        } catch (error) {
+            console.error('❌ Error in enhanced safeDispatchData:', error);
+            // Fallback to original dispatch if cleaning fails
+            dispatch(bookingRequestFormActions.setData(data));
         }
-    }, [dispatch]);
+    }, [dispatch, cleanReduxStateBeforeDispatch, isNdisFunded]);
 
     const stableBookingRequestFormData = useMemo(() => {
         return bookingRequestFormData;
@@ -1173,7 +1382,7 @@ const BookingRequestForm = () => {
 
     useAutofillDetection();
 
-    const calculatePageCompletion = (page) => {
+    const calculatePageCompletion = useCallback((page) => {
         if (!page || !page.Sections) {
             return false;
         }
@@ -1185,47 +1394,102 @@ const BookingRequestForm = () => {
         let totalRequiredQuestions = 0;
         let answeredRequiredQuestions = 0;
 
-        for (const section of page.Sections) {
-            if (section.hidden) {
-                continue;
-            }
-
-            for (const question of section.Questions || []) {
-                if (question.hidden) {
+        // Special handling for NDIS page
+        if (page.id === 'ndis_packages_page' || page.title === 'NDIS Requirements') {
+            // console.log('🎯 Calculating completion for NDIS page with enhanced logic...');
+            
+            // Force dependency refresh for NDIS page before calculating completion
+            const refreshedNdisPage = applyQuestionDependenciesAcrossPages(page, stableProcessedFormData || []);
+            
+            for (const section of refreshedNdisPage.Sections) {
+                if (section.hidden) {
+                    // console.log(`⏭️ Skipping hidden section: ${section.label}`);
                     continue;
                 }
 
-                if (question.required) {
-                    totalRequiredQuestions++;
-
-                    // Check if question is answered based on type
-                    let isAnswered = false;
-
-                    if (question.type === 'checkbox' || question.type === 'checkbox-button') {
-                        isAnswered = Array.isArray(question.answer) && question.answer.length > 0;
-                    } else if (question.type === 'multi-select') {
-                        isAnswered = Array.isArray(question.answer) && question.answer.length > 0;
-                    } else if (question.type === 'simple-checkbox') {
-                        isAnswered = question.answer === true;
-                    } else if (question.type === 'radio' || question.type === 'radio-ndis') {
-                        isAnswered = question.answer !== null &&
-                                question.answer !== undefined &&
-                                question.answer !== '';
-                    } else if (question.type === 'equipment') {
-                        // For equipment questions, check if any equipment has been selected
-                        // This could be handled by checking the equipmentChanges state or 
-                        // by checking if the page has equipment selections
-                        isAnswered = equipmentPageCompleted || 
-                                    (equipmentChangesState && equipmentChangesState.length > 0) ||
-                                    (question.answer !== null && question.answer !== undefined && question.answer !== '');
-                    } else {
-                        isAnswered = question.answer !== null &&
-                                question.answer !== undefined &&
-                                question.answer !== '';
+                for (const question of section.Questions || []) {
+                    // console.log(`🔍 Question: "${question.question}" - Hidden: ${question.hidden}, Required: ${question.required}, Answer: ${question.answer}`);
+                    
+                    if (question.hidden) {
+                        // console.log(`⏭️ Skipping hidden question: ${question.question}`);
+                        continue;
                     }
 
-                    if (isAnswered) {
-                        answeredRequiredQuestions++;
+                    if (question.required) {
+                        totalRequiredQuestions++;
+
+                        // Check if question is answered based on type
+                        let isAnswered = false;
+
+                        if (question.type === 'checkbox' || question.type === 'checkbox-button') {
+                            isAnswered = Array.isArray(question.answer) && question.answer.length > 0;
+                        } else if (question.type === 'multi-select') {
+                            isAnswered = Array.isArray(question.answer) && question.answer.length > 0;
+                        } else if (question.type === 'simple-checkbox') {
+                            isAnswered = question.answer === true;
+                        } else if (question.type === 'radio' || question.type === 'radio-ndis') {
+                            isAnswered = question.answer !== null &&
+                                    question.answer !== undefined &&
+                                    question.answer !== '';
+                        } else if (question.type === 'equipment') {
+                            isAnswered = equipmentPageCompleted || 
+                                        (equipmentChangesState && equipmentChangesState.length > 0) ||
+                                        (question.answer !== null && question.answer !== undefined && question.answer !== '');
+                        } else {
+                            isAnswered = question.answer !== null &&
+                                    question.answer !== undefined &&
+                                    question.answer !== '';
+                        }
+
+                        if (isAnswered) {
+                            answeredRequiredQuestions++;
+                        }
+                        
+                        console.log(`📝 Required question "${question.question}": Answered = ${isAnswered}`);
+                    }
+                }
+            }
+        } else {
+            // Regular page completion logic
+            for (const section of page.Sections) {
+                if (section.hidden) {
+                    continue;
+                }
+
+                for (const question of section.Questions || []) {
+                    if (question.hidden) {
+                        continue;
+                    }
+
+                    if (question.required) {
+                        totalRequiredQuestions++;
+
+                        // Check if question is answered based on type
+                        let isAnswered = false;
+
+                        if (question.type === 'checkbox' || question.type === 'checkbox-button') {
+                            isAnswered = Array.isArray(question.answer) && question.answer.length > 0;
+                        } else if (question.type === 'multi-select') {
+                            isAnswered = Array.isArray(question.answer) && question.answer.length > 0;
+                        } else if (question.type === 'simple-checkbox') {
+                            isAnswered = question.answer === true;
+                        } else if (question.type === 'radio' || question.type === 'radio-ndis') {
+                            isAnswered = question.answer !== null &&
+                                    question.answer !== undefined &&
+                                    question.answer !== '';
+                        } else if (question.type === 'equipment') {
+                            isAnswered = equipmentPageCompleted || 
+                                        (equipmentChangesState && equipmentChangesState.length > 0) ||
+                                        (question.answer !== null && question.answer !== undefined && question.answer !== '');
+                        } else {
+                            isAnswered = question.answer !== null &&
+                                    question.answer !== undefined &&
+                                    question.answer !== '';
+                        }
+
+                        if (isAnswered) {
+                            answeredRequiredQuestions++;
+                        }
                     }
                 }
             }
@@ -1237,7 +1501,8 @@ const BookingRequestForm = () => {
         console.log(`📊 Page "${page.title}" completion: ${answeredRequiredQuestions}/${totalRequiredQuestions} required questions answered. Complete: ${isComplete}`);
 
         return isComplete;
-    };
+    }, [equipmentPageCompleted, equipmentChangesState, applyQuestionDependenciesAcrossPages, stableProcessedFormData]);
+
 
     // Get the status of a page for accordion display
     const getPageStatus = (page) => {
@@ -3296,62 +3561,38 @@ const BookingRequestForm = () => {
                 prevFormDataRef.current = currentFormDataStr;
                 prevIsNdisFundedRef.current = isNdisFunded;
 
-                // Determine if we need full NDIS processing or just dependency updates
+                // *** REPLACE YOUR EXISTING NDIS PROCESSING LOGIC WITH THIS: ***
                 if (analysis.needsProcessing || fundingChanged) {
-                    console.log('🔄 Running full NDIS processing...');
-                    setIsProcessingNdis(true);
-
-                    try {
-                        const processed = processFormDataForNdisPackages(
-                            stableBookingRequestFormData,
-                            isNdisFunded,
-                            calculatePageCompletion,
-                            applyQuestionDependenciesAcrossPages
-                        );
-                        
-                        // FIXED: Apply comprehensive dependency refresh after NDIS processing
-                        const processedWithDependencies = forceRefreshAllDependencies(processed);
-                        
-                        // Validate that processed data doesn't have duplicates
-                        const validation = validateProcessedData(processedWithDependencies, isNdisFunded);
-                        if (!validation.isValid) {
-                            console.warn('⚠️ Processed data validation failed:', validation.issues);
-                        }
-                        
-                        setProcessedFormData(processedWithDependencies);
-                        safeDispatchData(processedWithDependencies, 'Full NDIS processing with dependencies');
-                    } catch (error) {
-                        console.error('❌ Error in NDIS processing:', error);
-                        // Fallback to original data with dependencies applied
-                        const fallbackData = forceRefreshAllDependencies(stableBookingRequestFormData);
-                        setProcessedFormData(fallbackData);
-                        safeDispatchData(fallbackData, 'NDIS processing fallback');
-                    } finally {
-                        setIsProcessingNdis(false);
-                        // FIXED: Add delay before allowing next update
-                        setTimeout(() => setIsUpdating(false), 200);
-                    }
+                    console.log('🔄 Using debounced NDIS processing...');
+                    // Use the new debounced function instead of direct processing
+                    processNdisWithDebounce(stableBookingRequestFormData, isNdisFunded);
                 } else {
-                    // Apply comprehensive dependency refresh
+                    // Apply comprehensive dependency refresh for non-NDIS changes
                     const updatedData = forceRefreshAllDependencies(stableBookingRequestFormData);
                     
                     setProcessedFormData(updatedData);
-                    safeDispatchData(updatedData, 'Comprehensive dependency refresh');
-                    
-                    // FIXED: Add delay before allowing next update
-                    setTimeout(() => setIsUpdating(false), 200);
+                    safeDispatchData(updatedData, 'Dependency refresh only');
+                    setIsUpdating(false);
                 }
-            } else if ((dataChanged || fundingChanged) && !canProcess) {
-                // If we need to process but are in cooldown, schedule it
-                console.log('⏳ Processing needed but in cooldown, scheduling...');
-                setTimeout(() => {
-                    // Trigger a re-evaluation by updating a dummy state
-                    setIsUpdating(prev => !prev);
-                    setTimeout(() => setIsUpdating(prev => !prev), 50);
-                }, PROCESSING_COOLDOWN - timeSinceLastUpdate);
             }
         }
-    }, [stableBookingRequestFormData, isNdisFunded]);
+    }, [
+        stableBookingRequestFormData, 
+        isNdisFunded, 
+        isUpdating, 
+        processNdisWithDebounce,  // Add this to dependencies
+        stableProcessedFormData
+    ]);
+
+    // Also add cleanup in useEffect cleanup
+    useEffect(() => {
+        return () => {
+            // Cleanup timeout on unmount
+            if (processingTimeoutRef.current) {
+                clearTimeout(processingTimeoutRef.current);
+            }
+        };
+    }, []);
 
     useEffect(() => {
         if (stableBookingRequestFormData && stableBookingRequestFormData.length > 0 && !lastDispatchedDataRef.current) {

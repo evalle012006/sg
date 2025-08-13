@@ -38,7 +38,7 @@ export function extractCourseInformation(allQAPairs = [], formData = {}) {
 
   try {
     // Strategy 1: Look for specific question keys with multiple variations
-    console.log('🔍 Strategy 1: Looking for course questions by question key...');
+    // console.log('🔍 Strategy 1: Looking for course questions by question key...');
     courseAnalysis.rawData.strategiesUsed.push('question-key-matching');
     
     let courseOfferQA = null;
@@ -103,8 +103,8 @@ export function extractCourseInformation(allQAPairs = [], formData = {}) {
       if (whichCourseQA.answer && 
           whichCourseQA.answer !== '' && 
           whichCourseQA.answer !== '0' &&
-          whichCourseQA.answer.toLowerCase() !== 'no' &&
-          whichCourseQA.answer.toLowerCase() !== 'none' &&
+          whichCourseQA.answer?.toLowerCase() !== 'no' &&
+          whichCourseQA.answer?.toLowerCase() !== 'none' &&
           whichCourseQA.answer !== 'false') {
         
         courseAnalysis.courseId = whichCourseQA.answer;
@@ -115,7 +115,7 @@ export function extractCourseInformation(allQAPairs = [], formData = {}) {
 
     // Strategy 2: Text pattern matching for course-related questions
     if (!courseAnalysis.hasCourse && allQAPairs && allQAPairs.length > 0) {
-      console.log('🔍 Strategy 2: Text pattern matching for course-related questions...');
+      // console.log('🔍 Strategy 2: Text pattern matching for course-related questions...');
       courseAnalysis.rawData.strategiesUsed.push('text-pattern-matching');
       
       const courseRelatedQA = allQAPairs.filter(qa => {
@@ -164,8 +164,8 @@ export function extractCourseInformation(allQAPairs = [], formData = {}) {
           const hasValidAnswer = qa.answer && 
                                 qa.answer !== '' && 
                                 qa.answer !== '0' &&
-                                qa.answer.toLowerCase() !== 'no' &&
-                                qa.answer.toLowerCase() !== 'none';
+                                qa.answer?.toLowerCase() !== 'no' &&
+                                qa.answer?.toLowerCase() !== 'none';
           return hasSelectionPattern && hasValidAnswer;
         });
 
@@ -181,7 +181,7 @@ export function extractCourseInformation(allQAPairs = [], formData = {}) {
 
     // Strategy 3: Check formData for explicit course information
     if (!courseAnalysis.hasCourse && formData) {
-      console.log('📋 Strategy 3: Checking formData for course information...');
+      // console.log('📋 Strategy 3: Checking formData for course information...');
       courseAnalysis.rawData.strategiesUsed.push('formdata-checking');
       
       // Check for explicit course properties
@@ -211,7 +211,7 @@ export function extractCourseInformation(allQAPairs = [], formData = {}) {
 
     // Strategy 4: Expanded keyword search with confidence scoring
     if (!courseAnalysis.hasCourse && allQAPairs && allQAPairs.length > 0) {
-      console.log('🔍 Strategy 4: Expanded keyword search with confidence scoring...');
+      // console.log('🔍 Strategy 4: Expanded keyword search with confidence scoring...');
       courseAnalysis.rawData.strategiesUsed.push('expanded-keyword-search');
       
       const expandedKeywords = [
@@ -220,8 +220,8 @@ export function extractCourseInformation(allQAPairs = [], formData = {}) {
       ];
       
       const expandedCourseSearch = allQAPairs.filter(qa => {
-        const questionText = qa.question?.toLowerCase() || '';
-        const answerText = qa.answer?.toLowerCase() || '';
+        const questionText = qa?.question?.toLowerCase() || '';
+        const answerText = qa?.answer?.toLowerCase() || '';
         
         const hasKeyword = expandedKeywords.some(keyword => 
           questionText.includes(keyword) || answerText.includes(keyword)
@@ -230,7 +230,7 @@ export function extractCourseInformation(allQAPairs = [], formData = {}) {
         return hasKeyword && qa.answer && qa.answer !== '';
       });
       
-      console.log('🔍 Expanded search found:', expandedCourseSearch.length, 'potential matches');
+      // console.log('🔍 Expanded search found:', expandedCourseSearch.length, 'potential matches');
       
       // Score potential matches
       const scoredMatches = expandedCourseSearch.map(qa => {
@@ -259,11 +259,11 @@ export function extractCourseInformation(allQAPairs = [], formData = {}) {
         .filter(match => match.confidence >= 5)
         .sort((a, b) => b.confidence - a.confidence);
       
-      console.log('🏆 Best confidence matches:', bestMatches.map(m => ({
-        question: m.question?.substring(0, 50) + '...',
-        answer: m.answer,
-        confidence: m.confidence
-      })));
+      // console.log('🏆 Best confidence matches:', bestMatches.map(m => ({
+      //   question: m.question?.substring(0, 50) + '...',
+      //   answer: m.answer,
+      //   confidence: m.confidence
+      // })));
       
       if (bestMatches.length > 0) {
         const bestMatch = bestMatches[0];
@@ -271,13 +271,13 @@ export function extractCourseInformation(allQAPairs = [], formData = {}) {
         courseAnalysis.courseOffered = true;
         courseAnalysis.courseOfferAnswer = bestMatch.answer;
         courseAnalysis.rawData.foundBy = `expanded-search: confidence-${bestMatch.confidence}`;
-        console.log('✅ High-confidence course match found:', bestMatch.question?.substring(0, 60));
+        // console.log('✅ High-confidence course match found:', bestMatch.question?.substring(0, 60));
       }
     }
 
     // Strategy 5: Fallback - Check for any mention of courses in answers
     if (!courseAnalysis.hasCourse && allQAPairs && allQAPairs.length > 0) {
-      console.log('🔍 Strategy 5: Fallback - checking all answers for course mentions...');
+      // console.log('🔍 Strategy 5: Fallback - checking all answers for course mentions...');
       courseAnalysis.rawData.strategiesUsed.push('answer-mention-fallback');
       
       const courseMentions = allQAPairs.filter(qa => {
@@ -289,7 +289,7 @@ export function extractCourseInformation(allQAPairs = [], formData = {}) {
       });
       
       if (courseMentions.length > 0) {
-        console.log('📝 Found course mentions in answers:', courseMentions.length);
+        // console.log('📝 Found course mentions in answers:', courseMentions.length);
         
         // Look for substantial course mentions (not just the word "course")
         const substantialMentions = courseMentions.filter(qa => {
@@ -305,7 +305,7 @@ export function extractCourseInformation(allQAPairs = [], formData = {}) {
           courseAnalysis.hasCourse = true;
           courseAnalysis.courseOffered = true;
           courseAnalysis.rawData.foundBy = 'answer-mentions: substantial';
-          console.log('✅ Substantial course mentions found');
+          // console.log('✅ Substantial course mentions found');
         }
       }
     }
@@ -318,7 +318,7 @@ export function extractCourseInformation(allQAPairs = [], formData = {}) {
     // Validate course ID if present
     if (courseAnalysis.courseId) {
       const validCourseId = courseAnalysis.courseId.toString().trim();
-      if (validCourseId && validCourseId !== '0' && validCourseId.toLowerCase() !== 'no') {
+      if (validCourseId && validCourseId !== '0' && validCourseId?.toLowerCase() !== 'no') {
         courseAnalysis.courseId = validCourseId;
         courseAnalysis.hasCourse = true;
       } else {
