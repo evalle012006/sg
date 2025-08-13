@@ -56,6 +56,12 @@ const DateRangeField = (props) => {
     const [endMonth, setEndMonth] = useState('');
     const [endYear, setEndYear] = useState('');
     
+    // ADDED: Enhanced navigation state for both calendars
+    const [showStartMonthSelector, setShowStartMonthSelector] = useState(false);
+    const [showStartYearSelector, setShowStartYearSelector] = useState(false);
+    const [showEndMonthSelector, setShowEndMonthSelector] = useState(false);
+    const [showEndYearSelector, setShowEndYearSelector] = useState(false);
+    
     // ADDED: Track if component has been initialized to prevent re-initialization  
     const [isInitialized, setIsInitialized] = useState(false);
     
@@ -65,6 +71,110 @@ const DateRangeField = (props) => {
     const startYearRef = useRef();
     const endMonthRef = useRef();
     const endYearRef = useRef();
+
+    // Month names for dropdown
+    const monthNames = [
+        'January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+
+    // Generate year range for dropdown (current year ± 10 years)
+    const generateYearRange = () => {
+        const currentYear = new Date().getFullYear();
+        const years = [];
+        for (let i = currentYear - 10; i <= currentYear + 10; i++) {
+            years.push(i);
+        }
+        return years;
+    };
+
+    // Enhanced navigation functions for start calendar
+    const navigateStartMonth = (direction) => {
+        const newDate = new Date(startDateValue);
+        newDate.setMonth(newDate.getMonth() + direction);
+        setStartDateValue(newDate);
+    };
+
+    const navigateStartYear = (direction) => {
+        const newDate = new Date(startDateValue);
+        newDate.setFullYear(newDate.getFullYear() + direction);
+        setStartDateValue(newDate);
+    };
+
+    const selectStartMonth = (monthIndex) => {
+        const newDate = new Date(startDateValue);
+        newDate.setMonth(monthIndex);
+        setStartDateValue(newDate);
+        setShowStartMonthSelector(false);
+    };
+
+    const selectStartYear = (selectedYear) => {
+        const newDate = new Date(startDateValue);
+        newDate.setFullYear(selectedYear);
+        setStartDateValue(newDate);
+        setShowStartYearSelector(false);
+    };
+
+    // Enhanced navigation functions for end calendar
+    const navigateEndMonth = (direction) => {
+        const newDate = new Date(endDateValue);
+        newDate.setMonth(newDate.getMonth() + direction);
+        setEndDateValue(newDate);
+    };
+
+    const navigateEndYear = (direction) => {
+        const newDate = new Date(endDateValue);
+        newDate.setFullYear(newDate.getFullYear() + direction);
+        setEndDateValue(newDate);
+    };
+
+    const selectEndMonth = (monthIndex) => {
+        const newDate = new Date(endDateValue);
+        newDate.setMonth(monthIndex);
+        setEndDateValue(newDate);
+        setShowEndMonthSelector(false);
+    };
+
+    const selectEndYear = (selectedYear) => {
+        const newDate = new Date(endDateValue);
+        newDate.setFullYear(selectedYear);
+        setEndDateValue(newDate);
+        setShowEndYearSelector(false);
+    };
+
+    // Toggle selectors for start calendar
+    const toggleStartMonthSelector = () => {
+        setShowStartMonthSelector(!showStartMonthSelector);
+        setShowStartYearSelector(false);
+        // Close end calendar selectors
+        setShowEndMonthSelector(false);
+        setShowEndYearSelector(false);
+    };
+
+    const toggleStartYearSelector = () => {
+        setShowStartYearSelector(!showStartYearSelector);
+        setShowStartMonthSelector(false);
+        // Close end calendar selectors
+        setShowEndMonthSelector(false);
+        setShowEndYearSelector(false);
+    };
+
+    // Toggle selectors for end calendar
+    const toggleEndMonthSelector = () => {
+        setShowEndMonthSelector(!showEndMonthSelector);
+        setShowEndYearSelector(false);
+        // Close start calendar selectors
+        setShowStartMonthSelector(false);
+        setShowStartYearSelector(false);
+    };
+
+    const toggleEndYearSelector = () => {
+        setShowEndYearSelector(!showEndYearSelector);
+        setShowEndMonthSelector(false);
+        // Close start calendar selectors
+        setShowStartMonthSelector(false);
+        setShowStartYearSelector(false);
+    };
 
     // Check if a date is in the past
     const isDateInPast = (selectedDate) => {
@@ -102,29 +212,6 @@ const DateRangeField = (props) => {
             return 'bg-green-50 focus-within:bg-white';
         }
         return 'bg-white';
-    };
-
-    // Status icon component
-    const StatusIcon = () => {
-        if (shouldShowError) {
-            return (
-                <div className="absolute right-0 top-1/2 transform -translate-y-1/2 pr-2 pointer-events-none">
-                    <svg className="h-4 w-4 text-red-500" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                    </svg>
-                </div>
-            );
-        }
-        if (shouldShowValid) {
-            return (
-                <div className="absolute right-0 top-1/2 transform -translate-y-1/2 pr-2 pointer-events-none">
-                    <svg className="h-4 w-4 text-green-500" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                    </svg>
-                </div>
-            );
-        }
-        return null;
     };
 
     // Generate calendar days for current month
@@ -198,16 +285,12 @@ const DateRangeField = (props) => {
         return days;
     };
 
-    // Navigate calendar month
+    // Legacy navigate month function (keeping for compatibility)
     const navigateMonth = (direction, isStartCalendar = true) => {
         if (isStartCalendar) {
-            const newDate = new Date(startDateValue);
-            newDate.setMonth(newDate.getMonth() + direction);
-            setStartDateValue(newDate);
+            navigateStartMonth(direction);
         } else {
-            const newDate = new Date(endDateValue);
-            newDate.setMonth(newDate.getMonth() + direction);
-            setEndDateValue(newDate);
+            navigateEndMonth(direction);
         }
     };
 
@@ -320,14 +403,18 @@ const DateRangeField = (props) => {
         }
     }, [props.value]);
 
-    // Handle click outside to close calendars
+    // Handle click outside to close calendars and selectors
     useEffect(() => {
         const handleClickOutside = (e) => {
             if (startContainer.current && !startContainer.current.contains(e.target)) {
                 setShowStartCalendar(false);
+                setShowStartMonthSelector(false);
+                setShowStartYearSelector(false);
             }
             if (endContainer.current && !endContainer.current.contains(e.target)) {
                 setShowEndCalendar(false);
+                setShowEndMonthSelector(false);
+                setShowEndYearSelector(false);
             }
         };
 
@@ -342,6 +429,10 @@ const DateRangeField = (props) => {
         if (event.key === "Escape") {
             setShowStartCalendar(false);
             setShowEndCalendar(false);
+            setShowStartMonthSelector(false);
+            setShowStartYearSelector(false);
+            setShowEndMonthSelector(false);
+            setShowEndYearSelector(false);
         }
     }, []);
 
@@ -354,7 +445,7 @@ const DateRangeField = (props) => {
 
     return (
         <div className="flex mb-2 w-full" style={{ width: props.width || 'auto' }}>
-            <div className="mb-3 w-full max-w-sm">
+            <div className="mb-3 w-full max-w-xs">
                 {props.label && (
                     <label 
                         htmlFor={props.label} 
@@ -430,27 +521,113 @@ const DateRangeField = (props) => {
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
                                 </svg>
                                 
-                                {/* Start Date Calendar */}
+                                {/* Enhanced Start Date Calendar */}
                                 {!props?.disabled && showStartCalendar && (
-                                    <div className={`mt-1 absolute top-8 ${getCalendarPosition(true)} bg-white p-3 rounded-lg border border-gray-200 shadow-lg z-50 w-[250px] max-w-[calc(100vw-2rem)]`}>
+                                    <div className={`mt-1 absolute top-8 ${getCalendarPosition(true)} bg-white p-4 rounded-lg border border-gray-200 shadow-lg z-50 w-[320px] max-w-[calc(100vw-2rem)]`}>
+                                        {/* Enhanced Calendar Header */}
                                         <div className="flex items-center justify-between mb-4">
-                                            <button
-                                                type="button"
-                                                onClick={() => navigateMonth(-1, true)}
-                                                className="p-1.5 hover:bg-gray-100 rounded-lg text-lg font-bold transition-colors"
-                                            >
-                                                ←
-                                            </button>
-                                            <h3 className="font-semibold text-gray-800">
-                                                {startDateValue.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-                                            </h3>
-                                            <button
-                                                type="button"
-                                                onClick={() => navigateMonth(1, true)}
-                                                className="p-1.5 hover:bg-gray-100 rounded-lg text-lg font-bold transition-colors"
-                                            >
-                                                →
-                                            </button>
+                                            {/* Year Navigation */}
+                                            <div className="flex items-center space-x-1">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => navigateStartYear(-1)}
+                                                    className="p-1 hover:bg-gray-100 rounded text-sm font-bold transition-colors"
+                                                    aria-label="Previous year"
+                                                    title="Previous year"
+                                                >
+                                                    ««
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => navigateStartMonth(-1)}
+                                                    className="p-1 hover:bg-gray-100 rounded text-lg font-bold transition-colors"
+                                                    aria-label="Previous month"
+                                                    title="Previous month"
+                                                >
+                                                    ‹
+                                                </button>
+                                            </div>
+                                            
+                                            {/* Clickable Month/Year Display */}
+                                            <div className="flex items-center space-x-2">
+                                                <div className="relative">
+                                                    <button
+                                                        type="button"
+                                                        onClick={toggleStartMonthSelector}
+                                                        className="font-semibold text-gray-800 hover:text-blue-600 transition-colors cursor-pointer px-2 py-1 rounded hover:bg-gray-100"
+                                                        title="Select month"
+                                                    >
+                                                        {monthNames[startDateValue.getMonth()]}
+                                                    </button>
+                                                    
+                                                    {/* Month Selector Dropdown */}
+                                                    {showStartMonthSelector && (
+                                                        <div className="absolute top-8 left-0 bg-white border border-gray-200 rounded-lg shadow-lg z-60 w-32 max-h-48 overflow-y-auto">
+                                                            {monthNames.map((monthName, index) => (
+                                                                <button
+                                                                    key={monthName}
+                                                                    type="button"
+                                                                    onClick={() => selectStartMonth(index)}
+                                                                    className={`w-full text-left px-3 py-2 hover:bg-blue-50 transition-colors text-sm
+                                                                        ${index === startDateValue.getMonth() ? 'bg-blue-100 text-blue-700 font-medium' : 'text-gray-700'}`}
+                                                                >
+                                                                    {monthName}
+                                                                </button>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                
+                                                <div className="relative">
+                                                    <button
+                                                        type="button"
+                                                        onClick={toggleStartYearSelector}
+                                                        className="font-semibold text-gray-800 hover:text-blue-600 transition-colors cursor-pointer px-2 py-1 rounded hover:bg-gray-100"
+                                                        title="Select year"
+                                                    >
+                                                        {startDateValue.getFullYear()}
+                                                    </button>
+                                                    
+                                                    {/* Year Selector Dropdown */}
+                                                    {showStartYearSelector && (
+                                                        <div className="absolute top-8 left-0 bg-white border border-gray-200 rounded-lg shadow-lg z-60 w-20 max-h-48 overflow-y-auto">
+                                                            {generateYearRange().map((yearOption) => (
+                                                                <button
+                                                                    key={yearOption}
+                                                                    type="button"
+                                                                    onClick={() => selectStartYear(yearOption)}
+                                                                    className={`w-full text-left px-3 py-2 hover:bg-blue-50 transition-colors text-sm
+                                                                        ${yearOption === startDateValue.getFullYear() ? 'bg-blue-100 text-blue-700 font-medium' : 'text-gray-700'}`}
+                                                                >
+                                                                    {yearOption}
+                                                                </button>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            
+                                            {/* Forward Navigation */}
+                                            <div className="flex items-center space-x-1">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => navigateStartMonth(1)}
+                                                    className="p-1 hover:bg-gray-100 rounded text-lg font-bold transition-colors"
+                                                    aria-label="Next month"
+                                                    title="Next month"
+                                                >
+                                                    ›
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => navigateStartYear(1)}
+                                                    className="p-1 hover:bg-gray-100 rounded text-sm font-bold transition-colors"
+                                                    aria-label="Next year"
+                                                    title="Next year"
+                                                >
+                                                    »»
+                                                </button>
+                                            </div>
                                         </div>
                                         
                                         <div className="grid grid-cols-7 gap-1">
@@ -490,13 +667,18 @@ const DateRangeField = (props) => {
                                                 );
                                             })}
                                         </div>
+                                        
+                                        {/* Navigation Hints */}
+                                        <div className="mt-3 text-xs text-gray-500 text-center">
+                                            Click month/year to select • Use ‹ › for months • Use «« »» for years
+                                        </div>
                                     </div>
                                 )}
                             </div>
 
                             {/* Separator */}
-                            <div className="flex items-center px-2">
-                                <span className="text-gray-400 font-medium text-sm">to</span>
+                            <div className="flex items-center px-0.5">
+                                <span className="text-gray-400 font-medium text-xs">to</span>
                             </div>
 
                             {/* End Date */}
@@ -556,27 +738,113 @@ const DateRangeField = (props) => {
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
                                 </svg>
                                 
-                                {/* End Date Calendar */}
+                                {/* Enhanced End Date Calendar */}
                                 {!props?.disabled && showEndCalendar && (
-                                    <div className={`mt-1 absolute top-8 ${getCalendarPosition(false)} bg-white p-3 rounded-lg border border-gray-200 shadow-lg z-50 w-[250px] max-w-[calc(100vw-2rem)]`}>
+                                    <div className={`mt-1 absolute top-8 ${getCalendarPosition(false)} bg-white p-4 rounded-lg border border-gray-200 shadow-lg z-50 w-[320px] max-w-[calc(100vw-2rem)]`}>
+                                        {/* Enhanced Calendar Header */}
                                         <div className="flex items-center justify-between mb-4">
-                                            <button
-                                                type="button"
-                                                onClick={() => navigateMonth(-1, false)}
-                                                className="p-1.5 hover:bg-gray-100 rounded-lg text-lg font-bold transition-colors"
-                                            >
-                                                ←
-                                            </button>
-                                            <h3 className="font-semibold text-gray-800">
-                                                {endDateValue.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-                                            </h3>
-                                            <button
-                                                type="button"
-                                                onClick={() => navigateMonth(1, false)}
-                                                className="p-1.5 hover:bg-gray-100 rounded-lg text-lg font-bold transition-colors"
-                                            >
-                                                →
-                                            </button>
+                                            {/* Year Navigation */}
+                                            <div className="flex items-center space-x-1">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => navigateEndYear(-1)}
+                                                    className="p-1 hover:bg-gray-100 rounded text-sm font-bold transition-colors"
+                                                    aria-label="Previous year"
+                                                    title="Previous year"
+                                                >
+                                                    ««
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => navigateEndMonth(-1)}
+                                                    className="p-1 hover:bg-gray-100 rounded text-lg font-bold transition-colors"
+                                                    aria-label="Previous month"
+                                                    title="Previous month"
+                                                >
+                                                    ‹
+                                                </button>
+                                            </div>
+                                            
+                                            {/* Clickable Month/Year Display */}
+                                            <div className="flex items-center space-x-2">
+                                                <div className="relative">
+                                                    <button
+                                                        type="button"
+                                                        onClick={toggleEndMonthSelector}
+                                                        className="font-semibold text-gray-800 hover:text-blue-600 transition-colors cursor-pointer px-2 py-1 rounded hover:bg-gray-100"
+                                                        title="Select month"
+                                                    >
+                                                        {monthNames[endDateValue.getMonth()]}
+                                                    </button>
+                                                    
+                                                    {/* Month Selector Dropdown */}
+                                                    {showEndMonthSelector && (
+                                                        <div className="absolute top-8 left-0 bg-white border border-gray-200 rounded-lg shadow-lg z-60 w-32 max-h-48 overflow-y-auto">
+                                                            {monthNames.map((monthName, index) => (
+                                                                <button
+                                                                    key={monthName}
+                                                                    type="button"
+                                                                    onClick={() => selectEndMonth(index)}
+                                                                    className={`w-full text-left px-3 py-2 hover:bg-blue-50 transition-colors text-sm
+                                                                        ${index === endDateValue.getMonth() ? 'bg-blue-100 text-blue-700 font-medium' : 'text-gray-700'}`}
+                                                                >
+                                                                    {monthName}
+                                                                </button>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                
+                                                <div className="relative">
+                                                    <button
+                                                        type="button"
+                                                        onClick={toggleEndYearSelector}
+                                                        className="font-semibold text-gray-800 hover:text-blue-600 transition-colors cursor-pointer px-2 py-1 rounded hover:bg-gray-100"
+                                                        title="Select year"
+                                                    >
+                                                        {endDateValue.getFullYear()}
+                                                    </button>
+                                                    
+                                                    {/* Year Selector Dropdown */}
+                                                    {showEndYearSelector && (
+                                                        <div className="absolute top-8 left-0 bg-white border border-gray-200 rounded-lg shadow-lg z-60 w-20 max-h-48 overflow-y-auto">
+                                                            {generateYearRange().map((yearOption) => (
+                                                                <button
+                                                                    key={yearOption}
+                                                                    type="button"
+                                                                    onClick={() => selectEndYear(yearOption)}
+                                                                    className={`w-full text-left px-3 py-2 hover:bg-blue-50 transition-colors text-sm
+                                                                        ${yearOption === endDateValue.getFullYear() ? 'bg-blue-100 text-blue-700 font-medium' : 'text-gray-700'}`}
+                                                                >
+                                                                    {yearOption}
+                                                                </button>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            
+                                            {/* Forward Navigation */}
+                                            <div className="flex items-center space-x-1">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => navigateEndMonth(1)}
+                                                    className="p-1 hover:bg-gray-100 rounded text-lg font-bold transition-colors"
+                                                    aria-label="Next month"
+                                                    title="Next month"
+                                                >
+                                                    ›
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => navigateEndYear(1)}
+                                                    className="p-1 hover:bg-gray-100 rounded text-sm font-bold transition-colors"
+                                                    aria-label="Next year"
+                                                    title="Next year"
+                                                >
+                                                    »»
+                                                </button>
+                                            </div>
                                         </div>
                                         
                                         <div className="grid grid-cols-7 gap-1">
@@ -616,11 +884,14 @@ const DateRangeField = (props) => {
                                                 );
                                             })}
                                         </div>
+                                        
+                                        {/* Navigation Hints */}
+                                        <div className="mt-3 text-xs text-gray-500 text-center">
+                                            Click month/year to select • Use ‹ › for months • Use «« »» for years
+                                        </div>
                                     </div>
                                 )}
                             </div>
-                            
-                            <StatusIcon />
                         </div>
                     </div>
                 </div>
