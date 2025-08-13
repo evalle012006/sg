@@ -26,7 +26,6 @@ export default async function handler(req, res) {
       search,
       has_course = false,
       sta_in_plan = null,
-      living_situation = null,
       
       // Pagination and sorting
       sort = 'name',

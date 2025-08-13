@@ -111,6 +111,13 @@ export default async function handler(req, res) {
               error: `Line item ${i + 1}: Valid price per night is required`
             });
           }
+
+          if (!item.rate_type || !['weekday', 'weekend', 'public_holiday'].includes(item.rate_type)) {
+            return res.status(400).json({
+              success: false,
+              error: `Line item ${i + 1}: Valid rate type is required (weekday, weekend, holiday)`
+            });
+          }
         }
 
         updateData.ndis_package_type = ndis_package_type;

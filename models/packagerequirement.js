@@ -52,12 +52,6 @@ module.exports = (sequelize, DataTypes) => {
       comment: 'Whether package can be combined with courses'
     },
     // Additional filters
-    living_situation: {
-      type: DataTypes.JSON,
-      allowNull: true,
-      defaultValue: [],
-      comment: 'Array of compatible living situations: ["alone", "with_supports", "sil"]'
-    },
     sta_requirements: {
       type: DataTypes.JSON,
       allowNull: true,

@@ -66,8 +66,13 @@ export default function PackageForm({
         setFormData(prev => ({
             ...prev,
             ndis_line_items: [
-                ...prev.ndis_line_items,
-                { sta_package: '', line_item: '', price_per_night: '' }
+            ...prev.ndis_line_items,
+            { 
+                sta_package: '', 
+                line_item: '', 
+                price_per_night: '',
+                rate_type: 'weekday'
+            }
             ]
         }));
     };
@@ -92,6 +97,24 @@ export default function PackageForm({
                 i === index ? { ...item, [field]: value } : item
             )
         }));
+    };
+
+    // Rate Type options
+    const rateTypeOptions = [
+        { value: 'weekday', label: 'Weekday' },
+        { value: 'weekend', label: 'Weekend' },
+        { value: 'public_holiday', label: 'Holiday' }
+    ];
+
+    // Get selected rate type option
+    const getSelectedRateTypeOption = (rateType) => {
+        return rateTypeOptions.find(option => option.value === (rateType || 'weekday')) || rateTypeOptions[0];
+    };
+
+    // Handle rate type change
+    const handleRateTypeChange = (index, selectedOption) => {
+        if (isReadOnly) return;
+        updateNdisLineItem(index, 'rate_type', selectedOption ? selectedOption.value : 'weekday');
     };
 
     // Comprehensive validation function
@@ -307,7 +330,8 @@ export default function PackageForm({
                 ndis_line_items: formData.funder === 'NDIS' ? formData.ndis_line_items.map(item => ({
                     sta_package: item.sta_package.trim(),
                     line_item: item.line_item.trim(),
-                    price_per_night: parseFloat(item.price_per_night) || 0
+                    price_per_night: parseFloat(item.price_per_night) || 0,
+                    rate_type: item.rate_type || 'weekday'
                 })) : []
             };
 
@@ -464,7 +488,7 @@ export default function PackageForm({
 
             {/* Form */}
             <form onSubmit={handleSubmit} className="space-y-6">
-                <div className="max-w-4xl">
+                <div className="max-w-5xl">
                     {/* Package Name */}
                     <div className="mb-6">
                         <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-2">
@@ -598,13 +622,14 @@ export default function PackageForm({
                             </div>
 
                             {/* NDIS Line Items Table */}
-                            <div className="border border-gray-300 rounded-lg overflow-hidden">
+                            <div className="border border-gray-300 rounded-lg overflow-visible">
                                 <div className="bg-gray-50 px-4 py-3 border-b border-gray-300">
-                                    <div className="grid gap-4" style={{ gridTemplateColumns: '2fr 2fr 1fr 100px' }}>
+                                    <div className="grid gap-4" style={{ gridTemplateColumns: '3fr 3fr 1fr 1fr 100px' }}>
                                         <div className="font-medium text-gray-700">STA Package</div>
                                         <div className="font-medium text-gray-700">Line Item</div>
                                         <div className="font-medium text-gray-700">Price per Night</div>
-                                        <div className="font-medium text-gray-700">Action</div>
+                                        <div className="font-medium text-gray-700">Rate Type</div>
+                                        <div className="font-medium text-gray-700 text-center">Action</div>
                                     </div>
                                 </div>
 
@@ -616,7 +641,7 @@ export default function PackageForm({
                                     <div className="divide-y divide-gray-200">
                                         {formData.ndis_line_items.map((item, index) => (
                                             <div key={index} className="px-4 py-3">
-                                                <div className="grid gap-4 items-start" style={{ gridTemplateColumns: '2fr 2fr 1fr 100px' }}>
+                                                <div className="grid gap-4 items-start" style={{ gridTemplateColumns: '3fr 3fr 1fr 1fr 100px' }}>
                                                     <div>
                                                         <input
                                                             type="text"
@@ -668,6 +693,33 @@ export default function PackageForm({
                                                         )}
                                                     </div>
                                                     <div>
+                                                        <Select
+                                                            label="Select Rate Type"
+                                                            options={rateTypeOptions}
+                                                            value={getSelectedRateTypeOption(item.rate_type)}
+                                                            onClick={(selectedOption) => handleRateTypeChange(index, selectedOption)}
+                                                            size="medium"
+                                                            className={`w-full ${
+                                                                validationAttempted && (!item.rate_type) ? 'border-red-300' : ''
+                                                            }`}
+                                                            disabled={isReadOnly}
+                                                            required
+                                                            menuPortalTarget={typeof document !== 'undefined' ? document.body : null}
+                                                            menuPosition="fixed"
+                                                            menuPlacement="auto"
+                                                            styles={{
+                                                                menuPortal: (base) => ({
+                                                                    ...base,
+                                                                    zIndex: 9999
+                                                                }),
+                                                                menu: (base) => ({
+                                                                    ...base,
+                                                                    zIndex: 9999
+                                                                })
+                                                            }}
+                                                        />
+                                                    </div>
+                                                    <div className="flex justify-center">
                                                         {!isReadOnly && (
                                                             <button
                                                                 type="button"

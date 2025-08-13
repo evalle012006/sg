@@ -1379,11 +1379,11 @@ const QuestionPage = ({
                                                     {(q.type === 'package-selection' && !q.hidden) && (
                                                         <React.Fragment>
                                                             <div className="flex flex-col w-full flex-1 col-span-full">
-                                                                {q.label && <span className="font-bold text-sargood-blue text-xl mb-2">{q.label}</span>}
+                                                                {/* {q.label && <span className="font-bold text-sargood-blue text-xl mb-2">{q.label}</span>}
                                                                 <div className="text-xs flex flex-row mb-4">
                                                                     <span className="font-bold">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
-                                                                </div>
+                                                                </div> */}
 
                                                                 {/* NEW: Care Analysis Display */}
                                                                 {/* {careAnalysisData && careAnalysisData.requiresCare && (

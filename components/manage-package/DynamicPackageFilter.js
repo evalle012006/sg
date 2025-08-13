@@ -16,7 +16,6 @@ const DynamicPackageFilter = ({
     care_hours: initialFilters.care_hours || '',
     has_course: initialFilters.has_course || '',
     sta_in_plan: initialFilters.sta_in_plan || '',
-    living_situation: initialFilters.living_situation || '',
     search: initialFilters.search || '',
     // Admin-specific filters
     has_requirements: adminMode ? (initialFilters.has_requirements || '') : '',
@@ -480,23 +479,6 @@ const DynamicPackageFilter = ({
                     </select>
                   </div>
                 )}
-
-                {/* Living Situation */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Living Situation
-                  </label>
-                  <select
-                    value={filters.living_situation}
-                    onChange={(e) => handleFilterChange('living_situation', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  >
-                    <option value="">Any Situation</option>
-                    <option value="alone">Lives Alone</option>
-                    <option value="with_supports">With Informal Supports</option>
-                    <option value="sil">Supported Independent Living</option>
-                  </select>
-                </div>
               </div>
             </div>
           )}

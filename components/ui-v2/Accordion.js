@@ -13,6 +13,7 @@ const AccordionItem = ({
   totalItems,
   onNext,
   onBack,
+  onHeaderClick, // New prop for header click
   canGoNext,
   canGoBack,
   isLastItem,
@@ -53,13 +54,25 @@ const AccordionItem = ({
     }
   };
 
+  // Handle header click
+  const handleHeaderClick = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (onHeaderClick) {
+      onHeaderClick(index);
+    }
+  };
+
   return (
     <div
       id={`accordion-item-${index}`}
       className="border-b border-gray-200 last:border-b-0"
     >
-      {/* Header - No longer clickable */}
-      <div className={`flex items-center justify-between py-6 px-8 ${isOpen ? 'bg-gray-50' : 'bg-white'} transition-colors`}>
+      {/* Header - Now clickable */}
+      <div 
+        className={`flex items-center justify-between py-6 px-8 ${isOpen ? 'bg-gray-50' : 'bg-white'} transition-colors cursor-pointer hover:bg-gray-50`}
+        onClick={handleHeaderClick}
+      >
         <div className="flex items-center space-x-4 flex-1">
           <div className="flex-1">
             <div className="flex items-center space-x-3 mb-1">
@@ -147,6 +160,7 @@ const Accordion = ({
   className = "",
   allowMultiple = false,
   onNavigate,
+  onHeaderClick, // New prop for header click handling
   origin
 }) => {
   const [openItems, setOpenItems] = useState(
@@ -185,6 +199,16 @@ const Accordion = ({
     }
   };
 
+  // Handle header click - use the same navigation function
+  const handleItemHeaderClick = (clickedIndex) => {
+    if (onHeaderClick) {
+      onHeaderClick(clickedIndex);
+    } else if (onNavigate) {
+      // Fallback: use the same navigation logic as the buttons
+      onNavigate(clickedIndex, 'header-click');
+    }
+  };
+
   return (
     <div className={`w-full h-full ${className}`}>
       <div className="bg-white h-full">
@@ -200,6 +224,7 @@ const Accordion = ({
             totalItems={items.length}
             onNext={handleNext}
             onBack={handleBack}
+            onHeaderClick={handleItemHeaderClick} // Pass the header click handler
             canGoNext={index < items.length - 1}
             canGoBack={index > 0}
             isLastItem={index === items.length - 1}

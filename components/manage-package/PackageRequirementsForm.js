@@ -13,7 +13,6 @@ const PackageRequirementsForm = ({
     requires_no_care: false,
     requires_course: null,
     compatible_with_course: true,
-    living_situation: [],
     sta_requirements: {},
     display_priority: 0,
     notes: ''
@@ -57,7 +56,6 @@ const PackageRequirementsForm = ({
             requires_no_care: data.requirement.requires_no_care || false,
             requires_course: data.requirement.requires_course,
             compatible_with_course: data.requirement.compatible_with_course !== false,
-            living_situation: data.requirement.living_situation || [],
             sta_requirements: data.requirement.sta_requirements || {},
             display_priority: data.requirement.display_priority || 0,
             notes: data.requirement.notes || ''
@@ -99,15 +97,6 @@ const PackageRequirementsForm = ({
     setRequirements(prev => ({
       ...prev,
       [field]: numValue
-    }));
-  };
-
-  const handleLivingSituationChange = (situation, checked) => {
-    setRequirements(prev => ({
-      ...prev,
-      living_situation: checked 
-        ? [...prev.living_situation, situation]
-        : prev.living_situation.filter(s => s !== situation)
     }));
   };
 
@@ -370,30 +359,6 @@ const PackageRequirementsForm = ({
               </div>
             </div>
           )}
-
-          {/* Living Situation Requirements */}
-          <div className="bg-gray-50 rounded-lg p-4">
-            <h4 className="text-md font-medium text-gray-900 mb-3">
-              Living Situation Requirements
-            </h4>
-            <div className="space-y-2">
-              {[
-                { value: 'alone', label: 'Lives alone' },
-                { value: 'with_supports', label: 'Lives with informal supports' },
-                { value: 'sil', label: 'Supported Independent Living (SIL)' }
-              ].map((situation) => (
-                <label key={situation.value} className="flex items-center">
-                  <input
-                    type="checkbox"
-                    checked={requirements.living_situation.includes(situation.value)}
-                    onChange={(e) => handleLivingSituationChange(situation.value, e.target.checked)}
-                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                  />
-                  <span className="ml-2 text-sm text-gray-700">{situation.label}</span>
-                </label>
-              ))}
-            </div>
-          </div>
 
           {/* Display Priority and Notes */}
           <div className="grid grid-cols-2 gap-4">

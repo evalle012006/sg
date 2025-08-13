@@ -1617,7 +1617,7 @@ const BookingRequestForm = () => {
                 behavior: 'smooth'
             });
         });
-    }, []); // Memoize the scroll function, depends only on its internal state/refs
+    }, []);
 
     const handleAccordionNavigation = async (targetIndex, action) => {
         const targetPage = stableProcessedFormData[targetIndex];
@@ -3917,6 +3917,7 @@ const BookingRequestForm = () => {
                             defaultOpenIndex={activeAccordionIndex}
                             allowMultiple={false}
                             onNavigate={handleAccordionNavigation}
+                            onHeaderClick={(index) => handleAccordionNavigation(index, 'header-click')}
                             origin={origin}
                         />
                     </div>

@@ -300,19 +300,18 @@ const DynamicPackageDisplay = ({
         {showDetails && isExpanded && (
           <div className="border-t bg-gray-50 p-4 space-y-3">
             {/* NDIS Line Items */}
-            {pkg.funder === 'NDIS' && pkg.ndis_line_items && pkg.ndis_line_items.length > 0 && (
-              <div>
-                <h4 className="text-sm font-medium text-gray-900 mb-2">NDIS Line Items</h4>
-                <div className="space-y-1 max-h-32 overflow-y-auto">
-                  {pkg.ndis_line_items.map((item, index) => (
-                    <div key={index} className="flex justify-between text-sm bg-white rounded px-2 py-1">
-                      <span className="text-gray-700">{item.line_item}</span>
-                      <span className="font-medium">${item.price_per_night}/night</span>
-                    </div>
-                  ))}
+            {pkg.ndis_line_items.map((item, index) => (
+              <div key={index} className="flex justify-between items-center text-sm bg-white rounded px-2 py-1">
+                <div className="flex items-center space-x-2">
+                  <span className="text-gray-700">{item.line_item}</span>
+                  {/* Add rate type indicator */}
+                  <span className={`px-2 py-1 text-xs rounded font-medium ${getRateTypeBadgeStyle(item.rate_type)}`}>
+                    {getRateTypeLabel(item.rate_type)}
+                  </span>
                 </div>
+                <span className="font-medium">${item.price_per_night}/night</span>
               </div>
-            )}
+            ))}
 
             {/* Requirement Details */}
             {pkg.requirement ? (

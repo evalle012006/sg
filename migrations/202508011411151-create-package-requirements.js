@@ -53,12 +53,6 @@ module.exports = {
         comment: 'Whether package can be combined with courses'
       },
       // Additional filters
-      living_situation: {
-        type: Sequelize.JSON,
-        allowNull: true,
-        defaultValue: null,
-        comment: 'Array of compatible living situations'
-      },
       sta_requirements: {
         type: Sequelize.JSON,
         allowNull: true,

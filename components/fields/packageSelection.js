@@ -946,6 +946,24 @@ const PackageSelection = ({
     return result;
   };
 
+  const getRateTypeLabel = (rateType) => {
+    const labels = {
+      weekday: 'Weekday',
+      weekend: 'Weekend', 
+      public_holiday: 'Holiday'
+    };
+    return labels[rateType] || 'Unknown';
+  };
+
+  const getRateTypeBadgeStyle = (rateType) => {
+    const styles = {
+      weekday: 'bg-blue-100 text-blue-800',
+      weekend: 'bg-green-100 text-green-800', 
+      public_holiday: 'bg-red-100 text-red-800'
+    };
+    return styles[rateType] || 'bg-gray-100 text-gray-800';
+  };
+
   // Render Non-NDIS Package Tile
   const renderNonNdisTile = (pkg) => {
     const isSelected = isPackageSelected(pkg) || (!builderMode && packages.length === 1);
@@ -1180,9 +1198,14 @@ const PackageSelection = ({
                       {pkg.ndis_line_items.map((item, idx) => (
                         <div key={idx} className={`p-3 rounded-lg border ${isSelected ? 'bg-gray-50 border-gray-200' : 'bg-gray-50 border-gray-200'}`}>
                           <div className="flex justify-between items-start mb-2">
-                            <span className={`font-mono text-xs px-2 py-1 rounded ${isSelected ? 'bg-gray-100 text-gray-700' : 'bg-gray-100 text-gray-700'}`}>
-                              {safeRender(item.line_item, 'Line Item')}
-                            </span>
+                            <div className="flex items-center space-x-2">
+                              <span className={`font-mono text-xs px-2 py-1 rounded ${isSelected ? 'bg-gray-100 text-gray-700' : 'bg-gray-100 text-gray-700'}`}>
+                                {safeRender(item.line_item, 'Line Item')}
+                              </span>
+                              <span className={`px-2 py-1 text-xs rounded font-medium ${getRateTypeBadgeStyle(item.rate_type)}`}>
+                                {getRateTypeLabel(item.rate_type)}
+                              </span>
+                            </div>
                             <span className={`font-bold text-sm ${isSelected ? 'text-gray-900' : 'text-gray-900'}`}>
                               ${safeRender(item.price_per_night, '0')}/night
                             </span>
@@ -1372,11 +1395,10 @@ const PackageSelection = ({
           
           return (
             <div key={funderType} className="space-y-4">
-              {/* Non-NDIS Intro Message */}
-              {funderType !== 'NDIS' && !builderMode && (
+              {!builderMode && (
                 <div className="mb-4">
                   <p className="text-gray-700 text-sm">
-                    Based on the information provided, the following package is available to you:
+                    Based on the information provided, the following {funderPackages.length === 1 ? 'package is' : 'packages are'} available to you:
                   </p>
                 </div>
               )}
