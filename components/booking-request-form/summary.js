@@ -22,6 +22,8 @@ const SummaryOfStay = ({ bookingData, bookingId, origin, getRequestFormTemplate,
   
   const [isSignatureLoading, setIsSignatureLoading] = useState(false);
   const [hasExistingSignature, setHasExistingSignature] = useState(false);
+  const [packageResolved, setPackageResolved] = useState(false);
+  const [resolvedPackageData, setResolvedPackageData] = useState(null);
 
   const scrollToSignature = () => {
     signatureSectionRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -39,12 +41,6 @@ const SummaryOfStay = ({ bookingData, bookingId, origin, getRequestFormTemplate,
         return;
     }
     
-    // console.log('Signature Pad:', signaturePad);
-    // console.log('Signature isEmpty Type:', typeof signaturePad?.isEmpty);
-    // console.log('Signature isEmpty:', signaturePad?.isEmpty?.());
-    // console.log('Has Existing Signature:', hasExistingSignature);
-    // console.log('Is Signature Loading:', isSignatureLoading);
-    
     const hasValidSignature = signaturePad && 
       typeof signaturePad.isEmpty === 'function' && 
       !signaturePad.isEmpty();
@@ -54,12 +50,12 @@ const SummaryOfStay = ({ bookingData, bookingId, origin, getRequestFormTemplate,
         return;
     }
 
-    // If we're still loading the signature, wait a bit
     if (isSignatureLoading) {
         toast.info('Loading signature, please wait...');
         setTimeout(() => updateBooking(), 1000);
         return;
     }
+
     console.log('Signature is valid, proceeding to save...');
     try {
         const trimmedCanvas = signaturePad.getTrimmedCanvas();
@@ -147,13 +143,63 @@ const SummaryOfStay = ({ bookingData, bookingId, origin, getRequestFormTemplate,
     setHasExistingSignature(false);
   };
 
+  // Resolve package selection to actual package data
+  const resolvePackageSelection = async () => {
+    if (bookingData?.data?.selectedPackageId && bookingData?.data?.packageSelectionType === 'package-selection' && !packageResolved) {
+      try {
+        console.log('Resolving package selection:', bookingData.data.selectedPackageId);
+        setPackageResolved(true); // Prevent multiple calls
+        
+        const response = await fetch(`/api/packages/${bookingData.data.selectedPackageId}`);
+        if (response.ok) {
+          const result = await response.json();
+          
+          if (result.success && result.package) {
+            const packageData = result.package;
+            console.log('Package data resolved:', packageData);
+            setResolvedPackageData(packageData);
+            
+            // Update the booking data with resolved package details
+            const updatedSummaryData = { ...bookingData };
+            
+            if (packageData.name?.includes('Wellness')) {
+              updatedSummaryData.data.packageType = serializePackage(packageData.name);
+              updatedSummaryData.data.packageTypeAnswer = packageData.name;
+              updatedSummaryData.data.packageCost = packageData.price;
+              updatedSummaryData.data.isNDISFunder = false;
+            } else {
+              // Assume NDIS package
+              updatedSummaryData.data.ndisPackage = packageData.name;
+              updatedSummaryData.data.packageType = serializePackage(packageData.name);
+              updatedSummaryData.data.packageCost = packageData.price;
+              updatedSummaryData.data.isNDISFunder = true;
+            }
+            
+            setSummary(updatedSummaryData);
+          }
+        } else {
+          console.error('Failed to fetch package details for summary:', bookingData.data.selectedPackageId);
+        }
+      } catch (error) {
+        console.error('Error resolving package selection in summary:', error);
+      }
+    }
+  };
+
   useEffect(() => {
     let summaryData = { ...bookingData };
 
     console.log('Summary Data:', summaryData);
 
+    // Check if this is a package selection that needs resolution
+    if (summaryData?.data?.selectedPackageId && summaryData?.data?.packageSelectionType === 'package-selection') {
+      resolvePackageSelection();
+      return; // Exit early, will re-run after package is resolved
+    }
+
     const isNDISFunder = summaryData?.data?.funder?.includes('NDIS') || summaryData?.data?.funder?.includes('NDIA') ? true : false;
     summaryData.data.isNDISFunder = isNDISFunder;
+    
     if (!isNDISFunder) {
       summaryData.data.packageType = summaryData.data.packageTypeAnswer;
     } else {
@@ -196,7 +242,6 @@ const SummaryOfStay = ({ bookingData, bookingId, origin, getRequestFormTemplate,
       setHasExistingSignature(true);
       setSignatureType(bookingData.signature?.type || 'drawn');
       
-      // Set a timeout to ensure signature loading completes
       setTimeout(() => {
         setIsSignatureLoading(false);
       }, 2000);
@@ -210,7 +255,7 @@ const SummaryOfStay = ({ bookingData, bookingId, origin, getRequestFormTemplate,
     }
     
     setSummary(summaryData);
-  }, [bookingData, selectedRooms]);
+  }, [bookingData, selectedRooms, resolvedPackageData, packageResolved]);
 
   const getTotalOutOfPocketExpenses = () => {
     return totalRoomCosts.roomUpgrade + totalRoomCosts.additionalRoom;
@@ -219,51 +264,6 @@ const SummaryOfStay = ({ bookingData, bookingId, origin, getRequestFormTemplate,
   const getGrandTotal = () => {
     return totalPackageCost + getTotalOutOfPocketExpenses();
   };
-
-  useEffect(() => {
-      const resolvePackageSelection = async () => {
-          if (bookingData?.data?.selectedPackageId && bookingData?.data?.packageSelectionType === 'package-selection') {
-              try {
-                  const response = await fetch(`/api/packages/${bookingData.data.selectedPackageId}`);
-                  if (response.ok) {
-                      const packageData = await response.json();
-                      
-                      if (packageData) {
-                          const packageName = packageData.name || packageData.title;
-                          const packagePrice = packageData.price || packageData.cost;
-                          
-                          // Update the booking data with resolved package details
-                          const updatedData = { ...bookingData };
-                          
-                          if (packageName?.includes('Wellness')) {
-                              updatedData.data.packageType = serializePackage(packageName);
-                              updatedData.data.packageTypeAnswer = packageName;
-                              updatedData.data.packageCost = packagePrice;
-                              updatedData.data.isNDISFunder = false;
-                          } else {
-                              // Assume NDIS package
-                              updatedData.data.ndisPackage = packageName;
-                              updatedData.data.packageType = serializePackage(packageName);
-                              updatedData.data.packageCost = packagePrice;
-                              updatedData.data.isNDISFunder = true;
-                          }
-                          
-                          // Update local summary data if available
-                          if (typeof setBookingData === 'function') {
-                              setBookingData(updatedData);
-                          }
-                      }
-                  } else {
-                      console.error('Failed to fetch package details for summary:', bookingData.data.selectedPackageId);
-                  }
-              } catch (error) {
-                  console.error('Error resolving package selection in summary:', error);
-              }
-          }
-      };
-      
-      resolvePackageSelection();
-  }, [bookingData?.data?.selectedPackageId, bookingData?.data?.packageSelectionType]);
 
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-6">
@@ -324,6 +324,7 @@ const SummaryOfStay = ({ bookingData, bookingId, origin, getRequestFormTemplate,
             datesOfStay={summary?.data?.datesOfStay} 
             nights={summary?.data?.nights} 
             setTotalPackageCost={setTotalPackageCost}
+            packageData={resolvedPackageData}
           />
           <div className="mt-2 text-right">
             <p className="font-semibold text-slate-700">Total Package Cost: ${formatPrice(totalPackageCost)}</p>
@@ -452,7 +453,6 @@ const SummaryOfStay = ({ bookingData, bookingId, origin, getRequestFormTemplate,
             }}
         />
         
-        {/* Show loading indicator if signature is being loaded */}
         {isSignatureLoading && (
           <div className="text-sm text-blue-600">
             Loading signature...
@@ -479,7 +479,7 @@ const SummaryOfStay = ({ bookingData, bookingId, origin, getRequestFormTemplate,
 
 export default SummaryOfStay;
 
-const PricingTable = ({ option, datesOfStay, nights = 0, setTotalPackageCost }) => {
+const PricingTable = ({ option, datesOfStay, nights = 0, setTotalPackageCost, packageData }) => {
   const [dataOption, setDataOption] = useState([]);
   const [daysBreakdown, setDaysBreakdown] = useState({
     weekdays: 0,
@@ -500,7 +500,7 @@ const PricingTable = ({ option, datesOfStay, nights = 0, setTotalPackageCost }) 
   };
 
   useEffect(() => {
-    const pricingData = getPricing(option);
+    const pricingData = getPricing(option, packageData);
     setDataOption(pricingData);
     if (datesOfStay && nights > 0) {
       const handleGetBreakdown = async () => {
@@ -509,7 +509,7 @@ const PricingTable = ({ option, datesOfStay, nights = 0, setTotalPackageCost }) 
       }
       handleGetBreakdown();
     }
-  }, [option, datesOfStay, nights]);
+  }, [option, datesOfStay, nights, packageData]);
 
   useEffect(() => {
     if (setTotalPackageCost && dataOption.length > 0) {
@@ -578,26 +578,59 @@ const calculateDaysBreakdown = async (startDateStr, numberOfNights) => {
     const currentDate = new Date(startDate);
     currentDate.setDate(currentDate.getDate() + i);
 
-    // const holidayData = await checkNSWPublicHoliday(currentDate);
-    // if (holidayData?.isHoliday) {
-    //   breakdown.publicHolidays++;
-    // } else {
-      const day = currentDate.getDay();
-      if (day === 6) { // Saturday
-        breakdown.saturdays++;
-      } else if (day === 0) { // Sunday
-        breakdown.sundays++;
-      } else { // Monday-Friday
-        breakdown.weekdays++;
-      }
-    // }
+    const day = currentDate.getDay();
+    if (day === 6) { // Saturday
+      breakdown.saturdays++;
+    } else if (day === 0) { // Sunday
+      breakdown.sundays++;
+    } else { // Monday-Friday
+      breakdown.weekdays++;
+    }
   }
 
   return breakdown;
 };
 
+const getPricing = (option, packageData = null) => {
+  // PRIORITY 1: If we have resolved package data with ndis_line_items, use that
+  if (packageData && packageData.ndis_line_items && packageData.ndis_line_items.length > 0) {
+    console.log('Using package line items for pricing:', packageData.ndis_line_items);
+    
+    // Map the line items to the expected format
+    const lineItems = packageData.ndis_line_items.map(lineItem => ({
+      package: lineItem.description || lineItem.name || lineItem.package_name,
+      lineItem: lineItem.line_item_code || lineItem.code || lineItem.lineItem,
+      price: parseFloat(lineItem.price_per_night || lineItem.price || lineItem.cost || 0),
+      type: determineLineItemType(lineItem)
+    }));
+    
+    // Ensure we have all 4 types (weekday, saturday, sunday, publicHoliday)
+    // If not, pad with default values
+    const requiredTypes = ['weekday', 'saturday', 'sunday', 'publicHoliday'];
+    const existingTypes = lineItems.map(item => item.type);
+    
+    requiredTypes.forEach(requiredType => {
+      if (!existingTypes.includes(requiredType)) {
+        // Find a similar line item to use as base price
+        const baseItem = lineItems[0] || { package: 'STA Package', lineItem: '', price: 0 };
+        lineItems.push({
+          package: `${baseItem.package} - ${requiredType}`,
+          lineItem: baseItem.lineItem,
+          price: baseItem.price,
+          type: requiredType
+        });
+      }
+    });
+    
+    // Sort to ensure consistent order: weekday, saturday, sunday, publicHoliday
+    const sortOrder = { 'weekday': 0, 'saturday': 1, 'sunday': 2, 'publicHoliday': 3 };
+    lineItems.sort((a, b) => (sortOrder[a.type] || 999) - (sortOrder[b.type] || 999));
+    
+    return lineItems;
+  }
 
-const getPricing = (option) => {
+  // PRIORITY 2: Fallback to hardcoded pricing based on option
+  console.log('Using hardcoded pricing for option:', option);
   switch (option) {
     case 'SP':
       return [
@@ -623,6 +656,30 @@ const getPricing = (option) => {
     default:
       return [];
   }
+};
+
+// Helper function to determine line item type from the line item data
+const determineLineItemType = (lineItem) => {
+  const description = (lineItem.description || lineItem.name || lineItem.package_name || '').toLowerCase();
+  const code = (lineItem.line_item_code || lineItem.code || lineItem.lineItem || '').toLowerCase();
+  
+  // Check both description and code for type indicators
+  const fullText = `${description} ${code}`.toLowerCase();
+  
+  if (fullText.includes('public') || fullText.includes('holiday')) {
+    return 'publicHoliday';
+  } else if (fullText.includes('sunday')) {
+    return 'sunday';
+  } else if (fullText.includes('saturday') || fullText.includes('weekend')) {
+    return 'saturday';
+  } else if (fullText.includes('weekday') || fullText.includes('monday') || fullText.includes('tuesday') || 
+             fullText.includes('wednesday') || fullText.includes('thursday') || fullText.includes('friday')) {
+    return 'weekday';
+  }
+  
+  // If no specific day type found, default to weekday for the first item, then increment
+  // This is a fallback - ideally the line items should have clear day type indicators
+  return 'weekday';
 };
 
 const formatAUDate = (dateStr) => {

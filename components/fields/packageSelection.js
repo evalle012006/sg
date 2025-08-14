@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { calculateCareHours, createPackageFilterCriteria, formatCareScheduleForDisplay } from '../../utilities/careHoursCalculator';
 import { findByQuestionKey, QUESTION_KEYS } from '../../services/booking/question-helper';
+import { useCallback } from 'react';
 
 // Simple Error Boundary for debugging
 class ErrorBoundary extends React.Component {
@@ -77,21 +78,28 @@ const PackageSelection = ({
   const extractGuestRequirements = () => {
     const requirements = {};
     
-    // Funding source detection
-    let fundingAnswer = getAnswerByQuestionKey('how-will-your-stay-be-funded');
+    // FIXED: Funding source detection with correct priority
+    let fundingAnswer = null;
     
-    // Fallback: use formData.funder if available
-    if (!fundingAnswer && formData.funder) {
-      fundingAnswer = formData.funder;
-    }
-    
-    // Fallback: use formData.isNdisFunded if available
-    if (!fundingAnswer && typeof formData.isNdisFunded === 'boolean') {
+    // Priority 1: Use formData.isNdisFunded if available (most authoritative)
+    if (typeof formData.isNdisFunded === 'boolean') {
       fundingAnswer = formData.isNdisFunded ? 'NDIS' : 'Non-NDIS';
+      requirements.funder_type = formData.isNdisFunded ? 'NDIS' : 'Non-NDIS';
+      console.log('✅ Using formData.isNdisFunded for funding detection:', formData.isNdisFunded);
     }
-    
-    if (fundingAnswer) {
-      requirements.funder_type = fundingAnswer.includes('NDIS') ? 'NDIS' : 'Non-NDIS';
+    // Priority 2: Check the funding question answer
+    else {
+      fundingAnswer = getAnswerByQuestionKey('how-will-your-stay-be-funded');
+      if (fundingAnswer) {
+        requirements.funder_type = fundingAnswer.includes('NDIS') || fundingAnswer.includes('NDIA') ? 'NDIS' : 'Non-NDIS';
+        console.log('✅ Using funding question answer:', fundingAnswer);
+      }
+      // Priority 3: Fallback to formData.funder (least reliable for NDIS detection)
+      else if (formData.funder) {
+        fundingAnswer = formData.funder;
+        requirements.funder_type = fundingAnswer.includes('NDIS') || fundingAnswer.includes('NDIA') ? 'NDIS' : 'Non-NDIS';
+        console.log('✅ Fallback to formData.funder:', formData.funder);
+      }
     }
     
     // Course participation - USE COURSE ANALYSIS DATA FIRST
@@ -126,7 +134,7 @@ const PackageSelection = ({
       
       // Additional fallback: search by question text patterns
       if (!courseOfferAnswer && !whichCourseAnswer) {
-        console.log('🔍 Trying to find course answers by question text patterns...');
+        // console.log('🔍 Trying to find course answers by question text patterns...');
         
         // Check all available data sources for course-related questions
         const allQAData = [];
@@ -159,12 +167,6 @@ const PackageSelection = ({
           qa.question && qa.question.toLowerCase().includes('course') && qa.answer
         );
         
-        console.log('🎓 Found course-related QA pairs:', courseRelatedQA.map(qa => ({
-          question: qa.question,
-          answer: qa.answer,
-          question_key: qa.question_key || qa.Question?.question_key
-        })));
-        
         // Try to find course offer question
         const offerQA = courseRelatedQA.find(qa => 
           qa.question.toLowerCase().includes('offered') || 
@@ -172,7 +174,7 @@ const PackageSelection = ({
         );
         if (offerQA) {
           courseOfferAnswer = offerQA.answer;
-          console.log('✅ Found course offer by text pattern:', courseOfferAnswer);
+          // console.log('✅ Found course offer by text pattern:', courseOfferAnswer);
         }
         
         // Try to find which course question
@@ -183,7 +185,7 @@ const PackageSelection = ({
         );
         if (whichQA) {
           whichCourseAnswer = whichQA.answer;
-          console.log('✅ Found which course by text pattern:', whichCourseAnswer);
+          // console.log('✅ Found which course by text pattern:', whichCourseAnswer);
         }
       }
       
@@ -199,14 +201,14 @@ const PackageSelection = ({
           whichCourseAnswer !== '0' &&
           whichCourseAnswer !== 'false') {
         hasCourse = true;
-        console.log('✅ Course detected from which-course answer:', whichCourseAnswer);
+        // console.log('✅ Course detected from which-course answer:', whichCourseAnswer);
       }
       
-      console.log('🎓 Fallback course detection:', {
-        courseOfferAnswer,
-        whichCourseAnswer,
-        hasCourse
-      });
+      // console.log('🎓 Fallback course detection:', {
+      //   courseOfferAnswer,
+      //   whichCourseAnswer,
+      //   hasCourse
+      // });
     }
     
     requirements.has_course = hasCourse;
@@ -232,29 +234,66 @@ const PackageSelection = ({
     return requirements;
   };
 
+  const handleAutoSelection = useCallback((bestMatchPackage) => {
+    if (bestMatchPackage && onChange && !value && !autoSelected) {
+      console.log('🎯 Auto-selecting best match package:', {
+        name: bestMatchPackage.name,
+        id: bestMatchPackage.id,
+        funder: bestMatchPackage.funder,
+        packageCode: bestMatchPackage.package_code
+      });
+      
+      // FIXED: Ensure auto-selection is properly communicated to parent
+      setAutoSelected(true);
+      
+      // Add debug logging for onChange callback
+      console.log('📞 Calling onChange with package ID:', bestMatchPackage.id, typeof bestMatchPackage.id);
+      console.log('📞 onChange function exists:', !!onChange);
+      
+      // Call onChange immediately (no setTimeout to prevent timing issues)
+      onChange(bestMatchPackage.id);
+      
+      // Also log the successful auto-selection
+      console.log('✅ Auto-selection completed, package ID sent to parent:', bestMatchPackage.id);
+      
+      // ADDITIONAL: Force a small delay to ensure state updates are processed
+      setTimeout(() => {
+        console.log('🔄 Post auto-selection state check - autoSelected:', autoSelected, 'value should be:', bestMatchPackage.id);
+      }, 100);
+    } else {
+      // Log why auto-selection didn't happen
+      console.log('⏸️ Auto-selection skipped:', {
+        hasBestMatch: !!bestMatchPackage,
+        hasOnChange: !!onChange,
+        hasValue: !!value,
+        isAlreadyAutoSelected: autoSelected
+      });
+    }
+  }, [onChange, value, autoSelected]);
+
   // Helper function to get answer by question key from ALL booking data
   const getAnswerByQuestionKey = (questionKey) => {
     console.log(`🔍 Looking for question key: "${questionKey}"`);
     
     // Strategy 1: Try qaData first (current page QA pairs)
     if (qaData && qaData.length > 0) {
-      console.log(`📊 Current page QA Data:`, qaData.map(q => ({
-        question: q.question?.substring(0, 50) + '...',
-        question_key: q.question_key,
-        answer: q.answer,
-        hasAnswer: !!q.answer
-      })));
+      // console.log(`📊 Current page QA Data:`, qaData.map(q => ({
+      //   question: q.question?.substring(0, 50) + '...',
+      //   question_key: q.question_key,
+      //   answer: q.answer,
+      //   hasAnswer: !!q.answer
+      // })));
       
       const qa = qaData.find(q => q.question_key === questionKey);
       if (qa) {
-        console.log(`✅ Found in current page qaData:`, qa.answer);
+        // console.log(`✅ Found in current page qaData:`, qa.answer);
         return qa.answer;
       }
     }
     
     // Strategy 2: Access global form data through window or other global sources
     if (typeof window !== 'undefined' && window.bookingFormData) {
-      console.log(`🌍 Checking global booking form data...`);
+      // console.log(`🌍 Checking global booking form data...`);
       // Check if there's global booking data available
       if (window.bookingFormData.sections) {
         for (const section of window.bookingFormData.sections) {
@@ -272,30 +311,30 @@ const PackageSelection = ({
     
     // Strategy 3: Try formData structure variations
     if (formData && typeof formData === 'object') {
-      console.log(`📋 Form Data structure:`, {
-        keys: Object.keys(formData),
-        funder: formData.funder,
-        isNdisFunded: formData.isNdisFunded,
-        hasBookingData: !!(formData.booking || formData.sections || formData.allPages),
-        careAnalysisType: typeof formData.careAnalysis
-      });
+      // console.log(`📋 Form Data structure:`, {
+      //   keys: Object.keys(formData),
+      //   funder: formData.funder,
+      //   isNdisFunded: formData.isNdisFunded,
+      //   hasBookingData: !!(formData.booking || formData.sections || formData.allPages),
+      //   careAnalysisType: typeof formData.careAnalysis
+      // });
       
       // Direct key lookup
       if (formData[questionKey]) {
-        console.log(`✅ Found direct key in formData:`, formData[questionKey]);
+        // console.log(`✅ Found direct key in formData:`, formData[questionKey]);
         return formData[questionKey];
       }
       
       // Check if formData contains booking data structure
       if (formData.booking) {
-        console.log(`📋 Found booking data in formData`);
+        // console.log(`📋 Found booking data in formData`);
         // If booking data is structured like the API response
         if (formData.booking.sections && Array.isArray(formData.booking.sections)) {
           for (const section of formData.booking.sections) {
             if (section.QaPairs && Array.isArray(section.QaPairs)) {
               for (const qaPair of section.QaPairs) {
                 if (qaPair.Question?.question_key === questionKey && qaPair.answer) {
-                  console.log(`✅ Found in formData.booking:`, qaPair.answer);
+                  // console.log(`✅ Found in formData.booking:`, qaPair.answer);
                   return qaPair.answer;
                 }
               }
@@ -306,12 +345,12 @@ const PackageSelection = ({
       
       // Check sections directly in formData
       if (formData.sections && Array.isArray(formData.sections)) {
-        console.log(`📂 Searching through ${formData.sections.length} form sections`);
+        // console.log(`📂 Searching through ${formData.sections.length} form sections`);
         for (const section of formData.sections) {
           if (section.QaPairs && Array.isArray(section.QaPairs)) {
             for (const qaPair of section.QaPairs) {
               if (qaPair.Question?.question_key === questionKey && qaPair.answer) {
-                console.log(`✅ Found in formData.sections:`, qaPair.answer);
+                // console.log(`✅ Found in formData.sections:`, qaPair.answer);
                 return qaPair.answer;
               }
             }
@@ -321,7 +360,7 @@ const PackageSelection = ({
           if (section.questions && Array.isArray(section.questions)) {
             for (const question of section.questions) {
               if (question.question_key === questionKey && question.answer) {
-                console.log(`✅ Found in section questions:`, question.answer);
+                // console.log(`✅ Found in section questions:`, question.answer);
                 return question.answer;
               }
             }
@@ -332,7 +371,7 @@ const PackageSelection = ({
       // Strategy 4: Check if formData has aggregated answers
       if (formData.answers && typeof formData.answers === 'object') {
         if (formData.answers[questionKey]) {
-          console.log(`✅ Found in formData.answers:`, formData.answers[questionKey]);
+          // console.log(`✅ Found in formData.answers:`, formData.answers[questionKey]);
           return formData.answers[questionKey];
         }
       }
@@ -341,7 +380,7 @@ const PackageSelection = ({
     // Strategy 5: Use known course information from props/context
     // If we know this is about courses and we have course-related props
     if (questionKey === 'which-course' && restProps.selectedCourse) {
-      console.log(`✅ Found course from props:`, restProps.selectedCourse);
+      // console.log(`✅ Found course from props:`, restProps.selectedCourse);
       return restProps.selectedCourse;
     }
     
@@ -629,8 +668,8 @@ const PackageSelection = ({
           },
           body: JSON.stringify({
             ...enhancedFilterCriteria,
-            include_requirements: true, // ADDED: Include requirements data
-            debug: true // Enable debug mode for development
+            include_requirements: true,
+            debug: true
           })
         });
       } else {
@@ -640,7 +679,6 @@ const PackageSelection = ({
         if (enhancedFilterCriteria.funder_type) params.set('funder', enhancedFilterCriteria.funder_type);
         if (enhancedFilterCriteria.ndis_package_type) params.set('ndis_package_type', enhancedFilterCriteria.ndis_package_type);
         
-        // ADDED: Always include requirements for proper filtering
         params.set('include_requirements', 'true');
         
         const queryString = params.toString();
@@ -664,15 +702,12 @@ const PackageSelection = ({
           summary: pkg.description ? 
             (pkg.description.length > 100 ? pkg.description.substring(0, 100) + '...' : pkg.description) :
             'Package details available',
-          // Ensure arrays are properly formatted
           ndis_line_items: Array.isArray(pkg.ndis_line_items) ? pkg.ndis_line_items : [],
           inclusions: Array.isArray(pkg.inclusions) ? pkg.inclusions : [],
           features: Array.isArray(pkg.features) ? pkg.features : [],
-          // ADDED: Ensure requirement data is properly attached
           hasRequirement: !!(pkg.requirement && typeof pkg.requirement === 'object')
         }));
 
-        // Enhanced logging for requirements
         console.log('✅ Packages with requirements analysis:', fetchedPackages.map(pkg => ({
           code: pkg.package_code,
           name: pkg.name,
@@ -694,47 +729,50 @@ const PackageSelection = ({
           funder_type: enhancedFilterCriteria.funder_type
         });
 
-        // Apply PackageRequirement filtering WITH enhanced logging
+        // Apply PackageRequirement filtering
         fetchedPackages = applyPackageRequirementFiltering(fetchedPackages, enhancedFilterCriteria);
 
-        // Continue with existing logic for Non-NDIS vs NDIS handling
+        // FIXED: Auto-selection logic for both NDIS and Non-NDIS packages with immediate callback
         if (!builderMode) {
           const ndisPackages = fetchedPackages.filter(pkg => pkg.funder === 'NDIS');
           const nonNdisPackages = fetchedPackages.filter(pkg => pkg.funder !== 'NDIS');
           
+          let bestMatchPackage = null;
+          
           if (nonNdisPackages.length > 0) {
-            // For Non-NDIS: Find best match and auto-select only one
-            const bestMatch = findBestMatchPackage(nonNdisPackages);
-            if (bestMatch) {
-              fetchedPackages = [bestMatch]; // Show only one Non-NDIS package
-              
-              // Auto-select the package if not already selected
-              if (!value && !autoSelected) {
-                console.log('🎯 Auto-selecting Non-NDIS package:', bestMatch.name);
-                onChange?.(bestMatch.id); // Use package ID
-                setAutoSelected(true);
-              }
+            // For Non-NDIS: Find best match
+            bestMatchPackage = findBestMatchPackage(nonNdisPackages);
+            if (bestMatchPackage) {
+              fetchedPackages = [bestMatchPackage]; // Show only one Non-NDIS package
             }
           } else if (ndisPackages.length > 0) {
-            const bestMatch = findBestMatchPackage(ndisPackages);
-            if (bestMatch) {
-              fetchedPackages = [bestMatch]; // Show only one NDIS package
-              
-              // Auto-select the NDIS package if not already selected
-              if (!value && !autoSelected) {
-                console.log('🎯 Auto-selecting NDIS package:', bestMatch.name);
-                onChange?.(bestMatch.id); // Use package ID
-                setAutoSelected(true);
-              }
+            // For NDIS: Find best match
+            bestMatchPackage = findBestMatchPackage(ndisPackages);
+            if (bestMatchPackage) {
+              fetchedPackages = [bestMatchPackage]; // Show only one NDIS package
             } else {
-              // Fallback: if no best match found, show all NDIS packages
-              fetchedPackages = ndisPackages;
-              console.log('📋 Fallback: Showing all NDIS packages (no best match found):', ndisPackages.length);
+              // Fallback: if no best match found, use the first available NDIS package
+              bestMatchPackage = ndisPackages[0];
+              fetchedPackages = [bestMatchPackage];
+              console.log('📋 Fallback: Using first NDIS package as no best match found');
             }
           }
+          
+          // Set packages first
+          setPackages(fetchedPackages);
+          
+          // FIXED: Auto-select immediately after setting packages, with additional checks
+          if (bestMatchPackage && onChange && !value && !autoSelected) {
+            console.log('🎯 Immediate auto-selection triggered for:', bestMatchPackage.name);
+            
+            // Use a very short timeout to ensure packages state is updated
+            setTimeout(() => {
+              handleAutoSelection(bestMatchPackage);
+            }, 50);
+          }
+        } else {
+          setPackages(fetchedPackages);
         }
-
-        setPackages(fetchedPackages);
         
         if (data.debugInfo) {
           setDebugInfo(data.debugInfo);
@@ -852,23 +890,22 @@ const PackageSelection = ({
     }
   }, [value, packages]);
 
-  // Auto-select Non-NDIS package when available and no selection exists
+  // Auto-select package when available and no selection exists
   useEffect(() => {
+    // Auto-select package when available and no selection exists
     if (!builderMode && !value && packages.length === 1 && !autoSelected && onChange) {
       const pkg = packages[0];
-      if (pkg.funder !== 'NDIS') {
-        console.log('🔄 Fallback auto-selection for Non-NDIS package:', pkg.name);
-        console.log('🔄 Fallback package full object:', pkg);
-        console.log('🔄 Fallback package ID:', pkg.id, typeof pkg.id);
-        setTimeout(() => {
-          const packageId = pkg.id;
-          console.log('🔄 Fallback about to call onChange with:', packageId);
-          console.log('🔄 Fallback confirm package ID type:', typeof packageId);
-          onChange(packageId); // Send only the package ID, not the full object
-          console.log('🔄 Fallback onChange called successfully');
-          setAutoSelected(true);
-        }, 200);
-      }
+      console.log('🔄 Auto-selecting package:', {
+        name: pkg.name,
+        id: pkg.id,
+        funder: pkg.funder,
+        packageCode: pkg.package_code
+      });
+      
+      setTimeout(() => {
+        onChange(pkg.id);
+        setAutoSelected(true);
+      }, 200);
     }
   }, [packages, value, autoSelected, builderMode, onChange]);
 
@@ -879,77 +916,23 @@ const PackageSelection = ({
     };
   }, []);
 
-  // Handle package selection
-  const handlePackageSelect = (selectedPackage) => {
-    if (builderMode) return; // Don't handle selection in builder mode
-    
-    console.log('📦 Package selected:', selectedPackage.name, selectedPackage.funder);
-    console.log('📦 Package full object:', selectedPackage);
-    
-    // Save only the package ID as the answer (not the full object)
-    const packageId = selectedPackage.id;
-    console.log('📦 Extracted package ID:', packageId, typeof packageId);
-    
-    // Different behavior for NDIS vs Non-NDIS packages
-    if (selectedPackage.funder === 'NDIS') {
-      // NDIS packages: Allow normal selection/switching between packages
-      if (multi) {
-        const currentValues = Array.isArray(value) ? value : [];
-        const isSelected = currentValues.includes(packageId);
-        
-        const newValue = isSelected
-          ? currentValues.filter(id => id !== packageId)
-          : [...currentValues, packageId];
-          
-        console.log('📦 NDIS Multi-selection onChange called with:', newValue);
-        console.log('📦 NDIS Multi-selection onChange type check:', typeof newValue, Array.isArray(newValue));
-        onChange?.(newValue);
-      } else {
-        // For single selection of NDIS packages, always select the clicked package
-        console.log('📦 NDIS Single-selection onChange called with:', packageId);
-        console.log('📦 NDIS Single-selection onChange type check:', typeof packageId);
-        onChange?.(packageId);
-      }
-    } else {
-      // Non-NDIS packages: Already auto-selected, but allow deselection if needed
-      if (multi) {
-        const currentValues = Array.isArray(value) ? value : [];
-        const isSelected = currentValues.includes(packageId);
-        
-        const newValue = isSelected
-          ? currentValues.filter(id => id !== packageId)
-          : [...currentValues, packageId];
-          
-        console.log('📦 Non-NDIS Multi-selection onChange called with:', newValue);
-        console.log('📦 Non-NDIS Multi-selection onChange type check:', typeof newValue, Array.isArray(newValue));
-        onChange?.(newValue);
-      } else {
-        // For Non-NDIS, toggle selection (can deselect if needed)
-        const currentlySelected = value == packageId; // Use == to handle string/number comparison
-        const newValue = currentlySelected ? null : packageId;
-        console.log('📦 Non-NDIS Single-selection onChange called with:', newValue);
-        console.log('📦 Non-NDIS Single-selection onChange type check:', typeof newValue);
-        onChange?.(newValue);
-      }
-    }
-  };
-
   // Check if package is selected (value is now package ID, not full object)
   const isPackageSelected = (pkg) => {
     if (multi) {
       const result = Array.isArray(value) && value.includes(pkg.id);
-      console.log('📦 Multi-select check for', pkg.name, ':', result, 'Current value:', value);
+      // console.log('📦 Multi-select check for', pkg.name, ':', result, 'Current value:', value);
       return result;
     }
     const result = value == pkg.id; // Use == to handle string/number comparison
-    console.log('📦 Single-select check for', pkg.name, ':', result, 'Current value:', value);
+    // console.log('📦 Single-select check for', pkg.name, ':', result, 'Current value:', value);
     return result;
   };
 
   const getRateTypeLabel = (rateType) => {
     const labels = {
       weekday: 'Weekday',
-      weekend: 'Weekend', 
+      saturday: 'Saturday', 
+      sunday: 'Sunday',
       public_holiday: 'Holiday'
     };
     return labels[rateType] || 'Unknown';
@@ -958,7 +941,8 @@ const PackageSelection = ({
   const getRateTypeBadgeStyle = (rateType) => {
     const styles = {
       weekday: 'bg-blue-100 text-blue-800',
-      weekend: 'bg-green-100 text-green-800', 
+      saturday: 'bg-green-100 text-green-800', 
+      sunday: 'bg-purple-100 text-purple-800',
       public_holiday: 'bg-red-100 text-red-800'
     };
     return styles[rateType] || 'bg-gray-100 text-gray-800';
@@ -971,7 +955,6 @@ const PackageSelection = ({
     return (
       <div
         key={pkg.id}
-        onClick={() => handlePackageSelect(pkg)}
         className={`relative rounded-lg overflow-hidden transition-all duration-200 ${
           builderMode 
             ? 'cursor-default' 
@@ -1113,7 +1096,6 @@ const PackageSelection = ({
     return (
       <div
         key={pkg.id}
-        onClick={() => handlePackageSelect(pkg)}
         className={`border-2 rounded-lg overflow-hidden transition-all duration-200 ${
           builderMode 
             ? 'cursor-default border-gray-200' 

@@ -9,7 +9,7 @@ import { useDebouncedCallback } from "use-debounce";
 import _, { get, update } from "lodash";
 import { getCheckInOutAnswer, getFunder, omitAttribute, validateEmail, validatePhoneNumber } from "../../utilities/common";
 import { analyzeCourseFromBookingData, createCourseFilterCriteria } from '../../utilities/courseAnalysisHelper';
-
+import { generateSummaryData } from "../../services/booking/create-summary-data";
 import {
     findByQuestionKey,
     QUESTION_KEYS,
@@ -148,7 +148,7 @@ const BookingRequestForm = () => {
             });
         }
         
-        console.log('📋 Questions moved to NDIS page:', Array.from(movedQuestionKeys));
+        // console.log('📋 Questions moved to NDIS page:', Array.from(movedQuestionKeys));
         
         // Clean original pages
         const cleanedPages = pages.map(page => {
@@ -582,10 +582,13 @@ const BookingRequestForm = () => {
                     if (questionHasKey(question, QUESTION_KEYS.FUNDING_SOURCE) && question.answer) {
                         if (question.answer?.toLowerCase().includes('ndis') || question.answer?.toLowerCase().includes('ndia')) {
                             funderType = 'NDIS';
+                            bookingRequestFormActions.setIsNdisFunded(true);
                         } else {
                             funderType = 'Non-NDIS';
                             // FIXED: Explicitly clear NDIS package type for Non-NDIS funding
                             ndisPackageType = null;
+                            bookingRequestFormActions.setIsNdisFunded(false);
+                            bookingRequestFormActions.setFunder(question?.answer?.toLowerCase())
                             break; // Exit early since we know it's Non-NDIS
                         }
                     }
@@ -1639,9 +1642,9 @@ const BookingRequestForm = () => {
             const currentPageInProcessed = stableProcessedFormData.find(p => p.id === currentPage.id);
             const pageToValidate = currentPageInProcessed || currentPage;
 
-            const updatedPage = clearPackageQuestionAnswers(pageToValidate, isNdisFunded);
+            // const updatedPage = clearPackageQuestionAnswers(pageToValidate, isNdisFunded);
 
-            const errorMsg = validate([updatedPage]);
+            const errorMsg = validate([pageToValidate]);
 
             if (errorMsg.length > 0) {
                 console.log('Validation errors:', errorMsg);
@@ -1655,7 +1658,7 @@ const BookingRequestForm = () => {
                 }
 
                 // Update the page data with validation errors
-                const pages = updatePageData(updatedPage?.Sections, updatedPage.id, 'VALIDATE_DATA', true);
+                const pages = updatePageData(pageToValidate?.Sections, pageToValidate.id, 'VALIDATE_DATA', true);
 
                 // Immediately scroll to the current page with errors
                 setTimeout(() => scrollToAccordionItemInLayout(activeAccordionIndex), 250); // Increased delay
@@ -1745,22 +1748,24 @@ const BookingRequestForm = () => {
                     ...section,
                     Questions: section.Questions.map(question => {
                         if (questionHasKey(question, QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL)) {
+                            pageModified = true;
+                            return { ...question, answer: null };
 
-                            if (question.type === 'radio') {
-                                // For radio questions: clear if NDIS funded OR if answer is NDIS-related but not NDIS funded
-                                if (isNdisFunded || (!isNdisFunded && isNdisAnswer(question.answer))) {
-                                    // console.log(`Clearing radio question - NDIS funded: ${isNdisFunded}, NDIS answer: ${isNdisAnswer(question.answer)}`);
-                                    pageModified = true;
-                                    return { ...question, answer: null };
-                                }
-                            } else if (question.type === 'radio-ndis') {
-                                // For radio-ndis questions: clear if not NDIS funded
-                                if (!isNdisFunded) {
-                                    // console.log('Clearing radio-ndis question answer (not NDIS funded)');
-                                    pageModified = true;
-                                    return { ...question, answer: null };
-                                }
-                            }
+                            // if (question.type === 'radio') {
+                            //     // For radio questions: clear if NDIS funded OR if answer is NDIS-related but not NDIS funded
+                            //     if (isNdisFunded || (!isNdisFunded && isNdisAnswer(question.answer))) {
+                            //         // console.log(`Clearing radio question - NDIS funded: ${isNdisFunded}, NDIS answer: ${isNdisAnswer(question.answer)}`);
+                            //         pageModified = true;
+                            //         return { ...question, answer: null };
+                            //     }
+                            // } else if (question.type === 'radio-ndis') {
+                            //     // For radio-ndis questions: clear if not NDIS funded
+                            //     if (!isNdisFunded) {
+                            //         // console.log('Clearing radio-ndis question answer (not NDIS funded)');
+                            //         pageModified = true;
+                            //         return { ...question, answer: null };
+                            //     }
+                            // }
                         }
                         return question;
                     })
@@ -2496,8 +2501,13 @@ const BookingRequestForm = () => {
 
                 // UPDATED: Use question key to check for funding question
                 const fundedQuestion = questions.find(q => questionHasKey(q, QUESTION_KEYS.FUNDING_SOURCE));
-                if (fundedQuestion && fundedQuestion.answer && (fundedQuestion.answer?.toLowerCase().includes('ndis') || fundedQuestion.answer?.toLowerCase().includes('ndia'))) {
-                    dispatch(bookingRequestFormActions.setIsNdisFunded(true));
+                if (fundedQuestion && fundedQuestion.answer) {
+                    if (fundedQuestion.answer?.toLowerCase().includes('ndis') || fundedQuestion.answer?.toLowerCase().includes('ndia')) {
+                        dispatch(bookingRequestFormActions.setIsNdisFunded(true));
+                    } else {
+                        dispatch(bookingRequestFormActions.setIsNdisFunded(false));
+                    }
+                    dispatch(bookingRequestFormActions.setFunder(fundedQuestion.answer));
                 }
 
                 const sectionLabel = section.label;
@@ -2557,7 +2567,7 @@ const BookingRequestForm = () => {
 
                             qa_pairs.push(qap);
 
-                            summaryOfStay.data = generateSummaryData(summaryOfStay.data, question.question, answer, question.type, qa_pairs);
+                            summaryOfStay.data = generateSummaryData(summaryOfStay.data, question.question, answer, question.type, qa_pairs, question.question_key);
                         } else {
                             if (questionHasKey(question, QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL))  {
                                 let qap = {
@@ -2602,7 +2612,7 @@ const BookingRequestForm = () => {
                             }
 
                             qa_pairs.push(qap);
-                            summaryOfStay.data = generateSummaryData(summaryOfStay.data, question.question, answer, question.type, qa_pairs);
+                            summaryOfStay.data = generateSummaryData(summaryOfStay.data, question.question, answer, question.type, qa_pairs, question.question_key);
                         }
                     });
                 }
@@ -2757,113 +2767,6 @@ const BookingRequestForm = () => {
         data.updatedPage = updatedPage;
 
         return data;
-    }
-
-    // REFACTORED: generateSummaryData method with question keys
-    const generateSummaryData = (stayData, question, answer, questionType, qaPairs) => {
-        let summaryOfStayData = { ...stayData };
-        if (answer) {
-            // UPDATED: Use question key mappings for all question checks
-            if (questionMatches({ question }, 'How will your stay be funded', QUESTION_KEYS.FUNDING_SOURCE)) {
-                summaryOfStayData.funder = answer;
-                if (answer.toLowerCase().includes('ndis') || answer.toLowerCase().includes('ndia')) {
-                    summaryOfStayData.isNDISFunder = true;
-                } else {
-                    summaryOfStayData.isNDISFunder = false;
-                    summaryOfStayData.ndisQuestions = [];
-                    summaryOfStayData.ndisPackage = '';
-                }
-                dispatch(bookingRequestFormActions.setFunder(answer));
-            } else if (questionMatches({ question }, 'NDIS Participant Number', QUESTION_KEYS.NDIS_PARTICIPANT_NUMBER) ||
-                      questionMatches({ question }, 'icare Participant Number', QUESTION_KEYS.ICARE_PARTICIPANT_NUMBER)) {
-                summaryOfStayData.participantNumber = answer;
-            } else if (questionMatches({ question }, 'Check In Date and Check Out Date', QUESTION_KEYS.CHECK_IN_OUT_DATE)) {
-                const dates = answer.split(' - ');
-                const checkIn = moment(dates[0]);
-                const checkOut = moment(dates[1]);
-                dispatch(bookingRequestFormActions.setCheckinDate(checkIn.format('DD/MM/YYYY')));
-                dispatch(bookingRequestFormActions.setCheckoutDate(checkOut.format('DD/MM/YYYY')));
-                summaryOfStayData.datesOfStay = checkIn.format('DD/MM/YYYY') + ' - ' + checkOut.format('DD/MM/YYYY');
-                if (checkIn.isValid() && checkOut.isValid()) {
-                    summaryOfStayData.nights = checkOut.diff(checkIn, 'days');
-                }
-            } else if (questionMatches({ question }, 'Check In Date', QUESTION_KEYS.CHECK_IN_DATE)) {
-                const checkIn = moment(answer);
-                dispatch(bookingRequestFormActions.setCheckinDate(checkIn.format('DD/MM/YYYY')));
-            } else if (questionMatches({ question }, 'Check Out Date', QUESTION_KEYS.CHECK_OUT_DATE)) {
-                const checkOut = moment(answer, 'YYYY-MM-DD');
-
-                dispatch(bookingRequestFormActions.setCheckoutDate(checkOut.format('DD/MM/YYYY')));
-                const checkInAnswer = getCheckInOutAnswer(qaPairs)[0];
-
-                if (checkInAnswer && checkOut.isValid()) {
-                    const checkIn = moment(checkInAnswer, 'YYYY-MM-DD');
-                    if (checkIn.isValid() && checkOut.isValid()) {
-                        summaryOfStayData.datesOfStay = checkIn.format('DD/MM/YYYY') + ' - ' + checkOut.format('DD/MM/YYYY');
-                        summaryOfStayData.nights = checkOut.diff(checkIn, 'days');
-                    }
-                }
-            } else if (questionType !== 'package-selection' && (questionMatches({ question }, 'Please select your accommodation and assistance package below', QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL) ||
-                      questionMatches({ question }, 'Accommodation package options for Sargood Courses', QUESTION_KEYS.ACCOMMODATION_PACKAGE_COURSES)) && answer?.includes('Wellness')) {
-                    summaryOfStayData.packageType = serializePackage(answer);
-                    summaryOfStayData.packageTypeAnswer = answer;
-                    if (answer.includes('Wellness & Support Package')) {
-                        summaryOfStayData.packageCost = 985;
-                    } else if (answer.includes('Wellness & High Support Package')) {
-                        summaryOfStayData.packageCost = 1365;
-                    } else if (answer.includes('Wellness & Very High Support Package')) {
-                        summaryOfStayData.packageCost = 1740;
-                    }
-            } else if (questionType !== 'package-selection' && questionMatches({ question }, 'Please select your accommodation and assistance package below', QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL)
-                && (answer?.toLowerCase().includes('ndis') || answer?.toLowerCase().includes('ndia'))) {
-                    summaryOfStayData.ndisPackage = answer;
-            } else if (questionType === 'package-selection' && questionMatches({ question }, 'Please select your accommodation and assistance package below', QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL)) {
-                // For package-selection, answer is the package ID
-                // Store the package ID for later processing in the summary component
-                summaryOfStayData.selectedPackageId = answer;
-                summaryOfStayData.packageSelectionType = 'package-selection';
-
-                // Set a placeholder that will be resolved in the summary component
-                summaryOfStayData.packageType = 'PACKAGE_SELECTION';
-                summaryOfStayData.packageTypeAnswer = `Package ID: ${answer}`;
-            } else if (question.includes('Is Short-Term Accommodation including Respite a stated support in your plan?')
-                || question.includes('What is the purpose of this stay and how does it align with your plan goals? ')
-                || question.includes('How is this service value for money?')
-                || question == 'Please specify.'
-                || question.includes('Are you having a break from your informal support?')
-                || question.includes('Do you live alone?')
-                || question.includes('Are you travelling with any informal supports?')
-                || question.includes('Do you live in supported independent living (SIL)?')
-                || question.includes('Why do you require 1:1 support?'))
-            {
-                const ndisQuestions = summaryOfStayData?.ndisQuestions ? summaryOfStayData.ndisQuestions : [];
-                const newQuestion = { question: question, answer: tryParseJSON(answer) };
-                summaryOfStayData.ndisQuestions = [
-                    ...ndisQuestions.filter(q => q.question !== question),
-                    newQuestion
-                ];
-            }
-        }
-
-        return summaryOfStayData;
-    }
-
-    const serializePackage = (packageType) => {
-        if (packageType.includes("Wellness & Very High Support Package")) {
-          return "WVHS";
-        } else if (packageType.includes("Wellness & High Support Package")) {
-          return "WHS";
-        } else if (packageType.includes("Wellness & Support") || packageType.includes("Wellness and Support")) {
-          return "WS";
-        } else if (packageType.includes("NDIS Support Package - No 1:1 assistance with self-care")) {
-          return "SP"
-        } else if (packageType.includes("NDIS Care Support Package - includes up to 6 hours of 1:1 assistance with self-care")) {
-          return "CSP"
-        } else if (packageType.includes("NDIS High Care Support Package - includes up to 12 hours of 1:1 assistance with self-care")) {
-          return "HCSP"
-        } else {
-          return '';
-        }
     }
 
     const applyQuestionDependencies = (pages) => {
@@ -3423,11 +3326,18 @@ const BookingRequestForm = () => {
 
                         questionDependencies.push.apply(questionDependencies, s.Questions.filter(qp => qp.QuestionDependencies.length > 0));
 
-                        summaryOfStay.data = generateSummaryData(summaryOfStay.data, q.question, q.answer, q.type, questionArr);
+                        summaryOfStay.data = generateSummaryData(summaryOfStay.data, q.question, q.answer, q.type, questionArr, q.question_key);
 
-                        if (questionHasKey(q, QUESTION_KEYS.FUNDING_SOURCE) && q.answer && (q.answer?.toLowerCase().includes('ndis') || q.answer?.toLowerCase().includes('ndia'))) {
-                            summaryOfStay.data.isNDISFunder = true;
-                            dispatch(bookingRequestFormActions.setIsNdisFunded(true));
+                        if (questionHasKey(q, QUESTION_KEYS.FUNDING_SOURCE) && q.answer) {
+                            if (q.answer?.toLowerCase().includes('ndis') || q.answer?.toLowerCase().includes('ndia')) {
+                                summaryOfStay.data.isNDISFunder = true;
+                                dispatch(bookingRequestFormActions.setIsNdisFunded(true));
+                            } else {
+                                summaryOfStay.data.isNDISFunder = false;
+                                dispatch(bookingRequestFormActions.setIsNdisFunded(false));
+                            }
+
+                            dispatch(bookingRequestFormActions.setFunder(q.answer));
                         }
 
                         return q;
@@ -3657,6 +3567,8 @@ const BookingRequestForm = () => {
         if (stableProcessedFormData && stableProcessedFormData.length > 0) {
             const extractedDates = getStayDatesFromForm(stableProcessedFormData);
             console.log('📅 Extracted stay dates:', extractedDates); // Debug log
+            dispatch(bookingRequestFormActions.setCheckinDate(extractedDates.checkInDate));
+            dispatch(bookingRequestFormActions.setCheckoutDate(extractedDates.checkOutDate));
             setStayDates(extractedDates);
         } else {
             console.log('📅 No form data available for date extraction'); // Debug log

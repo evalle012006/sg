@@ -1,6 +1,6 @@
 import moment from 'moment';
 import { serializePackage } from '../../utilities/common';
-import { QUESTION_KEYS, questionMatches } from './question-helper';
+import { QUESTION_KEYS, questionMatches, questionHasKey } from './question-helper';
 
 export async function getNSWHolidaysV2(startDate, endDate) {
   const currentYear = new Date().getFullYear();
@@ -54,26 +54,59 @@ const calculateDaysBreakdown = async (startDateStr, numberOfNights) => {
     const currentDate = new Date(startDate);
     currentDate.setDate(currentDate.getDate() + i);
     
-    // const holidayData = await checkNSWPublicHoliday(currentDate);
-    
-    // if (holidayData?.isHoliday) {
-    //   breakdown.publicHolidays++;
-    // } else {
-      const day = currentDate.getDay();
-      if (day === 6) {
-        breakdown.saturdays++;
-      } else if (day === 0) {
-        breakdown.sundays++;
-      } else {
-        breakdown.weekdays++;
-      }
-    // }
+    const day = currentDate.getDay();
+    if (day === 6) {
+      breakdown.saturdays++;
+    } else if (day === 0) {
+      breakdown.sundays++;
+    } else {
+      breakdown.weekdays++;
+    }
   }
 
   return breakdown;
 };
 
-const getPricing = (option) => {
+const getPricing = (option, packageData = null) => {
+  // PRIORITY 1: If we have resolved package data with ndis_line_items, use that
+  if (packageData && packageData.ndis_line_items && packageData.ndis_line_items.length > 0) {
+    console.log('Using package line items for pricing:', packageData.ndis_line_items);
+    
+    // Map the line items to the expected format
+    const lineItems = packageData.ndis_line_items.map(lineItem => ({
+      package: lineItem.description || lineItem.name || lineItem.package_name,
+      lineItem: lineItem.line_item_code || lineItem.code || lineItem.lineItem,
+      price: parseFloat(lineItem.price_per_night || lineItem.price || lineItem.cost || 0),
+      type: determineLineItemType(lineItem)
+    }));
+    
+    // Ensure we have all 4 types (weekday, saturday, sunday, publicHoliday)
+    // If not, pad with default values
+    const requiredTypes = ['weekday', 'saturday', 'sunday', 'publicHoliday'];
+    const existingTypes = lineItems.map(item => item.type);
+    
+    requiredTypes.forEach(requiredType => {
+      if (!existingTypes.includes(requiredType)) {
+        // Find a similar line item to use as base price
+        const baseItem = lineItems[0] || { package: 'STA Package', lineItem: '', price: 0 };
+        lineItems.push({
+          package: `${baseItem.package} - ${requiredType}`,
+          lineItem: baseItem.lineItem,
+          price: baseItem.price,
+          type: requiredType
+        });
+      }
+    });
+    
+    // Sort to ensure consistent order: weekday, saturday, sunday, publicHoliday
+    const sortOrder = { 'weekday': 0, 'saturday': 1, 'sunday': 2, 'publicHoliday': 3 };
+    lineItems.sort((a, b) => (sortOrder[a.type] || 999) - (sortOrder[b.type] || 999));
+    
+    return lineItems;
+  }
+
+  // PRIORITY 2: Fallback to hardcoded pricing based on option
+  console.log('Using hardcoded pricing for option:', option);
   switch (option) {
     case 'SP':
       return [
@@ -101,7 +134,31 @@ const getPricing = (option) => {
   }
 };
 
-const calculatePackageCosts = async (packageType, datesOfStay, nights, packageCost) => {
+// Helper function to determine line item type from the line item data
+const determineLineItemType = (lineItem) => {
+  const description = (lineItem.description || lineItem.name || lineItem.package_name || '').toLowerCase();
+  const code = (lineItem.line_item_code || lineItem.code || lineItem.lineItem || '').toLowerCase();
+  
+  // Check both description and code for type indicators
+  const fullText = `${description} ${code}`.toLowerCase();
+  
+  if (fullText.includes('public') || fullText.includes('holiday')) {
+    return 'publicHoliday';
+  } else if (fullText.includes('sunday')) {
+    return 'sunday';
+  } else if (fullText.includes('saturday') || fullText.includes('weekend')) {
+    return 'saturday';
+  } else if (fullText.includes('weekday') || fullText.includes('monday') || fullText.includes('tuesday') || 
+             fullText.includes('wednesday') || fullText.includes('thursday') || fullText.includes('friday')) {
+    return 'weekday';
+  }
+  
+  // If no specific day type found, default to weekday for the first item, then increment
+  // This is a fallback - ideally the line items should have clear day type indicators
+  return 'weekday';
+};
+
+const calculatePackageCosts = async (packageType, datesOfStay, nights, packageCost, packageData = null) => {
   if (packageType.startsWith('W')) {
     const price = parseFloat(packageCost);
     return {
@@ -110,7 +167,7 @@ const calculatePackageCosts = async (packageType, datesOfStay, nights, packageCo
   }
 
   const breakdown = await calculateDaysBreakdown(datesOfStay, nights);
-  const pricing = getPricing(packageType);
+  const pricing = getPricing(packageType, packageData);
   
   const details = pricing.map((rate, index) => {
     const quantity = index === 0 ? breakdown.weekdays :
@@ -160,17 +217,35 @@ const calculateRoomCosts = (rooms, nights) => {
   return roomCosts;
 };
 
-// REFACTORED: generateSummaryData method with question keys
-const generateSummaryData = (stayData, question, answer) => {
+// Helper function to check if an answer is a check-in/out answer from Q&A pairs
+const getCheckInOutAnswer = (qaPairs) => {
+    const checkInOutAnswers = [];
+    
+    qaPairs.forEach(qaPair => {
+        // Check using question key first, then fallback to question text
+        if (questionHasKey(qaPair.Question, QUESTION_KEYS.CHECK_IN_DATE) ||
+            questionMatches(qaPair, 'Check In Date', QUESTION_KEYS.CHECK_IN_DATE)) {
+            checkInOutAnswers.push(qaPair.answer);
+        }
+    });
+    
+    return checkInOutAnswers;
+};
+
+// UPDATED: Centralized generateSummaryData function with question key support
+export const generateSummaryData = (stayData, question, answer, questionType = null, qaPairs = [], questionKey = null) => {
   let summaryOfStayData = { ...stayData };
+  
   if (answer) {
+      // Helper object for question matching - use question key if available, fallback to question text
+      const questionObj = { question, question_key: questionKey };
+      
       // UPDATED: Use question key for funding check
-      if (questionMatches(question, 'How will your stay be funded', QUESTION_KEYS.FUNDING_SOURCE)) {
+      if (questionHasKey(questionObj, QUESTION_KEYS.FUNDING_SOURCE) ||
+          questionMatches(questionObj, 'How will your stay be funded', QUESTION_KEYS.FUNDING_SOURCE)) {
           summaryOfStayData.funder = answer;
-          if (answer.includes('NDIS') || answer.includes('NDIA')) {
+          if (answer?.toLowerCase().includes('ndis') || answer?.toLowerCase().includes('ndia')) {
             summaryOfStayData.isNDISFunder = true;
-            summaryOfStayData.packageType = '';
-            summaryOfStayData.packageTypeAnswer = '';
           } else {
             summaryOfStayData.isNDISFunder = false;
             summaryOfStayData.ndisQuestions = [];
@@ -178,39 +253,61 @@ const generateSummaryData = (stayData, question, answer) => {
           }
       } 
       // UPDATED: Use question keys for participant numbers
-      else if (questionMatches(question, 'NDIS Participant Number', QUESTION_KEYS.NDIS_PARTICIPANT_NUMBER) || 
-               questionMatches(question, 'icare Participant Number', QUESTION_KEYS.ICARE_PARTICIPANT_NUMBER)) {
+      else if (questionHasKey(questionObj, QUESTION_KEYS.NDIS_PARTICIPANT_NUMBER) ||
+               questionHasKey(questionObj, QUESTION_KEYS.ICARE_PARTICIPANT_NUMBER) ||
+               questionMatches(questionObj, 'NDIS Participant Number', QUESTION_KEYS.NDIS_PARTICIPANT_NUMBER) || 
+               questionMatches(questionObj, 'icare Participant Number', QUESTION_KEYS.ICARE_PARTICIPANT_NUMBER)) {
           summaryOfStayData.participantNumber = answer;
       } 
       // UPDATED: Use question key for check-in/out dates
-      else if (questionMatches(question, 'Check In Date and Check Out Date', QUESTION_KEYS.CHECK_IN_OUT_DATE)) {
+      else if (questionHasKey(questionObj, QUESTION_KEYS.CHECK_IN_OUT_DATE) ||
+               questionMatches(questionObj, 'Check In Date and Check Out Date', QUESTION_KEYS.CHECK_IN_OUT_DATE)) {
           const dates = answer.split(' - ');
-          const checkIn = moment(dates[0]);
-          const checkOut = moment(dates[1]);
+          const checkIn = moment(dates[0], ['YYYY-MM-DD', 'DD/MM/YYYY']);
+          const checkOut = moment(dates[1], ['YYYY-MM-DD', 'DD/MM/YYYY']);
           summaryOfStayData.datesOfStay = checkIn.format('DD/MM/YYYY') + ' - ' + checkOut.format('DD/MM/YYYY');
           if (checkIn.isValid() && checkOut.isValid()) {
               summaryOfStayData.nights = checkOut.diff(checkIn, 'days');
           }
       } 
       // UPDATED: Use question key for check-in date
-      else if (questionMatches(question, 'Check In Date', QUESTION_KEYS.CHECK_IN_DATE)) {
-          summaryOfStayData.checkinDate = moment(answer).format('DD/MM/YYYY');
+      else if (questionHasKey(questionObj, QUESTION_KEYS.CHECK_IN_DATE) ||
+               questionMatches(questionObj, 'Check In Date', QUESTION_KEYS.CHECK_IN_DATE)) {
+          const checkIn = moment(answer, ['YYYY-MM-DD', 'DD/MM/YYYY']);
+          summaryOfStayData.checkinDate = checkIn.format('DD/MM/YYYY');
       } 
       // UPDATED: Use question key for check-out date
-      else if (questionMatches(question, 'Check Out Date', QUESTION_KEYS.CHECK_OUT_DATE)) {
-          const checkOut = moment(answer);
-          if (summaryOfStayData?.checkinDate && checkOut) {
-              summaryOfStayData.datesOfStay = summaryOfStayData.checkinDate + ' - ' + checkOut.format('DD/MM/YYYY');
-              const checkIn = moment(summaryOfStayData.checkinDate, 'YYYY-MM-DD');
-              if (checkIn.isValid() && checkOut.isValid()) {
-                summaryOfStayData.nights = checkOut.diff(moment(summaryOfStayData.checkinDate, 'DD/MM/YYYY'), 'days');
+      else if (questionHasKey(questionObj, QUESTION_KEYS.CHECK_OUT_DATE) ||
+               questionMatches(questionObj, 'Check Out Date', QUESTION_KEYS.CHECK_OUT_DATE)) {
+          const checkOut = moment(answer, ['YYYY-MM-DD', 'DD/MM/YYYY']);
+          summaryOfStayData.checkoutDate = checkOut.format('DD/MM/YYYY');
+          
+          // If we have both dates, calculate the date range and nights
+          if (summaryOfStayData.checkinDate && checkOut.isValid()) {
+              const checkIn = moment(summaryOfStayData.checkinDate, 'DD/MM/YYYY');
+              if (checkIn.isValid()) {
+                  summaryOfStayData.datesOfStay = summaryOfStayData.checkinDate + ' - ' + checkOut.format('DD/MM/YYYY');
+                  summaryOfStayData.nights = checkOut.diff(checkIn, 'days');
+              }
+          } else if (qaPairs && qaPairs.length > 0) {
+              // Try to get check-in date from qaPairs
+              const checkInAnswers = getCheckInOutAnswer(qaPairs);
+              if (checkInAnswers.length > 0 && checkOut.isValid()) {
+                  const checkIn = moment(checkInAnswers[0], ['YYYY-MM-DD', 'DD/MM/YYYY']);
+                  if (checkIn.isValid()) {
+                      summaryOfStayData.datesOfStay = checkIn.format('DD/MM/YYYY') + ' - ' + checkOut.format('DD/MM/YYYY');
+                      summaryOfStayData.nights = checkOut.diff(checkIn, 'days');
+                  }
               }
           }
       } 
       // UPDATED: Use question keys for accommodation packages (Wellness)
-      else if ((questionMatches(question, 'Please select your accommodation and assistance package below', QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL) ||
-               questionMatches(question, 'Accommodation package options for Sargood Courses', QUESTION_KEYS.ACCOMMODATION_PACKAGE_COURSES)) && 
-               answer.includes('Wellness')) {
+      else if (questionType !== 'package-selection' && 
+               (questionHasKey(questionObj, QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL) ||
+                questionHasKey(questionObj, QUESTION_KEYS.ACCOMMODATION_PACKAGE_COURSES) ||
+                questionMatches(questionObj, 'Please select your accommodation and assistance package below', QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL) ||
+                questionMatches(questionObj, 'Accommodation package options for Sargood Courses', QUESTION_KEYS.ACCOMMODATION_PACKAGE_COURSES)) && 
+               answer?.includes('Wellness')) {
               summaryOfStayData.packageType = serializePackage(answer);
               summaryOfStayData.packageTypeAnswer = answer;
               if (answer.includes('Wellness & Support Package')) {
@@ -222,10 +319,24 @@ const generateSummaryData = (stayData, question, answer) => {
               }
       } 
       // UPDATED: Use question key for accommodation packages (NDIS)
-      else if (questionMatches(question, 'Please select your accommodation and assistance package below', QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL) &&
-               (answer.includes('NDIS') || answer.includes('NDIA'))) {
+      else if (questionType !== 'package-selection' && 
+               (questionHasKey(questionObj, QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL) ||
+                questionMatches(questionObj, 'Please select your accommodation and assistance package below', QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL)) &&
+               (answer?.toLowerCase().includes('ndis') || answer?.toLowerCase().includes('ndia'))) {
               summaryOfStayData.ndisPackage = answer;
               summaryOfStayData.packageType = serializePackage(answer);
+      } 
+      // NEW: Handle package-selection type answers
+      else if (questionType === 'package-selection' && 
+               (questionHasKey(questionObj, QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL) ||
+                questionMatches(questionObj, 'Please select your accommodation and assistance package below', QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL))) {
+              // For package-selection, answer is the package ID
+              summaryOfStayData.selectedPackageId = answer;
+              summaryOfStayData.packageSelectionType = 'package-selection';
+              
+              // Set a placeholder that will be resolved later
+              summaryOfStayData.packageType = 'PACKAGE_SELECTION';
+              summaryOfStayData.packageTypeAnswer = `Package ID: ${answer}`;
       } 
       // UPDATED: NDIS-specific questions - using question keys where available
       else if (question.includes('Is Short-Term Accommodation including Respite a stated support in your plan?') ||
@@ -250,7 +361,7 @@ const generateSummaryData = (stayData, question, answer) => {
   return summaryOfStayData;
 }
 
-// REFACTORED: createSummaryData method using question keys
+// UPDATED: createSummaryData method with package resolution support
 export const createSummaryData = async (booking) => {
     let summaryOfStay = { guestName: null, guestEmail: null, rooms: [], data: [], agreement_tc: null, signature: null };
 
@@ -260,9 +371,11 @@ export const createSummaryData = async (booking) => {
             // Get question text from either the pair itself or the related Question object
             const question = pair.question || pair.Question?.question;
             const answer = pair.answer;
+            const questionKey = pair.Question?.question_key;
+            const questionType = pair.question_type;
             
             // Generate summary data with question key support
-            data = generateSummaryData(data, question, answer);
+            data = generateSummaryData(data, question, answer, questionType, section.QaPairs, questionKey);
         });
         return data;  // Important: return the accumulated data
     }, {});  // Important: provide initial value as empty object
@@ -270,14 +383,48 @@ export const createSummaryData = async (booking) => {
     summaryOfStay.guestName = booking.Guest.first_name + ' ' + booking.Guest.last_name;
     summaryOfStay.guestEmail = booking.Guest.email;
 
-    summaryOfStay.data.packageType = serializePackage(summaryOfStay.data.isNDISFunder ? summaryOfStay.data.ndisPackage : summaryOfStay.data.packageType);
+    // Handle package resolution for package-selection types
+    if (summaryOfStay.data.selectedPackageId && summaryOfStay.data.packageSelectionType === 'package-selection') {
+        try {
+            const response = await fetch(`/api/packages/${summaryOfStay.data.selectedPackageId}`);
+            if (response.ok) {
+                const result = await response.json();
+                
+                if (result.success && result.package) {
+                    const packageData = result.package;
+                    
+                    if (packageData.name?.includes('Wellness')) {
+                        summaryOfStay.data.packageType = serializePackage(packageData.name);
+                        summaryOfStay.data.packageTypeAnswer = packageData.name;
+                        summaryOfStay.data.packageCost = packageData.price;
+                        summaryOfStay.data.isNDISFunder = false;
+                    } else {
+                        // Assume NDIS package
+                        summaryOfStay.data.ndisPackage = packageData.name;
+                        summaryOfStay.data.packageType = serializePackage(packageData.name);
+                        summaryOfStay.data.packageCost = packageData.price;
+                        summaryOfStay.data.isNDISFunder = true;
+                    }
+                    
+                    // Store resolved package data for pricing calculations
+                    summaryOfStay.data.resolvedPackageData = packageData;
+                }
+            }
+        } catch (error) {
+            console.error('Error resolving package selection:', error);
+        }
+    } else {
+        // Use existing logic for non-package-selection types
+        summaryOfStay.data.packageType = serializePackage(summaryOfStay.data.isNDISFunder ? summaryOfStay.data.ndisPackage : summaryOfStay.data.packageType);
+    }
 
-    // Calculate package costs
+    // Calculate package costs with resolved package data if available
     const packageCosts = await calculatePackageCosts(
         summaryOfStay.data.packageType,
         summaryOfStay.data.datesOfStay,
         summaryOfStay.data.nights,
         summaryOfStay.data.packageCost,
+        summaryOfStay.data.resolvedPackageData
     );
 
     const selectedRooms = booking.Rooms.map((room, index) => {

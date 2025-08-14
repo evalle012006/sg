@@ -102,7 +102,8 @@ export default function PackageForm({
     // Rate Type options
     const rateTypeOptions = [
         { value: 'weekday', label: 'Weekday' },
-        { value: 'weekend', label: 'Weekend' },
+        { value: 'saturday', label: 'Saturday' },
+        { value: 'sunday', label: 'Sunday' },
         { value: 'public_holiday', label: 'Holiday' }
     ];
 

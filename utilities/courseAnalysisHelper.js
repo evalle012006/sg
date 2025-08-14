@@ -327,17 +327,17 @@ export function extractCourseInformation(allQAPairs = [], formData = {}) {
     }
 
     // Final logging
-    console.log('🎓 Course analysis complete:', {
-      hasCourse: courseAnalysis.hasCourse,
-      courseId: courseAnalysis.courseId,
-      courseOffered: courseAnalysis.courseOffered,
-      courseOfferAnswer: courseAnalysis.courseOfferAnswer,
-      whichCourseAnswer: courseAnalysis.whichCourseAnswer,
-      totalQAProcessed: allQAPairs?.length || 0,
-      courseRelatedFound: courseAnalysis.rawData.courseRelatedQA.length,
-      strategiesUsed: courseAnalysis.rawData.strategiesUsed,
-      foundBy: courseAnalysis.rawData.foundBy
-    });
+    // console.log('🎓 Course analysis complete:', {
+    //   hasCourse: courseAnalysis.hasCourse,
+    //   courseId: courseAnalysis.courseId,
+    //   courseOffered: courseAnalysis.courseOffered,
+    //   courseOfferAnswer: courseAnalysis.courseOfferAnswer,
+    //   whichCourseAnswer: courseAnalysis.whichCourseAnswer,
+    //   totalQAProcessed: allQAPairs?.length || 0,
+    //   courseRelatedFound: courseAnalysis.rawData.courseRelatedQA.length,
+    //   strategiesUsed: courseAnalysis.rawData.strategiesUsed,
+    //   foundBy: courseAnalysis.rawData.foundBy
+    // });
 
     return courseAnalysis;
 
@@ -383,12 +383,12 @@ export function analyzeCourseFromBookingData({
 } = {}) {
   
   console.log('🎓 Analyzing course from booking data...');
-  console.log('📊 Input sources:', {
-    qaDataLength: qaData?.length || 0,
-    allBookingDataSections: allBookingData?.sections?.length || 0,
-    formDataKeys: Object.keys(formData || {}),
-    preCollectedQAPairs: allQAPairs?.length || 0
-  });
+  // console.log('📊 Input sources:', {
+  //   qaDataLength: qaData?.length || 0,
+  //   allBookingDataSections: allBookingData?.sections?.length || 0,
+  //   formDataKeys: Object.keys(formData || {}),
+  //   preCollectedQAPairs: allQAPairs?.length || 0
+  // });
   
   // Collect all available QA pairs from different sources
   let collectedQAPairs = [...(allQAPairs || [])];

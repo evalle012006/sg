@@ -112,10 +112,10 @@ export default async function handler(req, res) {
             });
           }
 
-          if (!item.rate_type || !['weekday', 'weekend', 'public_holiday'].includes(item.rate_type)) {
+          if (!item.rate_type || !['weekday', 'saturday', 'sunday', 'public_holiday'].includes(item.rate_type)) {
             return res.status(400).json({
               success: false,
-              error: `Line item ${i + 1}: Valid rate type is required (weekday, weekend, holiday)`
+              error: `Line item ${i + 1}: Valid rate type is required (weekday, saturday, sunday, holiday)`
             });
           }
         }
