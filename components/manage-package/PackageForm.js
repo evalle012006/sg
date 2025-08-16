@@ -56,7 +56,8 @@ export default function PackageForm({
     // NDIS Package Type options
     const ndisPackageTypeOptions = [
         { value: 'sta', label: 'STA' },
-        { value: 'holiday', label: 'Holiday' }
+        { value: 'holiday', label: 'Holiday' },
+        { value: 'holiday-plus', label: 'Holiday Plus' }
     ];
 
     // Add new NDIS line item

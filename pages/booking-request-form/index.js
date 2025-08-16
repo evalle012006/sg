@@ -593,28 +593,46 @@ const BookingRequestForm = () => {
                         }
                     }
 
-                    // Only process NDIS package type logic if NDIS funded
-                    if (funderType === 'NDIS') {
-                        // Questions that lead to holiday packages
+                    if (questionHasKey(question, QUESTION_KEYS.IS_STA_STATED_SUPPORT) &&
+                        question.answer === 'Yes') {
+                        ndisPackageType = 'sta';
+                        console.log('✅ STA package: STA is stated support (takes precedence)');
+                    }
+
+                    // If not STA, check for holiday conditions
+                    if (!ndisPackageType || ndisPackageType !== 'sta') {
+                        let isHolidayType = false;
+                        
                         if (questionHasKey(question, QUESTION_KEYS.DO_YOU_LIVE_ALONE) &&
                             question.answer === 'Yes') {
-                            ndisPackageType = 'holiday';
+                            isHolidayType = true;
+                            console.log('✅ Holiday type detected: Lives alone');
                         }
 
                         if (questionHasKey(question, QUESTION_KEYS.DO_YOU_LIVE_IN_SIL) &&
                             question.answer === 'Yes') {
-                            ndisPackageType = 'holiday';
+                            isHolidayType = true;
+                            console.log('✅ Holiday type detected: Lives in SIL');
                         }
 
                         if (questionHasKey(question, QUESTION_KEYS.ARE_YOU_STAYING_WITH_INFORMAL_SUPPORTS) &&
                             question.answer === 'Yes') {
-                            ndisPackageType = 'holiday';
+                            isHolidayType = true;
+                            console.log('✅ Holiday type detected: Staying with informal supports');
                         }
-
-                        // Question that leads to STA packages (takes precedence)
-                        if (questionHasKey(question, QUESTION_KEYS.IS_STA_STATED_SUPPORT) &&
-                            question.answer === 'Yes') {
-                            ndisPackageType = 'sta';
+                        
+                        // NEW: If holiday type, check care requirements to determine holiday vs holiday-plus
+                        if (isHolidayType) {
+                            const careHours = currentCareAnalysis?.totalHoursPerDay || 0;
+                            const requiresCare = currentCareAnalysis?.requiresCare && careHours > 0;
+                            
+                            if (requiresCare) {
+                                ndisPackageType = 'holiday-plus';
+                                console.log(`✅ Holiday-Plus package: Holiday type with ${careHours}h care required`);
+                            } else {
+                                ndisPackageType = 'holiday';
+                                console.log('✅ Holiday package: Holiday type with no care required');
+                            }
                         }
                     }
                 }

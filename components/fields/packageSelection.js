@@ -222,16 +222,48 @@ const PackageSelection = ({
     // NDIS specific requirements
     if (requirements.funder_type === 'NDIS') {
       const staAnswer = getAnswerByQuestionKey('is-sta-a-stated-support-in-your-plan') || 
-                       getAnswerByQuestionKey('is-short-term-accommodation-including-respite-a-stated-support-in-your-plan');
+                      getAnswerByQuestionKey('is-short-term-accommodation-including-respite-a-stated-support-in-your-plan');
       if (staAnswer) {
-        requirements.sta_in_plan = staAnswer.toLowerCase().includes('yes');
+          requirements.sta_in_plan = staAnswer.toLowerCase().includes('yes');
+          requirements.ndis_package_type = 'sta'; // STA takes precedence
+      } else {
+          // Use the new determination logic
+          requirements.ndis_package_type = determineNdisPackageTypeFromQuestions(qaData, careAnalysis);
       }
-      
-      requirements.ndis_package_type = requirements.has_course ? 'sta' : 'holiday';
-    }
+  }
     
     console.log('🎯 Final extracted guest requirements:', requirements);
     return requirements;
+  };
+
+  const determineNdisPackageTypeFromQuestions = (questions, careAnalysis) => {
+      // Check for holiday conditions first
+      let isHolidayType = false;
+      
+      if (!questions || !Array.isArray(questions)) {
+          return 'sta'; // Default fallback
+      }
+      
+      questions.forEach(qa => {
+          if (!qa || !qa.question_key || !qa.answer) return;
+          
+          // Check for holiday-indicating questions
+          if (['do-you-live-alone', 'do-you-live-in-sil', 'are-you-staying-with-informal-supports'].includes(qa.question_key) &&
+              qa.answer.toLowerCase().includes('yes')) {
+              isHolidayType = true;
+          }
+      });
+      
+      // If it's a holiday type, determine if plus or regular based on care
+      if (isHolidayType) {
+          const careHours = careAnalysis?.totalHoursPerDay || 0;
+          const requiresCare = careAnalysis?.requiresCare && careHours > 0;
+          
+          return requiresCare ? 'holiday-plus' : 'holiday';
+      }
+      
+      // Default to STA if not holiday type
+      return 'sta';
   };
 
   const handleAutoSelection = useCallback((bestMatchPackage) => {
