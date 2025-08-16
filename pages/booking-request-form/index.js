@@ -1390,8 +1390,9 @@ const BookingRequestForm = () => {
             return false;
         }
 
-        if (page.title === 'Equipment' && equipmentPageCompleted) {
-            return true;
+        if (page.title === 'Equipment') {
+            console.log('✅ Equipment page is already completed');
+            return equipmentPageCompleted;
         }
 
         let totalRequiredQuestions = 0;
@@ -1883,15 +1884,40 @@ const BookingRequestForm = () => {
         console.log(`Updated page "${pages[pageIndex].title}" completion status: ${pages[pageIndex].completed}`);
 
         // Check for NDIS funding status changes
-        const fundingStatusChanged = checkFundingStatus(pages);
+        const fundingStatusResult = checkAndUpdateNdisFundingStatus(pages, isNdisFunded, dispatch, bookingRequestFormActions);
         
-        let updatedPages;
+        let updatedPages = pages;
+        
+        // CLEAR PACKAGE ANSWERS if funding status changed
+        if (fundingStatusResult.hasChanged) {
+            console.log('🔄 Funding status changed, clearing package question answers...', {
+                from: fundingStatusResult.previousStatus ? 'NDIS' : 'Non-NDIS',
+                to: fundingStatusResult.newStatus ? 'NDIS' : 'Non-NDIS',
+                answer: fundingStatusResult.fundingAnswer
+            });
+            
+            // Clear package answers from all pages
+            updatedPages = clearPackageQuestionAnswers(updatedPages, fundingStatusResult.newStatus);
+            
+            // Recalculate page completion for all pages since package answers were cleared
+            updatedPages = updatedPages.map(page => {
+                const wasCompleted = page.completed;
+                const newCompleted = calculatePageCompletion(page);
+                
+                if (wasCompleted !== newCompleted) {
+                    console.log(`📊 Page "${page.title}" completion status changed after package clearing: ${wasCompleted} → ${newCompleted}`);
+                }
+                
+                return { ...page, completed: newCompleted };
+            });
+        }
+        
         if (submit) {
-            updatedPages = pages;
+            // Don't process dependencies for submit
         } else {
             // STEP 1: Refresh dependencies with cascade support
             console.log('🔄 Refreshing dependencies with cascade support...');
-            updatedPages = forceRefreshAllDependencies(pages);
+            updatedPages = forceRefreshAllDependencies(updatedPages);
             
             // STEP 2: Clear answers from questions that are now hidden
             updatedPages = clearHiddenQuestionAnswers(updatedPages);
@@ -1900,13 +1926,15 @@ const BookingRequestForm = () => {
             updatedPages = forceRefreshAllDependencies(updatedPages);
             
             // Recalculate completion status for all pages after dependency changes
-            updatedPages.forEach(page => {
+            updatedPages = updatedPages.map(page => {
                 const wasCompleted = page.completed;
-                page.completed = calculatePageCompletion(page);
+                const newCompleted = calculatePageCompletion(page);
                 
-                if (wasCompleted !== page.completed) {
-                    console.log(`📊 Page "${page.title}" completion status changed after dependencies: ${wasCompleted} → ${page.completed}`);
+                if (wasCompleted !== newCompleted) {
+                    console.log(`📊 Page "${page.title}" completion status changed after package clearing: ${wasCompleted} → ${newCompleted}`);
                 }
+                
+                return { ...page, completed: newCompleted };
             });
         }
 
@@ -1915,7 +1943,7 @@ const BookingRequestForm = () => {
 
         // Always update Redux state
         if (!isProcessingNdis || pageId === 'ndis_packages_page') {
-            safeDispatchData(updatedPages, `updatePageData with cascade dependencies`);
+            safeDispatchData(updatedPages, `updatePageData with funding change handling`);
         }
 
         return updatedPages;
@@ -3755,16 +3783,39 @@ const BookingRequestForm = () => {
         extractAllQAPairsFromForm
     ]);
 
-    // Debug logging for course analysis changes
     useEffect(() => {
-        console.log('🎓 Course analysis data updated:', {
-            hasCourse: courseAnalysisData.hasCourse,
-            courseId: courseAnalysisData.courseId,
-            courseOffered: courseAnalysisData.courseOffered,
-            analysis: courseAnalysisData.analysis,
-            dataSource: courseAnalysisData.dataSource
-        });
-    }, [courseAnalysisData]);
+        // Watch for direct changes to isNdisFunded Redux state
+        if (prevIsNdisFundedRef.current !== null && prevIsNdisFundedRef.current !== isNdisFunded) {
+            console.log('🔄 NDIS funding status changed in Redux, clearing package answers...', {
+                from: prevIsNdisFundedRef.current ? 'NDIS' : 'Non-NDIS',
+                to: isNdisFunded ? 'NDIS' : 'Non-NDIS'
+            });
+            
+            if (stableProcessedFormData && stableProcessedFormData.length > 0) {
+                // Clear package answers from all pages
+                const updatedPages = clearPackageQuestionAnswers(stableProcessedFormData, isNdisFunded);
+                
+                // Recalculate page completion for all pages since package answers were cleared
+                updatedPages = updatedPages.map(page => {
+                    const wasCompleted = page.completed;
+                    const newCompleted = calculatePageCompletion(page);
+                    
+                    if (wasCompleted !== newCompleted) {
+                        console.log(`📊 Page "${page.title}" completion status changed after package clearing: ${wasCompleted} → ${newCompleted}`);
+                    }
+                    
+                    return { ...page, completed: newCompleted };
+                });
+                
+                // Refresh dependencies and update form data
+                const finalPages = forceRefreshAllDependencies(updatedPages);
+                setProcessedFormData(finalPages);
+                safeDispatchData(finalPages, 'Package answers cleared due to funding change');
+            }
+        }
+        
+        prevIsNdisFundedRef.current = isNdisFunded;
+    }, [isNdisFunded, stableProcessedFormData, clearPackageQuestionAnswers, calculatePageCompletion, forceRefreshAllDependencies, safeDispatchData]);
 
     useEffect(() => {
         return () => {

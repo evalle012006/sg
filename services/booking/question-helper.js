@@ -56,6 +56,7 @@ const QUESTION_KEYS = {
     
     // Funding and coordinators
     FUNDING_SOURCE: 'how-will-your-stay-be-funded',
+    NDIS_FUNDING_OPTIONS: 'please-select-from-one-of-the-following-ndis-funding-options', // NEW: Added missing question key
     NDIS_COORDINATOR_EMAIL: 'ndis-support-coordinator-email-address',
     NDIS_COORDINATOR_FIRST_NAME: 'ndis-support-coordinator-first-name',
     NDIS_COORDINATOR_LAST_NAME: 'ndis-support-coordinator-last-name',
@@ -108,6 +109,8 @@ const QUESTION_KEYS = {
     ASSISTANCE_WITH_PERSONAL_CARE: 'do-you-require-assistance-with-personal-care',
     CARE_REQUIREMENTS_DETAILS: 'care-requirements-details',
     OVERNIGHT_CARE_REQUIRED: 'overnight-care-required',
+    WHEN_DO_YOU_REQUIRE_CARE: 'when-do-you-require-care', // Care schedule question
+    REQUIRE_PERSONAL_CARE: 'do-you-require-assistance-with-personal-care', // Personal care assistance
     
     // Living situation questions for NDIS package filtering
     LIVING_SITUATION: 'living-situation',
@@ -264,6 +267,7 @@ function mapQuestionTextToKey(questionText) {
         'Number of guests over the age of 16 (including person with the spinal cord injury)': QUESTION_KEYS.ADULTS_COUNT,
         'Will you be bringing an assistance animal with you on your stay?': QUESTION_KEYS.ASSISTANCE_ANIMAL,
         'How will your stay be funded?': QUESTION_KEYS.FUNDING_SOURCE,
+        'Please select from one of the following NDIS funding options': QUESTION_KEYS.NDIS_FUNDING_OPTIONS, // NEW: Added mapping
         'Which course?': QUESTION_KEYS.COURSE_SELECTION,
         'What goals are you looking to achieve by staying at Sargood on Collaroy?': QUESTION_KEYS.GOALS_ACHIEVE,
         'Accommodation package options for Sargood Courses are:': QUESTION_KEYS.ACCOMMODATION_PACKAGE_COURSES,

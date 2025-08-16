@@ -232,7 +232,7 @@ const getCheckInOutAnswer = (qaPairs) => {
     return checkInOutAnswers;
 };
 
-// UPDATED: Centralized generateSummaryData function with question key support
+
 export const generateSummaryData = (stayData, question, answer, questionType = null, qaPairs = [], questionKey = null) => {
   let summaryOfStayData = { ...stayData };
   
@@ -252,6 +252,11 @@ export const generateSummaryData = (stayData, question, answer, questionType = n
             summaryOfStayData.ndisPackage = '';
           }
       } 
+      // NEW: Capture NDIS funding type
+      else if (questionHasKey(questionObj, QUESTION_KEYS.NDIS_FUNDING_OPTIONS) ||
+               questionMatches(questionObj, 'Please select from one of the following NDIS funding options', QUESTION_KEYS.NDIS_FUNDING_OPTIONS)) {
+          summaryOfStayData.ndisFundingType = answer;
+      }
       // UPDATED: Use question keys for participant numbers
       else if (questionHasKey(questionObj, QUESTION_KEYS.NDIS_PARTICIPANT_NUMBER) ||
                questionHasKey(questionObj, QUESTION_KEYS.ICARE_PARTICIPANT_NUMBER) ||

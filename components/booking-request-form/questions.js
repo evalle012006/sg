@@ -1247,7 +1247,7 @@ const QuestionPage = ({
                                                     )}
                                                     {(q.type === 'care-table' && !q.hidden) && (
                                                         <React.Fragment>
-                                                            <div className="flex flex-col w-full flex-1">
+                                                            <div className="flex flex-col max-w-screen-2xl flex-1">
                                                                 {q.label && <span className="font-bold text-sargood-blue text-xl mb-2">{q.label}</span>}
                                                                 <div className="text-xs flex flex-row">
                                                                     <span className="font-bold">{q.question}</span>

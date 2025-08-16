@@ -871,16 +871,18 @@ export const deduplicateQuestions = (questions, qaPairs) => {
 };
 
 /**
- * Check for NDIS funding status changes
+ * Check for NDIS funding status changes and return detailed change information
  * @param {Array} updatedPages - Updated pages to check
  * @param {boolean} isNdisFunded - Current NDIS funding status
  * @param {Function} dispatch - Redux dispatch function
  * @param {Object} bookingRequestFormActions - Redux actions
- * @returns {boolean} - True if funding status changed
+ * @returns {Object} - Detailed information about funding status changes
  */
 export const checkAndUpdateNdisFundingStatus = (updatedPages, isNdisFunded, dispatch, bookingRequestFormActions) => {
     let fundingDetected = false;
     let newFundingStatus = isNdisFunded;
+    let previousStatus = isNdisFunded;
+    let fundingAnswer = null;
 
     // Check all pages for funding question answers
     for (const page of updatedPages) {
@@ -888,6 +890,7 @@ export const checkAndUpdateNdisFundingStatus = (updatedPages, isNdisFunded, disp
             // Check Questions array
             for (const question of section.Questions || []) {
                 if (questionHasKey(question, QUESTION_KEYS.FUNDING_SOURCE) && question.answer) {
+                    fundingAnswer = question.answer;
                     const isNdisAnswer = question.answer?.toLowerCase().includes('ndis') ||
                                        question.answer?.toLowerCase().includes('ndia');
 
@@ -904,23 +907,26 @@ export const checkAndUpdateNdisFundingStatus = (updatedPages, isNdisFunded, disp
                 }
             }
             
-            // Also check QaPairs array with the same fix
-            for (const qaPair of section.QaPairs || []) {
-                const question = qaPair.Question;
-                if (question && questionHasKey(question, QUESTION_KEYS.FUNDING_SOURCE) && qaPair.answer) {
-                    const isNdisAnswer = qaPair.answer?.toLowerCase().includes('ndis') ||
-                                       qaPair.answer?.toLowerCase().includes('ndia');
+            // Also check QaPairs array
+            if (!fundingDetected) {
+                for (const qaPair of section.QaPairs || []) {
+                    const question = qaPair.Question;
+                    if (question && questionHasKey(question, QUESTION_KEYS.FUNDING_SOURCE) && qaPair.answer) {
+                        fundingAnswer = qaPair.answer;
+                        const isNdisAnswer = qaPair.answer?.toLowerCase().includes('ndis') ||
+                                           qaPair.answer?.toLowerCase().includes('ndia');
 
-                    if (isNdisAnswer && !isNdisFunded) {
-                        dispatch(bookingRequestFormActions.setIsNdisFunded(true));
-                        newFundingStatus = true;
-                        fundingDetected = true;
-                    } else if (!isNdisAnswer && isNdisFunded) {
-                        dispatch(bookingRequestFormActions.setIsNdisFunded(false));
-                        newFundingStatus = false;
-                        fundingDetected = true;
+                        if (isNdisAnswer && !isNdisFunded) {
+                            dispatch(bookingRequestFormActions.setIsNdisFunded(true));
+                            newFundingStatus = true;
+                            fundingDetected = true;
+                        } else if (!isNdisAnswer && isNdisFunded) {
+                            dispatch(bookingRequestFormActions.setIsNdisFunded(false));
+                            newFundingStatus = false;
+                            fundingDetected = true;
+                        }
+                        break;
                     }
-                    break;
                 }
             }
             
@@ -929,7 +935,14 @@ export const checkAndUpdateNdisFundingStatus = (updatedPages, isNdisFunded, disp
         if (fundingDetected) break;
     }
 
-    return fundingDetected;
+    return {
+        hasChanged: fundingDetected,
+        previousStatus: previousStatus,
+        newStatus: newFundingStatus,
+        fundingAnswer: fundingAnswer,
+        changedFromNdisToNonNdis: previousStatus === true && newFundingStatus === false,
+        changedFromNonNdisToNdis: previousStatus === false && newFundingStatus === true
+    };
 };
 
 /**
