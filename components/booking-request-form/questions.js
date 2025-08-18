@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { useDispatch } from "react-redux";
 import { bookingRequestFormActions } from '../../store/bookingRequestFormSlice';
 import { findByQuestionKey, QUESTION_KEYS, questionHasKey } from "../../services/booking/question-helper";
+import { validateCourseStayDates } from "../../utilities/bookingRequestForm";
 
 const QuestionPage = ({ 
     currentPage, 
@@ -21,7 +22,9 @@ const QuestionPage = ({
     courseAnalysisData = null,
     packageFilterCriteria = {},
     enhancedFormData = {},
-    stayDates = { checkInDate: null, checkOutDate: null }
+    stayDates = { checkInDate: null, checkOutDate: null },
+    courseOffers = [],
+    courseOffersLoaded = false
 }) => {
     const dispatch = useDispatch();
     const [updatedCurrentPage, setUpdatedCurrentPage] = useState();
@@ -74,6 +77,96 @@ const QuestionPage = ({
 
         return qaPairs;
     }, [currentPage]);
+
+    const validateCourseOfferInRealTime = useCallback(async (question, newAnswer) => {
+        // Only validate if this is the course offer question and answer is "yes"
+        if (!questionHasKey(question, QUESTION_KEYS.COURSE_OFFER_QUESTION)) {
+            return null;
+        }
+        
+        if (newAnswer?.toLowerCase() !== 'yes') {
+            return null;
+        }
+        
+        console.log('🎓 Real-time course offer validation triggered');
+        
+        try {
+            // Get the guest ID for fetching course offers
+            const guestId = guest?.id;
+            if (!guestId) {
+                return 'Unable to verify course offers - guest information missing';
+            }
+            
+            // Get stay dates for validation
+            const { checkInDate, checkOutDate } = stayDates || {};
+            
+            // Build API URL with correct parameter name (uuid matches your API)
+            let apiUrl = `/api/guests/${guestId}/course-offers`;
+            const queryParams = [];
+            
+            if (checkInDate && checkOutDate) {
+                queryParams.push(`checkInDate=${encodeURIComponent(checkInDate)}`);
+                queryParams.push(`checkOutDate=${encodeURIComponent(checkOutDate)}`);
+            }
+            
+            if (queryParams.length > 0) {
+                apiUrl += `?${queryParams.join('&')}`;
+            }
+            
+            // Fetch current course offers with validation
+            const response = await fetch(apiUrl);
+            if (!response.ok) {
+                if (response.status === 404) {
+                    return 'You do not have any course offers';
+                }
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
+            const data = await response.json();
+            console.log('🎓 Real-time validation response:', data);
+            
+            const courseOffers = data.success && Array.isArray(data.courseOffers) ? data.courseOffers : [];
+            
+            const activeOffers = courseOffers.filter(offer => 
+                ['offered', 'accepted'].includes(offer.offerStatus)
+            );
+            
+            if (activeOffers.length === 0) {
+                return 'You do not have any course offers';
+            }
+            
+            // Check if any courses are valid
+            const validOffers = activeOffers.filter(offer => offer.dateValid !== false);
+            const invalidOffers = activeOffers.filter(offer => offer.dateValid === false);
+            
+            console.log('🎓 Validation results:', {
+                total: activeOffers.length,
+                valid: validOffers.length,
+                invalid: invalidOffers.length
+            });
+            
+            // For single course: validate that specific course
+            if (activeOffers.length === 1) {
+                const offer = activeOffers[0];
+                if (offer.dateValid === false) {
+                    return offer.dateValidationMessage || 'Please review your stay dates to match the min dates of stay for your course offer';
+                }
+            }
+            // For multiple courses: only show error if NO courses are valid
+            else if (activeOffers.length > 1) {
+                if (validOffers.length === 0) {
+                    return 'None of your course offers are compatible with your selected stay dates. Please review your dates.';
+                }
+                // If some courses are valid, don't show error yet - wait for course selection
+            }
+            
+            return null; // No error
+            
+        } catch (error) {
+            console.error('❌ Error in real-time course validation:', error);
+            return 'Unable to verify course offers at this time';
+        }
+    }, [guest?.id, stayDates]);
 
     // Check if care schedule has been provided
     const hasCareScheduleData = useCallback(() => {
@@ -171,7 +264,7 @@ const QuestionPage = ({
         return newFilters;
     };
 
-    const updateSections = (value, field, secIdx, qIdx, equipments = [], error = false) => {
+    const updateSections = async (value, field, secIdx, qIdx, equipments = [], error = false) => {
         const currentValue = currentPage.Sections[secIdx]?.Questions[qIdx]?.[field];
         const currentError = currentPage.Sections[secIdx]?.Questions[qIdx]?.error;
         const question = currentPage.Sections[secIdx]?.Questions[qIdx];
@@ -219,6 +312,24 @@ const QuestionPage = ({
             );
         };
         
+        // ENHANCED: Add real-time course validation
+        if (question && questionHasKey(question, QUESTION_KEYS.COURSE_OFFER_QUESTION) && field === 'answer') {
+            console.log('🎓 Course offer question detected, running real-time validation...');
+            
+            try {
+                const courseValidationError = await validateCourseOfferInRealTime(question, value);
+                if (courseValidationError) {
+                    error = courseValidationError;
+                    console.log('🎓 Course validation error:', courseValidationError);
+                } else {
+                    console.log('🎓 Course validation passed');
+                }
+            } catch (validationError) {
+                console.error('🎓 Course validation failed:', validationError);
+                error = 'Unable to verify course offers at this time';
+            }
+        }
+        
         // FIXED: Don't skip update if this question affects dependencies, even if value seems same
         if (isSameValue && isSameError && !equipments.length && !affectsOtherQuestions()) {
             console.log(`⏭️ Skipping update - same value and no dependency impact for question: ${question?.question}`);
@@ -229,7 +340,7 @@ const QuestionPage = ({
         if (affectsOtherQuestions()) {
             console.log(`🔗 Updating question with dependencies: "${question?.question}" from "${currentValue}" to "${value}"`);
         }
-    
+
         let list = currentPage.Sections.map((section, index) => {
             let sTemp = { ...section };
             sTemp.dirty = true;
@@ -268,11 +379,11 @@ const QuestionPage = ({
                                         currentAnswer = qTemp.answer;
                                     }
                                 }
-    
+
                                 if (!Array.isArray(currentAnswer)) {
                                     currentAnswer = [];
                                 }
-    
+
                                 if (value.value) {
                                     currentAnswer = [...currentAnswer, value.label];
                                 } else {
@@ -281,7 +392,7 @@ const QuestionPage = ({
                                         currentAnswer = currentAnswer.filter(a => a !== value.label);
                                     }
                                 }
-    
+
                                 qTemp[field] = currentAnswer;
                                 qTemp.dirty = true;
                                 const qTempOptions = typeof qTemp.options === 'string' ? JSON.parse(qTemp.options) : qTemp.options;
@@ -290,10 +401,10 @@ const QuestionPage = ({
                                     if (option.label === value.label) {
                                         o.value = value.value;
                                     }
-    
+
                                     return o;
                                 });
-    
+
                                 qTemp.options = updatedOptions;
                             } else {
                                 qTemp.dirty = true;
@@ -318,11 +429,11 @@ const QuestionPage = ({
                                         currentAnswer = qTemp.answer;
                                     }
                                 }
-    
+
                                 if (!Array.isArray(currentAnswer)) {
                                     currentAnswer = [];
                                 }
-    
+
                                 if (value.value) {
                                     currentAnswer = [...currentAnswer, value.label];
                                 } else {
@@ -331,7 +442,7 @@ const QuestionPage = ({
                                         currentAnswer = currentAnswer.filter(a => a !== value.label);
                                     }
                                 }
-    
+
                                 qTemp[field] = currentAnswer;
                                 qTemp.dirty = true;
                                 const qTempOptions = typeof qTemp.options === 'string' ? JSON.parse(qTemp.options) : qTemp.options;
@@ -340,10 +451,10 @@ const QuestionPage = ({
                                     if (option.label === value.label) {
                                         o.value = value.value;
                                     }
-    
+
                                     return o;
                                 });
-    
+
                                 qTemp.options = updatedOptions;
                             } else {
                                 qTemp.dirty = true;
@@ -357,7 +468,7 @@ const QuestionPage = ({
                             qTemp.dirty = true;
                             qTemp[field] = value;
                         }
-    
+
                         if (qTemp.dirty && qTemp.prefill) {
                             qTemp.prefilledAnswerChange = true;
                         }
@@ -365,10 +476,10 @@ const QuestionPage = ({
                     return qTemp;
                 });
             }
-    
+
             return sTemp;
         });
-    
+
         if (equipments.length > 0) {
             updateEquipmentData(equipments);
         }
@@ -397,7 +508,7 @@ const QuestionPage = ({
                 updatePageData(updatedPageData.Sections, currentPage.id);
             }, 10);
         }
-    }
+    };
 
     useEffect(() => {
         if (updatedCurrentPage && updatedCurrentPage.dirty) {
@@ -732,6 +843,12 @@ const QuestionPage = ({
 
                                             const handleEquipmentFieldChange = (label, secIdx, qIdx, changes) => {
                                                 markQuestionAsInteracted(secIdx, qIdx);
+
+                                                if (changes && changes.length > 0) {
+                                                    updateEquipmentData(changes);
+                                                }
+                                                
+                                                // Then update the form sections
                                                 updateSections(label, 'answer', secIdx, qIdx, changes);
                                             };
 
@@ -1302,6 +1419,9 @@ const QuestionPage = ({
                                                                     guestId={guest?.id}
                                                                     bookingId={guest?.id} // fallback
                                                                     currentUser={guest} // fallback
+                                                                    stayDates={stayDates} // Add this line
+                                                                    courseOffers={courseOffers}
+                                                                    courseOffersLoaded={courseOffersLoaded}
                                                                     onChange={(value) => handleCardSelectionFieldChange(value, idx, index)} 
                                                                 />
                                                             </div>
@@ -1330,6 +1450,9 @@ const QuestionPage = ({
                                                                     guestId={guest?.id}
                                                                     bookingId={guest?.id} // fallback
                                                                     currentUser={guest} // fallback
+                                                                    stayDates={stayDates}
+                                                                    courseOffers={courseOffers}
+                                                                    courseOffersLoaded={courseOffersLoaded}
                                                                     onChange={(value) => handleCardSelectionFieldChange(value, idx, index)} 
                                                                 />
                                                             </div>
@@ -1357,6 +1480,9 @@ const QuestionPage = ({
                                                                     guestId={guest?.id}
                                                                     bookingId={guest?.id} // fallback
                                                                     currentUser={guest} // fallback
+                                                                    stayDates={stayDates}
+                                                                    courseOffers={courseOffers}
+                                                                    courseOffersLoaded={courseOffersLoaded}
                                                                     onChange={(value) => handleCardSelectionFieldChange(value, idx, index)} 
                                                                 />
                                                             </div>
@@ -1385,6 +1511,9 @@ const QuestionPage = ({
                                                                     guestId={guest?.id}
                                                                     bookingId={guest?.id} // fallback
                                                                     currentUser={guest} // fallback
+                                                                    stayDates={stayDates} 
+                                                                    courseOffers={courseOffers}
+                                                                    courseOffersLoaded={courseOffersLoaded}
                                                                     onChange={(value) => handleCardSelectionFieldChange(value, idx, index)} 
                                                                 />
                                                             </div>

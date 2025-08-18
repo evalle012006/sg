@@ -704,7 +704,7 @@ const DateComponent = (props) => {
                   ←
                 </button>
                 <h3 className="font-semibold">
-                  {calendarDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                  {calendarDate.toLocaleDateString('en-AU', { month: 'long', year: 'numeric' })}
                 </h3>
                 <button
                   type="button"

@@ -856,7 +856,7 @@ const determineLineItemType = (lineItem) => {
 
 // Updated formatPrice function to handle currency formatting
 const formatPrice = (price) => {
-  return parseFloat(price || 0).toLocaleString('en-US', {
+  return parseFloat(price || 0).toLocaleString('en-AU', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
   });

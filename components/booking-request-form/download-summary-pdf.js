@@ -5,7 +5,7 @@ const PrintToPDF = ({ summary, totalPackageCost, totalRoomCosts, getTotalOutOfPo
   const componentRef = useRef();
   
   const formatPrice = (price) => {
-    return price?.toLocaleString('en-US', {
+    return price?.toLocaleString('en-AU', {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2
     }) || '0.00';

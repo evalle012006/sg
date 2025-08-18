@@ -70,7 +70,6 @@ const QUESTION_KEYS = {
     
     // Packages and courses
     ACCOMMODATION_PACKAGE_COURSES: 'accommodation-package-options-for-sargood-courses-are',
-    // FIXED: Updated to match actual database value
     ACCOMMODATION_PACKAGE_FULL: 'please-select-your-accommodation-and-assistance-package-below-by-selecting-a-package-type-you-are',
     COURSE_SELECTION: 'which-course',
     GOALS_ACHIEVE: 'what-goals-are-you-looking-to-achieve-by-staying-at-sargood-on-collaroy',
@@ -102,7 +101,7 @@ const QUESTION_KEYS = {
     ARE_YOU_TRAVELLING_WITH_INFORMAL_SUPPORTS: 'are-you-travelling-with-any-informal-supports',
 
     // Course-related questions
-    COURSE_OFFER_QUESTION: ['have-you-been-offered-a-place-in-a-course-for-this-stay'],
+    COURSE_OFFER_QUESTION: 'have-you-been-offered-a-place-in-a-course-for-this-stay',
     WHICH_COURSE: 'which-course',
     
     // Additional care-related questions for better package matching

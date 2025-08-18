@@ -85,20 +85,17 @@ const PackageSelection = ({
     if (typeof formData.isNdisFunded === 'boolean') {
       fundingAnswer = formData.isNdisFunded ? 'NDIS' : 'Non-NDIS';
       requirements.funder_type = formData.isNdisFunded ? 'NDIS' : 'Non-NDIS';
-      console.log('✅ Using formData.isNdisFunded for funding detection:', formData.isNdisFunded);
     }
     // Priority 2: Check the funding question answer
     else {
       fundingAnswer = getAnswerByQuestionKey('how-will-your-stay-be-funded');
       if (fundingAnswer) {
         requirements.funder_type = fundingAnswer.includes('NDIS') || fundingAnswer.includes('NDIA') ? 'NDIS' : 'Non-NDIS';
-        console.log('✅ Using funding question answer:', fundingAnswer);
       }
       // Priority 3: Fallback to formData.funder (least reliable for NDIS detection)
       else if (formData.funder) {
         fundingAnswer = formData.funder;
         requirements.funder_type = fundingAnswer.includes('NDIS') || fundingAnswer.includes('NDIA') ? 'NDIS' : 'Non-NDIS';
-        console.log('✅ Fallback to formData.funder:', formData.funder);
       }
     }
     
@@ -278,10 +275,6 @@ const PackageSelection = ({
       // FIXED: Ensure auto-selection is properly communicated to parent
       setAutoSelected(true);
       
-      // Add debug logging for onChange callback
-      console.log('📞 Calling onChange with package ID:', bestMatchPackage.id, typeof bestMatchPackage.id);
-      console.log('📞 onChange function exists:', !!onChange);
-      
       // Call onChange immediately (no setTimeout to prevent timing issues)
       onChange(bestMatchPackage.id);
       
@@ -305,8 +298,6 @@ const PackageSelection = ({
 
   // Helper function to get answer by question key from ALL booking data
   const getAnswerByQuestionKey = (questionKey) => {
-    console.log(`🔍 Looking for question key: "${questionKey}"`);
-    
     // Strategy 1: Try qaData first (current page QA pairs)
     if (qaData && qaData.length > 0) {
       // console.log(`📊 Current page QA Data:`, qaData.map(q => ({
@@ -332,7 +323,7 @@ const PackageSelection = ({
           if (section.QaPairs) {
             for (const qaPair of section.QaPairs) {
               if (qaPair.Question?.question_key === questionKey && qaPair.answer) {
-                console.log(`✅ Found in global booking data:`, qaPair.answer);
+                // console.log(`✅ Found in global booking data:`, qaPair.answer);
                 return qaPair.answer;
               }
             }
@@ -422,7 +413,37 @@ const PackageSelection = ({
 
   // Enhanced care analysis
   const careAnalysis = useMemo(() => {
-    if (!careAnalysisData && (!formData || Object.keys(formData).length === 0)) {
+    // If careAnalysisData is already processed and has the required properties, use it directly
+    if (careAnalysisData && typeof careAnalysisData === 'object' && 
+        careAnalysisData.hasOwnProperty('totalHoursPerDay')) {
+      
+      console.log('🏥 Using pre-processed care analysis data:', careAnalysisData);
+      
+      // If it has raw care data, we could re-process if needed, but usually just use the processed data
+      if (careAnalysisData.rawCareData && Array.isArray(careAnalysisData.rawCareData)) {
+        console.log('🔄 Re-processing care data from rawCareData');
+        const analysis = calculateCareHours(careAnalysisData.rawCareData);
+        return {
+          requiresCare: analysis.totalHoursPerDay > 0,
+          ...analysis,
+          rawCareData: careAnalysisData.rawCareData
+        };
+      }
+      
+      // Use the already processed data as-is
+      return {
+        requiresCare: careAnalysisData.requiresCare || careAnalysisData.totalHoursPerDay > 0,
+        totalHoursPerDay: careAnalysisData.totalHoursPerDay || 0,
+        carePattern: careAnalysisData.carePattern || 'no-care',
+        recommendedPackages: careAnalysisData.recommendedPackages || [],
+        analysis: careAnalysisData.analysis || 'Care analysis provided',
+        rawCareData: careAnalysisData.rawCareData || null
+      };
+    }
+
+    // Fallback: try to find raw care data from qaData or formData
+    if (!formData || Object.keys(formData).length === 0) {
+      console.log('⚠️ No careAnalysisData and no formData available');
       return {
         requiresCare: false,
         totalHoursPerDay: 0,
@@ -432,9 +453,11 @@ const PackageSelection = ({
     }
 
     try {
-      const careScheduleData = careAnalysisData || findByQuestionKey(qaData || [], QUESTION_KEYS.CARE_SCHEDULE);
+      // Look for raw care schedule data in qaData
+      const careScheduleQA = findByQuestionKey(qaData || [], QUESTION_KEYS.WHEN_DO_YOU_REQUIRE_CARE);
       
-      if (!careScheduleData) {
+      if (!careScheduleQA || !careScheduleQA.answer) {
+        console.log('⚠️ No care schedule found in qaData');
         return {
           requiresCare: false,
           totalHoursPerDay: 0,
@@ -443,26 +466,40 @@ const PackageSelection = ({
         };
       }
 
-      const parsedCareData = typeof careScheduleData === 'string' 
-        ? JSON.parse(careScheduleData) 
-        : careScheduleData;
+      // Parse the raw care schedule data
+      const rawCareData = typeof careScheduleQA.answer === 'string' 
+        ? JSON.parse(careScheduleQA.answer) 
+        : careScheduleQA.answer;
       
-      const analysis = calculateCareHours(parsedCareData);
+      console.log('🏥 Processing raw care data from qaData:', rawCareData);
       
-      console.log('🏥 Calculated care analysis:', {
+      // Validate that this is actually raw care schedule data (array format)
+      if (!Array.isArray(rawCareData)) {
+        console.warn('⚠️ Care data is not in expected array format:', rawCareData);
+        return {
+          requiresCare: false,
+          totalHoursPerDay: 0,
+          carePattern: 'no-care',
+          recommendedPackages: []
+        };
+      }
+      
+      const analysis = calculateCareHours(rawCareData);
+      
+      console.log('🏥 Calculated care analysis from raw data:', {
         totalHours: analysis.totalHoursPerDay,
         pattern: analysis.carePattern,
         recommended: analysis.recommendedPackages,
-        rawData: parsedCareData
+        dataLength: rawCareData.length
       });
 
       return {
         requiresCare: true,
         ...analysis,
-        rawCareData: parsedCareData
+        rawCareData: rawCareData
       };
     } catch (error) {
-      console.error('Error parsing care data in PackageSelection:', error);
+      console.error('❌ Error parsing care data in PackageSelection:', error);
       return {
         requiresCare: true,
         totalHoursPerDay: 0,
@@ -1251,7 +1288,7 @@ const PackageSelection = ({
               )}
 
               {/* Care Hours (if applicable) */}
-              {careAnalysis.totalHoursPerDay > 0 && (
+              {/* {careAnalysis.totalHoursPerDay > 0 && (
                 <tr className={isSelected ? 'bg-white' : 'bg-white'}>
                   <td className={`px-6 py-3 font-medium border-b ${isSelected ? 'text-gray-700 border-gray-200' : 'text-gray-700 border-gray-200'}`}>
                     Daily Care Match
@@ -1267,7 +1304,7 @@ const PackageSelection = ({
                     </div>
                   </td>
                 </tr>
-              )}
+              )} */}
 
               {/* Course Information (if applicable) */}
               {/* {courseAnalysisData && courseAnalysisData.hasCourse && (
@@ -1297,7 +1334,7 @@ const PackageSelection = ({
             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
             </svg>
-            <span>Pricing shown is per night and varies by day of week. Final costs are processed through NDIS funding.</span>
+            <span>Pricing shown is per night and varies by day of week. Final costs are processed through NDIS funding and will be seen in the Summary of Stay at the end.</span>
           </div>
         </div>
       </div>

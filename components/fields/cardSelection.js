@@ -20,6 +20,9 @@ const CardSelection = ({
   guestId = null,        // Guest ID for fetching course offers
   bookingId = null,      // Booking ID as fallback
   currentUser = null,    // Current user as fallback
+  stayDates = null,
+  courseOffers = [],
+  courseOffersLoaded = false,
   ...restProps
 }) => {
   const [dynamicItems, setDynamicItems] = useState(items);
@@ -84,241 +87,300 @@ const CardSelection = ({
   };
 
   const fetchActiveCourses = async () => {
-    // If already fetching or fetched, don't fetch again
-    if (coursesFetching) {
-      if (globalCoursesData) {
-        return globalCoursesData;
-      }
-      return [];
-    }
-
-    try {
-      coursesFetching = true;
-      setCoursesLoading(true);
-      
-      let apiUrl;
-      let courses = [];
-
-      if (builderMode) {
-        // Builder mode: Fetch all active courses (current behavior)
-        console.log('🔄 [Builder Mode] Fetching all active courses from API...');
-        apiUrl = '/api/courses?active=true';
-        
-        const response = await fetch(apiUrl);
-        
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        
-        const data = await response.json();
-        
-        if (data.success && Array.isArray(data.courses)) {
-          courses = data.courses.map(course => ({
-            label: course.title || 'Untitled Course',
-            value: course.id?.toString() || generateValueFromLabel(course.title || 'untitled-course'),
-            description: course.description || '',
-            imageFilename: course.image_filename || null,
-            imageUrl: course.imageUrl || null
-          }));
-        }
-      } else {
-        // Guest mode: Fetch only offered courses for this guest
-        const currentGuestId = getGuestId();
-        
-        if (!currentGuestId) {
-          console.warn('⚠️ No guest ID available for fetching course offers');
-          return [];
-        }
-
-        console.log('🔄 [Guest Mode] Fetching offered courses for guest:', currentGuestId);
-        apiUrl = `/api/guests/${currentGuestId}/course-offers`;
-        
-        const response = await fetch(apiUrl);
-        
-        if (!response.ok) {
-          if (response.status === 404) {
-            console.log('📭 No course offers found for guest:', currentGuestId);
-            return [];
-          }
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        
-        const data = await response.json();
-        
-        if (data.success && Array.isArray(data.courseOffers)) {
-          courses = data.courseOffers.map(offer => ({
-            label: offer.courseName || 'Untitled Course',
-            value: offer.courseId?.toString() || offer.id?.toString(),
-            description: offer.courseDescription || '',
-            imageFilename: null, // Course offers don't typically have images
-            imageUrl: null,
-            // Add additional info from course offer
-            offerStatus: offer.offerStatus,
-            minStartDate: offer.minStartDate,
-            minEndDate: offer.minEndDate
+      // ✅ FIRST: Check if we have course offers passed from parent
+      if (courseOffers && courseOffers.length > 0) {
+          console.log('🎓 Using course offers passed from parent:', courseOffers.length);
+          
+          const courses = courseOffers.map(offer => ({
+              label: offer.courseName || 'Untitled Course',
+              value: offer.courseId?.toString() || offer.id?.toString(),
+              description: offer.courseDescription || '',
+              imageFilename: offer.courseImage || null,
+              imageUrl: offer.courseImageUrl || null,
+              offerStatus: offer.offerStatus,
+              minStartDate: offer.minStartDate,
+              minEndDate: offer.minEndDate,
+              dateValid: offer.dateValid !== undefined ? offer.dateValid : true,
+              validationMessage: offer.dateValidationMessage,
+              offerId: offer.id,
+              courseId: offer.courseId,
+              disabled: offer.dateValid === false,
+              statusText: offer.dateValid === false ? 'Incompatible dates' : 'Compatible dates',
+              statusColor: offer.dateValid === false ? 'red' : 'green'
           }));
           
-          console.log('✅ Found course offers:', courses.length);
-        } else {
-          console.log('📭 No course offers in response');
-        }
+          return courses;
       }
-      
-      // Store globally only if we have courses
-      if (courses.length > 0) {
-        globalCoursesData = courses;
-        coursesFetched = true;
-        console.log(`✅ Courses fetched successfully: ${courses.length} courses (${builderMode ? 'all active' : 'offered only'})`);
-      } else {
-        console.log(`📭 No courses available (${builderMode ? 'no active courses' : 'no course offers'})`);
+
+      // ✅ FALLBACK: Only fetch if no course offers provided AND not already fetched globally
+      if (coursesFetching) {
+          if (globalCoursesData) {
+              return globalCoursesData;
+          }
+          return [];
       }
-      
-      return courses;
-    } catch (error) {
-      console.error('❌ Error fetching courses:', error);
-      return [];
-    } finally {
-      coursesFetching = false;
-      setCoursesLoading(false);
-    }
+
+      try {
+          coursesFetching = true;
+          setCoursesLoading(true);
+          
+          let apiUrl;
+          let courses = [];
+
+          if (builderMode) {
+              // Builder mode: Fetch all active courses (current behavior)
+              apiUrl = '/api/courses?active=true';
+              
+              const response = await fetch(apiUrl);
+              
+              if (!response.ok) {
+                  throw new Error(`HTTP error! status: ${response.status}`);
+              }
+              
+              const data = await response.json();
+              
+              if (data.success && Array.isArray(data.courses)) {
+                  courses = data.courses.map(course => ({
+                      label: course.title || 'Untitled Course',
+                      value: course.id?.toString() || generateValueFromLabel(course.title || 'untitled-course'),
+                      description: course.description || '',
+                      imageFilename: course.image_filename || null,
+                      imageUrl: course.imageUrl || null
+                  }));
+              }
+          } else {
+              // Guest mode: Fetch course offers with date validation
+              const currentGuestId = getGuestId();
+              
+              if (!currentGuestId) {
+                  console.warn('⚠️ No guest ID available for fetching course offers');
+                  return [];
+              }
+
+              // Get stay dates from props for validation
+              let checkInDate = null;
+              let checkOutDate = null;
+              
+              // Try to get dates from stayDates prop
+              if (stayDates?.checkInDate && stayDates?.checkOutDate) {
+                  checkInDate = stayDates.checkInDate;
+                  checkOutDate = stayDates.checkOutDate;
+                  console.log('🎓 Using stay dates for course validation:', { checkInDate, checkOutDate });
+              }
+              
+              // Build API URL with correct parameter name (uuid) and date parameters if available
+              apiUrl = `/api/guests/${currentGuestId}/course-offers`;
+              const queryParams = [];
+              
+              if (checkInDate && checkOutDate) {
+                  queryParams.push(`checkInDate=${encodeURIComponent(checkInDate)}`);
+                  queryParams.push(`checkOutDate=${encodeURIComponent(checkOutDate)}`);
+              }
+              
+              if (queryParams.length > 0) {
+                  apiUrl += `?${queryParams.join('&')}`;
+              }
+              
+              console.log('🎓 Fetching course offers with URL:', apiUrl);
+              
+              const response = await fetch(apiUrl);
+              
+              if (!response.ok) {
+                  if (response.status === 404) {
+                      console.log('📭 No course offers found for guest:', currentGuestId);
+                      return [];
+                  }
+                  throw new Error(`HTTP error! status: ${response.status}`);
+              }
+              
+              const data = await response.json();
+              console.log('🎓 API Response:', data);
+              
+              if (data.success && Array.isArray(data.courseOffers)) {
+                  courses = data.courseOffers.map(offer => ({
+                      label: offer.courseName || 'Untitled Course',
+                      value: offer.courseId?.toString() || offer.id?.toString(),
+                      description: offer.courseDescription || '',
+                      imageFilename: offer.courseImage || null,
+                      imageUrl: offer.courseImageUrl || null,
+                      // Enhanced course offer data
+                      offerStatus: offer.offerStatus,
+                      minStartDate: offer.minStartDate,
+                      minEndDate: offer.minEndDate,
+                      dateValid: offer.dateValid !== undefined ? offer.dateValid : true, // Default to true if not provided
+                      validationMessage: offer.dateValidationMessage,
+                      offerId: offer.id,
+                      courseId: offer.courseId,
+                      // Add visual indicators for validation
+                      disabled: offer.dateValid === false, // Only disable if explicitly false
+                      statusText: offer.dateValid === false ? 'Incompatible dates' : 'Compatible dates',
+                      statusColor: offer.dateValid === false ? 'red' : 'green'
+                  }));
+                  
+                  console.log('✅ Enhanced course offers with validation:', courses);
+                  console.log('🎓 Date validation was performed:', data.dateValidationPerformed);
+              } else {
+                  console.log('📭 No course offers in response');
+              }
+          }
+          
+          // Store globally only if we have courses
+          if (courses.length > 0) {
+              globalCoursesData = courses;
+              coursesFetched = true;
+              console.log(`✅ Courses fetched successfully: ${courses.length} courses`);
+          } else {
+              console.log(`📭 No courses available`);
+          }
+          
+          return courses;
+          
+      } catch (error) {
+          console.error('❌ Error fetching courses:', error);
+          return [];
+      } finally {
+          coursesFetching = false;
+          setCoursesLoading(false);
+      }
   };
-  // ENHANCED: One-time initialization effect - ALWAYS fetch courses for course type
+
   useEffect(() => {
     if (initialized) return;
     
-    console.log('🚀 CardSelection initializing:', { 
-      optionType, 
-      hasItems: items?.length > 0,
-      hasValue: !!value,
-      value: value,
-      coursesFetched,
-      coursesFetching,
-      builderMode,
-      globalCoursesDataLength: globalCoursesData?.length || 0
-    });
-
     if (optionType === 'course') {
-      console.log('🎓 Course option type detected!');
-      console.log('📝 For course type, always fetch available courses regardless of existing answer');
-      
-      // FIXED: Always fetch courses for course type, regardless of items or existing answers
-      if (globalCoursesData && globalCoursesData.length > 0) {
-        console.log('📦 Using cached courses:', globalCoursesData.length);
-        setDynamicItems(globalCoursesData);
-      } else if (!coursesFetching) {
-        console.log('🔍 Starting course fetch (even with existing answer)...');
-        fetchActiveCourses().then(courses => {
-          console.log('📊 Fetch completed, setting courses:', courses.length);
-          console.log('🎯 Current answer will be matched against fetched courses:', value);
-          setDynamicItems(courses);
-        }).catch(error => {
-          console.error('❌ Course fetch failed:', error);
-          setDynamicItems([]);
-        });
-      } else {
-        console.log('⏳ Course fetch already in progress...');
-        // Wait for ongoing fetch to complete
-        const checkFetch = setInterval(() => {
-          if (!coursesFetching && globalCoursesData) {
-            console.log('📦 Fetch completed, using cached courses:', globalCoursesData.length);
-            setDynamicItems(globalCoursesData);
-            clearInterval(checkFetch);
+          // ✅ Use passed course offers if available
+          if (courseOffers && courseOffers.length > 0) {
+              console.log('🎓 Using passed course offers immediately');
+              const courses = courseOffers.map(offer => ({
+                  label: offer.courseName || 'Untitled Course',
+                  value: offer.courseId?.toString() || offer.id?.toString(),
+                  description: offer.courseDescription || '',
+                  imageFilename: offer.courseImage || null,
+                  imageUrl: offer.courseImageUrl || null,
+                  offerStatus: offer.offerStatus,
+                  dateValid: offer.dateValid !== undefined ? offer.dateValid : true,
+                  validationMessage: offer.dateValidationMessage,
+                  disabled: offer.dateValid === false,
+                  statusText: offer.dateValid === false ? 'Incompatible dates' : 'Compatible dates',
+                  statusColor: offer.dateValid === false ? 'red' : 'green'
+              }));
+              setDynamicItems(courses);
+          } 
+          // ✅ Only fetch if no course offers provided AND parent says loading is complete
+          else if (courseOffersLoaded && courseOffers.length === 0) {
+              console.log('🎓 No course offers from parent, fetching as fallback...');
+              fetchActiveCourses().then(courses => {
+                  setDynamicItems(courses);
+              }).catch(error => {
+                  console.error('❌ Course fetch failed:', error);
+                  setDynamicItems([]);
+              });
           }
-        }, 100);
-        
-        // Clear interval after 5 seconds to prevent infinite checking
-        setTimeout(() => clearInterval(checkFetch), 5000);
+          // ✅ Still loading from parent, show loading state
+          else if (!courseOffersLoaded) {
+              console.log('⏳ Waiting for course offers from parent...');
+              setCoursesLoading(true);
+          }
+      } else {
+          setDynamicItems(items || []);
       }
-    } else {
-      console.log('🏷️ Non-course option type:', optionType);
-      // For non-course types, use provided items
-      setDynamicItems(items || []);
-    }
-    
-    setInitialized(true);
-  }, []); // Empty dependency array - only run once
+      
+      setInitialized(true);
+  }, [courseOffers, courseOffersLoaded, optionType, initialized]);
+
+  useEffect(() => {
+      if (courseOffersLoaded) {
+          setCoursesLoading(false);
+      }
+  }, [courseOffersLoaded]);
 
   // Handle items changes (for builder mode or when items prop changes)
   useEffect(() => {
     if (!initialized) return;
     
     if (optionType === 'course' && items && items.length > 0) {
-      console.log('📝 Course items updated, using provided items:', items.length);
+      // console.log('📝 Course items updated, using provided items:', items.length);
       setDynamicItems(items);
     } else if (optionType !== 'course') {
-      console.log('📝 Non-course items updated:', items?.length || 0);
+      // console.log('📝 Non-course items updated:', items?.length || 0);
       setDynamicItems(items);
     }
   }, [items, optionType, initialized]);
 
   // FIXED: Use appropriate items for display - Always use dynamicItems for courses
   const displayItems = (() => {
-    console.log('📋 Calculating displayItems:', {
-      optionType,
-      builderMode,
-      itemsLength: items?.length || 0,
-      dynamicItemsLength: dynamicItems?.length || 0,
-      hasValue: !!value
-    });
+    // console.log('📋 Calculating displayItems:', {
+    //   optionType,
+    //   builderMode,
+    //   itemsLength: items?.length || 0,
+    //   dynamicItemsLength: dynamicItems?.length || 0,
+    //   hasValue: !!value
+    // });
 
     // For course option type, ALWAYS use dynamicItems (fetched courses)
     if (optionType === 'course') {
       // In builder mode with manually added items, use those
       if (builderMode && items && items.length > 0) {
-        console.log('📋 Builder mode: Using provided items');
         return items;
       }
       // Otherwise, use dynamicItems (fetched courses)
-      console.log('📋 Course mode: Using dynamicItems (fetched courses)');
+      // console.log('📋 Course mode: Using dynamicItems (fetched courses)');
       return dynamicItems || [];
     }
     
     // For non-course option types, use items directly
-    console.log('📋 Non-course mode: Using provided items');
+    // console.log('📋 Non-course mode: Using provided items');
     return items || [];
   })();
 
   // Enhanced logging for display items with answer matching
   useEffect(() => {
     if (initialized) {
-      console.log('📊 Final display state:', {
-        optionType,
-        builderMode,
-        displayItemsCount: displayItems?.length || 0,
-        currentValue: value,
-        selectedItems: displayItems?.filter(item => {
-          if (multi) {
-            return Array.isArray(value) && value.includes(item.value);
-          }
-          return value === item.value;
-        })
-      });
+      // console.log('📊 Final display state:', {
+      //   optionType,
+      //   builderMode,
+      //   displayItemsCount: displayItems?.length || 0,
+      //   currentValue: value,
+      //   selectedItems: displayItems?.filter(item => {
+      //     if (multi) {
+      //       return Array.isArray(value) && value.includes(item.value);
+      //     }
+      //     return value === item.value;
+      //   })
+      // });
       
       // Check if current answer matches any available courses
       if (optionType === 'course' && value && displayItems?.length > 0) {
         const matchingCourse = displayItems.find(item => item.value === value);
         if (matchingCourse) {
-          console.log('✅ Current answer matches course:', matchingCourse.label);
+          // console.log('✅ Current answer matches course:', matchingCourse.label);
         } else {
           console.warn('⚠️ Current answer does not match any available course:', value);
-          console.log('Available course values:', displayItems.map(item => item.value));
+          // console.log('Available course values:', displayItems.map(item => item.value));
         }
       }
     }
   }, [displayItems, value, optionType, builderMode, initialized, multi]);
 
   // Handle card click for selection
-  const handleCardClick = (itemValue, event) => {
-    if (builderMode) return; // Don't handle selection in builder mode
+  const handleCardClick = (itemValue, item, event) => {
+      if (builderMode) return; // Don't handle selection in builder mode
 
-    event.preventDefault();
-    event.stopPropagation();
+      event.preventDefault();
+      event.stopPropagation();
 
-    if (multi) {
-      handleCheckboxChange(itemValue);
-    } else {
-      handleChange(itemValue);
-    }
+      // Check if course is disabled due to date validation
+      if (item.disabled && !item.dateValid) {
+          // Show tooltip or message about why it's disabled
+          console.log('🚫 Course disabled due to date incompatibility:', item.validationMessage);
+          return; // Don't allow selection
+      }
+
+      if (multi) {
+          handleCheckboxChange(itemValue);
+      } else {
+          handleChange(itemValue);
+      }
   };
 
   // Handle radio button change (single selection)
@@ -518,228 +580,289 @@ const CardSelection = ({
   }
 
   return (
-    <div className={`flex flex-col w-full ${currentSize.container}`}>
-      {builderMode && optionType === 'course' && displayItems.length > 0 && (!items || items.length === 0) && (
-        <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
-          <div className="flex items-center">
-            <svg className="h-4 w-4 text-blue-500 mr-2" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-            </svg>
-            <span className="text-sm text-blue-700">
-              Showing {displayItems.length} active courses. Select courses to add them to this question.
-            </span>
-          </div>
-        </div>
-      )}
-      
-      {displayItems.map((item, index) => (
-        <div
-          key={item.value || index}
-          onClick={(e) => handleCardClick(item.value, e)}
-          className={`flex border-2 rounded-xl transition-all duration-200 ${
-            !builderMode && isSelected(item.value) 
-              ? 'border-blue-600 bg-blue-50 shadow-md ring-2 ring-blue-200' 
-              : 'border-gray-200 hover:border-gray-300 hover:shadow-sm'
-          } ${builderMode ? 'cursor-default' : 'cursor-pointer'} ${currentSize.card}`}
-        >
-          {/* Image Section */}
-          <div className="flex-shrink-0 mr-4">
-            {item.imageUrl ? (
-              <div className="relative">
-                <img
-                  src={item.imageUrl}
-                  alt={item.label || 'Option image'}
-                  className={`${currentSize.image} object-cover rounded-lg`}
-                />
-                {builderMode && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleImageRemove(index);
-                    }}
-                    className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-red-600"
-                  >
-                    ×
-                  </button>
-                )}
-              </div>
-            ) : builderMode ? (
-              <div className={`${currentSize.image} border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center`}>
-                <label className="cursor-pointer text-center">
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={(e) => {
-                      if (e.target.files[0]) {
-                        handleImageUpload(index, e.target.files[0]);
-                      }
-                    }}
-                  />
-                  <div className="text-gray-400 text-xs">
-                    {getPlaceholderText().addLabel}
-                  </div>
-                </label>
-              </div>
-            ) : (
-              <div className={`${currentSize.image} bg-gray-100 rounded-lg flex items-center justify-center`}>
-                <span className="text-gray-400 text-xs">No Image</span>
-              </div>
-            )}
-          </div>
-
-          {/* Content Section */}
-          <div className="flex-1 min-w-0">
-            {builderMode ? (
-              <div className="space-y-2">
-                <input
-                  type="text"
-                  value={localInputValues[`${index}-label`] || ''}
-                  placeholder={getPlaceholderText('title')}
-                  className={`w-full bg-transparent border-none outline-none ${currentSize.title} text-gray-900`}
-                  onChange={(e) => {
-                    const newValue = e.target.value;
-                    setLocalInputValues(prev => ({
-                      ...prev,
-                      [`${index}-label`]: newValue
-                    }));
-                    debouncedUpdate(index, 'label', newValue);
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                />
-                <textarea
-                  value={localInputValues[`${index}-description`] || ''}
-                  placeholder={getPlaceholderText('description')}
-                  className={`w-full bg-transparent border-none outline-none ${currentSize.description} text-gray-600 resize-none`}
-                  rows="2"
-                  onChange={(e) => {
-                    const newValue = e.target.value;
-                    setLocalInputValues(prev => ({
-                      ...prev,
-                      [`${index}-description`]: newValue
-                    }));
-                    debouncedUpdate(index, 'description', newValue);
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                />
-              </div>
-            ) : (
-              <div>
-                <h3 className={`${currentSize.title} text-gray-900 mb-1`}>
-                  {item.label || 'Untitled'}
-                </h3>
-                {item.description && (
-                  <p className={`${currentSize.description} text-gray-600`}>
-                    {item.description}
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Control Section */}
-          <div className="flex-shrink-0 ml-4 flex items-center justify-center">
-            {builderMode ? (
-              // Builder mode: remove button (only for manually added options)
-              <>
-                {!(optionType === 'course' && (!items || items.length === 0)) && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleOptionRemoval(index);
-                    }}
-                    className="text-red-500 hover:text-red-700 transition-colors p-1 rounded hover:bg-red-50"
-                    title="Remove option"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                )}
-                {optionType === 'course' && (!items || items.length === 0) && (
-                  <div className="text-blue-500 text-xs">Auto-loaded</div>
-                )}
-              </>
-            ) : (
-              // Display mode: selection control
-              <>
-                {multi ? (
-                  // Checkbox for multi-selection (circular)
-                  <label className="cursor-pointer" onClick={(e) => e.stopPropagation()}>
-                    <div className={`${currentSize.control} rounded-full border-2 flex items-center justify-center ${
-                      isSelected(item.value) 
-                        ? 'border-blue-600 bg-blue-600' 
-                        : 'border-gray-300'
-                    }`}>
-                      {isSelected(item.value) && (
-                        <svg xmlns="http://www.w3.org/2000/svg" className={currentSize.controlIcon + " text-white"} viewBox="0 0 20 20" fill="currentColor">
-                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+        <div className={`flex flex-col w-full ${currentSize.container}`}>
+            {builderMode && optionType === 'course' && displayItems.length > 0 && (!items || items.length === 0) && (
+                <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
+                    <div className="flex items-center">
+                        <svg className="h-4 w-4 text-blue-500 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
                         </svg>
-                      )}
-                      <input
-                        type="checkbox"
-                        className="sr-only" 
-                        value={item.value}
-                        checked={isSelected(item.value)}
-                        onChange={() => handleCheckboxChange(item.value)}
-                        required={required && (!Array.isArray(value) || value.length === 0)}
-                      />
+                        <span className="text-sm text-blue-700">
+                            Showing {displayItems.length} active courses. Select courses to add them to this question.
+                        </span>
                     </div>
-                  </label>
-                ) : (
-                  // Radio button for single selection (with checkmark)
-                  <label className="cursor-pointer" onClick={(e) => e.stopPropagation()}>
-                    <div className={`${currentSize.control} rounded-full border-2 flex items-center justify-center ${
-                      isSelected(item.value) 
-                        ? 'border-blue-600 bg-blue-600' 
-                        : 'border-gray-300'
-                    }`}>
-                      {isSelected(item.value) && (
-                        <svg xmlns="http://www.w3.org/2000/svg" className={currentSize.controlIcon + " text-white"} viewBox="0 0 20 20" fill="currentColor">
-                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                        </svg>
-                      )}
-                      <input
-                        type="radio"
-                        className="sr-only"
-                        name={`card-selection-${Math.random()}`}
-                        value={item.value}
-                        checked={isSelected(item.value)}
-                        onChange={() => handleChange(item.value)}
-                        required={required}
-                      />
-                    </div>
-                  </label>
-                )}
-              </>
+                </div>
             )}
-          </div>
-        </div>
-      ))}
 
-      {displayItems.length === 0 && !coursesLoading && !coursesFetching && (
-        <div className="text-center py-8 text-gray-500">
-          <p>
-            {optionType === 'course' 
-              ? (builderMode 
-                  ? 'No active courses available' 
-                  : 'No course offers available for this guest'
-                )
-              : 'No options available'
-            }
-          </p>
-          {optionType === 'course' && (
-            <p className="text-sm mt-2">
-              {builderMode 
-                ? 'Make sure there are active courses in the system.'
-                : 'Course offers are managed by administrators and will appear here when available.'
-              }
-            </p>
-          )}
+            {/* Show validation summary for multiple courses */}
+            {!builderMode && optionType === 'course' && displayItems.length > 1 && (
+                <div className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-md">
+                    <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium text-gray-700">
+                            Course Compatibility with Your Stay Dates:
+                        </span>
+                        <div className="flex gap-4 text-xs">
+                            <span className="flex items-center">
+                                <div className="w-2 h-2 bg-green-500 rounded-full mr-1"></div>
+                                {displayItems.filter(item => item.dateValid).length} Compatible
+                            </span>
+                            <span className="flex items-center">
+                                <div className="w-2 h-2 bg-red-500 rounded-full mr-1"></div>
+                                {displayItems.filter(item => !item.dateValid).length} Incompatible
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            )}
+            
+            {displayItems.map((item, index) => (
+                <div
+                    key={item.value || index}
+                    onClick={(e) => handleCardClick(item.value, item, e)}
+                    className={`flex border-2 rounded-xl transition-all duration-200 relative ${
+                        !builderMode && isSelected(item.value) 
+                            ? 'border-blue-600 bg-blue-50 shadow-md ring-2 ring-blue-200' 
+                            : item.disabled
+                                ? 'border-red-200 bg-red-50 opacity-75 cursor-not-allowed'
+                                : 'border-gray-200 hover:border-gray-300 hover:shadow-sm cursor-pointer'
+                    } ${builderMode ? 'cursor-default' : ''} ${currentSize.card}`}
+                >
+                    {/* Validation indicator */}
+                    {!builderMode && optionType === 'course' && item.hasOwnProperty('dateValid') && (
+                        <div className={`absolute -top-2 -right-2 w-6 h-6 rounded-full flex items-center justify-center ${
+                            item.dateValid ? 'bg-green-500' : 'bg-red-500'
+                        }`}>
+                            {item.dateValid ? (
+                                <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                </svg>
+                            ) : (
+                                <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                                </svg>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Image Section */}
+                    <div className="flex-shrink-0 mr-4">
+                        {item.imageUrl ? (
+                            <div className="relative">
+                                <img
+                                    src={item.imageUrl}
+                                    alt={item.label || 'Course image'}
+                                    className={`${currentSize.image} object-cover rounded-lg`}
+                                />
+                                {builderMode && (
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleImageRemove(index);
+                                        }}
+                                        className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-red-600"
+                                    >
+                                        ×
+                                    </button>
+                                )}
+                            </div>
+                        ) : builderMode ? (
+                            <div className={`${currentSize.image} border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center`}>
+                                <label className="cursor-pointer text-center">
+                                    <input
+                                        type="file"
+                                        accept="image/*"
+                                        className="hidden"
+                                        onChange={(e) => {
+                                            if (e.target.files[0]) {
+                                                handleImageUpload(index, e.target.files[0]);
+                                            }
+                                        }}
+                                    />
+                                    <div className="text-gray-400 text-xs">
+                                        {getPlaceholderText().addLabel}
+                                    </div>
+                                </label>
+                            </div>
+                        ) : (
+                            <div className={`${currentSize.image} bg-gray-100 rounded-lg flex items-center justify-center`}>
+                                <span className="text-gray-400 text-xs">No Image</span>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Content Section */}
+                    <div className="flex-1 min-w-0">
+                        {builderMode ? (
+                            <div className="space-y-2">
+                                <input
+                                    type="text"
+                                    value={localInputValues[`${index}-label`] || ''}
+                                    placeholder={getPlaceholderText('title')}
+                                    className={`w-full bg-transparent border-none outline-none ${currentSize.title} text-gray-900`}
+                                    onChange={(e) => {
+                                        const newValue = e.target.value;
+                                        setLocalInputValues(prev => ({
+                                            ...prev,
+                                            [`${index}-label`]: newValue
+                                        }));
+                                        debouncedUpdate(index, 'label', newValue);
+                                    }}
+                                    onClick={(e) => e.stopPropagation()}
+                                />
+                                <textarea
+                                    value={localInputValues[`${index}-description`] || ''}
+                                    placeholder={getPlaceholderText('description')}
+                                    className={`w-full bg-transparent border-none outline-none ${currentSize.description} text-gray-600 resize-none`}
+                                    rows="2"
+                                    onChange={(e) => {
+                                        const newValue = e.target.value;
+                                        setLocalInputValues(prev => ({
+                                            ...prev,
+                                            [`${index}-description`]: newValue
+                                        }));
+                                        debouncedUpdate(index, 'description', newValue);
+                                    }}
+                                    onClick={(e) => e.stopPropagation()}
+                                />
+                            </div>
+                        ) : (
+                            <div>
+                                <h3 className={`${currentSize.title} text-gray-900 mb-1`}>
+                                    {item.label || 'Untitled'}
+                                </h3>
+                                {item.description && (
+                                    <p className={`${currentSize.description} text-gray-600 mb-2`}>
+                                        {item.description}
+                                    </p>
+                                )}
+                                
+                                {/* Course-specific validation info */}
+                                {!builderMode && optionType === 'course' && item.hasOwnProperty('dateValid') && (
+                                    <div className="mt-2">
+                                        <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                                            item.dateValid 
+                                                ? 'bg-green-100 text-green-800' 
+                                                : 'bg-red-100 text-red-800'
+                                        }`}>
+                                            {item.statusText}
+                                        </span>
+                                        {!item.dateValid && item.validationMessage && (
+                                            <p className="text-xs text-red-600 mt-1">
+                                                {item.validationMessage}
+                                            </p>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Control Section */}
+                    <div className="flex-shrink-0 ml-4 flex items-center justify-center">
+                        {builderMode ? (
+                            // Builder mode controls...
+                            <>
+                                {!(optionType === 'course' && (!items || items.length === 0)) && (
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleOptionRemoval(index);
+                                        }}
+                                        className="text-red-500 hover:text-red-700 transition-colors p-1 rounded hover:bg-red-50"
+                                        title="Remove option"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                        </svg>
+                                    </button>
+                                )}
+                            </>
+                        ) : (
+                            // Selection controls
+                            <>
+                                {multi ? (
+                                    // Checkbox for multi-selection
+                                    <label className={`cursor-pointer ${item.disabled ? 'cursor-not-allowed' : ''}`} onClick={(e) => e.stopPropagation()}>
+                                        <div className={`${currentSize.control} rounded-full border-2 flex items-center justify-center ${
+                                            isSelected(item.value) 
+                                                ? 'border-blue-600 bg-blue-600' 
+                                                : item.disabled
+                                                    ? 'border-gray-300 bg-gray-100'
+                                                    : 'border-gray-300'
+                                        }`}>
+                                            {isSelected(item.value) && (
+                                                <svg xmlns="http://www.w3.org/2000/svg" className={currentSize.controlIcon + " text-white"} viewBox="0 0 20 20" fill="currentColor">
+                                                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                                </svg>
+                                            )}
+                                            <input
+                                                type="checkbox"
+                                                className="sr-only" 
+                                                value={item.value}
+                                                checked={isSelected(item.value)}
+                                                disabled={item.disabled}
+                                                onChange={() => handleCheckboxChange(item.value)}
+                                                required={required && (!Array.isArray(value) || value.length === 0)}
+                                            />
+                                        </div>
+                                    </label>
+                                ) : (
+                                    // Radio button for single selection
+                                    <label className={`cursor-pointer ${item.disabled ? 'cursor-not-allowed' : ''}`} onClick={(e) => e.stopPropagation()}>
+                                        <div className={`${currentSize.control} rounded-full border-2 flex items-center justify-center ${
+                                            isSelected(item.value) 
+                                                ? 'border-blue-600 bg-blue-600' 
+                                                : item.disabled
+                                                    ? 'border-gray-300 bg-gray-100'
+                                                    : 'border-gray-300'
+                                        }`}>
+                                            {isSelected(item.value) && (
+                                                <svg xmlns="http://www.w3.org/2000/svg" className={currentSize.controlIcon + " text-white"} viewBox="0 0 20 20" fill="currentColor">
+                                                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                                </svg>
+                                            )}
+                                            <input
+                                                type="radio"
+                                                className="sr-only"
+                                                name={`card-selection-${Math.random()}`}
+                                                value={item.value}
+                                                checked={isSelected(item.value)}
+                                                disabled={item.disabled}
+                                                onChange={() => handleChange(item.value)}
+                                                required={required}
+                                            />
+                                        </div>
+                                    </label>
+                                )}
+                            </>
+                        )}
+                    </div>
+                </div>
+            ))}
+
+            {displayItems.length === 0 && !coursesLoading && !coursesFetching && (
+                <div className="text-center py-8 text-gray-500">
+                    <p>
+                        {optionType === 'course' 
+                            ? (builderMode 
+                                ? 'No active courses available' 
+                                : 'No course offers available for this guest'
+                            )
+                            : 'No options available'
+                        }
+                    </p>
+                    {optionType === 'course' && (
+                        <p className="text-sm mt-2">
+                            {builderMode 
+                                ? 'Make sure there are active courses in the system.'
+                                : 'Course offers are managed by administrators and will appear here when available.'
+                            }
+                        </p>
+                    )}
+                </div>
+            )}
         </div>
-      )}
-    </div>
-  );
+    );
 };
 
 export default CardSelection;

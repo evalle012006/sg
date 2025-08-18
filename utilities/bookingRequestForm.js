@@ -218,17 +218,18 @@ export const postProcessPagesForNdis = (pages, isNdisFunded, calculatePageComple
             }
         });
         
-        // Recalculate page completion after filtering
+        // Recalculate page completion after filtering - but only for the current page state
         const filteredPage = {
             ...page,
             Sections: filteredSections
         };
         
-        // IMPORTANT: Preserve completion status if page was already completed
-        if (page.completed) {
+        // ✅ IMPORTANT: Preserve completion status if page was already completed
+        // But don't try to calculate it here for NDIS-related pages - will be done later
+        if (page.completed && !page.title.includes('NDIS')) {
             filteredPage.completed = true;
         } else {
-            filteredPage.completed = calculatePageCompletion(filteredPage);
+            filteredPage.completed = false; // Will be calculated later after all processing
         }
         
         filteredPages.push(filteredPage);
@@ -247,15 +248,12 @@ export const postProcessPagesForNdis = (pages, isNdisFunded, calculatePageComple
             hasBack: true,
             lastPage: false,
             pageQuestionDependencies: [],
-            completed: false, // Will be calculated
+            completed: false,
             noItems: ndisQuestions.reduce((total, section) => total + section.Questions.length, 0),
             dirty: false,
             hidden: false,
             template_id: pages[0]?.template_id || null
         };
-        
-        // Calculate completion for NDIS page
-        ndisPage.completed = calculatePageCompletion(ndisPage);
         
         // Insert NDIS page after funding page
         filteredPages.splice(fundingPageIndex + 1, 0, ndisPage);
@@ -347,11 +345,10 @@ export const processFormDataForNdisPackages = (formData, isNdisFunded, calculate
         // NDIS page already exists and funding is NDIS, preserve it but apply dependencies
         const updatedFormData = formData.map(page => {
             if (page.id === 'ndis_packages_page') {
-                // Apply dependencies to existing NDIS page
+                // Apply dependencies to existing NDIS page but DON'T calculate completion yet
                 const pageWithDependencies = applyQuestionDependenciesAcrossPages(page, formData);
-                pageWithDependencies.completed = calculatePageCompletion(pageWithDependencies);
-                
-                return pageWithDependencies;
+                // ✅ FIXED: Don't calculate completion here - will be done later
+                return { ...pageWithDependencies, completed: false }; // Will be calculated properly later
             }
             return page;
         });
@@ -515,7 +512,7 @@ export const processFormDataForNdisPackages = (formData, isNdisFunded, calculate
             hasBack: true,
             lastPage: false,
             pageQuestionDependencies: [],
-            completed: false,
+            completed: false, // ✅ FIXED: Don't calculate completion here - will be done later
             noItems: ndisQuestions.reduce((total, section) => total + section.Questions.length, 0),
             dirty: false,
             hidden: false,
@@ -526,14 +523,11 @@ export const processFormDataForNdisPackages = (formData, isNdisFunded, calculate
         const newFormData = [...updatedPages];
         newFormData.splice(fundingPageIndex + 1, 0, ndisPage);
 
-        // ENHANCED: Apply dependencies to ALL pages including NDIS page
+        // ✅ FIXED: Apply dependencies to ALL pages but DON'T calculate completion yet
         const finalFormData = newFormData.map(page => {
             const pageWithDependencies = applyQuestionDependenciesAcrossPages(page, newFormData);
-            
-            // Calculate completion status for each page
-            pageWithDependencies.completed = calculatePageCompletion(pageWithDependencies);
-            
-            return pageWithDependencies;
+            // ✅ Don't calculate completion here - it will be done later after all processing
+            return { ...pageWithDependencies, completed: false };
         });
 
         // Update hasNext/hasBack and lastPage properties
@@ -1544,73 +1538,67 @@ export const hasCourseOfferAnsweredYes = (pages) => {
 };
 
 /**
- * Get check-in and check-out dates from form data
+ * Enhanced function to get stay dates from form with better error handling
  */
 export const getStayDatesFromForm = (pages) => {
+    // console.log('📅 Extracting stay dates from form pages...');
+    
     let checkInDate = null;
     let checkOutDate = null;
 
     for (const page of pages) {
+        // console.log(`📅 Checking page: ${page.title}`);
+        
         for (const section of page.Sections || []) {
             for (const question of section.Questions || []) {
+                // Check for combined check-in/check-out date question
                 if (questionHasKey(question, QUESTION_KEYS.CHECK_IN_OUT_DATE) && question.answer) {
+                    // console.log(`📅 Found combined date question with answer: ${question.answer}`);
                     const dates = question.answer.split(' - ');
                     if (dates.length >= 2) {
                         checkInDate = dates[0].trim();
                         checkOutDate = dates[1].trim();
+                        // console.log(`📅 Extracted from combined: checkIn=${checkInDate}, checkOut=${checkOutDate}`);
                     }
                 }
+                // Check for separate check-in date question
                 else if (questionHasKey(question, QUESTION_KEYS.CHECK_IN_DATE) && question.answer) {
-                    checkInDate = question.answer;
+                    checkInDate = question.answer.trim();
+                    // console.log(`📅 Found separate check-in date: ${checkInDate}`);
                 }
+                // Check for separate check-out date question
                 else if (questionHasKey(question, QUESTION_KEYS.CHECK_OUT_DATE) && question.answer) {
-                    checkOutDate = question.answer;
+                    checkOutDate = question.answer.trim();
+                    // console.log(`📅 Found separate check-out date: ${checkOutDate}`);
+                }
+            }
+            
+            // Also check QaPairs for previously answered questions
+            for (const qaPair of section.QaPairs || []) {
+                const question = qaPair.Question;
+                if (!question || !qaPair.answer) continue;
+                
+                if (questionHasKey(question, QUESTION_KEYS.CHECK_IN_OUT_DATE)) {
+                    // console.log(`📅 Found combined date in QaPair: ${qaPair.answer}`);
+                    const dates = qaPair.answer.split(' - ');
+                    if (dates.length >= 2) {
+                        checkInDate = dates[0].trim();
+                        checkOutDate = dates[1].trim();
+                        // console.log(`📅 Extracted from QaPair combined: checkIn=${checkInDate}, checkOut=${checkOutDate}`);
+                    }
+                }
+                else if (questionHasKey(question, QUESTION_KEYS.CHECK_IN_DATE)) {
+                    checkInDate = qaPair.answer.trim();
+                    // console.log(`📅 Found check-in date in QaPair: ${checkInDate}`);
+                }
+                else if (questionHasKey(question, QUESTION_KEYS.CHECK_OUT_DATE)) {
+                    checkOutDate = qaPair.answer.trim();
+                    // console.log(`📅 Found check-out date in QaPair: ${checkOutDate}`);
                 }
             }
         }
     }
 
+    console.log(`📅 Final extracted dates: checkIn=${checkInDate}, checkOut=${checkOutDate}`);
     return { checkInDate, checkOutDate };
-};
-
-/**
- * Validate course dates against stay dates
- */
-export const validateCourseStayDates = (pages, courseOffers) => {
-    const { checkInDate, checkOutDate } = getStayDatesFromForm(pages);
-    
-    if (!checkInDate || !checkOutDate) {
-        return {
-            isValid: false,
-            message: 'Check-in and check-out dates are required for course bookings'
-        };
-    }
-
-    if (courseOffers.length === 0) {
-        return {
-            isValid: false,
-            message: 'No valid course offers found'
-        };
-    }
-
-    // Check if dates align with any course offers
-    for (const courseOffer of courseOffers) {
-        const checkIn = new Date(checkInDate);
-        const checkOut = new Date(checkOutDate);
-        const minStartDate = new Date(courseOffer.minStartDate);
-        const minEndDate = new Date(courseOffer.minEndDate);
-
-        [checkIn, checkOut, minStartDate, minEndDate].forEach(date => {
-            date.setHours(0, 0, 0, 0);
-        });
-
-        if (checkIn <= minStartDate && checkOut >= minEndDate) {
-            return { isValid: true, message: '' };
-        }
-    }
-
-    return {
-        isValid: false,
-        message: 'Please review your stay dates to match the min dates of stay for your course offer'
-    };
 };

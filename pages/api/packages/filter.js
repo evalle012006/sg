@@ -37,6 +37,17 @@ export default async function handler(req, res) {
       debug = false
     } = req.body;
 
+    // FIXED: Create criteria object for calculateCareMatchScore function
+    const criteria = {
+      care_hours,
+      care_pattern,
+      recommended_packages,
+      funder_type,
+      ndis_package_type,
+      has_course,
+      sta_in_plan
+    };
+
     const debugInfo = debug ? {
       receivedCriteria: req.body,
       processingSteps: [],
@@ -44,15 +55,16 @@ export default async function handler(req, res) {
       finalPackages: []
     } : null;
 
-    // if (debug) {
-    //   console.log('🔍 Enhanced package filter request:', {
-    //     care_hours,
-    //     care_pattern,
-    //     recommended_packages,
-    //     funder_type,
-    //     ndis_package_type
-    //   });
-    // }
+    if (debug) {
+      console.log('🔍 Enhanced package filter request:', {
+        care_hours,
+        care_pattern,
+        recommended_packages,
+        funder_type,
+        ndis_package_type,
+        has_course
+      });
+    }
 
     // Build the basic WHERE clause
     const whereClause = {};
@@ -73,8 +85,7 @@ export default async function handler(req, res) {
     if (search) {
       whereClause[Op.or] = [
         { name: { [Op.like]: `%${search}%` } },
-        { package_code: { [Op.like]: `%${search}%` } },
-        { description: { [Op.like]: `%${search}%` } }
+        { package_code: { [Op.like]: `%${search}%` } }
       ];
       if (debug) debugInfo.processingSteps.push(`Added search filter: ${search}`);
     }
@@ -90,7 +101,6 @@ export default async function handler(req, res) {
         'ndis_package_type', 
         'ndis_line_items', 
         'image_filename',
-        'description',
         'created_at',
         'updated_at'
       ],
@@ -100,7 +110,7 @@ export default async function handler(req, res) {
       distinct: true
     };
 
-    // ADD THIS: Include requirements if requested
+    // Include requirements if requested
     if (req.body.include_requirements === true) {
       queryOptions.include = [{
         model: PackageRequirement,
@@ -129,11 +139,30 @@ export default async function handler(req, res) {
             max: requirement.care_hours_max
           }
         };
+        
+        if (debug) {
+          debugInfo.matchingResults.push({
+            package_code: pkg.package_code,
+            requirement: {
+              requires_no_care: requirement.requires_no_care,
+              care_hours_min: requirement.care_hours_min,
+              care_hours_max: requirement.care_hours_max,
+              requires_course: requirement.requires_course,
+              compatible_with_course: requirement.compatible_with_course
+            }
+          });
+        }
       } else if (req.body.include_requirements === true) {
         pkg.requirement = null;
+        if (debug) {
+          debugInfo.matchingResults.push({
+            package_code: pkg.package_code,
+            requirement: 'NO REQUIREMENT DATA'
+          });
+        }
       }
 
-      // Existing care analysis logic...
+      // FIXED: Now criteria is properly defined
       const matchScore = calculateCareMatchScore(pkg, criteria);
       const isRecommended = recommended_packages.includes(pkg.package_code);
       
@@ -145,7 +174,11 @@ export default async function handler(req, res) {
         summary: generatePackageSummary(pkg, { care_hours, matchScore }),
         formattedPrice: pkg.funder === 'NDIS' 
           ? 'NDIS Funded' 
-          : (pkg.price ? `$${parseFloat(pkg.price).toFixed(2)}` : 'Price TBA')
+          : (pkg.price ? `${parseFloat(pkg.price).toFixed(2)}` : 'Price TBA'),
+        // Add placeholder fields for frontend compatibility
+        description: pkg.summary || `${pkg.name} package`,
+        inclusions: pkg.ndis_line_items || [],
+        features: []
       };
     });
 
@@ -184,8 +217,17 @@ export default async function handler(req, res) {
         package_code: pkg.package_code,
         name: pkg.name,
         matchScore: pkg.matchScore,
-        isRecommended: pkg.isRecommended
+        isRecommended: pkg.isRecommended,
+        hasRequirement: !!pkg.requirement
       }));
+      
+      console.log('🎯 Final filtering results:', {
+        totalFound: basePackages.length,
+        afterCareFiltering: filteredPackages.length,
+        recommendedPackages: recommended_packages,
+        careHours: care_hours,
+        funderType: funder_type
+      });
     }
 
     const response = {
@@ -287,7 +329,7 @@ function calculateCareMatchScore(pkg, criteria) {
 function generatePackageSummary(pkg, context) {
   const { care_hours, matchScore } = context;
   
-  let summary = `${pkg.funder} package`;
+  let summary = `${pkg.funder} funded accommodation package`;
   
   if (pkg.ndis_package_type) {
     summary += ` (${pkg.ndis_package_type.toUpperCase()})`;
@@ -297,9 +339,14 @@ function generatePackageSummary(pkg, context) {
   if (care_hours > 0 && matchScore > 0.7) {
     summary += ' - Highly compatible with your care needs';
   } else if (care_hours > 0 && matchScore > 0.5) {
-    summary += ' - Compatible with your care needs';
+    summary += ' - Compatible with your care needs';  
   } else if (care_hours === 0) {
     summary += ' - Suitable for guests not requiring care assistance';
+  }
+  
+  // Add NDIS line items info if available
+  if (pkg.ndis_line_items && Array.isArray(pkg.ndis_line_items) && pkg.ndis_line_items.length > 0) {
+    summary += `. Includes ${pkg.ndis_line_items.length} NDIS line item${pkg.ndis_line_items.length > 1 ? 's' : ''}`;
   }
   
   return summary;
