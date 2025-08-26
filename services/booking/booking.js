@@ -420,7 +420,7 @@ export class BookingService extends EntityBuilder {
             const funder = getFunder(bookingData.Sections);
             emailData['funder'] = funder;
 
-            if (emailTrigger.recipient && relavantQaPair.answer == emailTrigger.trigger_questions[0].answer) {
+            if (emailTrigger.recipient && relavantQaPair.answer.toLowerCase() == emailTrigger.trigger_questions[0].answer.toLowerCase()) {
                 await SendEmail(emailTrigger.recipient, 'Sargood On Collaroy - New Booking', emailTrigger.email_template, emailData);
             }
         } else {
@@ -651,7 +651,7 @@ export class BookingService extends EntityBuilder {
             relavantQaPair = qaPairs.find(qa => qa.question === triggerQuestionText);
         }
        
-        if (relavantQaPair) {
+        if (relavantQaPair && relavantQaPair.dataValues.answer.toLowerCase() == emailTrigger.trigger_questions[0].answer.toLowerCase()) {
             // Set message based on funding question
             const fundingAnswer = getAnswerByQuestionKey(qaPairs, QUESTION_KEYS.FUNDING_SOURCE);
             const travelGrantAnswer = getAnswerByQuestionKey(qaPairs, QUESTION_KEYS.TRAVEL_GRANT_APPLICATION);
@@ -728,7 +728,7 @@ export class BookingService extends EntityBuilder {
             const funder = getFunder(bookingData.Sections);
             emailData['funder'] = funder;
 
-            if (emailTrigger.recipient && relavantQaPair.answer == emailTrigger.trigger_questions[0].answer) {
+            if (emailTrigger.recipient) {
                 await SendEmail(emailTrigger.recipient, 'Sargood On Collaroy - New Booking', emailTrigger.email_template, emailData);
             }
         } else {

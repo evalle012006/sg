@@ -21,14 +21,6 @@ export default async function handler(req, res) {
       sort = 'name'
     } = req.query;
 
-    console.log('Package API called with filters:', { 
-      funder, 
-      ndis_package_type, 
-      priceRange, 
-      search,
-      include_requirements 
-    });
-
     // Build the where clause for filtering
     const whereClause = {};
     const orderClause = [];
@@ -36,19 +28,13 @@ export default async function handler(req, res) {
     // Apply funder filter
     if (funder) {
       whereClause.funder = funder;
+      console.log(`📤 Added funder filter: ${funder}`);
     }
 
-    // Apply NDIS package type filter when funder is NDIS
+    // ✅ FIXED: Apply NDIS package type filter correctly
     if (funder === 'NDIS' && ndis_package_type) {
-      if (ndis_package_type === 'holiday') {
-        whereClause.ndis_package_type = {
-          [Op.in]: ['sta', 'holiday']
-        };
-      } else if (ndis_package_type === 'sta') {
-        whereClause.ndis_package_type = 'sta';
-      } else {
-        whereClause.ndis_package_type = ndis_package_type;
-      }
+      // Simple 1:1 filtering - if holiday requested, only return holiday packages
+      whereClause.ndis_package_type = ndis_package_type;
     }
 
     // Apply search filter
@@ -59,16 +45,14 @@ export default async function handler(req, res) {
       ];
     }
 
-    // Apply price range filter for Non-NDIS packages
-    if (priceRange) {
+    // Apply price range filter for Non-NDIS packages only
+    if (priceRange && funder !== 'NDIS') {
       try {
         const { min, max } = JSON.parse(priceRange);
         if (min !== undefined || max !== undefined) {
           whereClause.price = {};
           if (min !== undefined) whereClause.price[Op.gte] = min;
           if (max !== undefined) whereClause.price[Op.lte] = max;
-          // Only apply to Non-NDIS packages
-          whereClause.funder = 'Non-NDIS';
         }
       } catch (error) {
         console.error('Invalid price range format:', priceRange);
@@ -93,12 +77,25 @@ export default async function handler(req, res) {
     // Set up query options
     const queryOptions = {
       where: whereClause,
+      attributes: [
+        'id', 
+        'name', 
+        'package_code', 
+        'funder', 
+        'price', 
+        'ndis_package_type',
+        'ndis_line_items',
+        'image_filename',
+        'created_at',
+        'updated_at'
+      ],
       order: orderClause,
       limit: parseInt(limit),
-      offset: (parseInt(page) - 1) * parseInt(limit)
+      offset: (parseInt(page) - 1) * parseInt(limit),
+      distinct: true
     };
 
-    // Include requirements if requested (admin mode)
+    // Include requirements if requested
     if (include_requirements === 'true') {
       queryOptions.include = [{
         model: PackageRequirement,
@@ -109,28 +106,57 @@ export default async function handler(req, res) {
 
     // Execute query
     const { count, rows: packages } = await Package.findAndCountAll(queryOptions);
+
+    // ✅ Verify filtering worked correctly
+    if (ndis_package_type && funder === 'NDIS') {
+      const wrongType = packages.filter(p => p.ndis_package_type !== ndis_package_type);
+      if (wrongType.length > 0) {
+        console.error('❌ DATABASE FILTERING FAILED: Wrong ndis_package_type returned:', 
+          wrongType.map(p => ({
+            code: p.package_code,
+            expected: ndis_package_type,
+            actual: p.ndis_package_type
+          }))
+        );
+      }
+    }
     
     // Calculate total pages
     const totalPages = Math.ceil(count / parseInt(limit));
 
     // Transform packages for response
     const transformedPackages = packages.map(pkg => {
+      const packageData = pkg.toJSON ? pkg.toJSON() : pkg;
+      
       const transformed = {
-        id: pkg.id,
-        name: pkg.name,
-        package_code: pkg.package_code,
-        funder: pkg.funder,
-        price: pkg.price,
-        ndis_package_type: pkg.ndis_package_type,
-        ndis_line_items: pkg.ndis_line_items,
-        created_at: pkg.created_at,
-        updated_at: pkg.updated_at
+        id: packageData.id,
+        name: packageData.name,
+        package_code: packageData.package_code,
+        funder: packageData.funder,
+        price: packageData.price,
+        ndis_package_type: packageData.ndis_package_type,
+        ndis_line_items: packageData.ndis_line_items,
+        image_filename: packageData.image_filename,
+        created_at: packageData.created_at,
+        updated_at: packageData.updated_at
       };
 
+      // Include requirement data if requested
+      if (include_requirements === 'true' && packageData.requirements && packageData.requirements.length > 0) {
+        const requirement = packageData.requirements[0]; // Should only be one requirement per package
+        transformed.requirement = {
+          ...requirement,
+          care_hours_range: {
+            min: requirement.care_hours_min,
+            max: requirement.care_hours_max
+          }
+        };
+      }
+
       // Format price display
-      if (pkg.funder === 'NDIS') {
-        if (pkg.ndis_line_items && pkg.ndis_line_items.length > 0) {
-          const priceRange = pkg.ndis_line_items.map(item => item.price_per_night);
+      if (packageData.funder === 'NDIS') {
+        if (packageData.ndis_line_items && packageData.ndis_line_items.length > 0) {
+          const priceRange = packageData.ndis_line_items.map(item => parseFloat(item.price_per_night || 0));
           const minPrice = Math.min(...priceRange);
           const maxPrice = Math.max(...priceRange);
           transformed.formattedPrice = minPrice === maxPrice 
@@ -140,78 +166,35 @@ export default async function handler(req, res) {
           transformed.formattedPrice = 'NDIS Funded';
         }
       } else {
-        transformed.formattedPrice = pkg.price ? `$${pkg.price}` : 'Price TBA';
+        transformed.formattedPrice = packageData.price 
+          ? `$${parseFloat(packageData.price).toFixed(2)}` 
+          : 'Price TBA';
       }
 
-      // Add requirement data if included
-      if (include_requirements === 'true' && pkg.requirements && pkg.requirements.length > 0) {
-        const requirement = pkg.requirements[0]; // Should only be one requirement per package
-        
-        // Transform requirement for easier frontend use
-        transformed.requirement = {
-          ...requirement.dataValues,
-          care_hours_range: {
-            min: requirement.care_hours_min,
-            max: requirement.care_hours_max
-          }
-        };
-        
-        // Generate summary
-        transformed.summary = generatePackageSummary(transformed, transformed.requirement);
-      } else if (include_requirements === 'true') {
-        // No requirements found
-        transformed.requirement = null;
-        transformed.summary = generatePackageSummary(transformed, null);
-      }
+      // Add summary and compatibility fields for frontend
+      transformed.summary = generatePackageSummary(packageData, transformed.requirement);
+      transformed.description = transformed.summary;
+      transformed.inclusions = Array.isArray(packageData.ndis_line_items) ? packageData.ndis_line_items : [];
+      transformed.features = [];
 
       return transformed;
     });
 
-    // Prepare response
-    const response = {
+    return res.status(200).json({
       success: true,
       packages: transformedPackages,
-      pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        total_items: count,
-        total_pages: totalPages,
-        has_next: parseInt(page) < totalPages,
-        has_prev: parseInt(page) > 1
-      }
-    };
-
-    // Add stats for admin mode
-    if (include_requirements === 'true') {
-      response.stats = {
-        total_packages: count,
-        packages_with_requirements: transformedPackages.filter(p => p.requirement).length,
-        packages_without_requirements: transformedPackages.filter(p => !p.requirement).length,
-        ndis_packages: transformedPackages.filter(p => p.funder === 'NDIS').length,
-        non_ndis_packages: transformedPackages.filter(p => p.funder === 'Non-NDIS').length,
-        requirements_system_available: true
-      };
-    }
-
-    // Add debug info in development
-    if (process.env.NODE_ENV === 'development') {
-      response.debug = {
-        queryOptions,
-        whereClause,
-        include_requirements: include_requirements === 'true',
-        packageRequirement_available: true
-      };
-    }
-
-    return res.status(200).json(response);
+      total: count,
+      page: parseInt(page),
+      limit: parseInt(limit),
+      totalPages: totalPages
+    });
 
   } catch (error) {
     console.error('Error fetching packages:', error);
     return res.status(500).json({
       success: false,
-      error: 'Failed to fetch packages',
-      message: error.message,
-      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      error: 'Internal server error',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 }
@@ -253,6 +236,3 @@ function generatePackageSummary(pkg, requirement) {
   
   return parts.join(' • ');
 }
-
-// Export the summary generator for use in other files
-export { generatePackageSummary };

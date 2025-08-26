@@ -33,6 +33,72 @@ export default function AdminGuestProfile() {
     const [selectedFlags, setSelectedFlags] = useState([]);
     const [localFlags, setLocalFlags] = useState([]); // Local state for pending flag changes
     const [showDeactivateDialog, setShowDeactivateDialog] = useState(false);
+
+    const handleDownloadGuestPDF = async () => {
+        toast.info('Generating PDF. Please wait...');
+        try {
+            const response = await fetch(`/api/guests/${user.uuid}/download-profile-pdf`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ 
+                    origin: currentUser.type,
+                    guestData: guestInfo,
+                    healthData: healthInfo,
+                    profileImageUrl: profileImageUrl
+                }),
+            });
+
+            if (!response.ok) throw new Error('Failed to generate PDF');
+
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `guest-profile-${user.first_name}-${user.last_name}-${user.uuid}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+            
+            toast.success('Profile PDF downloaded successfully!');
+        } catch (error) {
+            console.error('Error downloading PDF:', error);
+            toast.error('Failed to download guest profile. Please try again.');
+        }
+    };
+
+    const handleEmailGuestLink = async () => {
+        if (!guestInfo.email) {
+            toast.error('Guest email is required to send the link.');
+            return;
+        }
+
+        toast.info('Your email is being sent in the background. Feel free to navigate away or continue with other tasks.');
+        try {
+            const response = await fetch(`/api/guests/${user.uuid}/email-profile-link`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ 
+                    adminEmail: currentUser.type === 'user' ? currentUser.email : null, 
+                    origin: currentUser.type,
+                    guestEmail: guestInfo.email,
+                    guestName: `${guestInfo.first_name} ${guestInfo.last_name}`,
+                    guestData: guestInfo,
+                    healthData: healthInfo
+                }),
+            });
+
+            if (!response.ok) throw new Error('Failed to send email');
+            toast.success('Profile link sent to guest email successfully!');
+        } catch (error) {
+            console.error('Error sending email:', error);
+            toast.error('Failed to send email. Please try again.');
+        }
+    };
     
     // Guest basic information state
     const [guestInfo, setGuestInfo] = useState({
@@ -607,10 +673,18 @@ export default function AdminGuestProfile() {
                                     : 'Guest Profile'}
                             </h1>
                             <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
-                                <button className="px-3 sm:px-4 py-2 bg-gray-500 text-white text-xs sm:text-sm rounded hover:bg-gray-600 w-full sm:w-auto">
+                                <button 
+                                    onClick={handleDownloadGuestPDF}
+                                    disabled={!user || !guestInfo.first_name}
+                                    className="px-3 sm:px-4 py-2 bg-gray-500 text-white text-xs sm:text-sm rounded hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed w-full sm:w-auto"
+                                >
                                     DOWNLOAD AS PDF
                                 </button>
-                                <button className="px-3 sm:px-4 py-2 bg-blue-600 text-white text-xs sm:text-sm rounded hover:bg-blue-700 w-full sm:w-auto">
+                                <button 
+                                    onClick={handleEmailGuestLink}
+                                    disabled={!user || !guestInfo.email}
+                                    className="px-3 sm:px-4 py-2 bg-blue-600 text-white text-xs sm:text-sm rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed w-full sm:w-auto"
+                                >
                                     SEND EMAIL LINK
                                 </button>
                                 <Can I="Create/Edit" a="Guest">
@@ -814,7 +888,7 @@ export default function AdminGuestProfile() {
 
                             {/* Aboriginal/Torres Strait Islander Section */}
                             <div className="border-t border-gray-200 pt-6">
-                                <h2 className="text-base sm:text-lg font-semibold mb-4 text-gray-700 uppercase">IDENTIFIED AS ABORIGINAL OR TORRES STRAIT ISLANDER</h2>
+                                {/* <h2 className="text-base sm:text-lg font-semibold mb-4 text-gray-700 uppercase">IDENTIFIED AS ABORIGINAL OR TORRES STRAIT ISLANDER</h2> */}
                                 <div className="space-y-6">
                                     <div>
                                         <p className="text-sm font-medium mb-3 text-gray-700">Do you identify as Aboriginal or Torres Strait Islander? (Person with SCI)</p>

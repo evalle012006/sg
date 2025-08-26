@@ -13,16 +13,19 @@ const CardSelection = ({
   multi = false,
   size = 'medium',
   builderMode = false,
-  optionType = null, // ← KEY: Now correctly receives optionType
+  optionType = null,
   updateOptionLabel,
   handleRemoveOption,
   onImageUpload,
-  guestId = null,        // Guest ID for fetching course offers
-  bookingId = null,      // Booking ID as fallback
-  currentUser = null,    // Current user as fallback
+  guestId = null,
+  bookingId = null,
+  currentUser = null,
   stayDates = null,
   courseOffers = [],
   courseOffersLoaded = false,
+  // ✨ NEW: Enhanced props for pricing and filtering
+  localFilterState = null,
+  bestMatchPackage = null,
   ...restProps
 }) => {
   const [dynamicItems, setDynamicItems] = useState(items);
@@ -45,6 +48,44 @@ const CardSelection = ({
       return currentUser.id;
     }
     return null;
+  };
+
+  // ✨ NEW: Helper function to get price based on NDIS package type
+  const getCoursePrice = (courseOffer) => {
+    // Don't show prices for non-NDIS funders
+    if (!localFilterState || localFilterState.funderType !== 'NDIS') {
+      return null;
+    }
+
+    if (!courseOffer.pricing || !courseOffer.pricing.hasPricing) {
+      return null;
+    }
+
+    const { ndisPackageType } = localFilterState;
+    
+    switch (ndisPackageType) {
+      case 'sta':
+        return courseOffer.pricing.staPrice;
+      case 'holiday':
+      case 'holiday-plus':
+        return courseOffer.pricing.holidayPrice;
+      default:
+        return null;
+    }
+  };
+
+  // ✨ NEW: Helper function to format price display
+  const formatPrice = (price) => {
+    if (!price) return null;
+    return `$${parseFloat(price).toFixed(2)}`;
+  };
+
+  // ✨ NEW: Helper function to get price label
+  const getPriceLabel = () => {
+    if (!localFilterState || localFilterState.funderType !== 'NDIS') {
+      return null;
+    }
+    return 'Price';
   };
 
   // Size configurations
@@ -106,7 +147,9 @@ const CardSelection = ({
               courseId: offer.courseId,
               disabled: offer.dateValid === false,
               statusText: offer.dateValid === false ? 'Incompatible dates' : 'Compatible dates',
-              statusColor: offer.dateValid === false ? 'red' : 'green'
+              statusColor: offer.dateValid === false ? 'red' : 'green',
+              // ✨ NEW: Pricing information
+              pricing: offer.pricing || null
           }));
           
           return courses;
@@ -145,7 +188,14 @@ const CardSelection = ({
                       value: course.id?.toString() || generateValueFromLabel(course.title || 'untitled-course'),
                       description: course.description || '',
                       imageFilename: course.image_filename || null,
-                      imageUrl: course.imageUrl || null
+                      imageUrl: course.imageUrl || null,
+                      // ✨ NEW: Pricing information from fetched courses
+                      pricing: {
+                          holidayPrice: course.holiday_price ? parseFloat(course.holiday_price) : null,
+                          staPrice: course.sta_price ? parseFloat(course.sta_price) : null,
+                          priceCalculatedAt: course.price_calculated_at,
+                          hasPricing: !!(course.holiday_price || course.sta_price)
+                      }
                   }));
               }
           } else {
@@ -214,10 +264,11 @@ const CardSelection = ({
                       // Add visual indicators for validation
                       disabled: offer.dateValid === false, // Only disable if explicitly false
                       statusText: offer.dateValid === false ? 'Incompatible dates' : 'Compatible dates',
-                      statusColor: offer.dateValid === false ? 'red' : 'green'
+                      statusColor: offer.dateValid === false ? 'red' : 'green',
+                      pricing: offer.pricing || null
                   }));
                   
-                  console.log('✅ Enhanced course offers with validation:', courses);
+                  console.log('✅ Enhanced course offers with validation and pricing:', courses);
                   console.log('🎓 Date validation was performed:', data.dateValidationPerformed);
               } else {
                   console.log('📭 No course offers in response');
@@ -262,7 +313,8 @@ const CardSelection = ({
                   validationMessage: offer.dateValidationMessage,
                   disabled: offer.dateValid === false,
                   statusText: offer.dateValid === false ? 'Incompatible dates' : 'Compatible dates',
-                  statusColor: offer.dateValid === false ? 'red' : 'green'
+                  statusColor: offer.dateValid === false ? 'red' : 'green',
+                  pricing: offer.pricing || null
               }));
               setDynamicItems(courses);
           } 
@@ -299,24 +351,14 @@ const CardSelection = ({
     if (!initialized) return;
     
     if (optionType === 'course' && items && items.length > 0) {
-      // console.log('📝 Course items updated, using provided items:', items.length);
       setDynamicItems(items);
     } else if (optionType !== 'course') {
-      // console.log('📝 Non-course items updated:', items?.length || 0);
       setDynamicItems(items);
     }
   }, [items, optionType, initialized]);
 
   // FIXED: Use appropriate items for display - Always use dynamicItems for courses
   const displayItems = (() => {
-    // console.log('📋 Calculating displayItems:', {
-    //   optionType,
-    //   builderMode,
-    //   itemsLength: items?.length || 0,
-    //   dynamicItemsLength: dynamicItems?.length || 0,
-    //   hasValue: !!value
-    // });
-
     // For course option type, ALWAYS use dynamicItems (fetched courses)
     if (optionType === 'course') {
       // In builder mode with manually added items, use those
@@ -324,43 +366,35 @@ const CardSelection = ({
         return items;
       }
       // Otherwise, use dynamicItems (fetched courses)
-      // console.log('📋 Course mode: Using dynamicItems (fetched courses)');
       return dynamicItems || [];
     }
     
     // For non-course option types, use items directly
-    // console.log('📋 Non-course mode: Using provided items');
     return items || [];
   })();
 
   // Enhanced logging for display items with answer matching
   useEffect(() => {
     if (initialized) {
-      // console.log('📊 Final display state:', {
-      //   optionType,
-      //   builderMode,
-      //   displayItemsCount: displayItems?.length || 0,
-      //   currentValue: value,
-      //   selectedItems: displayItems?.filter(item => {
-      //     if (multi) {
-      //       return Array.isArray(value) && value.includes(item.value);
-      //     }
-      //     return value === item.value;
-      //   })
-      // });
-      
       // Check if current answer matches any available courses
       if (optionType === 'course' && value && displayItems?.length > 0) {
         const matchingCourse = displayItems.find(item => item.value === value);
         if (matchingCourse) {
-          // console.log('✅ Current answer matches course:', matchingCourse.label);
+          // Log pricing information
+          if (matchingCourse.pricing) {
+            console.log('✅ Current answer matches course with pricing:', {
+              courseName: matchingCourse.label,
+              pricing: matchingCourse.pricing,
+              priceToShow: getCoursePrice(matchingCourse),
+              priceLabel: getPriceLabel()
+            });
+          }
         } else {
           console.warn('⚠️ Current answer does not match any available course:', value);
-          // console.log('Available course values:', displayItems.map(item => item.value));
         }
       }
     }
-  }, [displayItems, value, optionType, builderMode, initialized, multi]);
+  }, [displayItems, value, optionType, builderMode, initialized, multi, localFilterState]);
 
   // Handle card click for selection
   const handleCardClick = (itemValue, item, event) => {
@@ -424,7 +458,7 @@ const CardSelection = ({
       initialValues[`${index}-description`] = item.description || '';
     });
     setLocalInputValues(initialValues);
-  }, [displayItems.length]); // Only reinitialize when the number of items changes
+  }, [displayItems.length]);
 
   // Debounced update function
   const debouncedUpdate = useCallback((index, field, value) => {
@@ -594,6 +628,29 @@ const CardSelection = ({
                 </div>
             )}
 
+            {/* ✨ NEW: Show package info and pricing context */}
+            {!builderMode && optionType === 'course' && localFilterState && displayItems.length > 0 && (
+                <div className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-md">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium text-gray-700">
+                                Funding Type: {localFilterState.funderType || 'Unknown'}
+                            </span>
+                            {localFilterState.ndisPackageType && (
+                                <span className="px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-800 uppercase">
+                                    {localFilterState.ndisPackageType}
+                                </span>
+                            )}
+                        </div>
+                        {localFilterState.funderType === 'NDIS' && (
+                            <div className="text-xs text-gray-600">
+                                {getPriceLabel()}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+
             {/* Show validation summary for multiple courses */}
             {!builderMode && optionType === 'course' && displayItems.length > 1 && (
                 <div className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-md">
@@ -615,7 +672,13 @@ const CardSelection = ({
                 </div>
             )}
             
-            {displayItems.map((item, index) => (
+            {displayItems.map((item, index) => {
+                // ✨ NEW: Get course price for this item
+                const coursePrice = getCoursePrice(item);
+                const priceLabel = getPriceLabel();
+                const showPrice = coursePrice && priceLabel && localFilterState?.funderType === 'NDIS';
+
+                return (
                 <div
                     key={item.value || index}
                     onClick={(e) => handleCardClick(item.value, item, e)}
@@ -736,6 +799,15 @@ const CardSelection = ({
                                     </p>
                                 )}
                                 
+                                {/* ✨ NEW: Course pricing display */}
+                                {showPrice && (
+                                    <div className="mb-2">
+                                        <span className="inline-flex items-center px-2 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">
+                                            {priceLabel}: {formatPrice(coursePrice)}
+                                        </span>
+                                    </div>
+                                )}
+                                
                                 {/* Course-specific validation info */}
                                 {!builderMode && optionType === 'course' && item.hasOwnProperty('dateValid') && (
                                     <div className="mt-2">
@@ -838,7 +910,7 @@ const CardSelection = ({
                         )}
                     </div>
                 </div>
-            ))}
+            )})}
 
             {displayItems.length === 0 && !coursesLoading && !coursesFetching && (
                 <div className="text-center py-8 text-gray-500">

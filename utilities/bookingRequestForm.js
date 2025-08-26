@@ -1599,6 +1599,27 @@ export const getStayDatesFromForm = (pages) => {
         }
     }
 
-    console.log(`📅 Final extracted dates: checkIn=${checkInDate}, checkOut=${checkOutDate}`);
+    // console.log(`📅 Final extracted dates: checkIn=${checkInDate}, checkOut=${checkOutDate}`);
     return { checkInDate, checkOutDate };
+};
+
+
+export const extractCurrentFundingAnswer = (formData) => {
+    for (const page of formData || []) {
+        for (const section of page.Sections || []) {
+            // Check Questions
+            for (const question of section.Questions || []) {
+                if (questionHasKey(question, QUESTION_KEYS.FUNDING_SOURCE) && question.answer) {
+                    return question.answer;
+                }
+            }
+            // Check QaPairs
+            for (const qaPair of section.QaPairs || []) {
+                if (questionHasKey(qaPair.Question, QUESTION_KEYS.FUNDING_SOURCE) && qaPair.answer) {
+                    return qaPair.answer;
+                }
+            }
+        }
+    }
+    return null;
 };

@@ -234,6 +234,7 @@ export default function CareTable({
   const [hasValues, setHasValues] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [debug, setDebug] = useState({ attempted: false, error: null });
+  const [isSaving, setIsSaving] = useState(false); // NEW: Track saving state
   const isInitialMount = useRef(true);
   const valueRef = useRef(value);
   const savedDataRef = useRef({});
@@ -446,28 +447,45 @@ export default function CareTable({
     }).format(date).replace(',', '');
   };
 
+  // SIMPLIFIED: handleSave with state preservation only (no immediate database save)
   const handleSave = useCallback(() => {
-    let hasErrors = false;
-    if (required) {
-      const errors = validateAllFieldsFilled(tableData);
+    setIsSaving(true);
+    
+    try {
+      let hasErrors = false;
+      if (required) {
+        const errors = validateAllFieldsFilled(tableData);
 
-      if (errors.hasErrors) {
-        hasErrors = true;
-        setValidationErrors(errors);
-        return;
+        if (errors.hasErrors) {
+          hasErrors = true;
+          setValidationErrors(errors);
+          setIsSaving(false);
+          return;
+        }
       }
+      
+      setValidationErrors(null);
+      
+      const transformedData = transformDataForSaving(tableData);
+      
+      // STEP 1: Call onChange to update parent component state (this preserves data in Redux)
+      if (onChange) {
+        console.log('💾 CareTable: Calling onChange with care data (state preservation only)');
+        onChange(transformedData, hasErrors);
+      }
+      
+      // STEP 2: Mark data as "saved" locally to prevent unsaved changes warning
+      savedDataRef.current = JSON.parse(JSON.stringify(tableData));
+      setHasUnsavedChanges(false);
+      
+      console.log('✅ CareTable: Data preserved in state successfully');
+      
+    } catch (error) {
+      console.error('❌ CareTable: Error during save:', error);
+      // Don't clear unsaved changes flag if save failed
+    } finally {
+      setIsSaving(false);
     }
-    
-    setValidationErrors(null);
-    
-    const transformedData = transformDataForSaving(tableData);
-    if (onChange) {
-      onChange(transformedData, hasErrors);
-    }
-    
-    // Update savedDataRef to match current tableData
-    savedDataRef.current = JSON.parse(JSON.stringify(tableData));
-    setHasUnsavedChanges(false);
   }, [tableData, onChange, required]);
 
   const renderDefaultSelect = (period, field, options) => {
@@ -562,7 +580,7 @@ export default function CareTable({
 
   return (
     <div className="w-full space-y-4">
-      {/* Save Reminder Notification */}
+      {/* Enhanced Save Reminder Notification - Updated for state preservation */}
       {hasValues && hasUnsavedChanges && (
         <div className="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 rounded shadow-md mb-4" role="alert">
           <div className="flex items-center">
@@ -571,7 +589,17 @@ export default function CareTable({
             </svg>
             <p className="font-bold">Unsaved Changes!</p>
           </div>
-          <p className="text-sm mt-1">Don&apos;t forget to click the <span className="font-bold">Done</span> button at the bottom of the page to save your changes.</p>
+          <p className="text-sm mt-1">Click the <span className="font-bold">Done</span> button to confirm your care schedule and continue with the form.</p>
+        </div>
+      )}
+      
+      {/* Processing Indicator - Only show during validation/processing */}
+      {isSaving && (
+        <div className="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-4 rounded shadow-md mb-4" role="alert">
+          <div className="flex items-center">
+            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-500 mr-2"></div>
+            <p className="font-bold">Processing care schedule...</p>
+          </div>
         </div>
       )}
       
@@ -734,14 +762,30 @@ export default function CareTable({
           </tbody>
         </table>
       </div>
-      {/* Footer with conditional Done/Save button - only show if there are unsaved changes */}
+      
+      {/* Enhanced Footer with Done button - Updated for state preservation */}
       {hasValues && hasUnsavedChanges && (
-        <div className="flex justify-end">
+        <div className="flex justify-between items-center bg-gray-50 p-4 rounded-lg">
+          <div className="text-sm text-gray-600">
+            {isSaving ? (
+              <span className="flex items-center">
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500 mr-2"></div>
+                Processing care schedule...
+              </span>
+            ) : (
+              <span>⚠️ Please confirm your care schedule to continue</span>
+            )}
+          </div>
           <button
             onClick={handleSave}
-            className="bg-blue-500 hover:bg-blue-600 text-white text-sm py-2 px-4 rounded"
+            disabled={isSaving}
+            className={`text-sm py-2 px-6 rounded font-medium transition-all ${
+              isSaving 
+                ? 'bg-gray-400 text-gray-600 cursor-not-allowed' 
+                : 'bg-blue-500 hover:bg-blue-600 text-white shadow-md hover:shadow-lg'
+            }`}
           >
-            Done
+            {isSaving ? 'Processing...' : 'Done'}
           </button>
         </div>
       )}

@@ -36,7 +36,7 @@ const useRoomData = (isNdisFunded) => {
       setLoading(true);
       const response = await fetch("/api/manage-room");
       const data = await response.json();
-      console.log(data, 'Fetched Room Types Data');
+      // console.log(data, 'Fetched Room Types Data');
       const processedRooms = data
         .map(room => ({
           ...room.data,
@@ -51,7 +51,7 @@ const useRoomData = (isNdisFunded) => {
           return true;
         })
         .sort((a, b) => a.id - b.id);
-        console.log(processedRooms, 'Processed Rooms Data');
+        // console.log(processedRooms, 'Processed Rooms Data');
       setRoomTypes(processedRooms);
     } catch (error) {
       console.error('Error fetching room types:', error);
@@ -71,7 +71,7 @@ const RoomsField = (props) => {
   const dispatch = useDispatch();
   const isNdisFunded = useSelector(state => state.bookingRequestForm.isNdisFunded);
 
-  console.log(isNdisFunded, 'isNdisFunded in RoomsField');
+  // console.log(isNdisFunded, 'isNdisFunded in RoomsField');
   
   // Initialize selected rooms
   const [selectedRooms, setSelectedRooms] = useState(() => {
@@ -406,6 +406,7 @@ const RoomsField = (props) => {
                 onChange={handleMainRoomClick}
                 required={props.required}
                 size="extra-large"
+                origin="room"
               />
             </div>
             
@@ -420,6 +421,7 @@ const RoomsField = (props) => {
                     onChange={handleMainRoomClick}
                     required={props.required}
                     size="extra-large"
+                    origin="room"
                   />
                 </div>
               </div>
@@ -434,6 +436,7 @@ const RoomsField = (props) => {
               onChange={handleMainRoomChange} // Use handleMainRoomChange directly for non-NDIS
               required={props.required}
               size="extra-large"
+              origin="room"
             />
           </div>
         )}
@@ -496,6 +499,7 @@ const RoomsField = (props) => {
                   onChange={(roomName) => handleAdditionalRoomChange(roomName, roomIndex)}
                   required={true}
                   size="extra-large"
+                  origin="room"
                 />
               </div>
 

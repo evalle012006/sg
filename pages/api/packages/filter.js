@@ -15,29 +15,21 @@ export default async function handler(req, res) {
 
   try {
     const { 
-      // Care-specific filtering criteria
       care_hours = 0,
       care_pattern = 'no-care',
       recommended_packages = [],
-      
-      // Standard filtering criteria
       funder_type,
       ndis_package_type,
       search,
       has_course = false,
       sta_in_plan = null,
-      
-      // Pagination and sorting
       sort = 'name',
       order = 'ASC',
       page = 1,
       limit = 50,
-      
-      // Debug mode
       debug = false
     } = req.body;
 
-    // FIXED: Create criteria object for calculateCareMatchScore function
     const criteria = {
       care_hours,
       care_pattern,
@@ -66,7 +58,7 @@ export default async function handler(req, res) {
       });
     }
 
-    // Build the basic WHERE clause
+    // ✅ FIXED: Build the basic WHERE clause with proper NDIS package type filtering
     const whereClause = {};
     
     // Funder filtering
@@ -75,10 +67,13 @@ export default async function handler(req, res) {
       if (debug) debugInfo.processingSteps.push(`Added funder filter: ${funder_type}`);
     }
 
-    // NDIS package type filtering
-    if (ndis_package_type && funder_type === 'NDIS') {
-      whereClause.ndis_package_type = ndis_package_type;
-      if (debug) debugInfo.processingSteps.push(`Added NDIS package type filter: ${ndis_package_type}`);
+    // ✅ CRITICAL FIX: NDIS package type filtering
+    if (ndis_package_type) {
+      if (funder_type === 'NDIS' || !funder_type) {
+        whereClause.ndis_package_type = ndis_package_type;
+        if (debug) debugInfo.processingSteps.push(`Added NDIS package type filter: ${ndis_package_type}`);
+        console.log(`🎯 FILTERING BY NDIS PACKAGE TYPE: ${ndis_package_type}`);
+      }
     }
 
     // Search filtering
@@ -90,6 +85,9 @@ export default async function handler(req, res) {
       if (debug) debugInfo.processingSteps.push(`Added search filter: ${search}`);
     }
 
+    // ✅ Add explicit logging to see what WHERE clause is being used
+    console.log('🔍 Final WHERE clause for database query:', whereClause);
+
     const queryOptions = {
       where: whereClause,
       attributes: [
@@ -98,7 +96,7 @@ export default async function handler(req, res) {
         'package_code', 
         'funder', 
         'price', 
-        'ndis_package_type', 
+        'ndis_package_type',  // ✅ Make sure this is included
         'ndis_line_items', 
         'image_filename',
         'created_at',
@@ -115,11 +113,20 @@ export default async function handler(req, res) {
       queryOptions.include = [{
         model: PackageRequirement,
         as: 'requirements',
-        required: false // LEFT JOIN to include packages without requirements
+        required: false
       }];
     }
 
     const { count, rows: basePackages } = await Package.findAndCountAll(queryOptions);
+
+    if (debug) {
+      console.log('📦 Packages returned from database:', basePackages.map(p => ({
+        code: p.package_code,
+        name: p.name,
+        funder: p.funder,
+        ndis_package_type: p.ndis_package_type
+      })));
+    }
 
     if (debug) {
       debugInfo.processingSteps.push(`Found ${basePackages.length} packages after basic filtering`);
@@ -266,7 +273,7 @@ export default async function handler(req, res) {
 
 /**
  * Calculate how well a package matches the care requirements
- * @param {Object} pkg - Package data
+ * @param {Object} pkg - Package data with requirement information
  * @param {Object} criteria - Care and guest criteria
  * @returns {number} - Match score between 0 and 1
  */
@@ -279,21 +286,63 @@ function calculateCareMatchScore(pkg, criteria) {
     score += 0.4;
   }
 
-  // Care hours compatibility based on package requirements logic
-  if (care_hours === 0) {
-    // No care required - suitable for WS, NDIS SP, Holiday Support
-    if (['WS', 'NDIS_SP', 'HOLIDAY_SUPPORT'].includes(pkg.package_code)) {
-      score += 0.3;
+  // FIXED: Use actual package requirements instead of hardcoded package codes
+  if (pkg.requirement) {
+    const req = pkg.requirement;
+    
+    // HIGH PRIORITY: Perfect match for no-care requirements
+    if (care_hours === 0 && req.requires_no_care === true) {
+      // This is a perfect match - guest needs no care, package requires no care
+      score += 0.5; // Highest bonus
+      console.log(`🎯 PERFECT NO-CARE MATCH for ${pkg.package_code}: Guest needs 0h care, package requires no care`);
     }
-  } else if (care_hours <= 6) {
-    // Up to 6 hours - suitable for WHS, NDIS CSP, Holiday Support Plus
-    if (['WHS', 'WHSP', 'NDIS_CSP', 'HOLIDAY_SUPPORT_PLUS'].includes(pkg.package_code)) {
-      score += 0.3;
+    // Check if package violates no-care requirement
+    else if (care_hours > 0 && req.requires_no_care === true) {
+      // Package requires no care but guest needs care - major penalty
+      score -= 0.8;
+      console.log(`❌ NO-CARE VIOLATION for ${pkg.package_code}: Guest needs ${care_hours}h care but package requires no care`);
+    }
+    // Check care hours range compatibility
+    else if (req.requires_no_care !== true) {
+      // Package allows care, check if it's within range
+      if (req.care_hours_min !== null && care_hours < req.care_hours_min) {
+        score -= 0.3; // Guest needs less care than package minimum
+      } else if (req.care_hours_max !== null && care_hours > req.care_hours_max) {
+        score -= 0.3; // Guest needs more care than package maximum
+      } else {
+        // Care hours are within range
+        score += 0.3;
+      }
+    }
+    
+    // Course requirements matching
+    if (req.requires_course === true && !has_course) {
+      score -= 0.4; // Package requires course but guest doesn't have one
+    } else if (req.requires_course === false && has_course) {
+      score -= 0.2; // Package forbids courses but guest has one
+    } else if (req.compatible_with_course === true || req.requires_course === null) {
+      // Package is course-compatible or neutral
+      score += 0.1;
     }
   } else {
-    // More than 6 hours - suitable for WVHS, HCSP
-    if (['WVHS', 'WVHSP', 'HCSP'].includes(pkg.package_code)) {
-      score += 0.3;
+    // Fallback to old logic for packages without requirements data
+    console.log(`⚠️ Package ${pkg.package_code} has no requirements data, using fallback logic`);
+    
+    if (care_hours === 0) {
+      // No care required - suitable for WS, NDIS SP, Holiday Support
+      if (['WS', 'NDIS_SP', 'HOLIDAY_SUPPORT'].includes(pkg.package_code)) {
+        score += 0.3;
+      }
+    } else if (care_hours <= 6) {
+      // Up to 6 hours - suitable for WHS, NDIS CSP, Holiday Support Plus
+      if (['WHS', 'WHSP', 'NDIS_CSP', 'HOLIDAY_SUPPORT_PLUS'].includes(pkg.package_code)) {
+        score += 0.3;
+      }
+    } else {
+      // More than 6 hours - suitable for WVHS, HCSP
+      if (['WVHS', 'WVHSP', 'HCSP'].includes(pkg.package_code)) {
+        score += 0.3;
+      }
     }
   }
 
@@ -307,7 +356,7 @@ function calculateCareMatchScore(pkg, criteria) {
     }
   }
 
-  // Course compatibility
+  // Course compatibility (secondary check)
   if (has_course) {
     // Holiday packages are more suitable for course participants
     if (pkg.package_code.includes('HOLIDAY') || 
@@ -317,7 +366,16 @@ function calculateCareMatchScore(pkg, criteria) {
   }
 
   // Ensure score stays within bounds
-  return Math.max(0, Math.min(1, score));
+  const finalScore = Math.max(0, Math.min(1, score));
+  
+  console.log(`📊 Score calculation for ${pkg.package_code}:`, {
+    care_hours,
+    requires_no_care: pkg.requirement?.requires_no_care,
+    finalScore,
+    hasRequirement: !!pkg.requirement
+  });
+  
+  return finalScore;
 }
 
 /**

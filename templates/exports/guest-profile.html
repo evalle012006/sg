@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Guest Profile</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .sargood-blue { color: #20485A; }
+        .info-item {
+            margin-bottom: 1rem;
+            page-break-inside: avoid;
+        }
+        .info-label {
+            font-weight: bold;
+            color: #6B7280;
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            margin-bottom: 0.25rem;
+        }
+        .info-value {
+            color: #1F2937;
+            font-size: 1rem;
+        }
+        .section-divider {
+            border-top: 2px solid #E5E7EB;
+            margin: 2rem 0;
+            padding-top: 2rem;
+            page-break-inside: avoid;
+            page-break-after: avoid;
+        }
+        .flag-badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            background-color: #6B7280;
+            color: white;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            margin-right: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+        .flag-badge.complex-care { background-color: #F59E0B; }
+        .flag-badge.banned { background-color: #EF4444; }
+        .flag-badge.outstanding-invoices { background-color: #C026D3; }
+        .flag-badge.specific-room-requirements { background-color: #0EA5E9; }
+        .flag-badge.account-credit { background-color: #10B981; }
+        .flag-badge.deceased { background-color: #374151; }
+        .flag-badge.not-eligible { background-color: #6B7280; }
+        .profile-image {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 3px solid #E5E7EB;
+        }
+        .yes-indicator { 
+            color: #10B981; 
+            font-weight: bold; 
+        }
+        .no-indicator { 
+            color: #EF4444; 
+            font-weight: bold; 
+        }
+        .null-indicator { 
+            color: #6B7280; 
+            font-style: italic; 
+        }
+        .page-break-avoid {
+            page-break-inside: avoid;
+        }
+        .content-section {
+            page-break-inside: avoid;
+            margin-bottom: 2rem;
+        }
+        .content-section {
+            page-break-inside: avoid;
+            margin-bottom: 1rem;
+        }
+        .section-header {
+            page-break-after: avoid;
+            page-break-inside: avoid;
+        }
+        .section-content {
+            page-break-before: avoid;
+        }
+        @media print {
+            .section-divider {
+                page-break-inside: avoid;
+                page-break-after: avoid;
+            }
+            .info-item {
+                page-break-inside: avoid;
+            }
+            .grid {
+                page-break-inside: avoid;
+            }
+            .section-header {
+                page-break-after: avoid;
+                page-break-inside: avoid;
+            }
+            .section-content {
+                page-break-before: avoid;
+            }
+        }
+    </style>
+</head>
+<body class="bg-white text-gray-900">
+    <div class="container mx-auto px-6 py-6">
+        <!-- Header -->
+        <div class="flex items-center mb-6">
+            <img class="h-12 mr-4" src="{{{logo_base64}}}" alt="Sargood on Collaroy">
+            <div>
+                <h1 class="text-2xl font-bold sargood-blue">Guest Profile</h1>
+            </div>
+        </div>
+
+        <!-- Profile Image and Basic Info -->
+        <div class="flex mb-6">
+            <div class="mr-6">
+                {{#if profile_image_url}}
+                <img src="{{profile_image_url}}" alt="Profile Photo" class="w-20 h-20 rounded-full object-cover border-2 border-gray-300">
+                {{else}}
+                <div class="w-20 h-20 rounded-full bg-gray-200 flex items-center justify-center border-2 border-gray-300">
+                    <svg class="w-8 h-8 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+                    </svg>
+                </div>
+                {{/if}}
+            </div>
+            <div class="flex-1">
+                <h2 class="text-xl font-bold sargood-blue mb-3">{{full_name}}</h2>
+                
+                <!-- Flags -->
+                {{#if flags}}
+                <div class="mb-3">
+                    <p class="info-label mb-1">Flags</p>
+                    <div>
+                        {{#each flags}}
+                        <span class="flag-badge {{this}}">{{this}}</span>
+                        {{/each}}
+                    </div>
+                </div>
+                {{/if}}
+                
+                <!-- Basic Information Grid -->
+                <div class="grid grid-cols-3 gap-4 mb-4">
+                    <div class="info-item">
+                        <p class="info-label">Email</p>
+                        <p class="info-value">{{email}}</p>
+                    </div>
+                    <div class="info-item">
+                        <p class="info-label">Phone</p>
+                        <p class="info-value">{{phone_number}}</p>
+                    </div>
+                    <div class="info-item">
+                        <p class="info-label">Gender</p>
+                        <p class="info-value">{{gender}}</p>
+                    </div>
+                    <div class="info-item" style="grid-column: 1 / -1;">
+                        <p class="info-label">Date of Birth</p>
+                        <p class="info-value">{{dob_formatted}}</p>
+                    </div>
+                </div>
+
+                <!-- Address Information on First Page -->
+                <div class="border-t border-gray-200 pt-3 mt-4">
+                    <h3 class="text-base font-semibold sargood-blue mb-3">Address</h3>
+                    <div class="grid grid-cols-3 gap-4">
+                        <div class="info-item" style="grid-column: 1 / -1;">
+                            <p class="info-label">Street Address</p>
+                            <p class="info-value">
+                                {{address.street1}}
+                                {{#if address.street2}}<br>{{address.street2}}{{/if}}
+                            </p>
+                        </div>
+                        <div class="info-item">
+                            <p class="info-label">City</p>
+                            <p class="info-value">{{address.city}}</p>
+                        </div>
+                        <div class="info-item">
+                            <p class="info-label">State/Province</p>
+                            <p class="info-value">{{address.state}}</p>
+                        </div>
+                        <div class="info-item">
+                            <p class="info-label">Postal Code</p>
+                            <p class="info-value">{{address.postal}}</p>
+                        </div>
+                        <div class="info-item">
+                            <p class="info-label">Country</p>
+                            <p class="info-value">{{address.country}}</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Cultural Information on First Page -->
+                <div class="border-t border-gray-200 pt-3 mt-4">
+                    <h3 class="text-base font-semibold sargood-blue mb-3">Cultural Information</h3>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="info-item">
+                            <p class="info-label">Aboriginal or Torres Strait Islander</p>
+                            <p class="info-value">
+                                {{#eq health_info.identify_aboriginal_torres true}}
+                                <span class="yes-indicator">Yes</span>
+                                {{else}}
+                                {{#eq health_info.identify_aboriginal_torres false}}
+                                <span class="no-indicator">No</span>
+                                {{else}}
+                                <span class="null-indicator">Rather not say</span>
+                                {{/eq}}
+                                {{/eq}}
+                            </p>
+                        </div>
+                        
+                        {{#if health_info.language}}
+                        <div class="info-item">
+                            <p class="info-label">Language Spoken at Home</p>
+                            <p class="info-value">{{health_info.language}}</p>
+                        </div>
+                        {{/if}}
+
+                        {{#if health_info.require_interpreter}}
+                        <div class="info-item">
+                            <p class="info-label">Requires Interpreter</p>
+                            <p class="info-value">
+                                {{#if health_info.require_interpreter}}
+                                <span class="yes-indicator">Yes</span>
+                                {{else}}
+                                <span class="no-indicator">No</span>
+                                {{/if}}
+                            </p>
+                        </div>
+                        {{/if}}
+
+                        {{#if health_info.cultural_beliefs}}
+                        <div class="info-item" style="grid-column: 1 / -1;">
+                            <p class="info-label">Cultural Beliefs</p>
+                            <p class="info-value">{{health_info.cultural_beliefs}}</p>
+                        </div>
+                        {{/if}}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Emergency Contact -->
+        <div class="section-divider content-section">
+            <h2 class="text-lg font-bold sargood-blue mb-3 section-header">Emergency Contact</h2>
+            <div class="section-content">
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="info-item">
+                        <p class="info-label">Name</p>
+                        <p class="info-value">{{health_info.emergency_name}}</p>
+                    </div>
+                    <div class="info-item">
+                        <p class="info-label">Phone</p>
+                        <p class="info-value">{{health_info.emergency_mobile_number}}</p>
+                    </div>
+                    <div class="info-item">
+                        <p class="info-label">Email</p>
+                        <p class="info-value">{{health_info.emergency_email}}</p>
+                    </div>
+                    <div class="info-item">
+                        <p class="info-label">Relationship</p>
+                        <p class="info-value">{{health_info.emergency_relationship}}</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- GP/Specialist Information -->
+        <div class="section-divider content-section">
+            <h2 class="text-lg font-bold sargood-blue mb-3 section-header">GP/Specialist Information</h2>
+            <div class="section-content">
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="info-item">
+                        <p class="info-label">Name</p>
+                        <p class="info-value">{{health_info.specialist_name}}</p>
+                    </div>
+                    <div class="info-item">
+                        <p class="info-label">Phone</p>
+                        <p class="info-value">{{health_info.specialist_mobile_number}}</p>
+                    </div>
+                    <div class="info-item" style="grid-column: 1 / -1;">
+                        <p class="info-label">Practice Name</p>
+                        <p class="info-value">{{health_info.specialist_practice_name}}</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- SCI Information -->
+        <div class="section-divider content-section">
+            <h2 class="text-lg font-bold sargood-blue mb-3 section-header">Spinal Cord Injury Information</h2>
+            <div class="section-content">
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="info-item">
+                        <p class="info-label">Year of Injury</p>
+                        <p class="info-value">{{health_info.sci_year}}</p>
+                    </div>
+                    <div class="info-item">
+                        <p class="info-label">Injury Type</p>
+                        <p class="info-value">{{health_info.sci_injury_type}}</p>
+                    </div>
+                    <div class="info-item">
+                        <p class="info-label">ASIA Scale</p>
+                        <p class="info-value">{{health_info.sci_type}}</p>
+                    </div>
+                    {{#if health_info.sci_type_level}}
+                    <div class="info-item">
+                        <p class="info-label">Levels</p>
+                        <p class="info-value">{{formatArray health_info.sci_type_level}}</p>
+                    </div>
+                    {{/if}}
+                    <div class="info-item">
+                        <p class="info-label">Initial Spinal Rehab</p>
+                        <p class="info-value">{{health_info.sci_intial_spinal_rehab}}</p>
+                    </div>
+                    <div class="info-item">
+                        <p class="info-label">Currently Inpatient</p>
+                        <p class="info-value">
+                            {{#eq health_info.sci_inpatient true}}
+                            <span class="yes-indicator">Yes</span>
+                            {{else}}
+                            {{#eq health_info.sci_inpatient false}}
+                            <span class="no-indicator">No</span>
+                            {{else}}
+                            <span class="null-indicator">Not specified</span>
+                            {{/eq}}
+                            {{/eq}}
+                        </p>
+                    </div>
+                    {{#if health_info.sci_other_details}}
+                    <div class="info-item" style="grid-column: 1 / -1;">
+                        <p class="info-label">Other Details</p>
+                        <p class="info-value">{{health_info.sci_other_details}}</p>
+                    </div>
+                    {{/if}}
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="mt-12 pt-6 border-t border-gray-300 text-center">
+            <img class="h-12 mx-auto mb-4" src="{{{logo_footer_base64}}}" alt="Sargood on Collaroy">
+            <p class="text-sm text-gray-600">1 Brissenden Avenue, Collaroy NSW 2097, Australia</p>
+            <p class="text-sm text-gray-600">Ph: 02 8597 0600 | info@sargoodoncollaroy.com.au</p>
+        </div>
+    </div>
+</body>
+</html>

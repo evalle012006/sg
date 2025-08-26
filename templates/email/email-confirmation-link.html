@@ -2,35 +2,127 @@
 <html lang="en-US">
 
 <head>
-  <meta content="text/html; charset=utf-8" http-equiv="Content-Type" />
-  <title>Booking Highlights</title>
-  <meta name="description" content="Booking Highlights Email Template.">
-  <style type="text/css">
-    a:hover {
-      text-decoration: underline !important;
-    }
-  </style>
+    <meta content="text/html; charset=utf-8" http-equiv="Content-Type" />
+    <title>Confirm Your Email - Sargood on Collaroy</title>
+    <meta name="description" content="Email Confirmation Template.">
+    <style type="text/css">
+        a:hover {
+            text-decoration: underline !important;
+        }
+        .cta-button {
+            background: #ffd000;
+            text-decoration: none !important;
+            font-weight: 500;
+            margin-top: 25px;
+            color: #333333 !important;
+            text-transform: uppercase;
+            font-size: 14px;
+            padding: 12px 28px;
+            display: inline-block;
+            border-radius: 50px;
+            border: none;
+        }
+        .welcome-box {
+            background-color: #f0f9ff;
+            border: 1px solid #0ea5e9;
+            border-radius: 8px;
+            padding: 25px;
+            margin: 25px 0;
+            text-align: center;
+        }
+        .confirmation-info {
+            background-color: #f8fafc;
+            border-left: 4px solid #075985;
+            padding: 20px;
+            margin: 25px 0;
+        }
+        .confirmation-info h3 {
+            color: #075985;
+            margin-top: 0;
+            margin-bottom: 15px;
+        }
+        .security-note {
+            background-color: #fff7ed;
+            border: 1px solid #fed7aa;
+            border-radius: 6px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        .security-note .warning {
+            color: #ea580c;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+    </style>
 </head>
 
 <body marginheight="0" topmargin="0" marginwidth="0" style="margin: 0px; background-color: #f2f3f8;" leftmargin="0">
+    <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; padding: 30px;">
+        <h2 style="color: #075985; text-align: center; margin-bottom: 30px;">
+            Welcome to Sargood on Collaroy
+        </h2>
 
-  <div>
-    <h2 style="color: #075985;">Welcome to Sargood on Collaroy</h2>
+        <div class="welcome-box">
+            <h3 style="color: #075985; margin-top: 0;">🎉 We're Glad to Have You Here!</h3>
+            <p style="margin-bottom: 0; font-size: 16px;">
+                {{username}}, thank you for joining our community.
+            </p>
+        </div>
 
-    <p>
-      We're glad to have you here {{username}}!
-    </p>
+        <div class="confirmation-info">
+            <h3>✉️ Confirm Your Email Address</h3>
+            <p>To complete your registration and access all features of your Sargood account, please confirm your email address by clicking the button below.</p>
+            
+            <div style="text-align: center; margin: 20px 0;">
+                <a href="{{confirm_link}}" class="cta-button">
+                    CONFIRM YOUR ACCOUNT
+                </a>
+            </div>
+        </div>
 
-    <p>
-      Click the button below to confirm your
-      email and login.
-    </p>
+        <div style="background-color: #f0f9ff; border-radius: 8px; padding: 20px; margin: 25px 0;">
+            <h4 style="color: #075985; margin-top: 0;">🚀 What's Next?</h4>
+            <p style="color: #666666; margin: 10px 0;">After confirming your email, you'll be able to:</p>
+            <ul style="color: #666666; margin: 0;">
+                <li>Log in to your secure account</li>
+                <li>Access our booking system</li>
+                <li>Manage your personal information</li>
+                <li>Receive important updates and notifications</li>
+            </ul>
+        </div>
 
-    <a href="{{confirm_link}}"
-      style="background:#ffd000;text-decoration:none !important; font-weight:500; margin-top:35px; color:#fff;text-transform:uppercase; font-size:14px;padding:10px 24px;display:inline-block;border-radius:50px;">
-      <span>CONFIRM ACCOUNT</span></a>
+        <div class="security-note">
+            <div class="warning">🔐 Security Information</div>
+            <p style="margin: 0;">
+                This confirmation link will expire in 24 hours for security purposes. 
+                If you didn't create this account, please ignore this email.
+            </p>
+        </div>
 
+        <div style="background-color: #f8fafc; border-top: 2px solid #075985; padding: 20px; margin-top: 30px; border-radius: 6px;">
+            <p style="margin-top: 0; margin-bottom: 15px;">
+                <strong style="color: #075985;">Having Trouble?</strong>
+            </p>
+            <p style="margin: 5px 0;">
+                If the button above doesn't work, you can copy and paste this link into your browser:
+            </p>
+            <p style="margin: 10px 0; font-size: 14px; word-break: break-all; color: #666666;">
+                {{confirm_link}}
+            </p>
+            <p style="margin: 15px 0 0 0; font-size: 14px; color: #666666;">
+                If you continue to experience issues, please contact our support team.
+            </p>
+        </div>
 
+        <p style="margin-top: 30px;">
+            We're excited to help you with all your accommodation needs!
+        </p>
+
+        <p style="margin-top: 20px;">
+            Best regards,<br>
+            <strong style="color: #075985;">The Sargood on Collaroy Team</strong>
+        </p>
+    </div>
 </body>
 
 </html>

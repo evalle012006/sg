@@ -109,7 +109,6 @@ const QUESTION_KEYS = {
     CARE_REQUIREMENTS_DETAILS: 'care-requirements-details',
     OVERNIGHT_CARE_REQUIRED: 'overnight-care-required',
     WHEN_DO_YOU_REQUIRE_CARE: 'when-do-you-require-care', // Care schedule question
-    REQUIRE_PERSONAL_CARE: 'do-you-require-assistance-with-personal-care', // Personal care assistance
     
     // Living situation questions for NDIS package filtering
     LIVING_SITUATION: 'living-situation',
@@ -382,7 +381,7 @@ function extractCareScheduleData(qaPairs) {
  * @returns {boolean} - True if guest requires care
  */
 function requiresPersonalCare(qaPairs) {
-    const personalCareQA = findByQuestionKey(qaPairs, QUESTION_KEYS.REQUIRE_PERSONAL_CARE);
+    const personalCareQA = findByQuestionKey(qaPairs, QUESTION_KEYS.ASSISTANCE_WITH_PERSONAL_CARE);
     
     if (!personalCareQA || !personalCareQA.answer) {
         return false;

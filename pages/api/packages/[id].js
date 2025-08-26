@@ -41,6 +41,17 @@ export default async function handler(req, res) {
         packageData.ndis_line_items = [];
       }
 
+      // Ensure ndis_line_items have the new fields with defaults
+      packageData.ndis_line_items = packageData.ndis_line_items.map(item => ({
+        sta_package: item.sta_package || '',
+        line_item: item.line_item || '',
+        price_per_night: item.price_per_night || 0,
+        rate_type: item.rate_type || '',
+        rate_category: item.rate_category || 'day',
+        line_item_type: item.line_item_type || '',
+        care_time: item.care_time || ''
+      }));
+
       return res.status(200).json({
         success: true,
         package: packageData
@@ -82,10 +93,10 @@ export default async function handler(req, res) {
 
       if (funder === 'NDIS') {
         // Validate NDIS-specific fields
-        if (!ndis_package_type || !['sta', 'holiday'].includes(ndis_package_type)) {
+        if (!ndis_package_type || !['sta', 'holiday', 'holiday-plus'].includes(ndis_package_type)) {
           return res.status(400).json({
             success: false,
-            error: 'Valid NDIS package type is required (sta or holiday)'
+            error: 'Valid NDIS package type is required (sta, holiday, or holiday-plus)'
           });
         }
 
@@ -96,15 +107,17 @@ export default async function handler(req, res) {
           });
         }
 
-        // Validate line items
+        // Validate line items with new fields
         for (let i = 0; i < ndis_line_items.length; i++) {
           const item = ndis_line_items[i];
+          
           if (!item.line_item || !item.line_item.trim()) {
             return res.status(400).json({
               success: false,
               error: `Line item ${i + 1}: Line item description is required`
             });
           }
+          
           if (typeof item.price_per_night !== 'number' || item.price_per_night < 0) {
             return res.status(400).json({
               success: false,
@@ -112,16 +125,54 @@ export default async function handler(req, res) {
             });
           }
 
-          if (!item.rate_type || !['weekday', 'saturday', 'sunday', 'public_holiday'].includes(item.rate_type)) {
+          if (item.rate_type && !['', 'weekday', 'saturday', 'sunday', 'public_holiday'].includes(item.rate_type)) {
             return res.status(400).json({
               success: false,
-              error: `Line item ${i + 1}: Valid rate type is required (weekday, saturday, sunday, holiday)`
+              error: `Line item ${i + 1}: Valid rate type is required (blank for all days, weekday, saturday, sunday, public_holiday)`
+            });
+          }
+
+          // Validate new fields
+          if (!item.rate_category || !['day', 'hour'].includes(item.rate_category)) {
+            return res.status(400).json({
+              success: false,
+              error: `Line item ${i + 1}: Valid rate category is required (day or hour)`
+            });
+          }
+
+          if (item.line_item_type && !['', 'care', 'course', 'room', 'group_activities', 'sleep_over'].includes(item.line_item_type)) {
+            return res.status(400).json({
+              success: false,
+              error: `Line item ${i + 1}: Valid line item type is required (blank, care, course, room, group_activities, or sleep_over)`
+            });
+          }
+
+          if (item.care_time && !['', 'morning', 'afternoon', 'evening'].includes(item.care_time)) {
+            return res.status(400).json({
+              success: false,
+              error: `Line item ${i + 1}: Valid care time is required (blank, morning, afternoon, or evening)`
+            });
+          }
+
+          // If line_item_type is not 'care', care_time should be empty
+          if (item.line_item_type !== 'care' && item.care_time) {
+            return res.status(400).json({
+              success: false,
+              error: `Line item ${i + 1}: Care time can only be set when line item type is 'care'`
             });
           }
         }
 
         updateData.ndis_package_type = ndis_package_type;
-        updateData.ndis_line_items = ndis_line_items;
+        updateData.ndis_line_items = ndis_line_items.map(item => ({
+          sta_package: item.sta_package || '',
+          line_item: item.line_item || '',
+          price_per_night: item.price_per_night || 0,
+          rate_type: item.rate_type || '',
+          rate_category: item.rate_category || 'day',
+          line_item_type: item.line_item_type || '',
+          care_time: item.care_time || ''
+        }));
         updateData.price = null; // NDIS packages don't have direct prices
       } else {
         // Non-NDIS package

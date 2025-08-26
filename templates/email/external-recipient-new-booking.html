@@ -3,66 +3,221 @@
 
 <head>
     <meta content="text/html; charset=utf-8" http-equiv="Content-Type" />
-    <title>Reset Password Email Template</title>
-    <meta name="description" content="Reset Password Email Template.">
+    <title>New Booking Request - Sargood on Collaroy</title>
+    <meta name="description" content="External New Booking Email Template.">
     <style type="text/css">
         a:hover {
             text-decoration: underline !important;
+        }
+        .booking-notification {
+            background-color: #f0f9ff;
+            border: 1px solid #0ea5e9;
+            border-radius: 8px;
+            padding: 25px;
+            margin: 25px 0;
+        }
+        .booking-notification h3 {
+            color: #075985;
+            margin-top: 0;
+            margin-bottom: 15px;
+        }
+        .booking-details {
+            background-color: #f8fafc;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        .booking-details h3 {
+            color: #075985;
+            margin-top: 0;
+            margin-bottom: 15px;
+        }
+        .detail-item {
+            display: flex;
+            margin: 10px 0;
+            padding: 8px 12px;
+            background-color: #ffffff;
+            border-radius: 4px;
+            border-left: 4px solid #ffd000;
+        }
+        .detail-label {
+            font-weight: 600;
+            color: #374151;
+            min-width: 140px;
+            display: inline-block;
+        }
+        .detail-value {
+            color: #6b7280;
+            flex: 1;
+        }
+        .important-note {
+            background-color: #fff7ed;
+            border: 1px solid #fed7aa;
+            border-radius: 6px;
+            padding: 20px;
+            margin: 25px 0;
+        }
+        .important-note h4 {
+            color: #ea580c;
+            margin-top: 0;
+            margin-bottom: 15px;
+        }
+        .cta-button {
+            background: #075985;
+            text-decoration: none !important;
+            font-weight: 500;
+            margin: 15px 5px;
+            color: #ffffff !important;
+            text-transform: uppercase;
+            font-size: 14px;
+            padding: 12px 24px;
+            display: inline-block;
+            border-radius: 50px;
+            border: none;
+        }
+        .contact-info {
+            background-color: #f8fafc;
+            border-top: 2px solid #075985;
+            padding: 20px;
+            margin-top: 30px;
+            border-radius: 6px;
+        }
+        .footer-links {
+            text-align: center;
+            margin: 25px 0;
+            padding: 20px;
+            background-color: #f8f9fa;
+            border-radius: 8px;
         }
     </style>
 </head>
 
 <body marginheight="0" topmargin="0" marginwidth="0" style="margin: 0px; background-color: #f2f3f8;" leftmargin="0">
-    <div>
-        <p>Hi,</p>
-        <p>We have received a booking request from {{guest_name}}.</p>
+    <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; padding: 30px;">
+        <h2 style="color: #075985; text-align: center; margin-bottom: 30px;">
+            New Booking Request Notification
+        </h2>
 
-        <p>The booking request details are:</p>
-        <p><strong>Name: </strong>{{guest_name}}</p>
-        <p><strong>Email: </strong>{{guest_email}}</p>
-        <p><strong>Phone: </strong>{{guest_phone}}</p>
+        <p>Hi there,</p>
 
-        <p><strong>Arrival: </strong>{{check_in_date}}</p>
-        <p><strong>Departure: </strong>{{check_out_date}}</p>
+        <div class="booking-notification">
+            <h3>📋 Booking Request Received</h3>
+            <p style="margin-bottom: 0;">
+                We have received a new booking request from <strong>{{guest_name}}</strong> that requires your attention and coordination.
+            </p>
+        </div>
 
-        {{#if funder}}
-            <p><strong>Funder: </strong>{{funder}}</p>
-        {{/if}}
+        <div class="booking-details">
+            <h3>👤 Guest Details</h3>
+            
+            <div class="detail-item">
+                <div class="detail-label">🏷️ Name:</div>
+                <div class="detail-value">{{guest_name}}</div>
+            </div>
+            
+            <div class="detail-item">
+                <div class="detail-label">✉️ Email:</div>
+                <div class="detail-value">{{guest_email}}</div>
+            </div>
+            
+            <div class="detail-item">
+                <div class="detail-label">📞 Phone:</div>
+                <div class="detail-value">{{guest_phone}}</div>
+            </div>
+        </div>
 
-        <p>Link to Terms and Conditions including Cancellation Policy: &nbsp;
-            <a href="https://sargoodoncollaroy.com/terms-and-conditions/">Terms and Conditions | Sargood on Collaroy</a>
+        <div class="booking-details">
+            <h3>📅 Requested Stay Details</h3>
+            
+            <div class="detail-item">
+                <div class="detail-label">📅 Arrival Date:</div>
+                <div class="detail-value"><strong>{{check_in_date}}</strong></div>
+            </div>
+            
+            <div class="detail-item">
+                <div class="detail-label">📅 Departure Date:</div>
+                <div class="detail-value"><strong>{{check_out_date}}</strong></div>
+            </div>
+            
+            {{#if funder}}
+            <div class="detail-item">
+                <div class="detail-label">💰 Funder:</div>
+                <div class="detail-value">{{funder}}</div>
+            </div>
+            {{/if}}
+        </div>
+
+        <div class="important-note">
+            <h4>💼 Next Steps Required</h4>
+            <p style="margin: 5px 0 15px 0;">
+                Please ensure that appropriate funding arrangements are in place and available for the requested dates. 
+                We recommend confirming funding availability and discussing any specific requirements with the guest.
+            </p>
+            
+            <div style="background-color: #ffffff; padding: 15px; border-radius: 4px; margin: 15px 0;">
+                <p style="margin: 0; font-size: 14px; color: #666666;">
+                    <strong>Important:</strong> Please verify funding capacity and contact us immediately if there 
+                    are any concerns about funding availability or special arrangements needed.
+                </p>
+            </div>
+        </div>
+
+        <div style="background-color: #f0f9ff; border-radius: 8px; padding: 20px; margin: 25px 0;">
+            <h4 style="color: #075985; margin-top: 0;">📋 Review Process</h4>
+            <p style="color: #666666; margin: 10px 0;">As part of our standard procedure, this booking request will undergo:</p>
+            <ul style="color: #666666; margin: 10px 0;">
+                <li>Eligibility assessment and verification</li>
+                <li>Funding and payment arrangement confirmation</li>
+                <li>Accommodation and care needs evaluation</li>
+                <li>Final booking confirmation and scheduling</li>
+            </ul>
+        </div>
+
+        <div class="footer-links">
+            <h4 style="color: #075985; margin-top: 0;">📚 Important Information</h4>
+            <p style="margin: 10px 0;">
+                Please ensure all parties are aware of our terms and conditions, including our cancellation policy.
+            </p>
+            <a href="https://sargoodoncollaroy.com/terms-and-conditions/" 
+               style="color: #075985; text-decoration: underline;" target="_blank">
+                📄 View Terms and Conditions | Sargood on Collaroy
+            </a>
+        </div>
+
+        <div class="contact-info">
+            <p style="margin-top: 0; margin-bottom: 15px;">
+                <strong style="color: #075985;">Questions or Concerns?</strong>
+            </p>
+            <p style="margin: 5px 0;">
+                If you have any questions about this booking request, funding arrangements, or need to discuss special requirements:
+            </p>
+            <p style="margin: 15px 0 5px 0;">
+                <strong>📞 Phone:</strong> 02 8597 0600
+            </p>
+            <p style="margin: 5px 0;">
+                <strong>✉️ Email:</strong> <a href="mailto:info@sargoodoncollaroy.com.au" style="color: #075985;">info@sargoodoncollaroy.com.au</a>
+            </p>
+            <p style="margin: 15px 0 0 0; font-size: 14px; color: #666666;">
+                Our team is available to coordinate with all parties to ensure a smooth booking process.
+            </p>
+        </div>
+
+        <p style="margin-top: 30px;">
+            Thank you for your ongoing partnership in providing exceptional care and accommodation services.
         </p>
 
-        <p>Kind Regards,</p>
+        <p style="margin-top: 20px;">
+            Kind regards,<br>
+            <strong style="color: #075985;">The Sargood Team</strong>
+        </p>
 
-        <p><strong>Sargood Team</strong></p>
+        <div style="text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px solid #e5e7eb; font-size: 12px; color: #6b7280;">
+            <p style="margin: 0;">
+                📍 Sargood on Collaroy | 🌐 <a href="https://sargoodoncollaroy.com" style="color: #075985;">sargoodoncollaroy.com</a>
+            </p>
+        </div>
     </div>
 </body>
 
 </html>
-
-<!-- Hi < funder contact name>,
-
-We have received a booking request from <guest name>, <NDIS number>.
-
-The booking request details are;
-
-Arrival <arrival dd/mm/yy>
-
-Departure <departure dd/mm/yy)
-
-<Room Type>
-
-<Package Type>
-
-Rate per night <Room Package Rate ($)>
-
-<Reason for Stay>
-
-Link to Terms and Conditions including Cancellation Policy: https://sargoodoncollaroy.com/terms-and-conditions/
-
-Pease ensure that funds are available or contact us to discuss further.
-
-Kind Regards,
-
-The Sargood Team -->

@@ -5,7 +5,6 @@ import { v4 as uuidv4 } from 'uuid';
 import { useDispatch } from "react-redux";
 import { bookingRequestFormActions } from '../../store/bookingRequestFormSlice';
 import { findByQuestionKey, QUESTION_KEYS, questionHasKey } from "../../services/booking/question-helper";
-import { validateCourseStayDates } from "../../utilities/bookingRequestForm";
 
 const QuestionPage = ({ 
     currentPage, 
@@ -24,7 +23,11 @@ const QuestionPage = ({
     enhancedFormData = {},
     stayDates = { checkInDate: null, checkOutDate: null },
     courseOffers = [],
-    courseOffersLoaded = false
+    courseOffersLoaded = false,
+    onCareQuestionUpdate = null,
+    isCareRelatedQuestion = null,
+    selectedCourseOfferId = null,
+    validateDatesWithExistingAPI = null,
 }) => {
     const dispatch = useDispatch();
     const [updatedCurrentPage, setUpdatedCurrentPage] = useState();
@@ -87,8 +90,6 @@ const QuestionPage = ({
         if (newAnswer?.toLowerCase() !== 'yes') {
             return null;
         }
-        
-        console.log('🎓 Real-time course offer validation triggered');
         
         try {
             // Get the guest ID for fetching course offers
@@ -181,7 +182,7 @@ const QuestionPage = ({
         
         if (!pageData || !pageData.Sections) return localFilterState;
         
-        console.log('Calculating local filters for page:', pageData.title);
+        // console.log('Calculating local filters for page:', pageData.title);
         
         // Check answers in current page
         for (const section of pageData.Sections) {
@@ -281,25 +282,25 @@ const QuestionPage = ({
             // For questions moved from QaPairs, we need to find the original question ID
             let questionId = question.question_id || question.id;
             
-            // FIXED: For moved questions (fromQa = true), find the original question ID from QaPairs
+            // For moved questions (fromQa = true), find the original question ID from QaPairs
             if (question.fromQa && currentPage.Sections) {
                 const currentSection = currentPage.Sections[secIdx];
                 if (currentSection && currentSection.QaPairs) {
                     const correspondingQaPair = currentSection.QaPairs.find(qa => qa.id === question.id);
                     if (correspondingQaPair && correspondingQaPair.question_id) {
                         questionId = correspondingQaPair.question_id;
-                        console.log(`🔧 Using original question ID ${questionId} instead of QaPair ID ${question.id} for dependency checking`);
+                        // console.log(`🔧 Using original question ID ${questionId} instead of QaPair ID ${question.id} for dependency checking`);
                     }
                 }
             }
             
             const questionKey = question.question_key;
 
-            console.log(`🔍 Checking dependencies for question: ${question.question}`);
-            console.log("Question ID for dependency checking:", questionId);
-            console.log("Current question key:", questionKey);
+            // console.log(`🔍 Checking dependencies for question: ${question.question}`);
+            // console.log("Question ID for dependency checking:", questionId);
+            // console.log("Current question key:", questionKey);
             
-            // FIXED: Search through ALL pages (not just current page) to see if any questions depend on this one
+            // Search through ALL pages (not just current page) to see if any questions depend on this one
             return allPages.some(page =>
                 page.Sections?.some(section =>
                     section.Questions?.some(otherQuestion =>
@@ -312,9 +313,9 @@ const QuestionPage = ({
             );
         };
         
-        // ENHANCED: Add real-time course validation
+        // Add real-time course validation
         if (question && questionHasKey(question, QUESTION_KEYS.COURSE_OFFER_QUESTION) && field === 'answer') {
-            console.log('🎓 Course offer question detected, running real-time validation...');
+            // console.log('🎓 Course offer question detected, running real-time validation...');
             
             try {
                 const courseValidationError = await validateCourseOfferInRealTime(question, value);
@@ -322,23 +323,67 @@ const QuestionPage = ({
                     error = courseValidationError;
                     console.log('🎓 Course validation error:', courseValidationError);
                 } else {
-                    console.log('🎓 Course validation passed');
+                    // console.log('🎓 Course validation passed');
                 }
             } catch (validationError) {
                 console.error('🎓 Course validation failed:', validationError);
                 error = 'Unable to verify course offers at this time';
             }
         }
-        
-        // FIXED: Don't skip update if this question affects dependencies, even if value seems same
-        if (isSameValue && isSameError && !equipments.length && !affectsOtherQuestions()) {
-            console.log(`⏭️ Skipping update - same value and no dependency impact for question: ${question?.question}`);
-            return;
+
+        if (question && questionHasKey(question, QUESTION_KEYS.CHECK_IN_OUT_DATE) && field === 'answer' && selectedCourseOfferId && validateDatesWithExistingAPI) {
+            console.log('📅 Check-in/Check-out date question detected with course offer, validating...');
+            
+            try {
+                let checkInDate = null;
+                let checkOutDate = null;
+                
+                if (value && typeof value === 'string' && value.includes(' - ')) {
+                    const dates = value.split(' - ');
+                    checkInDate = dates[0].trim();
+                    checkOutDate = dates[1].trim();
+                }
+                
+                if (checkInDate && checkOutDate) {
+                    console.log('📅 Validating dates with existing course-offers API:', { 
+                        checkInDate, 
+                        checkOutDate, 
+                        courseOfferId: selectedCourseOfferId 
+                    });
+                    
+                    const validation = await validateDatesWithExistingAPI(checkInDate, checkOutDate, selectedCourseOfferId);
+                    if (!validation.valid) {
+                        error = validation.message || 'Selected dates are not compatible with your course offer';
+                        console.log('📅 Course offer date validation failed:', validation.message);
+                    } else {
+                        console.log('📅 Course offer date validation passed for course:', validation.courseOffer?.courseName);
+                    }
+                }
+            } catch (validationError) {
+                console.error('📅 Course offer date validation error:', validationError);
+                error = 'Unable to validate dates against course offer. Please try again.';
+            }
         }
 
-        // ENHANCED: Log when we're updating a question that affects dependencies
-        if (affectsOtherQuestions()) {
-            console.log(`🔗 Updating question with dependencies: "${question?.question}" from "${currentValue}" to "${value}"`);
+        const isCareQuestion = question && (
+            questionHasKey(question, QUESTION_KEYS.WHEN_DO_YOU_REQUIRE_CARE) ||
+            questionHasKey(question, QUESTION_KEYS.DO_YOU_REQUIRE_ASSISTANCE_WITH_PERSONAL_CARE) ||
+            question.question_key === 'do-you-require-assistance-with-personal-care' ||
+            question.question?.toLowerCase().includes('personal care')
+        );
+
+        // Check if this is a "No" answer to personal care question
+        const isPersonalCareNoAnswer = question && 
+            (questionHasKey(question, QUESTION_KEYS.DO_YOU_REQUIRE_ASSISTANCE_WITH_PERSONAL_CARE) || 
+            question.question_key === 'do-you-require-assistance-with-personal-care' ||
+            question.question?.toLowerCase().includes('personal care')) &&
+            field === 'answer' && 
+            (value === 'No' || value === 'no');
+        
+        // Don't skip update if this question affects dependencies, even if value seems same
+        if (isSameValue && isSameError && !equipments.length && !affectsOtherQuestions()) {
+            // console.log(`⏭️ Skipping update - same value and no dependency impact for question: ${question?.question}`);
+            return;
         }
 
         let list = currentPage.Sections.map((section, index) => {
@@ -460,10 +505,24 @@ const QuestionPage = ({
                                 qTemp.dirty = true;
                                 qTemp[field] = value;
                             }
-                        } else if (['card-selection', 'card-selection-multi', 'horizontal-card', 'horizontal-card-multi', 'package-selection', 'package-selection-multi'].includes(qTemp.type)) {
+                        } else if (['card-selection', 'card-selection-multi', 'horizontal-card', 'horizontal-card-multi'].includes(qTemp.type)) {
                             qTemp.dirty = true;
                             qTemp[field] = value;
-                            console.log('Card/Package selection updated:', { type: qTemp.type, field, value }); // Debug log
+                        } else if (['package-selection', 'package-selection-multi'].includes(qTemp.type)) {
+                            // CRITICAL FIX: Preserve oldAnswer when updating package selection
+                            if (field === 'answer' && qTemp.answer !== value && qTemp.oldAnswer === undefined) {
+                                qTemp.oldAnswer = qTemp.answer;
+                            }
+                            
+                            qTemp.dirty = true;
+                            qTemp[field] = value;
+                            console.log('Package selection updated:', { 
+                                type: qTemp.type, 
+                                field, 
+                                value, 
+                                oldAnswer: qTemp.oldAnswer,
+                                previousAnswer: qTemp.answer 
+                            }); // Enhanced debug log
                         } else {
                             qTemp.dirty = true;
                             qTemp[field] = value;
@@ -495,18 +554,40 @@ const QuestionPage = ({
 
         setUpdatedCurrentPage(updatedPageData);
         
-        // ENHANCED: Force immediate dependency refresh for questions that affect other questions
-        if (affectsOtherQuestions()) {
-            console.log('🔄 Question affects dependencies, forcing immediate update');
-            // Clear any pending timeouts and force immediate update
-            Object.values(updateTimeoutRef.current).forEach(timeout => {
-                if (timeout) clearTimeout(timeout);
+        // If this is a care-related question, notify parent component
+        if (isCareQuestion || isPersonalCareNoAnswer) {
+            console.log('🏥 Care-related question detected:', {
+                questionKey: question.question_key,
+                question: question.question,
+                newValue: value,
+                isCareQuestion,
+                isPersonalCareNoAnswer
             });
             
-            // Use a very short timeout to allow React to process the state update
-            setTimeout(() => {
-                updatePageData(updatedPageData.Sections, currentPage.id);
-            }, 10);
+            // Call the force update function if it's passed as a prop
+            if (typeof updateAndDispatchPageDataImmediate === 'function') {
+                setTimeout(() => {
+                    // Trigger immediate update for care questions
+                    updateAndDispatchPageDataImmediate(updatedPageData.Sections, currentPage.id);
+                    
+                    // Additional callback for care-specific updates if provided
+                    if (typeof onCareQuestionUpdate === 'function') {
+                        onCareQuestionUpdate(question, value);
+                    }
+                }, 50);
+            }
+        } else {
+            // Enhanced logic for questions that affect dependencies
+            if (affectsOtherQuestions()) {
+                console.log('🔄 Question affects dependencies, forcing immediate update');
+                Object.values(updateTimeoutRef.current).forEach(timeout => {
+                    if (timeout) clearTimeout(timeout);
+                });
+                
+                setTimeout(() => {
+                    updatePageData(updatedPageData.Sections, currentPage.id);
+                }, 10);
+            }
         }
     };
 
@@ -546,7 +627,7 @@ const QuestionPage = ({
             );
             
             if (hasDependencyQuestions) {
-                console.log('🔗 Update involves dependency questions, ensuring immediate processing');
+                // console.log('🔗 Update involves dependency questions, ensuring immediate processing');
                 updateAndDispatchPageDataImmediate?.(updatedCurrentPage.Sections, currentPage.id) || updatePageData(updatedCurrentPage.Sections);
             } else {
                 updatePageData(updatedCurrentPage.Sections);
@@ -674,7 +755,13 @@ const QuestionPage = ({
                                                     }
                                                     
                                                     // Allow specific question types that might not need question text
-                                                    const questionsTypesWithoutText = ['simple-checkbox', 'checkbox'];
+                                                    const questionsTypesWithoutText = [
+                                                        'simple-checkbox', 
+                                                        'checkbox',
+                                                        'goal-table',
+                                                        'care-table',
+                                                        'package-selection'
+                                                    ];
                                                     if (questionsTypesWithoutText.includes(question.type)) {
                                                         return true;
                                                     }
@@ -1025,6 +1112,19 @@ const QuestionPage = ({
                                                                     <span className="font-bold">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500  ml-1 font-bold">*</span>}
                                                                 </div>
+                                                                {selectedCourseOfferId && questionHasKey(q, QUESTION_KEYS.CHECK_IN_OUT_DATE) && (
+                                                                    <div className="mb-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                                                                        <div className="flex items-start gap-2">
+                                                                            <svg className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                                                                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                                                                            </svg>
+                                                                            <div className="text-sm">
+                                                                                <p className="font-medium text-amber-800">Course Date Requirements</p>
+                                                                                <p className="text-amber-700">Your selected dates must be compatible with the course offer requirements. The system will validate your selection automatically.</p>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                )}
                                                                 <div className="flex align-middle mt-2">
                                                                     <GetField key={q.id} type='date' 
                                                                         name={q.question == "Check In Date" ? "checkinDate" : q.question == "Check Out Date" ? "checkoutDate" : null}
@@ -1234,6 +1334,13 @@ const QuestionPage = ({
                                                     )}
                                                     {(q.type === 'radio' && !q.hidden) && (
                                                         <React.Fragment>
+                                                            {questionHasKey(q, QUESTION_KEYS.COURSE_OFFER_QUESTION) && console.log('🎓 Rendering course offer question:', {
+                                                                question: q.question,
+                                                                answer: q.answer,
+                                                                prePopulated: q.prePopulated,
+                                                                protected: q.protected,
+                                                                options: options?.map(opt => opt.label)
+                                                            })}
                                                             <div className="flex flex-col w-full flex-1" id={q.id}>
                                                                 {q.label && <span className="font-bold text-sargood-blue text-xl mb-2">{q.label}</span>}
                                                                 <div className="text-xs flex flex-row">
@@ -1361,6 +1468,7 @@ const QuestionPage = ({
                                                     )}
                                                     {(q.type === 'goal-table' && !q.hidden) && (
                                                         <React.Fragment>
+                                                            {console.log("Show goal table...")}
                                                             <div className="flex flex-col w-full flex-1">
                                                                 {q.label && <span className="font-bold text-sargood-blue text-xl mb-2">{q.label}</span>}
                                                                 <div className="text-xs flex flex-row">
@@ -1405,6 +1513,20 @@ const QuestionPage = ({
                                                                     <span className="font-bold">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
                                                                 </div>
+
+                                                                {selectedCourseOfferId && questionHasKey(q, QUESTION_KEYS.WHICH_COURSE) && (
+                                                                    <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                                                                        <div className="flex items-center gap-2">
+                                                                            <svg className="w-5 h-5 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
+                                                                                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                                                                            </svg>
+                                                                            <div className="text-sm">
+                                                                                <p className="font-medium text-blue-800">Course Pre-selected</p>
+                                                                                <p className="text-blue-700">This course was automatically selected based on your booking choice. You can change this selection if needed.</p>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                )}
                                                                 
                                                                 <GetField 
                                                                     key={q.id} 
@@ -1422,6 +1544,7 @@ const QuestionPage = ({
                                                                     stayDates={stayDates} // Add this line
                                                                     courseOffers={courseOffers}
                                                                     courseOffersLoaded={courseOffersLoaded}
+                                                                    localFilterState={localFilterState}
                                                                     onChange={(value) => handleCardSelectionFieldChange(value, idx, index)} 
                                                                 />
                                                             </div>
@@ -1453,6 +1576,7 @@ const QuestionPage = ({
                                                                     stayDates={stayDates}
                                                                     courseOffers={courseOffers}
                                                                     courseOffersLoaded={courseOffersLoaded}
+                                                                    localFilterState={localFilterState}
                                                                     onChange={(value) => handleCardSelectionFieldChange(value, idx, index)} 
                                                                 />
                                                             </div>
@@ -1483,6 +1607,7 @@ const QuestionPage = ({
                                                                     stayDates={stayDates}
                                                                     courseOffers={courseOffers}
                                                                     courseOffersLoaded={courseOffersLoaded}
+                                                                    localFilterState={localFilterState}
                                                                     onChange={(value) => handleCardSelectionFieldChange(value, idx, index)} 
                                                                 />
                                                             </div>
@@ -1514,6 +1639,7 @@ const QuestionPage = ({
                                                                     stayDates={stayDates} 
                                                                     courseOffers={courseOffers}
                                                                     courseOffersLoaded={courseOffersLoaded}
+                                                                    localFilterState={localFilterState}
                                                                     onChange={(value) => handleCardSelectionFieldChange(value, idx, index)} 
                                                                 />
                                                             </div>

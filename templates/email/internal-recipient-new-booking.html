@@ -3,90 +3,237 @@
 
 <head>
     <meta content="text/html; charset=utf-8" http-equiv="Content-Type" />
-    <title>Reset Password Email Template</title>
-    <meta name="description" content="Reset Password Email Template.">
+    <title>New Booking Request - Internal Alert</title>
+    <meta name="description" content="Internal New Booking Email Template.">
     <style type="text/css">
         a:hover {
             text-decoration: underline !important;
+        }
+        .alert-header {
+            background: linear-gradient(135deg, #075985 0%, #0ea5e9 100%);
+            color: white;
+            padding: 25px;
+            text-align: center;
+            border-radius: 8px 8px 0 0;
+            margin-bottom: 0;
+        }
+        .alert-content {
+            background-color: #ffffff;
+            border: 2px solid #075985;
+            border-top: none;
+            border-radius: 0 0 8px 8px;
+            padding: 25px;
+            margin-top: 0;
+        }
+        .guest-details {
+            background-color: #f8fafc;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        .guest-details h3 {
+            color: #075985;
+            margin-top: 0;
+            margin-bottom: 15px;
+        }
+        .detail-item {
+            display: flex;
+            margin: 10px 0;
+            padding: 8px 12px;
+            background-color: #ffffff;
+            border-radius: 4px;
+            border-left: 4px solid #0ea5e9;
+        }
+        .detail-label {
+            font-weight: 600;
+            color: #374151;
+            min-width: 180px;
+            display: inline-block;
+        }
+        .detail-value {
+            color: #6b7280;
+            flex: 1;
+        }
+        .additional-info {
+            background-color: #fef3c7;
+            border: 1px solid #f59e0b;
+            border-radius: 6px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        .additional-info h4 {
+            color: #f59e0b;
+            margin-top: 0;
+            margin-bottom: 10px;
+        }
+        .service-list {
+            background-color: #f0f9ff;
+            border: 1px solid #0ea5e9;
+            border-radius: 6px;
+            padding: 15px;
+            margin: 15px 0;
+        }
+        .service-list h5 {
+            color: #075985;
+            margin-top: 0;
+            margin-bottom: 10px;
+        }
+        .service-list ul {
+            margin: 0;
+            color: #666666;
+        }
+        .service-list li {
+            margin: 5px 0;
+        }
+        .priority-action {
+            background-color: #fff7ed;
+            border: 2px solid #fed7aa;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 25px 0;
+            text-align: center;
+        }
+        .priority-action .urgent {
+            color: #ea580c;
+            font-weight: 700;
+            font-size: 16px;
+            margin-bottom: 10px;
         }
     </style>
 </head>
 
 <body marginheight="0" topmargin="0" marginwidth="0" style="margin: 0px; background-color: #f2f3f8;" leftmargin="0">
-    <div>
-        <p>Hi,</p>
-        <p>We have received a booking request from {{guest_name}}.</p>
+    <div style="max-width: 650px; margin: 0 auto; background-color: #f2f3f8; padding: 20px;">
+        
+        <div class="alert-header">
+            <h2 style="margin: 0; font-size: 24px;">
+                📋 New Booking Request Received
+            </h2>
+            <p style="margin: 10px 0 0 0; font-size: 16px; opacity: 0.9;">
+                Requires review and processing
+            </p>
+        </div>
 
-        <p>The booking request details are:</p>
-        <p><strong>Name: </strong>{{guest_name}}</p>
-        <p><strong>Email: </strong>{{guest_email}}</p>
-        <p><strong>Phone: </strong>{{guest_phone}}</p>
+        <div class="alert-content">
+            <p style="font-size: 16px; color: #075985; font-weight: 500;">Hi Team,</p>
+            <p>We have received a new booking request that requires your attention and processing.</p>
 
-        <p><strong>Alternate Contact Name: </strong>{{alternate_contact_name}}</p>
-        <p><strong>Alternate Contact Number: </strong>{{alternate_contact_number}}</p>
+            <div class="guest-details">
+                <h3>👤 Guest Information</h3>
+                
+                <div class="detail-item">
+                    <div class="detail-label">🏷️ Name:</div>
+                    <div class="detail-value">{{guest_name}}</div>
+                </div>
+                
+                <div class="detail-item">
+                    <div class="detail-label">✉️ Email:</div>
+                    <div class="detail-value">{{guest_email}}</div>
+                </div>
+                
+                <div class="detail-item">
+                    <div class="detail-label">📞 Phone:</div>
+                    <div class="detail-value">{{guest_phone}}</div>
+                </div>
+                
+                {{#if alternate_contact_name}}
+                <div class="detail-item">
+                    <div class="detail-label">👥 Alt Contact Name:</div>
+                    <div class="detail-value">{{alternate_contact_name}}</div>
+                </div>
+                {{/if}}
+                
+                {{#if alternate_contact_number}}
+                <div class="detail-item">
+                    <div class="detail-label">📱 Alt Contact Number:</div>
+                    <div class="detail-value">{{alternate_contact_number}}</div>
+                </div>
+                {{/if}}
+            </div>
 
-        <p><strong>Arrival: </strong>{{check_in_date}}</p>
-        <p><strong>Departure: </strong>{{check_out_date}}</p>
+            <div class="guest-details">
+                <h3>📅 Booking Details</h3>
+                
+                <div class="detail-item">
+                    <div class="detail-label">📅 Check-in Date:</div>
+                    <div class="detail-value"><strong>{{check_in_date}}</strong></div>
+                </div>
+                
+                <div class="detail-item">
+                    <div class="detail-label">📅 Check-out Date:</div>
+                    <div class="detail-value"><strong>{{check_out_date}}</strong></div>
+                </div>
+                
+                {{#if funder}}
+                <div class="detail-item">
+                    <div class="detail-label">💰 Funder:</div>
+                    <div class="detail-value">{{funder}}</div>
+                </div>
+                {{/if}}
+            </div>
 
-        {{#if funder}}
-            <p><strong>Funder: </strong>{{funder}}</p>
-        {{/if}}
-
-        {{#if selected_yes_no_answer}}
-            <p>The guest has answered <strong>{{selected_yes_no_answer}}</strong> to the following question:</p>
-            <i style="margin-bottom: 4px;">{{question}}</i>
-            {{#if selected_clinical_nurse_consultation_services}}
-                <p>They have also selected the following Clinical Nurse Consultation Services:</p>
-                <ul style="margin-bottom: 4px;">
-                    {{#each selected_clinical_nurse_consultation_services}}
-                    <li>{{this}}</li>
-                    {{/each}}
-                </ul>
+            {{#if selected_yes_no_answer}}
+            <div class="additional-info">
+                <h4>📝 Special Requirements Response</h4>
+                <p style="margin: 5px 0;"><strong>Question:</strong> <em>{{question}}</em></p>
+                <p style="margin: 5px 0;"><strong>Answer:</strong> {{selected_yes_no_answer}}</p>
+                
+                {{#if selected_clinical_nurse_consultation_services}}
+                <div class="service-list">
+                    <h5>🏥 Clinical Nurse Consultation Services Selected:</h5>
+                    <ul>
+                        {{#each selected_clinical_nurse_consultation_services}}
+                        <li>{{this}}</li>
+                        {{/each}}
+                    </ul>
+                </div>
+                {{/if}}
+            </div>
             {{/if}}
-        {{/if}}
 
-        {{#if selected_list_answer}}
-            <p>The guest has answered to the following question: <i>{{question}}</i></p>
-            <ul style="margin-bottom: 4px;">
-                {{#each selected_list_answer}}
-                    <li>{{ this }}</li>
-                {{/each}}
-            </ul>
-        {{/if}}
+            {{#if selected_list_answer}}
+            <div class="additional-info">
+                <h4>📋 Additional Selection Response</h4>
+                <p style="margin: 5px 0 10px 0;"><strong>Question:</strong> <em>{{question}}</em></p>
+                <div class="service-list">
+                    <h5>Selected Options:</h5>
+                    <ul>
+                        {{#each selected_list_answer}}
+                        <li>{{this}}</li>
+                        {{/each}}
+                    </ul>
+                </div>
+            </div>
+            {{/if}}
 
-        <!-- add answer here -->
-        <!-- SF-951 -->
+            <div class="priority-action">
+                <div class="urgent">⚡ Action Required</div>
+                <p style="margin: 0; color: #666666;">
+                    This booking request is now in your queue for review, eligibility assessment, and processing. 
+                    Please review the guest's requirements and process accordingly through the admin portal.
+                </p>
+            </div>
 
-        <p>Kind Regards,</p>
+            <div style="background-color: #f8fafc; border: 1px solid #e5e7eb; border-radius: 6px; padding: 15px; margin: 20px 0;">
+                <p style="margin: 0; font-size: 14px; color: #666666;">
+                    <strong>📧 System Note:</strong> This is an automated notification generated when a guest 
+                    submits a booking request. Please process this request promptly to ensure excellent guest service.
+                </p>
+            </div>
 
-        <p><strong>Sargood Team</strong></p>
+            <p style="margin-top: 30px;">
+                Best regards,<br>
+                <strong style="color: #075985;">Sargood Booking System</strong>
+            </p>
+        </div>
+
+        <div style="text-align: center; margin-top: 20px; padding: 15px; font-size: 12px; color: #6b7280;">
+            <p style="margin: 0;">
+                🏢 Internal Notification System | Sargood on Collaroy Admin
+            </p>
+        </div>
     </div>
 </body>
 
 </html>
-
-<!-- Hi < funder contact name>,
-
-We have received a booking request from <guest name>, <NDIS number>.
-
-The booking request details are;
-
-Arrival <arrival dd/mm/yy>
-
-Departure <departure dd/mm/yy)
-
-<Room Type>
-
-<Package Type>
-
-Rate per night <Room Package Rate ($)>
-
-<Reason for Stay>
-
-Link to Terms and Conditions including Cancellation Policy: https://sargoodoncollaroy.com/terms-and-conditions/
-
-Pease ensure that funds are available or contact us to discuss further.
-
-Kind Regards,
-
-The Sargood Team -->

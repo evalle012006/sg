@@ -3,23 +3,96 @@
 
 <head>
     <meta content="text/html; charset=utf-8" http-equiv="Content-Type" />
-    <title>Booking Approved</title>
-    <meta name="description" content="Booking Email Template.">
+    <title>Booking Approved - Sargood on Collaroy</title>
+    <meta name="description" content="Booking Approved Email Template.">
     <style type="text/css">
         a:hover {
             text-decoration: underline !important;
+        }
+        .cta-button {
+            background: #ffd000;
+            text-decoration: none !important;
+            font-weight: 500;
+            margin-top: 25px;
+            color: #333333 !important;
+            text-transform: uppercase;
+            font-size: 14px;
+            padding: 12px 28px;
+            display: inline-block;
+            border-radius: 50px;
+            border: none;
+        }
+        .info-box {
+            background-color: #f0f9ff;
+            border: 1px solid #0ea5e9;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        .contact-info {
+            background-color: #f8fafc;
+            border-top: 2px solid #075985;
+            padding: 20px;
+            margin-top: 30px;
+            border-radius: 6px;
         }
     </style>
 </head>
 
 <body marginheight="0" topmargin="0" marginwidth="0" style="margin: 0px; background-color: #f2f3f8;" leftmargin="0">
-    <div>
+    <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; padding: 30px;">
+        <h2 style="color: #075985; text-align: center; margin-bottom: 30px;">
+            🎉 Your Booking Enquiry Has Been Approved!
+        </h2>
+
         <p>Dear {{guest_name}},</p>
-        <p>Thank you for submitting your booking enquiry. To continue, please <a href="{{set_new_password_link}}">click here</a> to create an account.</p>
-        <p>Regards,</p>
-        <p style="margin-bottom: 4px;">Sargood on Collaroy</p>
-        <p>Ph: 02 8597 0600</p>
-        <p><a href="mailto:info@sargoodoncollaroy.com.au">info@sargoodoncollaroy.com.au</a></p>
+
+        <div class="info-box">
+            <h3 style="color: #075985; margin-top: 0;">Welcome to Sargood on Collaroy!</h3>
+            <p style="margin-bottom: 0;">
+                Thank you for submitting your booking enquiry. We're pleased to let you know that your enquiry has been approved and you can now proceed with creating your account.
+            </p>
+        </div>
+
+        <p>To complete your registration and access our booking system, please create your account by clicking the button below:</p>
+
+        <div style="text-align: center; margin: 30px 0;">
+            <a href="{{set_new_password_link}}" class="cta-button">
+                CREATE YOUR ACCOUNT
+            </a>
+        </div>
+
+        <p>Once your account is set up, you'll be able to:</p>
+        <ul style="color: #666666; margin: 20px 0;">
+            <li>Complete your booking details</li>
+            <li>Specify your accommodation preferences</li>
+            <li>Add any special requirements</li>
+            <li>Track your booking status</li>
+        </ul>
+
+        <div class="contact-info">
+            <p style="margin-top: 0; margin-bottom: 15px;">
+                <strong style="color: #075985;">Need assistance?</strong>
+            </p>
+            <p style="margin: 5px 0;">
+                <strong>📞 Phone:</strong> 02 8597 0600
+            </p>
+            <p style="margin: 5px 0;">
+                <strong>✉️ Email:</strong> <a href="mailto:info@sargoodoncollaroy.com.au" style="color: #075985;">info@sargoodoncollaroy.com.au</a>
+            </p>
+            <p style="margin: 15px 0 0 0; font-size: 14px; color: #666666;">
+                Our friendly team is here to help you with any questions about your booking or our services.
+            </p>
+        </div>
+
+        <p style="margin-top: 30px;">
+            We look forward to welcoming you to Sargood on Collaroy!
+        </p>
+
+        <p style="margin-top: 20px;">
+            Warm regards,<br>
+            <strong style="color: #075985;">The Sargood on Collaroy Team</strong>
+        </p>
     </div>
 </body>
 

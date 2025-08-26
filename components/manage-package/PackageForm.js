@@ -60,6 +60,30 @@ export default function PackageForm({
         { value: 'holiday-plus', label: 'Holiday Plus' }
     ];
 
+    // Rate Category options
+    const rateCategoryOptions = [
+        { value: 'day', label: 'Day' },
+        { value: 'hour', label: 'Hour' }
+    ];
+
+    // Line Item Type options
+    const lineItemTypeOptions = [
+        { value: '', label: 'None' },
+        { value: 'room', label: 'Room' },
+        { value: 'group_activities', label: 'Group Activities' },
+        { value: 'sleep_over', label: 'Sleep Over' },
+        { value: 'care', label: 'Care' },
+        { value: 'course', label: 'Course' },
+    ];
+
+    // Care Time options
+    const careTimeOptions = [
+        { value: '', label: 'None' },
+        { value: 'morning', label: 'Morning' },
+        { value: 'afternoon', label: 'Afternoon' },
+        { value: 'evening', label: 'Evening' }
+    ];
+
     // Add new NDIS line item
     const addNdisLineItem = () => {
         if (isReadOnly) return;
@@ -72,7 +96,10 @@ export default function PackageForm({
                 sta_package: '', 
                 line_item: '', 
                 price_per_night: '',
-                rate_type: 'weekday'
+                rate_type: '',
+                rate_category: 'day',
+                line_item_type: '',
+                care_time: ''
             }
             ]
         }));
@@ -94,29 +121,67 @@ export default function PackageForm({
         
         setFormData(prev => ({
             ...prev,
-            ndis_line_items: prev.ndis_line_items.map((item, i) => 
-                i === index ? { ...item, [field]: value } : item
-            )
+            ndis_line_items: prev.ndis_line_items.map((item, i) => {
+                if (i === index) {
+                    const updatedItem = { ...item, [field]: value };
+                    
+                    // If line_item_type changes away from 'care', clear care_time
+                    if (field === 'line_item_type' && value !== 'care') {
+                        updatedItem.care_time = '';
+                    }
+                    
+                    return updatedItem;
+                }
+                return item;
+            })
         }));
     };
 
     // Rate Type options
     const rateTypeOptions = [
+        { value: '', label: 'All Days' },
         { value: 'weekday', label: 'Weekday' },
         { value: 'saturday', label: 'Saturday' },
         { value: 'sunday', label: 'Sunday' },
         { value: 'public_holiday', label: 'Holiday' }
     ];
 
-    // Get selected rate type option
+    // Get selected option helpers
     const getSelectedRateTypeOption = (rateType) => {
-        return rateTypeOptions.find(option => option.value === (rateType || 'weekday')) || rateTypeOptions[0];
+        return rateTypeOptions.find(option => option.value === (rateType || '')) || rateTypeOptions[0];
     };
 
-    // Handle rate type change
+    const getSelectedRateCategoryOption = (rateCategory) => {
+        return rateCategoryOptions.find(option => option.value === (rateCategory || 'day')) || rateCategoryOptions[0];
+    };
+
+    const getSelectedLineItemTypeOption = (lineItemType) => {
+        return lineItemTypeOptions.find(option => option.value === (lineItemType || '')) || lineItemTypeOptions[0];
+    };
+
+    const getSelectedCareTimeOption = (careTime) => {
+        return careTimeOptions.find(option => option.value === (careTime || '')) || careTimeOptions[0];
+    };
+
+    // Handle dropdown changes
     const handleRateTypeChange = (index, selectedOption) => {
         if (isReadOnly) return;
-        updateNdisLineItem(index, 'rate_type', selectedOption ? selectedOption.value : 'weekday');
+        updateNdisLineItem(index, 'rate_type', selectedOption ? selectedOption.value : '');
+    };
+
+    const handleRateCategoryChange = (index, selectedOption) => {
+        if (isReadOnly) return;
+        updateNdisLineItem(index, 'rate_category', selectedOption ? selectedOption.value : 'day');
+    };
+
+    const handleLineItemTypeChange = (index, selectedOption) => {
+        if (isReadOnly) return;
+        updateNdisLineItem(index, 'line_item_type', selectedOption ? selectedOption.value : '');
+    };
+
+    const handleCareTimeChange = (index, selectedOption) => {
+        if (isReadOnly) return;
+        updateNdisLineItem(index, 'care_time', selectedOption ? selectedOption.value : '');
     };
 
     // Comprehensive validation function
@@ -231,7 +296,21 @@ export default function PackageForm({
             setFormData(prev => ({
                 ...prev,
                 price: '',
-                ndis_line_items: prev.ndis_line_items.length === 0 ? [{ sta_package: '', line_item: '', price_per_night: '' }] : prev.ndis_line_items
+                ndis_line_items: prev.ndis_line_items.length === 0 ? [{ 
+                    sta_package: '', 
+                    line_item: '', 
+                    price_per_night: '',
+                    rate_type: '',
+                    rate_category: 'day',
+                    line_item_type: '',
+                    care_time: ''
+                }] : prev.ndis_line_items.map(item => ({
+                    ...item,
+                    rate_type: item.rate_type || '',
+                    rate_category: item.rate_category || 'day',
+                    line_item_type: item.line_item_type || '',
+                    care_time: item.care_time || ''
+                }))
             }));
         } else if (formData.funder === 'Non-NDIS') {
             setFormData(prev => ({
@@ -252,13 +331,24 @@ export default function PackageForm({
             const result = await response.json();
             const packageData = result.package;
             
+            // Ensure ndis_line_items have the new fields with defaults
+            const updatedLineItems = (packageData.ndis_line_items || []).map(item => ({
+                sta_package: item.sta_package || '',
+                line_item: item.line_item || '',
+                price_per_night: item.price_per_night || '',
+                rate_type: item.rate_type || '',
+                rate_category: item.rate_category || 'day',
+                line_item_type: item.line_item_type || '',
+                care_time: item.care_time || ''
+            }));
+            
             setFormData({
                 name: packageData.name || '',
                 package_code: packageData.package_code || '',
                 funder: packageData.funder || '',
                 price: packageData.price || '',
                 ndis_package_type: packageData.ndis_package_type || '',
-                ndis_line_items: packageData.ndis_line_items || []
+                ndis_line_items: updatedLineItems
             });
             
             setFieldErrors({});
@@ -333,7 +423,10 @@ export default function PackageForm({
                     sta_package: item.sta_package.trim(),
                     line_item: item.line_item.trim(),
                     price_per_night: parseFloat(item.price_per_night) || 0,
-                    rate_type: item.rate_type || 'weekday'
+                    rate_type: item.rate_type || '',
+                    rate_category: item.rate_category || 'day',
+                    line_item_type: item.line_item_type || '',
+                    care_time: item.care_time || ''
                 })) : []
             };
 
@@ -626,11 +719,14 @@ export default function PackageForm({
                             {/* NDIS Line Items Table */}
                             <div className="border border-gray-300 rounded-lg overflow-visible">
                                 <div className="bg-gray-50 px-4 py-3 border-b border-gray-300">
-                                    <div className="grid gap-4" style={{ gridTemplateColumns: '3fr 3fr 1fr 1fr 100px' }}>
+                                    <div className="grid gap-4" style={{ gridTemplateColumns: '2fr 2fr 80px 80px 80px 80px 80px 60px' }}>
                                         <div className="font-medium text-gray-700">STA Package</div>
                                         <div className="font-medium text-gray-700">Line Item</div>
-                                        <div className="font-medium text-gray-700">Price per Night</div>
+                                        <div className="font-medium text-gray-700">Price</div>
                                         <div className="font-medium text-gray-700">Rate Type</div>
+                                        <div className="font-medium text-gray-700">Rate Category</div>
+                                        <div className="font-medium text-gray-700">Item Type</div>
+                                        <div className="font-medium text-gray-700">Care Time</div>
                                         <div className="font-medium text-gray-700 text-center">Action</div>
                                     </div>
                                 </div>
@@ -643,7 +739,8 @@ export default function PackageForm({
                                     <div className="divide-y divide-gray-200">
                                         {formData.ndis_line_items.map((item, index) => (
                                             <div key={index} className="px-4 py-3">
-                                                <div className="grid gap-4 items-start" style={{ gridTemplateColumns: '3fr 3fr 1fr 1fr 100px' }}>
+                                                <div className="grid gap-4 items-start" style={{ gridTemplateColumns: '2fr 2fr 80px 80px 80px 80px 80px 60px' }}>
+                                                    {/* STA Package */}
                                                     <div>
                                                         <input
                                                             type="text"
@@ -660,6 +757,8 @@ export default function PackageForm({
                                                             <p className="mt-1 text-sm text-red-600">{fieldErrors[`ndis_line_item_${index}_sta_package`]}</p>
                                                         )}
                                                     </div>
+
+                                                    {/* Line Item */}
                                                     <div>
                                                         <input
                                                             type="text"
@@ -676,6 +775,8 @@ export default function PackageForm({
                                                             <p className="mt-1 text-sm text-red-600">{fieldErrors[`ndis_line_item_${index}_line_item`]}</p>
                                                         )}
                                                     </div>
+
+                                                    {/* Price per Night */}
                                                     <div>
                                                         <input
                                                             type="number"
@@ -694,33 +795,90 @@ export default function PackageForm({
                                                             <p className="mt-1 text-sm text-red-600">{fieldErrors[`ndis_line_item_${index}_price_per_night`]}</p>
                                                         )}
                                                     </div>
+
+                                                    {/* Rate Type */}
                                                     <div>
                                                         <Select
-                                                            label="Select Rate Type"
+                                                            label="Rate Type"
                                                             options={rateTypeOptions}
                                                             value={getSelectedRateTypeOption(item.rate_type)}
                                                             onClick={(selectedOption) => handleRateTypeChange(index, selectedOption)}
-                                                            size="medium"
-                                                            className={`w-full ${
-                                                                validationAttempted && (!item.rate_type) ? 'border-red-300' : ''
-                                                            }`}
+                                                            size="small"
+                                                            className="w-full"
                                                             disabled={isReadOnly}
                                                             required
                                                             menuPortalTarget={typeof document !== 'undefined' ? document.body : null}
                                                             menuPosition="fixed"
                                                             menuPlacement="auto"
                                                             styles={{
-                                                                menuPortal: (base) => ({
-                                                                    ...base,
-                                                                    zIndex: 9999
-                                                                }),
-                                                                menu: (base) => ({
-                                                                    ...base,
-                                                                    zIndex: 9999
-                                                                })
+                                                                menuPortal: (base) => ({ ...base, zIndex: 9999 }),
+                                                                menu: (base) => ({ ...base, zIndex: 9999 })
                                                             }}
                                                         />
                                                     </div>
+
+                                                    {/* Rate Category */}
+                                                    <div>
+                                                        <Select
+                                                            label="Rate Category"
+                                                            options={rateCategoryOptions}
+                                                            value={getSelectedRateCategoryOption(item.rate_category)}
+                                                            onClick={(selectedOption) => handleRateCategoryChange(index, selectedOption)}
+                                                            size="small"
+                                                            className="w-full"
+                                                            disabled={isReadOnly}
+                                                            required
+                                                            menuPortalTarget={typeof document !== 'undefined' ? document.body : null}
+                                                            menuPosition="fixed"
+                                                            menuPlacement="auto"
+                                                            styles={{
+                                                                menuPortal: (base) => ({ ...base, zIndex: 9999 }),
+                                                                menu: (base) => ({ ...base, zIndex: 9999 })
+                                                            }}
+                                                        />
+                                                    </div>
+
+                                                    {/* Line Item Type */}
+                                                    <div>
+                                                        <Select
+                                                            label="Item Type"
+                                                            options={lineItemTypeOptions}
+                                                            value={getSelectedLineItemTypeOption(item.line_item_type)}
+                                                            onClick={(selectedOption) => handleLineItemTypeChange(index, selectedOption)}
+                                                            size="small"
+                                                            className="w-full"
+                                                            disabled={isReadOnly}
+                                                            menuPortalTarget={typeof document !== 'undefined' ? document.body : null}
+                                                            menuPosition="fixed"
+                                                            menuPlacement="auto"
+                                                            styles={{
+                                                                menuPortal: (base) => ({ ...base, zIndex: 9999 }),
+                                                                menu: (base) => ({ ...base, zIndex: 9999 })
+                                                            }}
+                                                        />
+                                                    </div>
+
+                                                    {/* Care Time - Only show if line_item_type is 'care' */}
+                                                    <div>
+                                                        <Select
+                                                            label="Care Time"
+                                                            options={careTimeOptions}
+                                                            value={getSelectedCareTimeOption(item.care_time)}
+                                                            onClick={(selectedOption) => handleCareTimeChange(index, selectedOption)}
+                                                            size="small"
+                                                            className="w-full"
+                                                            disabled={isReadOnly || item.line_item_type !== 'care'}
+                                                            menuPortalTarget={typeof document !== 'undefined' ? document.body : null}
+                                                            menuPosition="fixed"
+                                                            menuPlacement="auto"
+                                                            styles={{
+                                                                menuPortal: (base) => ({ ...base, zIndex: 9999 }),
+                                                                menu: (base) => ({ ...base, zIndex: 9999 })
+                                                            }}
+                                                        />
+                                                    </div>
+
+                                                    {/* Action */}
                                                     <div className="flex justify-center">
                                                         {!isReadOnly && (
                                                             <button

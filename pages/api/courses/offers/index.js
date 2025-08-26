@@ -1,7 +1,9 @@
-import { Course, Guest, CourseOffer, User } from '../../../../models';
+import { Course, Guest, CourseOffer, User, Booking } from '../../../../models';
 import { v4 as uuidv4 } from 'uuid';
 import { Transaction, Op } from 'sequelize';
 import StorageService from '../../../../services/storage/storage';
+import sendMail from '../../../../utilities/mail';
+import moment from 'moment';
 
 const MAX_BULK_CREATE_SIZE = 100; // Limit bulk operations to prevent memory issues
 const MAX_GUEST_SELECTION = 50; // Limit guest selection to prevent abuse
@@ -30,7 +32,7 @@ export default async function handler(req, res) {
   }
 }
 
-// Create course offer(s) - supports both single and bulk creation
+// Create course offer(s) - supports both single and bulk creation with email notifications
 async function createCourseOffer(req, res) {
   const {
     course_id,
@@ -38,7 +40,8 @@ async function createCourseOffer(req, res) {
     guest_ids,   // Multiple guests (for bulk creation)
     notes,
     offered_by,
-    status = 'offered' // Default to 'offered' when creating offers
+    status = 'offered', // Default to 'offered' when creating offers
+    send_email = true   // Option to disable email sending
   } = req.body;
 
   // Determine if this is a bulk operation
@@ -218,7 +221,15 @@ async function createCourseOffer(req, res) {
       });
     }
 
+    // Commit the transaction before sending emails
     await transaction.commit();
+
+    // Send email notifications if requested and status is 'offered'
+    let emailResults = { sent: 0, failed: 0, errors: [] };
+    
+    if (send_email && status === 'offered') {
+      emailResults = await sendCourseOfferEmails(createdOffers, course, guests);
+    }
 
     // For single offer, return detailed response with image URL
     if (!isBulkOperation) {
@@ -256,7 +267,8 @@ async function createCourseOffer(req, res) {
       return res.status(201).json({
         success: true,
         message: 'Course offer created successfully',
-        data: detailedOffer
+        data: detailedOffer,
+        email_status: emailResults
       });
     }
 
@@ -270,7 +282,8 @@ async function createCourseOffer(req, res) {
         guest_count: targetGuestIds.length,
         status: status,
         offer_ids: createdOffers.map(offer => offer.id)
-      }
+      },
+      email_status: emailResults
     });
 
   } catch (error) {
@@ -292,7 +305,69 @@ async function createCourseOffer(req, res) {
   }
 }
 
-// Get course offers (optimized with better pagination and status filtering)
+// Send course offer emails to guests
+async function sendCourseOfferEmails(createdOffers, course, guests) {
+  const storage = new StorageService({ bucketType: 'restricted' });
+  let emailResults = { sent: 0, failed: 0, errors: [] };
+
+  // Generate course image URL if available
+  let courseImageUrl = null;
+  if (course.image_filename) {
+    try {
+      courseImageUrl = await storage.getSignedUrl('courses/' + course.image_filename);
+    } catch (error) {
+      console.error('Error generating signed URL for course image:', error);
+    }
+  }
+
+  // Create a map of guest_id to guest for easy lookup
+  const guestMap = new Map(guests.map(guest => [guest.id, guest]));
+
+  // Send emails for each offer
+  for (const offer of createdOffers) {
+    const guest = guestMap.get(offer.guest_id);
+    
+    if (!guest) {
+      emailResults.failed++;
+      emailResults.errors.push(`Guest not found for offer ${offer.id}`);
+      continue;
+    }
+
+    try {
+      const emailData = {
+        guest_name: guest.first_name,
+        course_title: course.title,
+        course_description: course.description,
+        start_date: moment(course.start_date).format('dddd, MMMM Do YYYY'),
+        end_date: moment(course.end_date).format('dddd, MMMM Do YYYY'),
+        duration_hours: course.duration_hours,
+        booking_deadline: moment(course.min_end_date).format('dddd, MMMM Do YYYY [at] h:mm A'),
+        notes: offer.notes,
+        course_image_url: courseImageUrl,
+        course_offer_link: `${process.env.APP_URL}/course-offers/${offer.uuid}`
+      };
+
+      await sendMail(
+        guest.email,
+        'New Course Offer Available - Sargood on Collaroy',
+        'course-offer-notification',
+        emailData
+      );
+
+      emailResults.sent++;
+      console.log(`Course offer email sent successfully to ${guest.email} for course ${course.title}`);
+
+    } catch (error) {
+      emailResults.failed++;
+      emailResults.errors.push(`Failed to send email to ${guest.email}: ${error.message}`);
+      console.error(`Error sending course offer email to ${guest.email}:`, error);
+    }
+  }
+
+  return emailResults;
+}
+
+// UPDATED: Get course offers with booking support
 async function getCourseOffers(req, res) {
   const { 
     course_id, 
@@ -303,6 +378,7 @@ async function getCourseOffers(req, res) {
     orderBy = 'created_at',
     orderDirection = 'DESC',
     include_invalid = 'false',
+    include_booked = 'false', // NEW: Include courses already linked to bookings
     search = ''
   } = req.query;
 
@@ -312,7 +388,7 @@ async function getCourseOffers(req, res) {
       {
         model: Course,
         as: 'course',
-        attributes: ['id', 'title', 'start_date', 'end_date', 'min_start_date', 'min_end_date', 'status', 'image_filename', 'duration_hours']
+        attributes: ['id', 'title', 'start_date', 'end_date', 'min_start_date', 'min_end_date', 'status', 'image_filename', 'duration_hours', 'description']
       },
       {
         model: Guest,
@@ -323,11 +399,25 @@ async function getCourseOffers(req, res) {
         model: User,
         as: 'offeredBy',
         attributes: ['id', 'first_name', 'last_name', 'email']
+      },
+      // NEW: Include booking information when available
+      {
+        model: Booking,
+        as: 'booking',
+        attributes: ['id', 'uuid', 'reference_id', 'type', 'status', 'complete'],
+        required: false // LEFT JOIN - don't require a booking
       }
     ];
     
     if (course_id) whereClause.course_id = course_id;
     if (guest_id) whereClause.guest_id = guest_id;
+    
+    // NEW: Filter by booking status if requested
+    if (include_booked === 'false') {
+      // Only show offers not yet linked to bookings
+      whereClause.booking_id = null;
+    }
+    // If include_booked === 'true', we show all offers (both linked and unlinked)
     
     // Filter by status
     if (status) {
@@ -425,7 +515,10 @@ async function getCourseOffers(req, res) {
         courseStarted: now >= courseStartDate,
         courseEnded: now >= courseEndDate,
         canBeAccepted: offer.status === 'offered' && now <= minEndDate && now < courseStartDate,
-        canBeCompleted: offer.status === 'accepted' && now >= courseEndDate
+        canBeCompleted: offer.status === 'accepted' && now >= courseEndDate,
+        
+        isLinkedToBooking: offer.booking_id !== null,
+        canBookNow: offer.status === 'offered' && offer.booking_id === null && now <= minEndDate && now < courseStartDate && offer.course.status === 'active'
       };
     });
 
@@ -437,6 +530,13 @@ async function getCourseOffers(req, res) {
         limit: parseInt(limit),
         offset: parseInt(offset),
         hasMore: (parseInt(offset) + parseInt(limit)) < count
+      },
+
+      summary: {
+        total_offers: processedOffers.length,
+        available_to_book: processedOffers.filter(offer => offer.canBookNow).length,
+        already_booked: processedOffers.filter(offer => offer.isLinkedToBooking).length,
+        expired_offers: processedOffers.filter(offer => !offer.isValid && !offer.isLinkedToBooking).length
       }
     });
 

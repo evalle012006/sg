@@ -28,6 +28,12 @@ module.exports = (sequelize, DataTypes) => {
         foreignKey: 'offered_by',
         as: 'offeredBy'
       });
+
+      // NEW: Course Offer belongs to Booking (when linked)
+      CourseOffer.belongsTo(models.Booking, {
+        foreignKey: 'booking_id',
+        as: 'booking'
+      });
     }
 
     // Instance method to check if offer is still valid based on course dates and status
@@ -56,8 +62,10 @@ module.exports = (sequelize, DataTypes) => {
       const minEndDate = new Date(this.course.min_end_date);
       
       // Can accept bookings until the minimum booking window closes
-      // and only if status is 'offered'
-      return this.status === 'offered' && now <= minEndDate;
+      // and only if status is 'offered' and not already linked to a booking
+      return this.status === 'offered' && 
+             now <= minEndDate && 
+             !this.booking_id; // NEW: Must not be linked to a booking
     }
 
     // Instance method to check if offer can be accepted (for automated triggers)
@@ -90,6 +98,11 @@ module.exports = (sequelize, DataTypes) => {
       return this.status === 'accepted' && now >= courseEndDate;
     }
 
+    // NEW: Simple instance methods for booking status
+    isLinkedToBooking() {
+      return this.booking_id !== null && this.booking_id !== undefined;
+    }
+
     // Static method to get valid offers for a course
     static async getValidOffersForCourse(courseId, includeStatuses = ['offered', 'accepted']) {
       return await this.findAll({
@@ -109,6 +122,13 @@ module.exports = (sequelize, DataTypes) => {
             model: sequelize.models.Guest,
             as: 'guest',
             attributes: ['id', 'first_name', 'last_name', 'email']
+          },
+          // NEW: Include booking information if linked
+          {
+            model: sequelize.models.Booking,
+            as: 'booking',
+            attributes: ['id', 'uuid', 'reference_id', 'type', 'status', 'complete'],
+            required: false // LEFT JOIN
           }
         ]
       });
@@ -140,7 +160,7 @@ module.exports = (sequelize, DataTypes) => {
         raw: true
       });
 
-      // Initialize all statuses with 0 (removed 'available')
+      // Initialize all statuses with 0
       const result = {
         offered: 0,
         accepted: 0,
@@ -170,7 +190,7 @@ module.exports = (sequelize, DataTypes) => {
         throw new Error('Offer not found');
       }
 
-      // Validate status transition (removed 'available')
+      // Validate status transition
       const validTransitions = {
         'offered': ['accepted'],
         'accepted': ['completed'],
@@ -230,6 +250,16 @@ module.exports = (sequelize, DataTypes) => {
         key: 'id'
       }
     },
+    // NEW: Add booking_id field
+    booking_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true, // Can be null when not linked
+      references: {
+        model: 'bookings',
+        key: 'id'
+      },
+      comment: 'Links the course offer to a specific booking when guest selects the course'
+    },
     offered_at: {
       type: DataTypes.DATE,
       allowNull: false,
@@ -269,6 +299,10 @@ module.exports = (sequelize, DataTypes) => {
       },
       {
         fields: ['status']
+      },
+      // NEW: Add booking_id index
+      {
+        fields: ['booking_id']
       },
       {
         fields: ['course_id', 'guest_id'],

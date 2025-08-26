@@ -58,10 +58,66 @@ const PackageSelection = ({
   const [packages, setPackages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [fetchError, setFetchError] = useState(null);
-  const [expandedPackages, setExpandedPackages] = useState(new Set());
-  const [expandedCategories, setExpandedCategories] = useState(new Set(['NDIS', 'Non-NDIS']));
   const [debugInfo, setDebugInfo] = useState(null);
   const [autoSelected, setAutoSelected] = useState(false);
+  const [stableFilterCriteria, setStableFilterCriteria] = useState(null);
+  const [lastCriteriaHash, setLastCriteriaHash] = useState(null);
+  const previousValueRef = useRef(value);
+  const lastFetchCriteriaRef = useRef(null);
+
+  // New function to extract requirements ONLY from stable QaPairs data
+  const extractGuestRequirementsFromStableData = () => {
+      const requirements = {};
+      
+      // ONLY use qaData (which should be stable QaPairs)
+      if (!qaData || qaData.length === 0) {
+          console.log('⚠️ No stable QA data available for requirements extraction');
+          return requirements;
+      }
+      
+      console.log('📊 Extracting requirements from stable QA data:', qaData.length, 'items');
+      
+      qaData.forEach(qa => {
+          if (!qa.question_key || !qa.answer) return;
+          
+          switch (qa.question_key) {
+              case QUESTION_KEYS.FUNDING_SOURCE:
+                  requirements.funder_type = qa.answer.includes('NDIS') || qa.answer.includes('NDIA') ? 'NDIS' : 'Non-NDIS';
+                  console.log('💰 Funding source from stable data:', requirements.funder_type);
+                  break;
+              case QUESTION_KEYS.IS_STA_STATED_SUPPORT:
+                  requirements.sta_in_plan = qa.answer.toLowerCase().includes('yes');
+                  console.log('🏛️ STA in plan from stable data:', requirements.sta_in_plan);
+                  break;
+              case QUESTION_KEYS.COURSE_OFFER_QUESTION:
+                  requirements.has_course = qa.answer.toLowerCase().includes('yes');
+                  console.log('🎓 Course offer from stable data:', requirements.has_course);
+                  break;
+              case QUESTION_KEYS.WHICH_COURSE:
+                  if (qa.answer && qa.answer.trim() !== '' && qa.answer.toLowerCase() !== 'no') {
+                      requirements.has_course = true;
+                      console.log('🎓 Course selection from stable data:', qa.answer);
+                  }
+                  break;
+          }
+      });
+      
+      console.log('🎯 Final requirements from stable QA data:', requirements);
+      return requirements;
+  };
+
+  // Helper function to create a stable hash of criteria
+  const createCriteriaHash = (criteria) => {
+      const hashable = {
+          funder_type: criteria.funder_type,
+          ndis_package_type: criteria.ndis_package_type,
+          care_hours: criteria.care_hours,
+          has_course: criteria.has_course,
+          course_offered: criteria.course_offered,
+          sta_in_plan: criteria.sta_in_plan
+      };
+      return JSON.stringify(hashable);
+  };
   
   // Safe render helper to prevent object rendering errors
   const safeRender = (value, fallback = 'N/A') => {
@@ -262,39 +318,6 @@ const PackageSelection = ({
       // Default to STA if not holiday type
       return 'sta';
   };
-
-  const handleAutoSelection = useCallback((bestMatchPackage) => {
-    if (bestMatchPackage && onChange && !value && !autoSelected) {
-      console.log('🎯 Auto-selecting best match package:', {
-        name: bestMatchPackage.name,
-        id: bestMatchPackage.id,
-        funder: bestMatchPackage.funder,
-        packageCode: bestMatchPackage.package_code
-      });
-      
-      // FIXED: Ensure auto-selection is properly communicated to parent
-      setAutoSelected(true);
-      
-      // Call onChange immediately (no setTimeout to prevent timing issues)
-      onChange(bestMatchPackage.id);
-      
-      // Also log the successful auto-selection
-      console.log('✅ Auto-selection completed, package ID sent to parent:', bestMatchPackage.id);
-      
-      // ADDITIONAL: Force a small delay to ensure state updates are processed
-      setTimeout(() => {
-        console.log('🔄 Post auto-selection state check - autoSelected:', autoSelected, 'value should be:', bestMatchPackage.id);
-      }, 100);
-    } else {
-      // Log why auto-selection didn't happen
-      console.log('⏸️ Auto-selection skipped:', {
-        hasBestMatch: !!bestMatchPackage,
-        hasOnChange: !!onChange,
-        hasValue: !!value,
-        isAlreadyAutoSelected: autoSelected
-      });
-    }
-  }, [onChange, value, autoSelected]);
 
   // Helper function to get answer by question key from ALL booking data
   const getAnswerByQuestionKey = (questionKey) => {
@@ -510,44 +533,70 @@ const PackageSelection = ({
     }
   }, [careAnalysisData, formData, qaData]);
 
-  // ENHANCED: Build comprehensive filter criteria
+  // Build comprehensive filter criteria
   const enhancedFilterCriteria = useMemo(() => {
-    const baseCriteria = packageFilterCriteria || createPackageFilterCriteria(careAnalysis.rawCareData || []);
-    
-    // Get additional requirements from form data
-    const guestRequirements = extractGuestRequirements();
-    
-    const criteria = {
-      ...baseCriteria,
-      ...guestRequirements,
+      // Use stableFilterCriteria if available and no major changes detected
+      if (stableFilterCriteria && !builderMode) {
+          console.log('📦 Using stable filter criteria (no recalculation needed)');
+          return stableFilterCriteria;
+      }
       
-      // Override with explicit props if provided
-      funder_type: localFilterState?.funderType || guestRequirements.funder_type || funder,
-      ndis_package_type: localFilterState?.ndisPackageType || guestRequirements.ndis_package_type || ndis_package_type,
+      console.log('📦 Calculating new filter criteria');
       
-      // Care-specific criteria
-      care_hours: Math.ceil(careAnalysis.totalHoursPerDay || 0),
-      care_pattern: careAnalysis.carePattern,
-      recommended_packages: careAnalysis.recommendedPackages || [],
+      const baseCriteria = packageFilterCriteria || createPackageFilterCriteria(careAnalysis.rawCareData || []);
       
-      // Course-specific criteria (ENHANCED)
-      has_course: guestRequirements.has_course,
-      course_offered: courseAnalysisData?.courseOffered || false,
-      course_id: courseAnalysisData?.courseId || null,
+      // Get additional requirements from form data - BUT ONLY USE STABLE QAPAIRS DATA
+      const guestRequirements = extractGuestRequirementsFromStableData();
       
-      // Additional filters
-      ...additionalFilters
-    };
+      const criteria = {
+          ...baseCriteria,
+          ...guestRequirements,
+          
+          // Override with explicit props if provided
+          funder_type: localFilterState?.funderType || guestRequirements.funder_type || funder,
+          ndis_package_type: localFilterState?.ndisPackageType || guestRequirements.ndis_package_type || ndis_package_type,
+          
+          // Care-specific criteria - ONLY use if careAnalysisData is provided (stable)
+          care_hours: careAnalysisData ? Math.ceil(careAnalysisData.totalHoursPerDay || 0) : 0,
+          care_pattern: careAnalysisData ? careAnalysisData.carePattern : 'no-care',
+          recommended_packages: careAnalysisData ? (careAnalysisData.recommendedPackages || []) : [],
+          
+          // Course-specific criteria - ONLY use if courseAnalysisData is provided (stable)
+          has_course: courseAnalysisData ? (courseAnalysisData.hasCourse || courseAnalysisData.courseOffered) : false,
+          course_offered: courseAnalysisData ? courseAnalysisData.courseOffered : false,
+          course_id: courseAnalysisData ? courseAnalysisData.courseId : null,
+          
+          // Additional filters
+          ...additionalFilters
+      };
 
-    console.log('🎯 Enhanced filter criteria for PackageRequirement filtering:', {
-      ...criteria,
-      careAnalysisData: careAnalysis,
-      courseAnalysisData: courseAnalysisData, // ENHANCED LOGGING
-      formDataKeys: Object.keys(formData || {}),
-      qaDataLength: qaData?.length || 0
-    });
-    return criteria;
-  }, [careAnalysis, courseAnalysisData, localFilterState, funder, ndis_package_type, additionalFilters, packageFilterCriteria, formData, qaData]);
+      console.log('🎯 New filter criteria calculated:', {
+          funder_type: criteria.funder_type,
+          ndis_package_type: criteria.ndis_package_type,
+          care_hours: criteria.care_hours,
+          has_course: criteria.has_course,
+          course_offered: criteria.course_offered,
+          dataStability: {
+              hasCareAnalysisData: !!careAnalysisData,
+              hasCourseAnalysisData: !!courseAnalysisData,
+              careDataSource: careAnalysisData?.dataSource,
+              courseDataSource: courseAnalysisData?.dataSource
+          }
+      });
+      
+      return criteria;
+  }, [
+      careAnalysisData?.totalHoursPerDay,
+      careAnalysisData?.carePattern,
+      courseAnalysisData?.hasCourse,
+      courseAnalysisData?.courseOffered,
+      localFilterState?.funderType,
+      localFilterState?.ndisPackageType,
+      funder,
+      ndis_package_type,
+      stableFilterCriteria,
+      builderMode
+  ]);
 
   // Enhanced applyPackageRequirementFiltering function with detailed logging
   const applyPackageRequirementFiltering = (packages, criteria) => {
@@ -717,232 +766,244 @@ const PackageSelection = ({
       return filtered;
   };
 
-  const fetchPackages = async () => {
-    try {
-      setLoading(true);
-      setFetchError(null);
-      
-      // Determine if we need advanced filtering (care-based)
-      const needsAdvancedFiltering = careAnalysis.requiresCare && careAnalysis.totalHoursPerDay > 0;
-      
-      let response;
-      
-      if (needsAdvancedFiltering) {
-        // Use advanced filtering API with care requirements
-        console.log('🔍 Using advanced package filtering with care data');
-        response = await fetch('/api/packages/filter', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            ...enhancedFilterCriteria,
-            include_requirements: true,
-            debug: true
-          })
-        });
-      } else {
-        // Use simple API for basic filtering
-        console.log('🔍 Using basic package filtering');
-        const params = new URLSearchParams();
-        if (enhancedFilterCriteria.funder_type) params.set('funder', enhancedFilterCriteria.funder_type);
-        if (enhancedFilterCriteria.ndis_package_type) params.set('ndis_package_type', enhancedFilterCriteria.ndis_package_type);
-        
-        params.set('include_requirements', 'true');
-        
-        const queryString = params.toString();
-        response = await fetch(`/api/packages${queryString ? `?${queryString}` : '?include_requirements=true'}`);
-      }
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      
-      if (data.success && data.packages) {
-        console.log(`📦 Fetched ${data.packages.length} packages with requirements data`);
-        
-        let fetchedPackages = data.packages.map(pkg => ({
-          ...pkg,
-          formattedPrice: pkg.funder === 'NDIS' 
-            ? 'NDIS Funded' 
-            : `${parseFloat(pkg.price || 0).toFixed(2)}`,
-          summary: pkg.description ? 
-            (pkg.description.length > 100 ? pkg.description.substring(0, 100) + '...' : pkg.description) :
-            'Package details available',
-          ndis_line_items: Array.isArray(pkg.ndis_line_items) ? pkg.ndis_line_items : [],
-          inclusions: Array.isArray(pkg.inclusions) ? pkg.inclusions : [],
-          features: Array.isArray(pkg.features) ? pkg.features : [],
-          hasRequirement: !!(pkg.requirement && typeof pkg.requirement === 'object')
-        }));
-
-        console.log('✅ Packages with requirements analysis:', fetchedPackages.map(pkg => ({
-          code: pkg.package_code,
-          name: pkg.name,
-          hasRequirement: pkg.hasRequirement,
-          requirementSummary: pkg.requirement ? {
-            requires_no_care: pkg.requirement.requires_no_care,
-            care_hours_min: pkg.requirement.care_hours_min,
-            care_hours_max: pkg.requirement.care_hours_max,
-            requires_course: pkg.requirement.requires_course,
-            compatible_with_course: pkg.requirement.compatible_with_course,
-            adminNotes: pkg.requirement.notes
-          } : 'NO REQUIREMENT DATA'
-        })));
-
-        console.log('🎯 Current guest criteria for filtering:', {
-          care_hours: enhancedFilterCriteria.care_hours,
-          has_course: enhancedFilterCriteria.has_course,
-          course_offered: enhancedFilterCriteria.course_offered,
-          funder_type: enhancedFilterCriteria.funder_type
-        });
-
-        // Apply PackageRequirement filtering
-        fetchedPackages = applyPackageRequirementFiltering(fetchedPackages, enhancedFilterCriteria);
-
-        // FIXED: Auto-selection logic for both NDIS and Non-NDIS packages with immediate callback
-        if (!builderMode) {
-          const ndisPackages = fetchedPackages.filter(pkg => pkg.funder === 'NDIS');
-          const nonNdisPackages = fetchedPackages.filter(pkg => pkg.funder !== 'NDIS');
+  const fetchPackages = async (forceFetch = false) => {
+      try {
+          // Create hash of current criteria
+          const currentHash = createCriteriaHash(enhancedFilterCriteria);
           
-          let bestMatchPackage = null;
-          
-          if (nonNdisPackages.length > 0) {
-            // For Non-NDIS: Find best match
-            bestMatchPackage = findBestMatchPackage(nonNdisPackages);
-            if (bestMatchPackage) {
-              fetchedPackages = [bestMatchPackage]; // Show only one Non-NDIS package
-            }
-          } else if (ndisPackages.length > 0) {
-            // For NDIS: Find best match
-            bestMatchPackage = findBestMatchPackage(ndisPackages);
-            if (bestMatchPackage) {
-              fetchedPackages = [bestMatchPackage]; // Show only one NDIS package
-            } else {
-              // Fallback: if no best match found, use the first available NDIS package
-              bestMatchPackage = ndisPackages[0];
-              fetchedPackages = [bestMatchPackage];
-              console.log('📋 Fallback: Using first NDIS package as no best match found');
-            }
+          // Check if we need to fetch (criteria changed or forced)
+          if (!forceFetch && lastCriteriaHash === currentHash && packages.length > 0) {
+              console.log('📦 Skipping fetch - criteria unchanged and packages already loaded');
+              return;
           }
           
-          // Set packages first
-          setPackages(fetchedPackages);
+          setLoading(true);
+          setFetchError(null);
           
-          // FIXED: Auto-select immediately after setting packages, with additional checks
-          if (bestMatchPackage && onChange && !value && !autoSelected) {
-            console.log('🎯 Immediate auto-selection triggered for:', bestMatchPackage.name);
-            
-            // Use a very short timeout to ensure packages state is updated
-            setTimeout(() => {
-              handleAutoSelection(bestMatchPackage);
-            }, 50);
+          console.log('📦 Fetching packages with criteria:', enhancedFilterCriteria);
+          
+          // Store criteria that we're fetching with
+          lastFetchCriteriaRef.current = { ...enhancedFilterCriteria };
+          
+          // Determine if we need advanced filtering (care-based)
+          const needsAdvancedFiltering = enhancedFilterCriteria.care_hours > 0;
+          
+          let response;
+          
+          if (needsAdvancedFiltering) {
+              console.log('🔍 Using advanced package filtering with care data');
+              response = await fetch('/api/packages/filter', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                      ...enhancedFilterCriteria,
+                      include_requirements: true,
+                      debug: false
+                  })
+              });
+          } else {
+              console.log('🔍 Using basic package filtering');
+              const params = new URLSearchParams();
+              if (enhancedFilterCriteria.funder_type) params.set('funder', enhancedFilterCriteria.funder_type);
+              if (enhancedFilterCriteria.ndis_package_type) params.set('ndis_package_type', enhancedFilterCriteria.ndis_package_type);
+              params.set('include_requirements', 'true');
+              
+              const queryString = params.toString();
+              response = await fetch(`/api/packages${queryString ? `?${queryString}` : '?include_requirements=true'}`);
           }
-        } else {
-          setPackages(fetchedPackages);
-        }
-        
-        if (data.debugInfo) {
-          setDebugInfo(data.debugInfo);
-        }
-      } else {
-        throw new Error(data.message || 'Failed to fetch packages');
-      }
-    } catch (error) {
-      console.error('❌ Error fetching packages:', error);
-      setFetchError(error.message);
-      setPackages([]);
-    } finally {
-      setLoading(false);
-    }
-  };
 
-  // NEW: Function to find the best matching package based on PackageRequirement
-  const findBestMatchPackage = (packageList) => {
-    if (!packageList || packageList.length === 0) return null;
-    
-    const guestRequirements = extractGuestRequirements();
-    
-    // Score packages based on how well they match requirements
-    const scoredPackages = packageList.map(pkg => {
-      let score = 0;
-      
-      // Funder type match (highest priority)
-      if (pkg.funder === guestRequirements.funder_type) {
-        score += 100;
-      }
-      
-      // NDIS package type match
-      if (pkg.funder === 'NDIS' && pkg.ndis_package_type === guestRequirements.ndis_package_type) {
-        score += 50;
-      }
-      
-      // Care requirements match
-      if (careAnalysis.recommendedPackages?.includes(pkg.package_code)) {
-        score += 75;
-      }
-      
-      // Course compatibility
-      if (guestRequirements.has_course && pkg.course_compatible) {
-        score += 25;
-      }
-      
-      return { ...pkg, matchScore: score };
-    });
-    
-    // Sort by score (highest first) and return the best match
-    scoredPackages.sort((a, b) => b.matchScore - a.matchScore);
-    
-    console.log('🎯 Package scoring results:', scoredPackages.map(p => ({ 
-      name: p.name, 
-      score: p.matchScore, 
-      funder: p.funder 
-    })));
-    
-    return scoredPackages[0];
-  };
+          if (!response.ok) {
+              throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          }
 
-  // Debug value changes
-  useEffect(() => {
-    console.log('📦 PackageSelection value changed:', {
-      value,
-      type: typeof value,
-      isArray: Array.isArray(value),
-      isPackageId: (typeof value === 'number' || typeof value === 'string'),
-      selectedPackageName: (() => {
-        if (Array.isArray(value)) {
-          return value.map(id => packages.find(p => p.id == id)?.name || `ID:${id}`);
-        } else if (value) {
-          return packages.find(p => p.id == value)?.name || `ID:${value}`;
-        }
-        return null;
-      })()
-    });
-  }, [value, packages]);
+          const data = await response.json();
+          
+          if (data.success && data.packages) {
+              console.log(`📦 Successfully fetched ${data.packages.length} packages`);
+              
+              let fetchedPackages = data.packages.map(pkg => ({
+                  ...pkg,
+                  formattedPrice: pkg.funder === 'NDIS' ? 'NDIS Funded' : `${parseFloat(pkg.price || 0).toFixed(2)}`,
+                  summary: pkg.description ? 
+                      (pkg.description.length > 100 ? pkg.description.substring(0, 100) + '...' : pkg.description) :
+                      'Package details available',
+                  ndis_line_items: Array.isArray(pkg.ndis_line_items) ? pkg.ndis_line_items : [],
+                  inclusions: Array.isArray(pkg.inclusions) ? pkg.inclusions : [],
+                  features: Array.isArray(pkg.features) ? pkg.features : [],
+                  hasRequirement: !!(pkg.requirement && typeof pkg.requirement === 'object')
+              }));
+
+              // Apply PackageRequirement filtering
+              fetchedPackages = applyPackageRequirementFiltering(fetchedPackages, enhancedFilterCriteria);
+
+              // Enhanced package sorting logic (keep existing)
+              fetchedPackages.sort((a, b) => {
+                  const careHours = enhancedFilterCriteria.care_hours || 0;
+                  
+                  if (careHours === 0) {
+                      const aIsNoCarePerfect = a.requirement?.requires_no_care === true;
+                      const bIsNoCarePerfect = b.requirement?.requires_no_care === true;
+                      
+                      if (aIsNoCarePerfect && !bIsNoCarePerfect) {
+                          console.log(`🥇 Prioritizing ${a.package_code} (requires_no_care=true) over ${b.package_code}`);
+                          return -1;
+                      }
+                      if (!aIsNoCarePerfect && bIsNoCarePerfect) {
+                          console.log(`🥇 Prioritizing ${b.package_code} (requires_no_care=true) over ${a.package_code}`);
+                          return 1;
+                      }
+                  }
+                  
+                  if (a.isRecommended && !b.isRecommended) return -1;
+                  if (!a.isRecommended && b.isRecommended) return 1;
+                  
+                  if (a.matchScore !== undefined && b.matchScore !== undefined) {
+                      if (a.matchScore !== b.matchScore) {
+                          return b.matchScore - a.matchScore;
+                      }
+                  }
+                  
+                  const guestFunder = enhancedFilterCriteria.funder_type;
+                  if (guestFunder) {
+                      const aFunderMatch = (guestFunder === 'NDIS' && a.funder === 'NDIS') || 
+                                          (guestFunder === 'Non-NDIS' && a.funder !== 'NDIS');
+                      const bFunderMatch = (guestFunder === 'NDIS' && b.funder === 'NDIS') || 
+                                          (guestFunder === 'Non-NDIS' && b.funder !== 'NDIS');
+                      
+                      if (aFunderMatch && !bFunderMatch) return -1;
+                      if (!aFunderMatch && bFunderMatch) return 1;
+                  }
+                  
+                  if (a.careCompatible && !b.careCompatible) return -1;
+                  if (!a.careCompatible && b.careCompatible) return 1;
+                  
+                  return (a.name || '').localeCompare(b.name || '');
+              });
+
+              console.log('📦 Final package order after enhanced sorting:', 
+                  fetchedPackages.map(p => ({
+                      code: p.package_code,
+                      name: p.name,
+                      requiresNoCare: p.requirement?.requires_no_care,
+                      ndis_package_type: p.ndis_package_type
+                  }))
+              );
+
+              if (!builderMode) {
+                  const bestMatch = fetchedPackages.length > 0 ? fetchedPackages[0] : null;
+                  
+                  if (bestMatch) {
+                      console.log('🏆 Single best match selected:', {
+                          name: bestMatch.name,
+                          code: bestMatch.package_code,
+                          id: bestMatch.id,
+                          funder: bestMatch.funder,
+                          ndis_package_type: bestMatch.ndis_package_type
+                      });
+
+                      // Auto-select immediately
+                      if (onChange && value != bestMatch.id) {
+                          onChange(bestMatch.id);
+                          setAutoSelected(true);
+                          console.log('✅ Package auto-selected:', bestMatch.id);
+                      }
+                      
+                      // ✅ SHOW ONLY THE SINGLE BEST MATCH
+                      setPackages([bestMatch]);
+                      
+                  } else {
+                      console.warn('⚠️ No packages found');
+                      setPackages([]);
+                  }
+              } else {
+                  // Builder mode - show all packages
+                  setPackages(fetchedPackages);
+              }
+              
+              // Update stable criteria and hash
+              setStableFilterCriteria({ ...enhancedFilterCriteria });
+              setLastCriteriaHash(currentHash);
+          } else {
+              throw new Error(data.message || 'Failed to fetch packages');
+          }
+      } catch (error) {
+          console.error('❌ Error fetching packages:', error);
+          setFetchError(error.message);
+          setPackages([]);
+      } finally {
+          setLoading(false);
+      }
+  };
 
   // Fetch packages when component mounts or criteria changes
   useEffect(() => {
-    console.log('📦 PackageSelection useEffect triggered:', {
-      builderMode,
-      enhancedFilterCriteria,
-      currentValue: value,
-      autoSelected
-    });
-    
-    if (builderMode) {
-      // In builder mode, show all packages without filtering
-      console.log('🏗️ Builder mode: Fetching all packages');
-    }
-    
-    fetchPackages();
-    
-    return () => {
-      if (fetchTimeout.current) {
-        clearTimeout(fetchTimeout.current);
+      console.log('📦 PackageSelection useEffect triggered:', {
+          builderMode,
+          hasStableCriteria: !!stableFilterCriteria,
+          currentValue: value,
+          autoSelected,
+          packagesCount: packages.length
+      });
+      
+      // Create hash of current criteria
+      const currentHash = createCriteriaHash(enhancedFilterCriteria);
+      
+      // Only fetch if:
+      // 1. We don't have stable criteria yet (first load)
+      // 2. The criteria hash has actually changed
+      // 3. We're in builder mode and need to show all packages
+      const shouldFetch = !stableFilterCriteria || 
+                        lastCriteriaHash !== currentHash || 
+                        (builderMode && packages.length === 0);
+      
+      if (shouldFetch) {
+          console.log('📦 Criteria changed or first load - fetching packages');
+          fetchPackages();
+      } else {
+          console.log('📦 No fetch needed - using existing packages');
       }
-    };
-  }, [enhancedFilterCriteria, builderMode]);
+      
+      return () => {
+          if (fetchTimeout.current) {
+              clearTimeout(fetchTimeout.current);
+          }
+      };
+  }, [
+      // REDUCED dependencies - only what actually matters
+      enhancedFilterCriteria.funder_type,
+      enhancedFilterCriteria.ndis_package_type,
+      enhancedFilterCriteria.care_hours,
+      enhancedFilterCriteria.has_course,
+      enhancedFilterCriteria.course_offered,
+      builderMode
+  ]);
+
+  useEffect(() => {
+      if (!builderMode && packages.length === 1 && onChange && !value && !autoSelected) {
+          const bestMatch = packages[0];
+          onChange(bestMatch.id);
+          setAutoSelected(true);
+          console.log('✅ Auto-selected single package:', bestMatch.id);
+      }
+  }, [packages, value, autoSelected, builderMode, onChange]);
+
+  // Track value changes to prevent unnecessary auto-selection
+  useEffect(() => {
+      if (value !== previousValueRef.current) {
+          console.log('📦 Package selection value changed externally:', {
+              from: previousValueRef.current,
+              to: value
+          });
+          
+          // If value was cleared (set to null), reset auto-selection flag
+          if (!value && previousValueRef.current) {
+              console.log('📦 Selection cleared - resetting auto-selection flag');
+              setAutoSelected(false);
+          }
+          
+          previousValueRef.current = value;
+      }
+  }, [value]);
 
   // Handle pre-population when value is provided (package ID from saved form)
   useEffect(() => {
@@ -1521,14 +1582,6 @@ const PackageSelection = ({
           );
         })}
       </div>
-
-      {/* Debug Information (only in development) */}
-      {debugInfo && process.env.NODE_ENV === 'development' && (
-        <details className="mt-6 p-3 bg-gray-100 rounded text-xs">
-          <summary className="cursor-pointer font-medium">Debug Info</summary>
-          <pre className="mt-2 overflow-auto">{JSON.stringify(debugInfo, null, 2)}</pre>
-        </details>
-      )}
 
       {/* Error indicator */}
       {error && (

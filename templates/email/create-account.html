@@ -3,27 +3,141 @@
 
 <head>
     <meta content="text/html; charset=utf-8" http-equiv="Content-Type" />
-    <title>Account Creation</title>
+    <title>Welcome to Sargood on Collaroy</title>
     <meta name="description" content="Account Creation Template.">
     <style type="text/css">
         a:hover {
             text-decoration: underline !important;
         }
+        .cta-button {
+            background: #ffd000;
+            text-decoration: none !important;
+            font-weight: 500;
+            margin-top: 25px;
+            color: #333333 !important;
+            text-transform: uppercase;
+            font-size: 14px;
+            padding: 12px 28px;
+            display: inline-block;
+            border-radius: 50px;
+            border: none;
+        }
+        .welcome-box {
+            background-color: #f0f9ff;
+            border: 1px solid #0ea5e9;
+            border-radius: 8px;
+            padding: 25px;
+            margin: 25px 0;
+            text-align: center;
+        }
+        .next-steps {
+            background-color: #f8fafc;
+            border-left: 4px solid #075985;
+            padding: 20px;
+            margin: 25px 0;
+        }
+        .next-steps h3 {
+            color: #075985;
+            margin-top: 0;
+            margin-bottom: 15px;
+        }
+        .contact-info {
+            background-color: #f8fafc;
+            border-top: 2px solid #075985;
+            padding: 20px;
+            margin-top: 30px;
+            border-radius: 6px;
+        }
+        .feature-list {
+            color: #666666;
+            margin: 15px 0;
+        }
+        .feature-list li {
+            margin: 8px 0;
+            padding-left: 5px;
+        }
     </style>
 </head>
 
 <body marginheight="0" topmargin="0" marginwidth="0" style="margin: 0px; background-color: #f2f3f8;" leftmargin="0">
-    <div>
-        <p>Dear {{guest_name}},</p>
-        <p>
-            Thank you for creating an account. To complete your registration, 
-            please <a href="{{set_new_password_link}}">click here</a> to setup your password. 
-            If you have any questions, feel free to reach out to our friendly team on (02) 8597 0600.
+    <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; padding: 30px;">
+        <h2 style="color: #075985; text-align: center; margin-bottom: 30px;">
+            🎉 Welcome to Sargood on Collaroy!
+        </h2>
+
+        <div class="welcome-box">
+            <h3 style="color: #075985; margin-top: 0;">Thank You for Creating Your Account</h3>
+            <p style="margin-bottom: 0; font-size: 16px;">
+                Dear {{guest_name}}, we're excited to have you as part of our community!
+            </p>
+        </div>
+
+        <p>Your account has been successfully created, and you're just one step away from accessing all of our services and features.</p>
+
+        <div class="next-steps">
+            <h3>🚀 Complete Your Registration</h3>
+            <p>To finish setting up your account and ensure full access to our booking system, please click the button below to create your secure password.</p>
+            
+            <div style="text-align: center; margin: 20px 0;">
+                <a href="{{set_new_password_link}}" class="cta-button">
+                    SET UP YOUR PASSWORD
+                </a>
+            </div>
+        </div>
+
+        <div style="background-color: #f0f9ff; border-radius: 8px; padding: 20px; margin: 25px 0;">
+            <h4 style="color: #075985; margin-top: 0;">✨ What You Can Do With Your Account</h4>
+            <ul class="feature-list">
+                <li>📅 Make and manage your bookings online</li>
+                <li>🏨 View available accommodation and packages</li>
+                <li>🛠️ Request specialized equipment and services</li>
+                <li>📋 Complete pre-arrival questionnaires</li>
+                <li>📞 Access your booking history and receipts</li>
+                <li>✉️ Receive important updates about your stays</li>
+            </ul>
+        </div>
+
+        <div style="background-color: #fff7ed; border-radius: 8px; padding: 20px; margin: 25px 0;">
+            <h4 style="color: #ea580c; margin-top: 0;">🔐 Security Reminder</h4>
+            <p style="color: #666666; margin: 0;">
+                For your security, this setup link will expire in 24 hours. If you miss this window, 
+                don't worry – just contact our team and we'll send you a new link right away.
+            </p>
+        </div>
+
+        <div class="contact-info">
+            <p style="margin-top: 0; margin-bottom: 15px;">
+                <strong style="color: #075985;">Need Assistance?</strong>
+            </p>
+            <p style="margin: 5px 0;">
+                Our friendly team is here to help you with any questions about your account, 
+                bookings, or our services.
+            </p>
+            <p style="margin: 15px 0 5px 0;">
+                <strong>📞 Phone:</strong> (02) 8597 0600
+            </p>
+            <p style="margin: 5px 0;">
+                <strong>✉️ Email:</strong> <a href="mailto:info@sargoodoncollaroy.com.au" style="color: #075985;">info@sargoodoncollaroy.com.au</a>
+            </p>
+            <p style="margin: 15px 0 0 0; font-size: 14px; color: #666666;">
+                We're available during business hours and always happy to help make your experience seamless.
+            </p>
+        </div>
+
+        <p style="margin-top: 30px; font-size: 16px; color: #075985;">
+            We look forward to providing you with exceptional care and accommodation!
         </p>
-        <p>Regards,</p>
-        <p style="margin-bottom: 4px;">Sargood on Collaroy</p>
-        <p>Ph: 02 8597 0600</p>
-        <p><a href="mailto:info@sargoodoncollaroy.com.au">info@sargoodoncollaroy.com.au</a></p>
+
+        <p style="margin-top: 20px;">
+            Warm regards,<br>
+            <strong style="color: #075985;">The Sargood on Collaroy Team</strong>
+        </p>
+
+        <div style="text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px solid #e5e7eb; font-size: 12px; color: #6b7280;">
+            <p style="margin: 0;">
+                📍 Sargood on Collaroy | 🌐 <a href="https://sargoodoncollaroy.com" style="color: #075985;">sargoodoncollaroy.com</a>
+            </p>
+        </div>
     </div>
 </body>
 

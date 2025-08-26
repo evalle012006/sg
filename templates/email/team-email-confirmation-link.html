@@ -2,35 +2,155 @@
 <html lang="en-US">
 
 <head>
-  <meta content="text/html; charset=utf-8" http-equiv="Content-Type" />
-  <title>Booking Highlights</title>
-  <meta name="description" content="Booking Highlights Email Template.">
-  <style type="text/css">
-    a:hover {
-      text-decoration: underline !important;
-    }
-  </style>
+    <meta content="text/html; charset=utf-8" http-equiv="Content-Type" />
+    <title>Team Account Confirmation - Sargood on Collaroy</title>
+    <meta name="description" content="Team Email Confirmation Template.">
+    <style type="text/css">
+        a:hover {
+            text-decoration: underline !important;
+        }
+        .cta-button {
+            background: #ffd000;
+            text-decoration: none !important;
+            font-weight: 500;
+            margin-top: 25px;
+            color: #333333 !important;
+            text-transform: uppercase;
+            font-size: 14px;
+            padding: 12px 28px;
+            display: inline-block;
+            border-radius: 50px;
+            border: none;
+        }
+        .welcome-box {
+            background-color: #f0f9ff;
+            border: 1px solid #0ea5e9;
+            border-radius: 8px;
+            padding: 25px;
+            margin: 25px 0;
+            text-align: center;
+        }
+        .team-access-info {
+            background-color: #f8fafc;
+            border-left: 4px solid #075985;
+            padding: 20px;
+            margin: 25px 0;
+        }
+        .team-access-info h3 {
+            color: #075985;
+            margin-top: 0;
+            margin-bottom: 15px;
+        }
+        .security-note {
+            background-color: #fff7ed;
+            border: 1px solid #fed7aa;
+            border-radius: 6px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        .security-note .warning {
+            color: #ea580c;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+        .team-features {
+            color: #666666;
+            margin: 15px 0;
+        }
+        .team-features li {
+            margin: 8px 0;
+            padding-left: 5px;
+        }
+    </style>
 </head>
 
 <body marginheight="0" topmargin="0" marginwidth="0" style="margin: 0px; background-color: #f2f3f8;" leftmargin="0">
+    <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; padding: 30px;">
+        <h2 style="color: #075985; text-align: center; margin-bottom: 30px;">
+            Welcome to the Sargood Team Portal
+        </h2>
 
-  <div>
-    <h2 style="color: #075985;">Welcome to Sargood on Collaroy</h2>
+        <div class="welcome-box">
+            <h3 style="color: #075985; margin-top: 0;">🎉 Welcome to the Team!</h3>
+            <p style="margin-bottom: 0; font-size: 16px;">
+                {{username}}, you've been granted access to the Sargood team portal.
+            </p>
+        </div>
 
-    <p>
-      We're glad to have you here {{username}}!
-    </p>
+        <div class="team-access-info">
+            <h3>🔑 Activate Your Team Account</h3>
+            <p>To complete your team account setup and gain access to the administrative portal, please confirm your email address by clicking the button below.</p>
+            
+            <div style="text-align: center; margin: 20px 0;">
+                <a href="{{confirm_link}}" class="cta-button">
+                    CONFIRM TEAM ACCOUNT
+                </a>
+            </div>
+        </div>
 
-    <p>
-      Click the button below to confirm your
-      email and login.
-    </p>
+        <div style="background-color: #f0f9ff; border-radius: 8px; padding: 20px; margin: 25px 0;">
+            <h4 style="color: #075985; margin-top: 0;">🛠️ Your Team Portal Features</h4>
+            <p style="color: #666666; margin-bottom: 10px;">Once confirmed, you'll have access to:</p>
+            <ul class="team-features">
+                <li>📊 Dashboard with booking analytics and reports</li>
+                <li>👥 Guest management and booking oversight</li>
+                <li>🏨 Room and accommodation management</li>
+                <li>📅 Schedule and availability management</li>
+                <li>💬 Internal team communication tools</li>
+                <li>⚙️ System settings and configuration</li>
+                <li>📈 Performance metrics and insights</li>
+            </ul>
+        </div>
 
-    <a href="{{confirm_link}}"
-      style="background:#ffd000;text-decoration:none !important; font-weight:500; margin-top:35px; color:#fff;text-transform:uppercase; font-size:14px;padding:10px 24px;display:inline-block;border-radius:50px;">
-      <span>CONFIRM ACCOUNT</span></a>
+        <div style="background-color: #f8f9ff; border-radius: 8px; padding: 20px; margin: 25px 0;">
+            <h4 style="color: #6366f1; margin-top: 0;">👤 Account Information</h4>
+            <p style="color: #666666; margin: 0;">
+                Your team account has been created with appropriate permissions for your role. 
+                If you need additional access or have questions about your permissions, 
+                please contact your system administrator.
+            </p>
+        </div>
 
+        <div class="security-note">
+            <div class="warning">🔐 Security Guidelines</div>
+            <ul style="margin: 8px 0 0 0; color: #666666;">
+                <li>This confirmation link expires in 24 hours</li>
+                <li>Keep your login credentials secure and confidential</li>
+                <li>Use a strong, unique password for your team account</li>
+                <li>Report any suspicious activity immediately</li>
+            </ul>
+        </div>
 
+        <div style="background-color: #f8fafc; border-top: 2px solid #075985; padding: 20px; margin-top: 30px; border-radius: 6px;">
+            <p style="margin-top: 0; margin-bottom: 15px;">
+                <strong style="color: #075985;">Technical Support</strong>
+            </p>
+            <p style="margin: 5px 0;">
+                If you encounter any issues accessing the team portal or need technical assistance:
+            </p>
+            <p style="margin: 10px 0 5px 0;">
+                <strong>📞 Internal Support:</strong> Contact your system administrator
+            </p>
+            <p style="margin: 5px 0;">
+                <strong>✉️ Email Support:</strong> <a href="mailto:support@sargoodoncollaroy.com.au" style="color: #075985;">support@sargoodoncollaroy.com.au</a>
+            </p>
+        </div>
+
+        <p style="margin-top: 30px;">
+            Thank you for being part of the Sargood team. Together, we provide exceptional care and service to our guests.
+        </p>
+
+        <p style="margin-top: 20px;">
+            Best regards,<br>
+            <strong style="color: #075985;">Sargood System Administration</strong>
+        </p>
+
+        <div style="text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px solid #e5e7eb; font-size: 12px; color: #6b7280;">
+            <p style="margin: 0;">
+                🏢 Internal System | Sargood on Collaroy Team Portal
+            </p>
+        </div>
+    </div>
 </body>
 
 </html>

@@ -35,7 +35,7 @@ export default async function handler(req, res) {
             order: [['offered_at', 'DESC']]
         });
 
-        // Transform offers with enhanced data including validation
+        // Transform offers with enhanced data including validation and PRICING
         const transformedOffers = await Promise.all(courseOffers.map(async offer => {
             const course = offer.course;
             
@@ -45,34 +45,30 @@ export default async function handler(req, res) {
 
             if (checkInDate && checkOutDate && course.min_start_date && course.min_end_date) {
                 try {
-                    const checkIn = new Date(checkInDate);
-                    const checkOut = new Date(checkOutDate);
-                    const minStartDate = new Date(course.min_start_date);
-                    const minEndDate = new Date(course.min_end_date);
-                    const courseStartDate = new Date(course.start_date);
-                    const courseEndDate = new Date(course.end_date);
-                    
-                    // Set all times to start of day for accurate comparison
-                    [checkIn, checkOut, minStartDate, minEndDate, courseStartDate, courseEndDate].forEach(date => {
-                        date.setHours(0, 0, 0, 0);
-                    });
+                    // Use moment to parse all dates consistently in UTC, then convert to date-only for comparison
+                    const checkIn = moment.utc(checkInDate, 'YYYY-MM-DD').startOf('day');
+                    const checkOut = moment.utc(checkOutDate, 'YYYY-MM-DD').startOf('day');
+                    const minStartDate = moment.utc(course.min_start_date).startOf('day');
+                    const minEndDate = moment.utc(course.min_end_date).startOf('day');
+                    const courseStartDate = moment.utc(course.start_date).startOf('day');
+                    const courseEndDate = moment.utc(course.end_date).startOf('day');
                     
                     // CORRECTED LOGIC:
                     // 1. Guest can check in any time from min start date up to course start date
                     // 2. Guest must stay until course ends or longer
                     // 3. Guest must not check out before the minimum end date
                     
-                    const canCheckIn = checkIn >= minStartDate && checkIn <= courseStartDate;
-                    const staysUntilCourseEnds = checkOut >= courseEndDate;
-                    const staysMinimumPeriod = checkOut >= minEndDate;
+                    const canCheckIn = checkIn.isSameOrAfter(minStartDate) && checkIn.isSameOrBefore(courseStartDate);
+                    const staysUntilCourseEnds = checkOut.isSameOrAfter(courseEndDate);
+                    const staysMinimumPeriod = checkOut.isSameOrAfter(minEndDate);
                     
                     dateValid = canCheckIn && staysUntilCourseEnds && staysMinimumPeriod;
                     
                     if (!dateValid) {
-                        const minStartFormatted = moment.utc(minStartDate).format('D MMM YYYY');
-                        const minEndFormatted = moment.utc(minEndDate).format('D MMM YYYY');
-                        const courseStartFormatted = moment.utc(courseStartDate).format('D MMM YYYY');
-                        const courseEndFormatted = moment.utc(courseEndDate).format('D MMM YYYY');
+                        const minStartFormatted = minStartDate.format('D MMM YYYY');
+                        const minEndFormatted = minEndDate.format('D MMM YYYY');
+                        const courseStartFormatted = courseStartDate.format('D MMM YYYY');
+                        const courseEndFormatted = courseEndDate.format('D MMM YYYY');
                         
                         if (!canCheckIn) {
                             dateValidationMessage = `Check-in must be between ${minStartFormatted} and ${courseStartFormatted} for ${course.title}.`;
@@ -103,6 +99,14 @@ export default async function handler(req, res) {
                 console.log('Course image URL generated:', courseImageUrl);
             }
             
+            // ✨ NEW: Course pricing information
+            const pricing = {
+                holidayPrice: course.holiday_price ? parseFloat(course.holiday_price) : null,
+                staPrice: course.sta_price ? parseFloat(course.sta_price) : null,
+                priceCalculatedAt: course.price_calculated_at,
+                hasPricing: !!(course.holiday_price || course.sta_price)
+            };
+            
             return {
                 id: offer.id,
                 courseId: offer.course_id,
@@ -121,7 +125,9 @@ export default async function handler(req, res) {
                 courseStartDate: course.start_date || null,
                 courseEndDate: course.end_date || null,
                 // Offer-specific data
-                offeredAt: offer.offered_at
+                offeredAt: offer.offered_at,
+                // ✨ NEW: Pricing information
+                pricing: pricing
             };
         }));
 
@@ -141,7 +147,8 @@ export default async function handler(req, res) {
             validDates: transformedOffers.filter(offer => offer.dateValid).length,
             invalidDates: transformedOffers.filter(offer => !offer.dateValid).length,
             withImages: transformedOffers.filter(offer => offer.courseImageUrl).length,
-            withoutImages: transformedOffers.filter(offer => !offer.courseImageUrl).length
+            withoutImages: transformedOffers.filter(offer => !offer.courseImageUrl).length,
+            withPricing: transformedOffers.filter(offer => offer.pricing.hasPricing).length
         };
 
         console.log(`Course offers for guest ${uuid}:`, summary);
@@ -149,7 +156,7 @@ export default async function handler(req, res) {
         return res.status(200).json({
             success: true,
             courseOffers: transformedOffers,
-            summary: summary, // Include summary for debugging (remove in production if needed)
+            summary: summary,
             dateValidationPerformed: !!(checkInDate && checkOutDate)
         });
 

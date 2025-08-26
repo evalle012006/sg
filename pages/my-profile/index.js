@@ -616,7 +616,7 @@ export default function GuestProfilePage() {
 
                                 {/* Aboriginal/Torres Strait Islander Section */}
                                 <div className="border-t border-gray-200 pt-8">
-                                    <h2 className="text-lg font-semibold mb-6 text-gray-700 uppercase">Identified as Aboriginal or Torres Strait Islander</h2>
+                                    {/* <h2 className="text-lg font-semibold mb-6 text-gray-700 uppercase">Identified as Aboriginal or Torres Strait Islander</h2> */}
                                     <div className="space-y-6">
                                         <div>
                                             <p className="text-sm font-medium mb-3 text-gray-700">Do you identify as Aboriginal or Torres Strait Islander? (Person with SCI)</p>

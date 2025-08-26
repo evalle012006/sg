@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en-US">
+
+<head>
+    <meta content="text/html; charset=utf-8" http-equiv="Content-Type" />
+    <title>Course Offer - Sargood on Collaroy</title>
+    <meta name="description" content="Course Offer Email Template.">
+    <style type="text/css">
+        a:hover {
+            text-decoration: underline !important;
+        }
+        .course-card {
+            background-color: #ffffff;
+            border: 1px solid #e1e5e9;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .course-image {
+            width: 100%;
+            max-width: 400px;
+            height: 200px;
+            object-fit: cover;
+            border-radius: 6px;
+            margin-bottom: 15px;
+        }
+        .course-title {
+            color: #075985;
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        .course-details {
+            margin: 10px 0;
+        }
+        .course-details strong {
+            color: #333333;
+        }
+        .cta-button {
+            background: #ffd000;
+            text-decoration: none !important;
+            font-weight: 500;
+            margin-top: 25px;
+            color: #333333 !important;
+            text-transform: uppercase;
+            font-size: 14px;
+            padding: 12px 28px;
+            display: inline-block;
+            border-radius: 50px;
+            border: none;
+        }
+        .booking-window {
+            background-color: #fff7ed;
+            border: 1px solid #fed7aa;
+            border-radius: 6px;
+            padding: 15px;
+            margin: 15px 0;
+        }
+        .booking-window .warning {
+            color: #ea580c;
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+    </style>
+</head>
+
+<body marginheight="0" topmargin="0" marginwidth="0" style="margin: 0px; background-color: #f2f3f8;" leftmargin="0">
+    <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; padding: 30px;">
+        <h2 style="color: #075985; text-align: center; margin-bottom: 30px;">
+            New Course Offer Available!
+        </h2>
+
+        <p>Hi {{guest_name}},</p>
+
+        <p>We're excited to let you know that a new course has been offered to you at Sargood on Collaroy!</p>
+
+        <div class="course-card">
+            {{#if course_image_url}}
+            <img src="{{course_image_url}}" alt="{{course_title}}" class="course-image" />
+            {{/if}}
+            
+            <div class="course-title">{{course_title}}</div>
+            
+            {{#if course_description}}
+            <p style="color: #666666; margin-bottom: 15px;">{{course_description}}</p>
+            {{/if}}
+
+            <div class="course-details">
+                <p><strong>Start Date:</strong> {{start_date}}</p>
+                <p><strong>End Date:</strong> {{end_date}}</p>
+                {{#if duration_hours}}
+                <p><strong>Duration:</strong> {{duration_hours}} hours</p>
+                {{/if}}
+                {{#if notes}}
+                <p><strong>Additional Notes:</strong> {{notes}}</p>
+                {{/if}}
+            </div>
+
+            <div class="booking-window">
+                <div class="warning">⏰ Important Booking Information</div>
+                <p style="margin: 5px 0;">
+                    <strong>Booking Deadline:</strong> {{booking_deadline}}
+                </p>
+                <p style="margin: 0; font-size: 14px; color: #666666;">
+                    You must accept this offer before the booking window closes to secure your spot.
+                </p>
+            </div>
+        </div>
+
+        <p style="margin-top: 25px;">
+            To accept this course offer and secure your booking, please click the button below:
+        </p>
+
+        <div style="text-align: center; margin: 30px 0;">
+            <a href="{{course_offer_link}}" class="cta-button">
+                VIEW & ACCEPT OFFER
+            </a>
+        </div>
+
+        <p style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e1e5e9; font-size: 14px; color: #666666;">
+            <strong>Need Help?</strong><br>
+            If you have any questions about this course offer or need assistance with booking, 
+            please don't hesitate to contact our team at 
+            <a href="mailto:info@sargoodoncollaroy.com.au" style="color: #075985;">info@sargoodoncollaroy.com.au</a>
+        </p>
+
+        <p style="margin-top: 20px;">
+            Kind Regards,<br>
+            <strong>The Sargood on Collaroy Team</strong>
+        </p>
+    </div>
+</body>
+
+</html>

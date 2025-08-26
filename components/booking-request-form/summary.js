@@ -6,7 +6,16 @@ import { getNSWHolidaysV2 } from '../../services/booking/create-summary-data';
 import { serializePackage } from '../../utilities/common';
 import { findByQuestionKey, QUESTION_KEYS } from '../../services/booking/question-helper';
 
-const SummaryOfStay = ({ bookingData, bookingId, origin, getRequestFormTemplate, bookingAmended, submitBooking }) => {
+const SummaryOfStay = ({ 
+  bookingData, 
+  bookingId, 
+  origin, 
+  getRequestFormTemplate, 
+  bookingAmended, 
+  submitBooking,
+  careAnalysisData = null,
+  courseAnalysisData = null 
+}) => {
   const currentUser = useSelector(state => state.user.user);
   const selectedRooms = useSelector(state => state.bookingRequestForm.rooms);
   const [summary, setSummary] = useState();
@@ -19,12 +28,63 @@ const SummaryOfStay = ({ bookingData, bookingId, origin, getRequestFormTemplate,
     roomUpgrade: 0,
     additionalRoom: 0
   });
-  const [verbalConsent, setVerbalConsent] = useState({ checked: false, timestamp: null, adminName: currentUser.first_name + ' ' + currentUser.last_name });
+  const [verbalConsent, setVerbalConsent] = useState({ 
+    checked: false, 
+    timestamp: null, 
+    adminName: currentUser.first_name + ' ' + currentUser.last_name 
+  });
   
   const [isSignatureLoading, setIsSignatureLoading] = useState(false);
   const [hasExistingSignature, setHasExistingSignature] = useState(false);
   const [packageResolved, setPackageResolved] = useState(false);
   const [resolvedPackageData, setResolvedPackageData] = useState(null);
+
+  // NEW: Extract care and course data from summary if not provided as props
+  const getAnalysisDataFromSummary = () => {
+    let extractedCareData = careAnalysisData;
+    let extractedCourseData = courseAnalysisData;
+    
+    // Try to extract care analysis from summary data if not provided
+    if (!extractedCareData && summary?.data?.careAnalysis) {
+      extractedCareData = summary.data.careAnalysis;
+    }
+    
+    // Try to extract course analysis from summary data if not provided  
+    if (!extractedCourseData && summary?.data?.courseAnalysis) {
+      extractedCourseData = summary.data.courseAnalysis;
+    }
+    
+    // Try to extract from NDIS questions or other summary fields
+    if (!extractedCareData && summary?.data?.ndisQuestions) {
+      // Look for care-related questions in NDIS questions
+      const careQuestions = summary.data.ndisQuestions.filter(q => 
+        q.question?.toLowerCase().includes('care') || 
+        q.question?.toLowerCase().includes('assistance')
+      );
+      
+      if (careQuestions.length > 0) {
+        // Basic care analysis from NDIS questions
+        extractedCareData = {
+          requiresCare: true,
+          totalHoursPerDay: 6, // Default assumption for NDIS packages
+          carePattern: 'moderate-care',
+          sampleDay: { morning: 2, afternoon: 2, evening: 2 }
+        };
+      }
+    }
+    
+    console.log('Extracted analysis data:', {
+      careData: extractedCareData,
+      courseData: extractedCourseData,
+      fromProps: { care: !!careAnalysisData, course: !!courseAnalysisData },
+      fromSummary: { 
+        care: !!summary?.data?.careAnalysis, 
+        course: !!summary?.data?.courseAnalysis 
+      }
+    });
+    
+    return { careData: extractedCareData, courseData: extractedCourseData };
+  };
 
   const scrollToSignature = () => {
     signatureSectionRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -38,7 +98,6 @@ const SummaryOfStay = ({ bookingData, bookingId, origin, getRequestFormTemplate,
 
   // Helper function to get NDIS funding type from Q&A pairs
   const getNdisFundingType = () => {
-    console.log('getNdisFundingType called, bookingData:', bookingData);
     
     if (!bookingData?.data) {
       console.log('No bookingData.data available');
@@ -47,19 +106,16 @@ const SummaryOfStay = ({ bookingData, bookingId, origin, getRequestFormTemplate,
     
     // First, try to find the answer directly in summary data if it exists
     if (bookingData.data.ndisFundingType) {
-      console.log('Found NDIS funding type in summary data:', bookingData.data.ndisFundingType);
       return bookingData.data.ndisFundingType;
     }
     
     // If not in summary data, search through the original sections for the Q&A pair
     // This assumes bookingData has access to the original sections with Q&A pairs
     if (bookingData.originalSections) {
-      console.log('Searching in originalSections...');
       for (const section of bookingData.originalSections) {
         if (section.QaPairs) {
           const ndisFundingQA = findByQuestionKey(section.QaPairs, 'please-select-from-one-of-the-following-ndis-funding-options');
           if (ndisFundingQA && ndisFundingQA.answer) {
-            console.log('Found NDIS funding type in QaPairs:', ndisFundingQA.answer);
             return ndisFundingQA.answer;
           }
         }
@@ -68,12 +124,10 @@ const SummaryOfStay = ({ bookingData, bookingId, origin, getRequestFormTemplate,
     
     // Alternative: Try to find it in the ndisQuestions array if it exists
     if (bookingData.data.ndisQuestions && Array.isArray(bookingData.data.ndisQuestions)) {
-      console.log('Searching in ndisQuestions...');
       const fundingTypeQuestion = bookingData.data.ndisQuestions.find(q => 
         q.question && q.question.toLowerCase().includes('ndis funding options')
       );
       if (fundingTypeQuestion && fundingTypeQuestion.answer) {
-        console.log('Found NDIS funding type in ndisQuestions:', fundingTypeQuestion.answer);
         return fundingTypeQuestion.answer;
       }
     }
@@ -215,7 +269,6 @@ const SummaryOfStay = ({ bookingData, bookingId, origin, getRequestFormTemplate,
   const resolvePackageSelection = async () => {
     if (bookingData?.data?.selectedPackageId && bookingData?.data?.packageSelectionType === 'package-selection' && !packageResolved) {
       try {
-        console.log('Resolving package selection:', bookingData.data.selectedPackageId);
         setPackageResolved(true); // Prevent multiple calls
         
         const response = await fetch(`/api/packages/${bookingData.data.selectedPackageId}`);
@@ -224,7 +277,6 @@ const SummaryOfStay = ({ bookingData, bookingId, origin, getRequestFormTemplate,
           
           if (result.success && result.package) {
             const packageData = result.package;
-            console.log('Package data resolved:', packageData);
             setResolvedPackageData(packageData);
             
             // Update the booking data with resolved package details
@@ -393,6 +445,8 @@ const SummaryOfStay = ({ bookingData, bookingId, origin, getRequestFormTemplate,
             nights={summary?.data?.nights} 
             setTotalPackageCost={setTotalPackageCost}
             packageData={resolvedPackageData}
+            careAnalysisData={getAnalysisDataFromSummary().careData}
+            courseAnalysisData={getAnalysisDataFromSummary().courseData}
           />
           <div className="mt-2 text-right">
             <p className="font-semibold text-slate-700">Total Package Cost: ${formatPrice(totalPackageCost)}</p>
@@ -547,9 +601,9 @@ const SummaryOfStay = ({ bookingData, bookingId, origin, getRequestFormTemplate,
 
 export default SummaryOfStay;
 
-// Updated PricingTable component with 24-hour calculation
-const PricingTable = ({ option, datesOfStay, nights = 0, setTotalPackageCost, packageData }) => {
-  const [dataOption, setDataOption] = useState([]);
+// Updated PricingTable component with conditional logic for API vs static data
+const PricingTable = ({ option, datesOfStay, nights = 0, setTotalPackageCost, packageData, careAnalysisData, courseAnalysisData }) => {
+  const [tableData, setTableData] = useState([]);
   const [daysBreakdown, setDaysBreakdown] = useState({
     weekdays: 0,
     saturdays: 0,
@@ -557,312 +611,610 @@ const PricingTable = ({ option, datesOfStay, nights = 0, setTotalPackageCost, pa
     publicHolidays: 0
   });
 
-  // Convert nightly rate to hourly rate (using full 24 hours per day)
-  const HOURS_PER_DAY = 24;
+  // Check if we should use new API-based logic or existing static logic
+  const shouldUseApiLogic = packageData && packageData.ndis_line_items && packageData.ndis_line_items.length > 0;
 
-  const calculateTotalCost = () => {
-    if (!dataOption.length) return 0;
+  // Calculate stay dates breakdown
+  const calculateStayDatesBreakdown = async () => {
+    if (!datesOfStay || nights <= 0) return;
+    
+    try {
+      const breakdown = await calculateDaysBreakdown(datesOfStay, nights);
+      setDaysBreakdown(breakdown);
+    } catch (error) {
+      console.error('Error calculating stay dates breakdown:', error);
+    }
+  };
 
-    let total = 0;
-    dataOption.forEach(row => {
-      const hoursForType = getHoursForType(row.type);
-      // Only include costs for rows that have hours > 0
-      if (hoursForType > 0) {
-        total += row.hourlyRate * hoursForType;
+  // EXISTING STATIC LOGIC (unchanged from original)
+  // Process static/hardcoded package data (original logic)
+  const processStaticPackageData = () => {
+    console.log('Using static pricing logic for option:', option);
+    
+    const staticPricing = getStaticHourlyPricing(option);
+    
+    if (!staticPricing || staticPricing.length === 0) {
+      console.log('No static pricing found for option:', option);
+      setTableData([]);
+      if (setTotalPackageCost) setTotalPackageCost(0);
+      return [];
+    }
+
+    // Filter out rows where hours would be 0 (existing logic)
+    const applicableRows = staticPricing.filter(row => {
+      const hoursForType = getHoursForStaticType(row.type);
+      return hoursForType > 0;
+    });
+
+    // Convert to table format (existing logic)
+    const processedRows = applicableRows.map(row => {
+      const hoursForType = getHoursForStaticType(row.type);
+      const totalForRow = row.hourlyRate * hoursForType;
+      
+      return {
+        description: row.itemDescription,
+        lineItem: row.lineItem,
+        rate: row.hourlyRate,
+        quantity: hoursForType,
+        total: totalForRow,
+        funder: '', // No funder column for static pricing
+        rateCategory: 'hour',
+        lineItemType: 'static',
+        rateType: row.type
+      };
+    });
+
+    setTableData(processedRows);
+    
+    // Calculate total cost (existing logic)
+    const totalCost = processedRows.reduce((sum, row) => sum + row.total, 0);
+    if (setTotalPackageCost) {
+      setTotalPackageCost(totalCost);
+    }
+
+    return processedRows;
+  };
+
+  // Helper function for static pricing hours calculation (existing logic)
+  const getHoursForStaticType = (type) => {
+    const daysForType = getDaysForRateType(type, daysBreakdown);
+    return daysForType * 24; // 24 hours per day for static pricing
+  };
+
+  // Get static hourly pricing data (existing logic from original code)
+  const getStaticHourlyPricing = (option) => {
+    const HOURS_PER_DAY = 24;
+    
+    switch (option) {
+      case 'SP':
+        return [
+          { 
+            itemDescription: "Assistance With Self-Care Activities in a STA - WEEKDAY", 
+            lineItem: "01_200_0115_1_1", 
+            hourlyRate: 39.58, // 950 / 24
+            type: 'weekday' 
+          },
+          { 
+            itemDescription: "Assistance With Self-Care Activities in a STA - SATURDAY", 
+            lineItem: "01_202_0115_1_1", 
+            hourlyRate: 45.83, // 1100 / 24
+            type: 'saturday' 
+          },
+          { 
+            itemDescription: "Assistance With Self-Care Activities in a STA - SUNDAY", 
+            lineItem: "01_203_0115_1_1", 
+            hourlyRate: 52.08, // 1250 / 24
+            type: 'sunday' 
+          },
+          { 
+            itemDescription: "Assistance With Self-Care Activities in a STA - PUBLIC HOLIDAY", 
+            lineItem: "01_204_0115_1_1", 
+            hourlyRate: 62.50, // 1500 / 24
+            type: 'publicHoliday' 
+          }
+        ];
+      case 'CSP':
+        return [
+          { 
+            itemDescription: "Assistance With Self-Care Activities in a STA - WEEKDAY", 
+            lineItem: "01_200_0115_1_1", 
+            hourlyRate: 45.83, // 1100 / 24
+            type: 'weekday' 
+          },
+          { 
+            itemDescription: "Assistance With Self-Care Activities in a STA - SATURDAY", 
+            lineItem: "01_202_0115_1_1", 
+            hourlyRate: 58.33, // 1400 / 24
+            type: 'saturday' 
+          },
+          { 
+            itemDescription: "Assistance With Self-Care Activities in a STA - SUNDAY", 
+            lineItem: "01_203_0115_1_1", 
+            hourlyRate: 72.92, // 1750 / 24
+            type: 'sunday' 
+          },
+          { 
+            itemDescription: "Assistance With Self-Care Activities in a STA - PUBLIC HOLIDAY", 
+            lineItem: "01_204_0115_1_1", 
+            hourlyRate: 83.33, // 2000 / 24
+            type: 'publicHoliday' 
+          }
+        ];
+      case 'HCSP':
+        return [
+          { 
+            itemDescription: "Assistance With Self-Care Activities in a STA - WEEKDAY", 
+            lineItem: "01_200_0115_1_1", 
+            hourlyRate: 72.50, // 1740 / 24
+            type: 'weekday' 
+          },
+          { 
+            itemDescription: "Assistance With Self-Care Activities in a STA - SATURDAY", 
+            lineItem: "01_202_0115_1_1", 
+            hourlyRate: 77.08, // 1850 / 24
+            type: 'saturday' 
+          },
+          { 
+            itemDescription: "Assistance With Self-Care Activities in a STA - SUNDAY", 
+            lineItem: "01_203_0115_1_1", 
+            hourlyRate: 83.33, // 2000 / 24
+            type: 'sunday' 
+          },
+          { 
+            itemDescription: "Assistance With Self-Care Activities in a STA - PUBLIC HOLIDAY", 
+            lineItem: "01_204_0115_1_1", 
+            hourlyRate: 93.75, // 2250 / 24
+            type: 'publicHoliday' 
+          }
+        ];
+      default:
+        return [];
+    }
+  };
+
+  // NEW API LOGIC (for packages with ndis_line_items)
+  // Process API package data with new complex logic
+  // NEW API LOGIC (for packages with ndis_line_items)
+  // Process API package data with new complex logic
+  const processApiPackageData = () => {
+    console.log('Using API pricing logic with line items:', packageData.ndis_line_items);
+    
+    const processedRows = packageData.ndis_line_items.map(lineItem => {
+      const quantity = calculateApiQuantity(lineItem, daysBreakdown, careAnalysisData, courseAnalysisData);
+      const rate = parseFloat(lineItem.price_per_night || 0);
+      const total = rate * quantity;
+      const funder = getFunder(packageData, lineItem);
+
+      // Log details for blank rate_type items
+      if (!lineItem.rate_type || lineItem.rate_type === '') {
+        console.log(`Processing item with blank rate_type:`, {
+          description: lineItem.sta_package,
+          lineItemType: lineItem.line_item_type,
+          rateCategory: lineItem.rate_category,
+          calculatedQuantity: quantity,
+          daysBreakdown: daysBreakdown
+        });
+      }
+
+      return {
+        description: lineItem.sta_package || lineItem.description || 'Package Item',
+        lineItem: lineItem.line_item || lineItem.line_item_code || 'N/A',
+        rate: rate,
+        quantity: quantity,
+        total: total,
+        funder: funder,
+        rateCategory: lineItem.rate_category || 'day',
+        lineItemType: lineItem.line_item_type || '',
+        rateType: lineItem.rate_type || 'BLANK'
+      };
+    });
+
+    // Filter out rows with 0 quantity (no applicable hours/days)
+    const filteredRows = processedRows.filter(row => row.quantity > 0);
+    
+    console.log(`API Logic: Showing ${filteredRows.length} of ${processedRows.length} line items`, {
+      filtered: processedRows.filter(row => row.quantity === 0).map(row => ({
+        description: row.description,
+        lineItemType: row.lineItemType,
+        rateType: row.rateType,
+        reason: 'Zero quantity'
+      }))
+    });
+
+    setTableData(filteredRows);
+
+    // Calculate total cost
+    const totalCost = filteredRows.reduce((sum, row) => sum + row.total, 0);
+    if (setTotalPackageCost) {
+      setTotalPackageCost(totalCost);
+    }
+
+    return filteredRows;
+  };
+
+  // Calculate quantity for API packages based on line_item_type and rate_category
+  const calculateApiQuantity = (lineItem, daysBreakdown, careAnalysisData, courseAnalysisData) => {
+    const { line_item_type, rate_type, rate_category, care_time } = lineItem;
+    
+    // Log when processing blank rate_type
+    if (!rate_type || rate_type === '') {
+      console.log(`Processing line item with blank rate_type:`, {
+        lineItemType: line_item_type,
+        rateCategory: rate_category,
+        description: lineItem.sta_package || lineItem.description
+      });
+    }
+    
+    switch (line_item_type) {
+      case 'room':
+        // Qty = checkin date until checkout date - 1 day (checkout date not charged)
+        return nights;
+        
+      case 'group_activities':
+        return calculateGroupActivitiesQuantity(lineItem, daysBreakdown, courseAnalysisData);
+        
+      case 'sleep_over':
+        // Same as room logic
+        return nights;
+        
+      case 'course':
+        // Show only if booking has course, default 6 hours
+        if (!courseAnalysisData?.hasCourse) return 0;
+        return 6; // Default 6 hours for course
+        
+      case 'care':
+        // Show only if booking has care, calculate based on care_time
+        if (!careAnalysisData?.requiresCare) return 0;
+        return calculateCareQuantity(lineItem, careAnalysisData, daysBreakdown);
+        
+      default:
+        // For line items without specific type, use day-based calculation
+        if (rate_category === 'day') {
+          const dayQty = getDaysForRateType(rate_type, daysBreakdown);
+          console.log(`Day calculation for rate_type "${rate_type || 'BLANK'}":`, dayQty);
+          return dayQty;
+        } else if (rate_category === 'hour') {
+          // UPDATED: Default to 12 hours per day instead of 24 for hourly rate category
+          const daysForType = getDaysForRateType(rate_type, daysBreakdown);
+          const hourQty = daysForType * 12; // 12 hours per day default
+          console.log(`Hour calculation for rate_type "${rate_type || 'BLANK'}": ${daysForType} days × 12 hours = ${hourQty}`);
+          return hourQty;
+        }
+        return 0;
+    }
+  };
+
+  // Calculate group activities quantity
+  const calculateGroupActivitiesQuantity = (lineItem, daysBreakdown, courseAnalysisData) => {
+    const { rate_type } = lineItem;
+    
+    // NEW: Handle blank rate_type (applies to all days)
+    if (!rate_type || rate_type === '') {
+      // For blank rate_type, calculate across all days
+      const totalDays = daysBreakdown.weekdays + daysBreakdown.saturdays + daysBreakdown.sundays + daysBreakdown.publicHolidays;
+      
+      if (totalDays === 0) return 0;
+      
+      let totalHours = 0;
+      const stayDates = generateStayDates(datesOfStay, nights);
+      
+      stayDates.forEach((date, index) => {
+        const isCheckInDay = index === 0;
+        const isCheckOutDay = index === stayDates.length - 1;
+        const isCourseDay = courseAnalysisData?.hasCourse && isCourseOnDate(date, courseAnalysisData);
+        
+        if (isCheckInDay || isCheckOutDay) {
+          totalHours += 6; // 6 hours on checkin/checkout days
+        } else if (isCourseDay) {
+          totalHours += 6; // UPDATED: 6 hours on course days
+        } else {
+          totalHours += 12; // 12 hours on regular days
+        }
+      });
+      
+      return totalHours;
+    }
+    
+    // For specific rate types (weekday, saturday, sunday, public_holiday)
+    const daysForType = getDaysForRateType(rate_type, daysBreakdown);
+    
+    if (daysForType === 0) return 0;
+    
+    let totalHours = 0;
+    const stayDates = generateStayDates(datesOfStay, nights);
+    
+    stayDates.forEach((date, index) => {
+      const dateRateType = getDateRateType(date, daysBreakdown);
+      
+      if (dateRateType !== rate_type) return; // Skip if not matching rate type
+      
+      const isCheckInDay = index === 0;
+      const isCheckOutDay = index === stayDates.length - 1;
+      const isCourseDay = courseAnalysisData?.hasCourse && isCourseOnDate(date, courseAnalysisData);
+      
+      if (isCheckInDay || isCheckOutDay) {
+        totalHours += 6; // 6 hours on checkin/checkout days
+      } else if (isCourseDay) {
+        totalHours += 6; // UPDATED: 6 hours on course days
+      } else {
+        totalHours += 12; // 12 hours on regular days
       }
     });
     
-    return total;
+    return totalHours;
   };
 
-  // Helper function to get the number of hours for a specific rate type
-  const getHoursForType = (type) => {
-    const daysForType = getDaysForType(type);
-    return daysForType * HOURS_PER_DAY; // 24 hours per day
-  };
-
-  // Helper function to get the number of days for a specific rate type
-  const getDaysForType = (type) => {
-    switch (type) {
-      case 'weekday': return daysBreakdown.weekdays;
-      case 'saturday': return daysBreakdown.saturdays;
-      case 'sunday': return daysBreakdown.sundays;
-      case 'publicHoliday': return daysBreakdown.publicHolidays;
-      default: return 0;
-    }
-  };
-
-  useEffect(() => {
-    const pricingData = getHourlyPricing(option, packageData);
-    console.log('PricingTable - Setting hourly pricing data:', pricingData);
-    setDataOption(pricingData);
+  // Calculate care quantity based on care_time and analysis data
+  const calculateCareQuantity = (lineItem, careAnalysisData, daysBreakdown) => {
+    const { rate_type, care_time } = lineItem;
+    const daysForType = getDaysForRateType(rate_type, daysBreakdown);
     
-    if (datesOfStay && nights > 0) {
-      const handleGetBreakdown = async () => {
-        const breakdown = await calculateDaysBreakdown(datesOfStay, nights);
-        console.log('PricingTable - Days breakdown:', breakdown);
-        setDaysBreakdown(breakdown);
-      }
-      handleGetBreakdown();
+    if (daysForType === 0) return 0;
+    
+    // Get care hours for the specific time period
+    const careHoursPerDay = getCareHoursForTime(care_time, careAnalysisData);
+    
+    return careHoursPerDay * daysForType;
+  };
+
+  // Get care hours for specific time period (morning, afternoon, evening)
+  const getCareHoursForTime = (careTime, careAnalysisData) => {
+    if (!careTime || !careAnalysisData?.sampleDay) return 0;
+    
+    const sampleDay = careAnalysisData.sampleDay;
+    
+    switch (careTime.toLowerCase()) {
+      case 'morning':
+        return sampleDay.morning || 0;
+      case 'afternoon':
+        return sampleDay.afternoon || 0;
+      case 'evening':
+        return sampleDay.evening || 0;
+      default:
+        return 0;
     }
-  }, [option, datesOfStay, nights, packageData]);
+  };
+
+  // Get number of days for specific rate type
+  const getDaysForRateType = (rateType, daysBreakdown) => {
+    // NEW: Handle blank rate_type for all days
+    if (!rateType || rateType === '') {
+      return daysBreakdown.weekdays + daysBreakdown.saturdays + daysBreakdown.sundays + daysBreakdown.publicHolidays;
+    }
+    
+    switch (rateType) {
+      case 'weekday':
+        return daysBreakdown.weekdays;
+      case 'saturday':
+        return daysBreakdown.saturdays;
+      case 'sunday':
+        return daysBreakdown.sundays;
+      case 'public_holiday':
+      case 'publicHoliday':
+        return daysBreakdown.publicHolidays;
+      default:
+        return 0;
+    }
+  };
+
+  // Generate array of stay dates for detailed calculation
+  const generateStayDates = (datesOfStay, nights) => {
+    if (!datesOfStay) return [];
+    
+    const startDateStr = datesOfStay.split(' - ')[0];
+    const [day, month, year] = startDateStr.split('/');
+    const startDate = new Date(year, month - 1, day);
+    
+    const dates = [];
+    for (let i = 0; i < nights; i++) {
+      const currentDate = new Date(startDate);
+      currentDate.setDate(currentDate.getDate() + i);
+      dates.push(currentDate);
+    }
+    
+    return dates;
+  };
+
+  // Get rate type for a specific date
+  const getDateRateType = (date, daysBreakdown) => {
+    const dayOfWeek = date.getDay();
+    
+    // Check if it's a public holiday first
+    if (daysBreakdown.publicHolidays > 0) {
+      // Would need to check against actual holiday dates
+      // For now, assume public holidays are handled separately
+    }
+    
+    if (dayOfWeek === 6) return 'saturday';
+    if (dayOfWeek === 0) return 'sunday';
+    return 'weekday';
+  };
+
+  // Check if a date is a course day - improved implementation
+  const isCourseOnDate = (date, courseAnalysisData) => {
+    // This would need to be implemented based on actual course start dates from the booking
+    // For now, this is a placeholder that should be replaced with actual course date logic
+    
+    // Example implementation - you would replace this with actual course date checking:
+    // if (courseAnalysisData?.courseStartDate) {
+    //   const courseStart = new Date(courseAnalysisData.courseStartDate);
+    //   return date.toDateString() === courseStart.toDateString();
+    // }
+    
+    // Placeholder: assume first day after checkin is course day if course exists
+    if (!courseAnalysisData?.hasCourse) return false;
+    
+    // This is a simple placeholder - replace with actual course scheduling logic
+    const stayDates = generateStayDates(datesOfStay, nights);
+    const courseDay = stayDates[1]; // Assume second day is course day (placeholder)
+    
+    return courseDay && date.toDateString() === courseDay.toDateString();
+  };
+
+  // Determine funder based on package type and line item type
+  const getFunder = (packageData, lineItem) => {
+    if (packageData?.ndis_package_type !== 'holiday-plus') {
+      return ''; // Only show funder for holiday-plus packages
+    }
+    
+    if (lineItem.line_item_type === 'room') {
+      return 'Self/Foundation';
+    }
+    
+    return 'NDIS';
+  };
+
+  // Main processing logic - choose between API and static
+  const processPackageData = () => {
+    if (shouldUseApiLogic) {
+      return processApiPackageData();
+    } else {
+      return processStaticPackageData();
+    }
+  };
+
+  // Initialize calculations
+  useEffect(() => {
+    calculateStayDatesBreakdown();
+  }, [datesOfStay, nights]);
 
   useEffect(() => {
-    if (setTotalPackageCost && dataOption.length > 0) {
-      const totalCost = calculateTotalCost();
-      console.log('PricingTable - Total cost calculated:', totalCost);
-      setTotalPackageCost(totalCost);
+    // For static logic, we need daysBreakdown
+    // For API logic, we need daysBreakdown AND package data
+    const canProcess = shouldUseApiLogic 
+      ? (packageData && Object.keys(daysBreakdown).some(key => daysBreakdown[key] > 0))
+      : Object.keys(daysBreakdown).some(key => daysBreakdown[key] > 0);
+      
+    if (canProcess) {
+      processPackageData();
     }
-  }, [dataOption, daysBreakdown, setTotalPackageCost]);
+  }, [packageData, daysBreakdown, careAnalysisData, courseAnalysisData, shouldUseApiLogic]);
 
-  // If no pricing data, don't render the table
-  if (!dataOption || dataOption.length === 0) {
+  // Don't render if no data
+  if (!tableData || tableData.length === 0) {
     return (
       <div className="w-full max-w-4xl p-4 text-center text-gray-500">
-        No pricing information available for this package.
+        {shouldUseApiLogic 
+          ? "No applicable pricing information available for this package and stay dates."
+          : "No pricing information available for this package."}
       </div>
     );
   }
 
-  // Filter out rows where hours would be 0
-  const applicableRows = dataOption.filter(row => {
-    const hoursForType = getHoursForType(row.type);
-    const isApplicable = hoursForType > 0;
-    
-    if (!isApplicable) {
-      console.log(`Filtering out ${row.type} row - 0 hours applicable`);
-    }
-    
-    return isApplicable;
-  });
-
-  console.log(`PricingTable - Showing ${applicableRows.length} of ${dataOption.length} rate types`, 
-    applicableRows.map(row => row.type));
-
-  // If no applicable rows after filtering, don't render the table
-  if (applicableRows.length === 0) {
-    return (
-      <div className="w-full max-w-4xl p-4 text-center text-gray-500">
-        No applicable pricing information for the selected dates.
-      </div>
-    );
-  }
+  // Determine if we should show the Funder column (only for API packages with holiday-plus type)
+  const showFunderColumn = shouldUseApiLogic && packageData?.ndis_package_type === 'holiday-plus';
 
   return (
-    <div className="w-full max-w-4xl">
+    <div className="w-full max-w-6xl">
       <table className="w-full border-collapse bg-white">
         <thead>
           <tr className="bg-[#20485A] text-white">
-            <th className="p-3 text-left border border-gray-300">Item</th>
-            <th className="p-3 text-left border border-gray-300">Hourly Rate</th>
-            <th className="p-3 text-left border border-gray-300">Hours</th>
+            <th className="p-3 text-left border border-gray-300">
+              {shouldUseApiLogic ? 'Description' : 'Item'}
+            </th>
+            <th className="p-3 text-left border border-gray-300">Line Item</th>
+            <th className="p-3 text-left border border-gray-300">
+              {shouldUseApiLogic ? 'Rate' : 'Hourly Rate'}
+            </th>
+            <th className="p-3 text-left border border-gray-300">
+              {shouldUseApiLogic ? 'Qty' : 'Hours'}
+            </th>
             <th className="p-3 text-left border border-gray-300">Total ($)</th>
+            {showFunderColumn && (
+              <th className="p-3 text-left border border-gray-300">Funder</th>
+            )}
           </tr>
         </thead>
         <tbody>
-          {applicableRows.map((row, index) => {
-            const hoursForType = getHoursForType(row.type);
-            const totalForRow = row.hourlyRate * hoursForType;
-            return (
-              <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                <td className="p-3 border border-gray-300">
+          {tableData.map((row, index) => (
+            <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+              <td className="p-3 border border-gray-300">
+                {shouldUseApiLogic ? (
                   <div>
-                    <div className="font-medium">{row.itemDescription}</div>
+                    <div className="font-medium">{row.description}</div>
+                    <div className="text-sm text-gray-600">
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <div className="font-medium">{row.description}</div>
                     <div className="text-sm text-gray-600">({row.lineItem})</div>
                   </div>
+                )}
+              </td>
+              <td className="p-3 border border-gray-300">{row.lineItem}</td>
+              <td className="p-3 border border-gray-300">
+                ${formatPrice(row.rate)}
+                {shouldUseApiLogic && (
+                  <div className="text-sm text-gray-600">
+                    {row.rateCategory === 'hour' ? '/hour' : '/day'}
+                  </div>
+                )}
+              </td>
+              <td className="p-3 border border-gray-300">
+                {shouldUseApiLogic ? (
+                  <>
+                    {row.quantity}
+                    <div className="text-sm text-gray-600">
+                      {row.rateCategory === 'hour' ? 'hrs' : 'days'}
+                    </div>
+                  </>
+                ) : (
+                  row.quantity.toFixed(0)
+                )}
+              </td>
+              <td className="p-3 border border-gray-300">${formatPrice(row.total)}</td>
+              {showFunderColumn && (
+                <td className="p-3 border border-gray-300">
+                  <span className={`px-2 py-1 rounded text-sm ${
+                    row.funder === 'NDIS' 
+                      ? 'bg-blue-100 text-blue-800' 
+                      : 'bg-gray-100 text-gray-800'
+                  }`}>
+                    {row.funder}
+                  </span>
                 </td>
-                <td className="p-3 border border-gray-300">${formatPrice(row.hourlyRate)}</td>
-                <td className="p-3 border border-gray-300">{hoursForType.toFixed(0)}</td>
-                <td className="p-3 border border-gray-300">${formatPrice(totalForRow)}</td>
-              </tr>
-            );
-          })}
+              )}
+            </tr>
+          ))}
         </tbody>
       </table>
+      {careAnalysisData?.totalHoursPerDay > 0 && (
+        <div className="mt-2 text-sm text-gray-600 italic">
+          * Care fees reflect requested care at the time of booking submission and may vary based on actual care hours used.
+        </div>
+      )}
+
+      {/* Debug information (remove in production)
+      {process.env.NODE_ENV === 'development' && (
+        <div className="mt-4 p-2 bg-gray-100 text-xs">
+          <div>Logic used: {shouldUseApiLogic ? 'API (complex)' : 'Static (original)'}</div>
+          <div>Days breakdown: {JSON.stringify(daysBreakdown)}</div>
+          {shouldUseApiLogic && (
+            <>
+              <div>Care analysis: Total hours/day: {careAnalysisData?.totalHoursPerDay || 0}</div>
+              <div>Course analysis: Has course: {courseAnalysisData?.hasCourse || false}</div>
+              <div>Package type: {packageData?.ndis_package_type}</div>
+              <div>Line items with blank rate_type: {
+                packageData?.ndis_line_items?.filter(item => !item.rate_type || item.rate_type === '').length || 0
+              }</div>
+              <div>Rate categories: {
+                JSON.stringify(packageData?.ndis_line_items?.map(item => ({
+                  lineItem: item.line_item,
+                  rateType: item.rate_type || 'BLANK',
+                  rateCategory: item.rate_category,
+                  lineItemType: item.line_item_type
+                })) || [])
+              }</div>
+            </>
+          )}
+        </div>
+      )} */}
     </div>
   );
 };
 
-// Helper function to get hourly pricing data
-const getHourlyPricing = (option, packageData = null) => {
-  const HOURS_PER_DAY = 24; // Full 24 hours per day
-  
-  // PRIORITY 1: If we have resolved package data with ndis_line_items, use that
-  if (packageData && packageData.ndis_line_items && packageData.ndis_line_items.length > 0) {
-    console.log('Using package line items for hourly pricing:', packageData.ndis_line_items);
-    
-    // Map the line items to hourly rates
-    const lineItems = packageData.ndis_line_items.map((lineItem) => ({
-      itemDescription: getItemDescription(lineItem),
-      lineItem: lineItem.line_item || lineItem.line_item_code || lineItem.code || 'Line Item Code',
-      hourlyRate: parseFloat((lineItem.price_per_night || lineItem.price || lineItem.cost || 0) / HOURS_PER_DAY),
-      type: determineLineItemType(lineItem)
-    }));
-    
-    console.log('Mapped hourly line items:', lineItems);
-    
-    // Sort by type order
-    const sortOrder = { 'weekday': 0, 'saturday': 1, 'sunday': 2, 'publicHoliday': 3 };
-    lineItems.sort((a, b) => (sortOrder[a.type] || 999) - (sortOrder[b.type] || 999));
-    
-    return lineItems;
-  }
-
-  // PRIORITY 2: Fallback to hardcoded hourly pricing based on option
-  console.log('Using hardcoded hourly pricing for option:', option);
-  switch (option) {
-    case 'SP':
-      return [
-        { 
-          itemDescription: "Assistance With Self-Care Activities in a STA - WEEKDAY", 
-          lineItem: "01_200_0115_1_1", 
-          hourlyRate: 39.58, // 950 / 24
-          type: 'weekday' 
-        },
-        { 
-          itemDescription: "Assistance With Self-Care Activities in a STA - SATURDAY", 
-          lineItem: "01_202_0115_1_1", 
-          hourlyRate: 45.83, // 1100 / 24
-          type: 'saturday' 
-        },
-        { 
-          itemDescription: "Assistance With Self-Care Activities in a STA - SUNDAY", 
-          lineItem: "01_203_0115_1_1", 
-          hourlyRate: 52.08, // 1250 / 24
-          type: 'sunday' 
-        },
-        { 
-          itemDescription: "Assistance With Self-Care Activities in a STA - PUBLIC HOLIDAY", 
-          lineItem: "01_204_0115_1_1", 
-          hourlyRate: 62.50, // 1500 / 24
-          type: 'publicHoliday' 
-        }
-      ];
-    case 'CSP':
-      return [
-        { 
-          itemDescription: "Assistance With Self-Care Activities in a STA - WEEKDAY", 
-          lineItem: "01_200_0115_1_1", 
-          hourlyRate: 45.83, // 1100 / 24
-          type: 'weekday' 
-        },
-        { 
-          itemDescription: "Assistance With Self-Care Activities in a STA - SATURDAY", 
-          lineItem: "01_202_0115_1_1", 
-          hourlyRate: 58.33, // 1400 / 24
-          type: 'saturday' 
-        },
-        { 
-          itemDescription: "Assistance With Self-Care Activities in a STA - SUNDAY", 
-          lineItem: "01_203_0115_1_1", 
-          hourlyRate: 72.92, // 1750 / 24
-          type: 'sunday' 
-        },
-        { 
-          itemDescription: "Assistance With Self-Care Activities in a STA - PUBLIC HOLIDAY", 
-          lineItem: "01_204_0115_1_1", 
-          hourlyRate: 83.33, // 2000 / 24
-          type: 'publicHoliday' 
-        }
-      ];
-    case 'HCSP':
-      return [
-        { 
-          itemDescription: "Assistance With Self-Care Activities in a STA - WEEKDAY", 
-          lineItem: "01_200_0115_1_1", 
-          hourlyRate: 72.50, // 1740 / 24
-          type: 'weekday' 
-        },
-        { 
-          itemDescription: "Assistance With Self-Care Activities in a STA - SATURDAY", 
-          lineItem: "01_202_0115_1_1", 
-          hourlyRate: 77.08, // 1850 / 24
-          type: 'saturday' 
-        },
-        { 
-          itemDescription: "Assistance With Self-Care Activities in a STA - SUNDAY", 
-          lineItem: "01_203_0115_1_1", 
-          hourlyRate: 83.33, // 2000 / 24
-          type: 'sunday' 
-        },
-        { 
-          itemDescription: "Assistance With Self-Care Activities in a STA - PUBLIC HOLIDAY", 
-          lineItem: "01_204_0115_1_1", 
-          hourlyRate: 93.75, // 2250 / 24
-          type: 'publicHoliday' 
-        }
-      ];
-    default:
-      return [];
-  }
-};
-
-// Helper function to get item description from line item data
-const getItemDescription = (lineItem) => {
-  // Try to extract a meaningful description from the line item
-  const staPackage = lineItem.sta_package || lineItem.description || lineItem.name;
-  
-  if (staPackage) {
-    // Convert STA package name to self-care activities format
-    if (staPackage.toLowerCase().includes('weekday')) {
-      return "Assistance With Self-Care Activities in a STA - WEEKDAY";
-    } else if (staPackage.toLowerCase().includes('saturday')) {
-      return "Assistance With Self-Care Activities in a STA - SATURDAY";
-    } else if (staPackage.toLowerCase().includes('sunday')) {
-      return "Assistance With Self-Care Activities in a STA - SUNDAY";
-    } else if (staPackage.toLowerCase().includes('holiday') || staPackage.toLowerCase().includes('public')) {
-      return "Assistance With Self-Care Activities in a STA - PUBLIC HOLIDAY";
-    }
-  }
-  
-  // Fallback to generic description
-  return "Assistance With Self-Care Activities in a STA";
-};
-
-// Enhanced helper function to handle rate_type mapping correctly
-const determineLineItemType = (lineItem) => {
-  if (!lineItem) return 'weekday';
-  
-  // PRIORITY 1: Use rate_type field directly from API if available
-  if (lineItem.rate_type) {
-    const rateType = lineItem.rate_type.toLowerCase();
-    if (rateType === 'weekday') return 'weekday';
-    if (rateType === 'saturday') return 'saturday';
-    if (rateType === 'sunday') return 'sunday';
-    if (rateType === 'public_holiday' || rateType === 'publicholiday' || rateType === 'holiday') return 'publicHoliday';
-  }
-  
-  // PRIORITY 2: Parse from description/package name
-  const description = (lineItem.description || lineItem.name || lineItem.package_name || lineItem.sta_package || '').toLowerCase();
-  const code = (lineItem.line_item_code || lineItem.code || lineItem.lineItem || lineItem.line_item || '').toLowerCase();
-  
-  // Check both description and code for type indicators
-  const fullText = `${description} ${code}`.toLowerCase();
-  
-  if (fullText.includes('public') || fullText.includes('holiday')) {
-    return 'publicHoliday';
-  } else if (fullText.includes('sunday')) {
-    return 'sunday';
-  } else if (fullText.includes('saturday')) {
-    return 'saturday';
-  } else if (fullText.includes('weekday') || fullText.includes('monday') || fullText.includes('tuesday') || 
-             fullText.includes('wednesday') || fullText.includes('thursday') || fullText.includes('friday')) {
-    return 'weekday';
-  }
-  
-  // Default fallback
-  return 'weekday';
-};
-
-// Updated formatPrice function to handle currency formatting
-const formatPrice = (price) => {
-  return parseFloat(price || 0).toLocaleString('en-AU', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  });
-};
-
-// Updated calculateDaysBreakdown function (keep existing logic)
+// Helper function to calculate days breakdown (existing function from create-summary-data.js)
 const calculateDaysBreakdown = async (startDateStr, numberOfNights) => {
   console.log('calculateDaysBreakdown called with:', { startDateStr, numberOfNights });
   
@@ -910,16 +1262,12 @@ const calculateDaysBreakdown = async (startDateStr, numberOfNights) => {
     publicHolidays: holidays.length || 0
   };
 
-  console.log('Starting breakdown calculation for', numberOfNights, 'nights');
-
   // Calculate breakdown for each night of the stay
   for (let i = 0; i < numberOfNights; i++) {
     const currentDate = new Date(startDateParsed);
     currentDate.setDate(currentDate.getDate() + i);
     
     const dayOfWeek = currentDate.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
-    
-    console.log(`Day ${i + 1}: ${currentDate.toDateString()}, day of week: ${dayOfWeek}`);
     
     if (dayOfWeek === 6) { // Saturday
       breakdown.saturdays++;
@@ -941,5 +1289,13 @@ const formatAUDate = (dateStr) => {
     day: 'numeric',
     hour: '2-digit',
     minute: '2-digit'
+  });
+};
+
+// Format currency
+const formatPrice = (price) => {
+  return parseFloat(price || 0).toLocaleString('en-AU', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
   });
 };

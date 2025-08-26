@@ -14,6 +14,10 @@ const Spinner = dynamic(() => import('../ui/spinner'));
 const Button = dynamic(() => import('../ui-v2/Button'));
 const TabButton = dynamic(() => import('../ui-v2/TabButton'));
 const ThumbnailCard = dynamic(() => import('../ui-v2/ThumbnailCard'));
+const CalendarView = dynamic(() => import('../ui-v2/CalendarView'), {
+    loading: () => <div className="flex justify-center items-center py-12"><span>Loading calendar...</span></div>
+});
+const Card = dynamic(() => import('../ui-v2/Card')); // Import Card component
 
 export default function GuestBookingsV2() {
     const dispatch = useDispatch();
@@ -34,9 +38,13 @@ export default function GuestBookingsV2() {
     const [courseOffersLoading, setCourseOffersLoading] = useState(false);
     const [showAllCourseOffers, setShowAllCourseOffers] = useState(false);
 
+    const [courseBookingContext, setCourseBookingContext] = useState(null);
+
+    // Updated tabs to include Course Calendar
     const tabs = [
         { label: "UPCOMING BOOKINGS" },
-        { label: "PAST BOOKINGS" }
+        { label: "PAST BOOKINGS" },
+        { label: "COURSE CALENDAR" }
     ];
 
     const createBookingRequestForm = async (bookingId) => {
@@ -49,26 +57,44 @@ export default function GuestBookingsV2() {
         });
     }
 
-    const handleCompletePrevBooking = async () => {
+    const handleCompletePrevBooking = async (courseContext = null) => {
         const brf = await createBookingRequestForm(latestBooking.id);
-
         const incompletePreviousBookingUuid = upcomingBookings.filter(booking => !booking.complete && !booking.status.includes('cancelled'))[0].uuid;
+        
         if (brf.ok) {
             setTimeout(() => {
                 if (incompletePreviousBookingUuid && prevBookingUuid) {
-                    window.open(`/booking-request-form?uuid=${incompletePreviousBookingUuid}&prevBookingId=${prevBookingUuid}`, '_self');
-                } else {
-                    console.log('missing incompletePrevBookingUuid and prevBookingUuid');
+                    let finalUrl;
+                    
+                    // Use parameter instead of state
+                    const currentCourseContext = courseContext || courseBookingContext;
+                    
+                    if (currentCourseContext) {
+                        const baseUrl = `/booking-request-form?uuid=${incompletePreviousBookingUuid}&prevBookingId=${prevBookingUuid}`;
+                        const courseParam = `&courseOfferId=${currentCourseContext.courseOfferId}`;
+                        finalUrl = baseUrl + courseParam;
+                        
+                        toast.info(`Completing previous booking with course "${currentCourseContext.courseName}" pre-selected.`);
+                        setCourseBookingContext(null);
+                    } else {
+                        finalUrl = `/booking-request-form?uuid=${incompletePreviousBookingUuid}&prevBookingId=${prevBookingUuid}`;
+                    }
+                    
+                    window.open(finalUrl, '_self');
                 }
             }, 800);
         }
-    }
+    };
 
-    const handleCheckPrevBookingStatus = async () => {
+    const handleCheckPrevBookingStatus = async (courseContext = null) => {
         setLoading(true);
-        const data = {
-            guestId: user.id
-        };
+        
+        if (courseContext) {
+            setCourseBookingContext(courseContext);
+            console.log('🎓 Course booking context set:', courseContext);
+        }
+        
+        const data = { guestId: user.id };
 
         const response = await fetch("/api/bookings/book-now/check-previous-booking", {
             method: "POST",
@@ -82,16 +108,14 @@ export default function GuestBookingsV2() {
                 setShowWarningNewBooking(true);
             } else {
                 setShowWarningNewBooking(false);
-                handleBookNow();
+                handleBookNow(courseContext);
             }
         }
-    }
+    };
 
-    const handleBookNow = async () => {
+    const handleBookNow = async (courseContext = null) => {
         setLoading(true);
-        const data = {
-            guestId: user.id
-        };
+        const data = { guestId: user.id };
 
         const response = await fetch("/api/bookings/book-now/create", {
             method: "POST",
@@ -101,25 +125,67 @@ export default function GuestBookingsV2() {
         if (response.ok) {
             const newBooking = await response.json();
             if (newBooking) {
-                fetchBookings(); // to refresh the list
+                fetchBookings();
                 const brf = await createBookingRequestForm(newBooking.id);
 
                 if (brf.ok) {
                     setLoading(false);
                     setTimeout(() => {
-                        if (bookings.length > 0 && newBooking.prevBookingId) {
-                            window.open(`/booking-request-form?uuid=${newBooking.uuid}&prevBookingId=${newBooking.prevBookingId}`, '_self');
+                        let finalUrl;
+                        // Use the parameter instead of state
+                        const currentCourseContext = courseContext || courseBookingContext;
+                        console.log('🎓 Course booking context:', currentCourseContext);
+                        
+                        if (currentCourseContext) {
+                            // Course booking flow
+                            const baseUrl = `/booking-request-form?uuid=${newBooking.uuid}`;
+                            const courseParam = `&courseOfferId=${currentCourseContext.courseOfferId}`;
+                            const prevBookingParam = (bookings.length > 0 && newBooking.prevBookingId) 
+                                ? `&prevBookingId=${newBooking.prevBookingId}` : '';
+                            
+                            finalUrl = baseUrl + courseParam + prevBookingParam;
+                            
+                            toast.success(`🎓 Booking created for "${currentCourseContext.courseName}"! Your course is pre-selected. Please complete your booking by selecting your stay dates.`, {
+                                autoClose: 5000
+                            });
+                            
+                            setCourseBookingContext(null);
                         } else {
-                            window.open(`/booking-request-form?uuid=${newBooking.uuid}`, '_self');
+                            // Regular booking flow
+                            if (bookings.length > 0 && newBooking.prevBookingId) {
+                                finalUrl = `/booking-request-form?uuid=${newBooking.uuid}&prevBookingId=${newBooking.prevBookingId}`;
+                            } else {
+                                finalUrl = `/booking-request-form?uuid=${newBooking.uuid}`;
+                            }
                         }
+                        
+                        window.open(finalUrl, '_self');
                     }, 500);
                 }
             }
         } else {
             setLoading(false);
-            toast.error("Something went wrong. Unable to create booking at the moment.")
+            const currentCourseContext = courseContext || courseBookingContext;
+            const errorMessage = currentCourseContext 
+                ? `Something went wrong. Unable to create booking for the course "${currentCourseContext.courseName}" at the moment.`
+                : "Something went wrong. Unable to create booking at the moment.";
+            
+            toast.error(errorMessage);
+            setCourseBookingContext(null);
         }
-    }
+    };
+
+    const handleCourseBookNow = (courseOfferId, courseName) => {
+        console.log('🎓 Course "Book Now" clicked:', { courseOfferId, courseName });
+        
+        const courseContext = {
+            courseOfferId: courseOfferId,
+            courseName: courseName,
+            timestamp: Date.now()
+        };
+        
+        handleCheckPrevBookingStatus(courseContext);
+    };
 
     const handleCancelBooking = async (booking) => {
         if (booking) {
@@ -171,40 +237,26 @@ export default function GuestBookingsV2() {
             const res = await fetch("/api/guests/" + user.uuid);
             const data = await res.json();
             const bookingList = data.Bookings;
-            const updatedBookingList = [];
-            const promise = await new Promise(async (resolve, reject) => {
-                if (bookingList) {
-                    const response = await Promise.all(bookingList.map(async (b) => {
-                        let booking = { ...b };
-                        if (booking.Rooms.length > 0) {
-                            let roomType = booking.Rooms[0]?.RoomType;
-                            roomType.img_url = await getRoomImageUrl(roomType);
-                            booking.Rooms[0].RoomType = roomType;
-                        }
-                        updatedBookingList.push(booking);
-                    }));
+            
+            if (bookingList) {
+                // Room images are now included directly in the API response
+                setBookings(bookingList);
+                
+                const sortedBookings = [...bookingList].sort((a, b) => b.id - a.id);
+                setLatestBooking(sortedBookings[0]);
 
-                    resolve(response);
-                } else {
-                    reject(null);
+                // picking the latest booking that is complete
+                const filteredBookingsList = sortedBookings.filter(booking => booking.complete);
+
+                if (filteredBookingsList.length) {
+                    setPrevBookingUuid(filteredBookingsList[0].uuid);
                 }
-            });
-
-            if (promise) {
-                setTimeout(() => {
-                    setBookings(updatedBookingList);
-                    const sortedBookings = [...updatedBookingList].sort((a, b) => b.id - a.id);
-                    setLatestBooking(sortedBookings[0]);
-
-                    // picking the latest booking that is complete
-                    const filteredBookingsList = sortedBookings.filter(booking => booking.complete);
-
-                    if (filteredBookingsList.length) {
-                        setPrevBookingUuid(filteredBookingsList[0].uuid);
-                    }
-                    dispatch(globalActions.setLoading(false));
-                    setLoading(false);
-                }, 300);
+                
+                dispatch(globalActions.setLoading(false));
+                setLoading(false);
+            } else {
+                setBookings([]);
+                setLoading(false);
             }
         } catch (error) {
             toast.error("Something went wrong. Unable to fetch bookings at the moment.")
@@ -213,7 +265,6 @@ export default function GuestBookingsV2() {
         }
     };
 
-    // Add function to load course offers
     const loadCourseOffers = async () => {
         if (!user?.id) return;
         
@@ -221,8 +272,9 @@ export default function GuestBookingsV2() {
         try {
             const params = new URLSearchParams({
                 guest_id: user.id.toString(),
-                status: 'offered', // Only show offered courses in the course offers section
+                status: 'offered', // Show offered courses
                 include_invalid: 'false', // Only show valid offers
+                include_booked: 'true', // IMPORTANT: Include courses already linked to bookings
                 limit: '20'
             });
             
@@ -233,13 +285,22 @@ export default function GuestBookingsV2() {
             
             const result = await response.json();
             if (result.success) {
-                setCourseOffers(result.data || []);
+                // Show ALL course offers - don't filter by booking_id
+                // The UI will handle displaying them differently based on booking status
+                const allOffers = result.data || [];
+                setCourseOffers(allOffers);
+                
+                // Log for debugging
+                const linkedOffers = allOffers.filter(offer => offer.booking_id !== null);
+                const availableOffers = allOffers.filter(offer => offer.booking_id === null);
+                
+                console.log(`🎓 Course offers loaded: ${allOffers.length} total (${availableOffers.length} available, ${linkedOffers.length} already booked)`);
+                
             } else {
                 throw new Error(result.message || 'Failed to load course offers');
             }
         } catch (error) {
-            console.error('Error loading course offers:', error);
-            // Don't show error toast for course offers as it's not critical to the booking functionality
+            console.error('❌ Error loading course offers:', error);
             setCourseOffers([]);
         } finally {
             setCourseOffersLoading(false);
@@ -286,30 +347,38 @@ export default function GuestBookingsV2() {
         return `${roomType && roomType.name}`;
     }
 
-    const getRoomImageUrl = async (roomType) => {
-        const res = await fetch("/api/manage-room/" + roomType.id);
-        const data = await res.json();
-
-        return data.url;
-    }
-
     const viewBooking = async (bookingUUID) => {
         window.open(`/bookings/${bookingUUID}`, '_self');
     }
 
-    const editBooking = async (bookingId, bookingUUID, bookingType) => {
-        const brf = await createBookingRequestForm(bookingId);
-
-        if (brf.ok) {
-            setTimeout(() => {
-                if (bookingId && bookingUUID && bookingType === 'Returning Guest' && prevBookingUuid) {
-                    window.open(`/booking-request-form?uuid=${bookingUUID}&prevBookingId=${prevBookingUuid}`, '_self');
-                } else {
-                    window.open(`/booking-request-form?uuid=${bookingUUID}`, '_self');
-                }
-            }, 800);
+    const editBooking = async (booking) => {
+        if (booking.complete == true && booking.Sections.length > 0) {
+            window.open(`/booking-request-form?uuid=${booking.uuid}`, '_self');
+        } else {
+            const brf = await createBookingRequestForm(booking.id);
+            if (brf.ok) {
+                setTimeout(() => {
+                    if (booking.id && booking.uuid && booking.type === 'Returning Guest' && prevBookingUuid) {
+                        window.open(`/booking-request-form?uuid=${booking.uuid}&prevBookingId=${prevBookingUuid}`, '_self');
+                    } else {
+                        window.open(`/booking-request-form?uuid=${booking.uuid}`, '_self');
+                    }
+                }, 800);
+            }
         }
     }
+
+    // Transform course offers data for calendar view
+    const getCalendarCourses = () => {
+        return courseOffers.map(offer => ({
+            ...offer.course,
+            // Add additional properties for calendar display
+            booking_id: offer.booking_id,
+            offer_status: offer.status,
+            isLinkedToBooking: offer.isLinkedToBooking,
+            canBookNow: offer.canBookNow
+        }));
+    };
 
     const renderBookingCards = (bookingsToRender) => {
         return (
@@ -320,8 +389,9 @@ export default function GuestBookingsV2() {
                         const bookingStatus = JSON.parse(booking.status);
                         let imageUrl = null;
                         
-                        if (booking.Rooms.length > 0 && booking.Rooms[0].RoomType?.img_url) {
-                            imageUrl = booking.Rooms[0].RoomType.img_url;
+                        // Get image URL from the API response - room images are now included directly
+                        if (booking.Rooms.length > 0 && booking.Rooms[0].RoomType?.imageUrl) {
+                            imageUrl = booking.Rooms[0].RoomType.imageUrl;
                         }
                         
                         let checkinDate = '-';
@@ -391,7 +461,7 @@ export default function GuestBookingsV2() {
                                 buttonText="EDIT BOOKING"
                                 hideEditButton={bookingStatus.name.includes('cancelled') || activeTab === 1}
                                 customButtons={customButtons.length > 0 ? customButtons : undefined}
-                                onButtonClick={() => editBooking(booking.id, booking.uuid, booking.type)}
+                                onButtonClick={() => editBooking(booking)}
                                 viewDetails={() => viewBooking(booking.uuid)}
                             />
                         );
@@ -401,6 +471,24 @@ export default function GuestBookingsV2() {
                         <p>No {activeTab === 0 ? 'upcoming' : 'past'} bookings</p>
                     </div>
                 )}
+            </div>
+        );
+    };
+
+    const renderCalendarView = () => {
+        if (courseOffersLoading) {
+            return (
+                <div className="flex justify-center items-center py-12">
+                    <Spinner />
+                </div>
+            );
+        }
+
+        const calendarCourses = getCalendarCourses();
+
+        return (
+            <div className="px-2 sm:px-4">
+                <CalendarView courses={calendarCourses} />
             </div>
         );
     };
@@ -443,17 +531,30 @@ export default function GuestBookingsV2() {
                             `${moment(course.min_start_date).format('DD MMM, YYYY')} - ${moment(course.min_end_date).format('DD MMM, YYYY')}` :
                             courseDates;
 
+                        // Check if this offer is linked to a booking
+                        const isLinkedToBooking = offer.booking_id !== null;
+                        const linkedBooking = offer.booking; // This should come from the API response
+
                         return (
                             <div key={index} className="bg-white rounded-lg shadow-sm overflow-hidden border border-gray-200">
-                                {/* Special Offer Badge */}
+                                {/* Conditional Badge based on booking status */}
                                 <div className="relative">
                                     <div className="absolute top-3 left-3 z-10">
-                                        <StatusBadge 
-                                            type="offer" 
-                                            label="Special Offer"
-                                            size="small"
-                                        />
+                                        {isLinkedToBooking ? (
+                                            <StatusBadge 
+                                                type="success" 
+                                                label="Already Booked"
+                                                size="small"
+                                            />
+                                        ) : (
+                                            <StatusBadge 
+                                                type="offer" 
+                                                label="Special Offer"
+                                                size="small"
+                                            />
+                                        )}
                                     </div>
+                                    
                                     <img 
                                         src={course.imageUrl || "/course-placeholder.jpg"} 
                                         alt={course.title}
@@ -492,9 +593,19 @@ export default function GuestBookingsV2() {
                                                 <span className="text-gray-900">{course.duration_hours} hours</span>
                                             </div>
                                         )}
+                                        
+                                        {/* Show booking information if linked */}
+                                        {isLinkedToBooking && (
+                                            <div className="flex justify-between text-sm border-t pt-2 mt-2">
+                                                <span className="text-gray-500">Booking ID:</span>
+                                                <span className="text-blue-600 font-medium">
+                                                    {linkedBooking?.reference_id || offer.booking_id}
+                                                </span>
+                                            </div>
+                                        )}
                                     </div>
                                     
-                                    {/* Action Buttons */}
+                                    {/* Conditional Action Buttons */}
                                     <div className="flex gap-2">
                                         <span 
                                             className="flex-1 text-sm cursor-pointer hover:text-blue-800 transition-colors underline py-2"
@@ -504,13 +615,32 @@ export default function GuestBookingsV2() {
                                             View Details
                                         </span>
                                         <div className="flex-1">
-                                            <Button 
-                                                size="small"
-                                                color="primary"
-                                                label="BOOK NOW"
-                                                fullWidth={true}
-                                                onClick={() => console.log(`Book course offer: ${offer.id}`)}
-                                            />
+                                            {isLinkedToBooking ? (
+                                                // Show "View Booking" button if already linked
+                                                <Button 
+                                                    size="small"
+                                                    color="secondary"
+                                                    label="VIEW BOOKING"
+                                                    fullWidth={true}
+                                                    onClick={() => {
+                                                        const bookingToView = linkedBooking?.uuid || linkedBooking?.reference_id;
+                                                        if (bookingToView) {
+                                                            window.open(`/bookings/${bookingToView}`, '_self');
+                                                        } else {
+                                                            toast.info('Booking details not available');
+                                                        }
+                                                    }}
+                                                />
+                                            ) : (
+                                                // Show "Book Now" button if available
+                                                <Button 
+                                                    size="small"
+                                                    color="primary"
+                                                    label="BOOK NOW"
+                                                    fullWidth={true}
+                                                    onClick={() => handleCourseBookNow(offer.id, course.title)}
+                                                />
+                                            )}
                                         </div>
                                     </div>
                                 </div>
@@ -524,7 +654,7 @@ export default function GuestBookingsV2() {
                     <div className="text-center">
                         <button
                             onClick={() => setShowAllCourseOffers(true)}
-                            className="inline-flex items-center px-6 py-3 border-2 border-[#1B457B] text-[#1B457B]  rounded-lg hover:bg-blue-100 transition-colors font-medium text-sm"
+                            className="inline-flex items-center px-6 py-3 border-2 border-[#1B457B] text-[#1B457B] rounded-lg hover:bg-blue-100 transition-colors font-medium text-sm"
                         >
                             VIEW ALL UPCOMING COURSES
                             <svg className="ml-2 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -637,15 +767,6 @@ export default function GuestBookingsV2() {
                                 >
                                     View Details
                                 </span>
-                                <div className="flex-1">
-                                    <Button 
-                                        size="small"
-                                        color="primary"
-                                        label="BOOK NOW"
-                                        fullWidth={true}
-                                        onClick={() => console.log(`Book promotion: ${promotion.id}`)}
-                                    />
-                                </div>
                             </div>
                         </div>
                     </div>
@@ -653,6 +774,12 @@ export default function GuestBookingsV2() {
             </div>
         );
     };
+
+    useEffect(() => {
+        return () => {
+            setCourseBookingContext(null);
+        };
+    }, []);
 
     return (
         <Layout title={"My Bookings"} hideSidebar={true}>
@@ -663,10 +790,10 @@ export default function GuestBookingsV2() {
             ) : (
                 <div>
                     <div className="w-full bg-[#F7F7F7] border-b border-gray-200">
-                        <div className="container mx-auto px-6">
+                        <div className="container mx-auto px-4 sm:px-6">
                             <div className="grid grid-cols-1 md:grid-cols-12 pt-2">
                             {/* Left column taking 6 of 12 columns - tabs aligned to the left */}
-                                <div className="md:col-span-6 flex justify-start items-center mb-4 md:mb-0">
+                                <div className="md:col-span-6 flex justify-center md:justify-start items-center mb-4 md:mb-0">
                                     <TabButton 
                                         tabs={tabs} 
                                         activeTab={activeTab} 
@@ -677,11 +804,12 @@ export default function GuestBookingsV2() {
                                 </div>
                                 
                                 {/* Right column taking 6 of 12 columns - button pushed to the far right */}
+                                {/* Show ADD BOOKING button for all tabs */}
                                 <div className="md:col-span-6 flex justify-center md:justify-end items-center">
                                     <Button 
                                         size="small" 
                                         color="primary" 
-                                        label="+ ADD BOOKING" 
+                                        label="+ NEW BOOKING" 
                                         onClick={handleCheckPrevBookingStatus}
                                     />
                                 </div>
@@ -690,53 +818,62 @@ export default function GuestBookingsV2() {
                     </div>
 
                     {/* Main content centered */}
-                    <div className="px-6 py-6">
-                        <div className="max-w-6xl mx-auto">
-                            {/* Booking Cards */}
-                            {activeTab === 0 ? renderBookingCards(upcomingBookings) : renderBookingCards(pastBookings)}
+                    <div className="px-4 sm:px-6 py-4 sm:py-6">
+                        <div className="max-w-7xl mx-auto">
+                            {/* Conditional Content based on active tab */}
+                            {activeTab === 0 && renderBookingCards(upcomingBookings)}
+                            {activeTab === 1 && renderBookingCards(pastBookings)}
+                            {activeTab === 2 && renderCalendarView()}
                         </div>
                     </div>
 
-                    {/* Course Offers Section with background */}
-                    <div style={{ background: '#EBECF0' }} className="py-12">
-                        <div className="max-w-6xl mx-auto px-6">
-                            <div className="text-center mb-8">
-                                <h2 className="text-2xl font-bold text-gray-800 mb-2">MY COURSE OFFERS</h2>
-                                <p className="text-gray-600 text-sm max-w-2xl mx-auto">
-                                    Try something new or revisit an old favourite. All course content is designed to be enjoyable, educational and easy to follow regardless of experience.
-                                </p>
+                    {/* Course Offers Section with background - only show when not on calendar tab */}
+                    {activeTab !== 2 && (
+                        <div style={{ background: '#EBECF0' }} className="py-8 sm:py-12">
+                            <div className="max-w-7xl mx-auto px-4 sm:px-6">
+                                <div className="text-center mb-6 sm:mb-8">
+                                    <h2 className="text-xl sm:text-2xl font-bold text-gray-800 mb-2">MY COURSE OFFERS</h2>
+                                    <p className="text-sm text-gray-600 max-w-2xl mx-auto">
+                                        Try something new or revisit an old favourite. All course content is designed to be enjoyable, educational and easy to follow regardless of experience.
+                                    </p>
+                                </div>
+                                {renderOfferCards()}
                             </div>
-                            {renderOfferCards()}
                         </div>
-                    </div>
+                    )}
 
-                    {/* Promotions and Special Offers Section */}
-                    <div className="py-12">
-                        <div className="max-w-6xl mx-auto px-6">
-                            <div className="text-center mb-8">
-                                <h2 className="text-2xl font-bold text-gray-800 mb-2">PROMOTIONS AND SPECIAL OFFERS</h2>
-                                <p className="text-gray-600 text-sm max-w-2xl mx-auto">
-                                    Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum
-                                </p>
+                    {/* Promotions and Special Offers Section - only show when not on calendar tab */}
+                    {activeTab !== 2 && (
+                        <div className="py-8 sm:py-12">
+                            <div className="max-w-7xl mx-auto px-4 sm:px-6">
+                                <div className="text-center mb-6 sm:mb-8">
+                                    <h2 className="text-xl sm:text-2xl font-bold text-gray-800 mb-2">PROMOTIONS AND SPECIAL OFFERS</h2>
+                                    <p className="text-sm text-gray-600 max-w-2xl mx-auto">
+                                        Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum
+                                    </p>
+                                </div>
+                                {renderPromotionCards()}
                             </div>
-                            {renderPromotionCards()}
                         </div>
-                    </div>
+                    )}
 
                     {showWarningNewBooking && 
                         <Modal 
                             title="Warning!"
                             titleColor="text-yellow-500"
                             description="You have an incomplete booking. Would you like to complete before making a new booking?"
-                            modalHide={() => setShowWarningNewBooking(false)}
+                            modalHide={() => {
+                                setShowWarningNewBooking(false);
+                                setCourseBookingContext(null);
+                            }}
                             onClose={() => {
                                 setShowWarningNewBooking(false);
-                                handleCompletePrevBooking();
+                                handleCompletePrevBooking(courseBookingContext);
                             }}
                             cancelLabel="Complete Booking"
                             cancelColor="text-sargood-blue"
                             onConfirm={(e) => {
-                                handleBookNow();
+                                handleBookNow(courseBookingContext);
                                 setShowWarningNewBooking(false);
                             }}
                             confirmLabel="New Booking"

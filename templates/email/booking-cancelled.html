@@ -3,25 +3,158 @@
 
 <head>
     <meta content="text/html; charset=utf-8" http-equiv="Content-Type" />
-    <title>Booking Cancelled</title>
-    <meta name="description" content="Booking Canceled Email Template.">
+    <title>Booking Cancelled - Sargood on Collaroy</title>
+    <meta name="description" content="Booking Cancelled Email Template.">
     <style type="text/css">
         a:hover {
             text-decoration: underline !important;
+        }
+        .cancellation-details {
+            background-color: #fef2f2;
+            border: 1px solid #fca5a5;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        .cancellation-details h3 {
+            color: #dc2626;
+            margin-top: 0;
+            margin-bottom: 15px;
+        }
+        .detail-item {
+            margin: 8px 0;
+            padding: 8px 0;
+        }
+        .detail-item strong {
+            color: #374151;
+            display: inline-block;
+            min-width: 120px;
+        }
+        .cta-button {
+            background: #ffd000;
+            text-decoration: none !important;
+            font-weight: 500;
+            margin: 15px 10px;
+            color: #333333 !important;
+            text-transform: uppercase;
+            font-size: 14px;
+            padding: 12px 24px;
+            display: inline-block;
+            border-radius: 50px;
+            border: none;
+        }
+        .secondary-button {
+            background: #075985;
+            color: #ffffff !important;
+        }
+        .policy-warning {
+            background-color: #fff7ed;
+            border: 1px solid #fed7aa;
+            border-radius: 6px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        .policy-warning .warning {
+            color: #ea580c;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+        .contact-info {
+            background-color: #f8fafc;
+            border-top: 2px solid #075985;
+            padding: 20px;
+            margin-top: 30px;
+            border-radius: 6px;
+        }
+        .rebooking-section {
+            background-color: #f0f9ff;
+            border: 1px solid #0ea5e9;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 25px 0;
         }
     </style>
 </head>
 
 <body marginheight="0" topmargin="0" marginwidth="0" style="margin: 0px; background-color: #f2f3f8;" leftmargin="0">
-    <div style="padding: 0px 4px;">
+    <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; padding: 30px;">
+        <h2 style="color: #075985; text-align: center; margin-bottom: 30px;">
+            Booking Cancellation Confirmation
+        </h2>
+
         <p>Dear {{guest_name}},</p>
-        <p style="margin-bottom: 4px;">Your booking from {{ arrivalDate }} to {{ departureDate }} has been cancelled.</p>
-        <p style="margin-bottom: 4px;">As per our <a href="https://sargoodoncollaroy.com/24-privacy-dignity-and-confidentiality-policy/" target="_blank"><span style="text-decoration: underline;"> Terms and Conditions</span></a>, if you have given less than 7 days notice of cancellation, there will be a charge of 100% of the fee (up to a maximum of 7 nights).</p>
-        <p style="margin-bottom: 4px;">If you have any questions or would like to reinstate your booking, please do not hesitate to contact us.  You can also make a new booking by <a href="https://bookings.sargoodoncollaroy.com/auth/login" target="_blank"><span style="text-decoration: underline;">logging in here</span></a>.</p>
-        <p>Regards,</p>
-        <p style="margin-bottom: 4px;">Sargood Reception</p>
-        <p>Ph: 02 8597 0600</p>
-        <p><a href="mailto:info@sargoodoncollaroy.com.au">info@sargoodoncollaroy.com.au</a></p>
+
+        <p>We have processed your cancellation request and can confirm that your booking has been cancelled.</p>
+
+        <div class="cancellation-details">
+            <h3>📋 Cancelled Booking Details</h3>
+            
+            <div class="detail-item">
+                <strong>📅 Arrival Date:</strong> {{arrivalDate}}
+            </div>
+            
+            <div class="detail-item">
+                <strong>📅 Departure Date:</strong> {{departureDate}}
+            </div>
+            
+            <div class="detail-item">
+                <strong>❌ Cancellation Date:</strong> Today
+            </div>
+        </div>
+
+        <div class="policy-warning">
+            <div class="warning">💰 Cancellation Fee Information</div>
+            <p style="margin: 0;">
+                As per our <a href="https://sargoodoncollaroy.com/24-privacy-dignity-and-confidentiality-policy/" target="_blank" style="color: #ea580c;">Terms and Conditions</a>, 
+                if you have given less than 7 days notice of cancellation, there will be a charge of 100% of the fee (up to a maximum of 7 nights).
+            </p>
+        </div>
+
+        <div class="rebooking-section">
+            <h3 style="color: #075985; margin-top: 0;">🔄 Want to Book Again?</h3>
+            <p>We understand that circumstances change, and you're always welcome to make a new booking with us when you're ready.</p>
+            
+            <div style="text-align: center; margin: 20px 0;">
+                <a href="https://bookings.sargoodoncollaroy.com/auth/login" class="cta-button" target="_blank">
+                    MAKE NEW BOOKING
+                </a>
+                <a href="mailto:info@sargoodoncollaroy.com.au" class="cta-button secondary-button">
+                    CONTACT US
+                </a>
+            </div>
+        </div>
+
+        <div style="background-color: #f8fafc; border-radius: 8px; padding: 20px; margin: 25px 0;">
+            <h4 style="color: #075985; margin-top: 0;">🤝 We're Here to Help</h4>
+            <p style="color: #666666; margin: 0;">
+                If you cancelled due to changing needs or concerns, please don't hesitate to speak with our team. 
+                We may be able to help you find alternative solutions or adjust your future booking to better suit your requirements.
+            </p>
+        </div>
+
+        <div class="contact-info">
+            <p style="margin-top: 0; margin-bottom: 15px;">
+                <strong style="color: #075985;">Questions About Your Cancellation?</strong>
+            </p>
+            <p style="margin: 5px 0;">
+                <strong>📞 Reception:</strong> 02 8597 0600
+            </p>
+            <p style="margin: 5px 0;">
+                <strong>✉️ Email:</strong> <a href="mailto:info@sargoodoncollaroy.com.au" style="color: #075985;">info@sargoodoncollaroy.com.au</a>
+            </p>
+            <p style="margin: 15px 0 0 0; font-size: 14px; color: #666666;">
+                If you have any questions about this cancellation, fees, or would like to reinstate your booking, please contact us immediately.
+            </p>
+        </div>
+
+        <p style="margin-top: 30px;">
+            We hope to have the opportunity to welcome you to Sargood on Collaroy in the future.
+        </p>
+
+        <p style="margin-top: 20px;">
+            Kind regards,<br>
+            <strong style="color: #075985;">Sargood Reception Team</strong>
+        </p>
     </div>
 </body>
 

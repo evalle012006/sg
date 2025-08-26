@@ -9,11 +9,13 @@ import _ from 'lodash';
 import moment from "moment";
 import { AbilityContext, Can } from "../../services/acl/can";
 import { guestActions } from "../../store/guestSlice";
+import HealthInformation from "../../components/guests/HealthInformation";
+import { Eye, Edit, Trash2, Download, Mail } from 'lucide-react';
 
-const SimpleTable = dynamic(() => import('../../components/ui/simpleTable'));
+const Table = dynamic(() => import('../../components/ui-v2/Table'));
+const StatusBadge = dynamic(() => import('../../components/ui-v2/StatusBadge'));
 const MultipleUploadFile = dynamic(() => import('../../components/multiple-upload'));
 const TabButton = dynamic(() => import('../../components/ui-v2/TabButton'));
-const Box = dynamic(() => import('./../../components/ui/box'));
 const NotesAndComments = dynamic(() => import('./notes'));
 const DocumentRenameModal = dynamic(() => import('../../components/ui/document-rename-modal'));
 const AdminGuestProfile = dynamic(() => import('../../components/my-profile/AdminGuestProfile'));
@@ -94,9 +96,6 @@ export default function GuestPage() {
     }
   ]);
   
-  // Remove the mock courses data as it's now handled in GuestCourses component
-  // const [courses, setCourses] = useState([...]);
-
   const [documents, setDocuments] = useState([]);
   const [approvalLetters, setApprovalLetters] = useState([]);
   const [comments, setComments] = useState([]);
@@ -106,6 +105,9 @@ export default function GuestPage() {
   const [healthInfoLastUpdated, setHealthInfoLastUpdated] = useState();
 
   const currentUser = useSelector(state => state.user.user);
+
+  const [documentViewModalOpen, setDocumentViewModalOpen] = useState(false);
+  const [selectedDocumentForView, setSelectedDocumentForView] = useState(null);
 
   // Tab configuration for main navigation - responsive labels
   const mainTabs = [
@@ -117,9 +119,6 @@ export default function GuestPage() {
     { label: "DOCS", size: "medium", fullLabel: "DOCUMENTS" },
     { label: "NOTES", size: "medium", fullLabel: "NOTES & COMMENTS" }
   ];
-
-  // Remove course sub-tabs as they're now in GuestCourses component
-  // const courseTabs = [...];
 
   const handleDownloadPDF = async (bookingId) => {
     toast.info('Generating PDF. Please wait...');
@@ -210,22 +209,52 @@ export default function GuestPage() {
 
     if (data?.message === "No previous booking found") {
       setHealthInfo([]);
+      setNdis(null);
+      setIcare(null);
+      setHealthInfoLastUpdated(null);
+      return;
     }
 
-    if (data && data?.info?.length > 0) {
-      setHealthInfoLastUpdated(data.lastUpdated);
-      healthInfo.forEach((item, index) => {
-        if (data && data.info.includes(item.diagnose)) {
-          updatedHealthInfo[index].answer = true;
-        }
-      })
-      setHealthInfo(updatedHealthInfo);
+    if (data) {
+      // Set health information
+      if (data.info && data.info.length > 0) {
+        setHealthInfoLastUpdated(data.lastUpdated);
+        // Reset all answers to false first
+        updatedHealthInfo = healthInfo.map(item => ({ ...item, answer: false }));
+        
+        // Set answered conditions to true
+        updatedHealthInfo.forEach((item, index) => {
+          if (data.info.includes(item.diagnose)) {
+            updatedHealthInfo[index].answer = true;
+          }
+        });
+        setHealthInfo(updatedHealthInfo);
+      } else {
+        // No health conditions reported, set all to false
+        updatedHealthInfo = healthInfo.map(item => ({ ...item, answer: false }));
+        setHealthInfo(updatedHealthInfo);
+        setHealthInfoLastUpdated(data.lastUpdated);
+      }
+
+      // Set participant numbers from API response
+      setNdis(data.ndis_participant_number || null);
+      setIcare(data.icare_participant_number || null);
     }
-  }, [uuid, setHealthInfo, healthInfo, setHealthInfoLastUpdated]);
+  }, [uuid, healthInfo, setHealthInfo, setHealthInfoLastUpdated, setNdis, setIcare]);
+
+  // Helper function to get status badge type based on booking status
+  const getStatusBadgeType = (statusName) => {
+    const statusLower = statusName?.toLowerCase();
+    
+    if (statusLower === 'booking_confirmed') return 'success';
+    if (statusLower === 'booking_pending') return 'pending';
+    if (statusLower === 'booking_cancelled') return 'error';
+    if (statusLower === 'booking_draft') return 'draft';
+    
+    return 'primary';
+  };
 
   useEffect(() => {
-    let ndisNumber = null;
-    let icareNumber = null;
     const upcomingBookings = bookings.filter(booking =>
       new Date(booking.preferred_departure_date).getTime() >= new Date().getTime()
       || !booking.preferred_departure_date
@@ -234,19 +263,13 @@ export default function GuestPage() {
       booking.status.name !== 'booking_cancelled'
     ).map(booking => {
       let temp = { ...booking };
-      temp.preferred_arrival_date = temp.preferred_arrival_date ? moment(temp.preferred_arrival_date).format('DD/MM/YYYY') : "";
-      temp.preferred_departure_date = temp.preferred_departure_date ? moment(temp.preferred_departure_date).format('DD/MM/YYYY') : "";
+      temp.check_in = temp.preferred_arrival_date ? moment(temp.preferred_arrival_date).format('DD MMM, YYYY') : "";
+      temp.check_out = temp.preferred_departure_date ? moment(temp.preferred_departure_date).format('DD MMM, YYYY') : "";
       temp.sortDate = temp.check_in_date != undefined ? new Date(temp.check_in_date).getTime() : new Date(temp.preferred_arrival_date).getTime();
       temp.link = `/bookings/${booking.uuid}`;
-      ndisNumber = temp.ndisNumber;
-      icareNumber = temp.icareNumber;
 
       temp.allowDownloadEmail = booking.status.name === 'booking_confirmed';
-      if (temp.allowDownloadEmail) {
-        temp.downloadSummaryAction = (uuid) => handleDownloadPDF(uuid);
-        temp.emailSummaryAction = (uuid) => handleEmailPDF(uuid);
-      }
-
+      
       return temp;
     });
 
@@ -259,25 +282,97 @@ export default function GuestPage() {
       booking.status.name !== 'booking_cancelled' && booking.complete == true
     ).map(booking => {
       let temp = { ...booking };
-      temp.preferred_arrival_date = moment(temp.preferred_arrival_date).format('DD/MM/YYYY');
-      temp.preferred_departure_date = moment(temp.preferred_departure_date).format('DD/MM/YYYY');
+      temp.check_in = moment(temp.preferred_arrival_date).format('DD MMM, YYYY');
+      temp.check_out = moment(temp.preferred_departure_date).format('DD MMM, YYYY');
       temp.sortDate = temp.check_in_date != undefined ? new Date(temp.check_in_date).getTime() : new Date(temp.preferred_arrival_date).getTime();
       temp.link = `/bookings/${booking.uuid}`;
-      if (!ndisNumber) {
-        ndisNumber = temp.ndisNumber;
-      }
-      if (!icareNumber) {
-        icareNumber = temp.icareNumber;
-      }
       return temp;
     });
 
     const sortedPastStays = pastSayBookings.sort((a,b) => a.sortDate - b.sortDate);
-
-    setNdis(ndisNumber);
-    setIcare(icareNumber);
     setPastStay(sortedPastStays);
   }, [bookings]);
+
+  const getFileType = (fileName) => {
+    const extension = fileName.split('.').pop().toLowerCase();
+    if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(extension)) {
+      return 'image';
+    } else if (extension === 'pdf') {
+      return 'pdf';
+    } else if (['doc', 'docx'].includes(extension)) {
+      return 'document';
+    } else if (['xls', 'xlsx'].includes(extension)) {
+      return 'spreadsheet';
+    } else if (['txt', 'csv'].includes(extension)) {
+      return 'text';
+    } else if (['zip', 'rar', '7z'].includes(extension)) {
+      return 'archive';
+    }
+    return 'other';
+  };
+
+  const getFileIcon = (fileName) => {
+    const fileType = getFileType(fileName);
+    const iconClass = "w-5 h-5 mr-3 flex-shrink-0";
+    
+    switch (fileType) {
+      case 'image':
+        return (
+          <svg className={`${iconClass} text-blue-500`} fill="currentColor" viewBox="0 0 20 20">
+            <path fillRule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clipRule="evenodd" />
+          </svg>
+        );
+      case 'pdf':
+        return (
+          <svg className={`${iconClass} text-red-500`} fill="currentColor" viewBox="0 0 20 20">
+            <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
+          </svg>
+        );
+      case 'document':
+        return (
+          <svg className={`${iconClass} text-blue-600`} fill="currentColor" viewBox="0 0 20 20">
+            <path d="M4 3a2 2 0 100 4h12a2 2 0 100-4H4z" />
+            <path fillRule="evenodd" d="M3 8a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
+          </svg>
+        );
+      case 'spreadsheet':
+        return (
+          <svg className={`${iconClass} text-green-600`} fill="currentColor" viewBox="0 0 20 20">
+            <path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1v-6zM14 9a1 1 0 00-1 1v6a1 1 0 001 1h2a1 1 0 001-1v-6a1 1 0 00-1-1h-2z" />
+          </svg>
+        );
+      case 'text':
+        return (
+          <svg className={`${iconClass} text-gray-600`} fill="currentColor" viewBox="0 0 20 20">
+            <path fillRule="evenodd" d="M3 4a1 1 0 011-1h4a1 1 0 010 2H6.414l2.293 2.293a1 1 0 11-1.414 1.414L5 6.414V8a1 1 0 01-2 0V4zm9 1a1 1 0 010-2h4a1 1 0 011 1v4a1 1 0 01-2 0V6.414l-2.293 2.293a1 1 0 11-1.414-1.414L13.586 5H12zm-9 7a1 1 0 112 0v1.586l2.293-2.293a1 1 0 111.414 1.414L6.414 15H8a1 1 0 110 2H4a1 1 0 01-1-1v-4zm13-1a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 110-2h1.586l-2.293-2.293a1 1 0 111.414-1.414L15.586 13V12a1 1 0 011-1z" clipRule="evenodd" />
+          </svg>
+        );
+      case 'archive':
+        return (
+          <svg className={`${iconClass} text-yellow-600`} fill="currentColor" viewBox="0 0 20 20">
+            <path d="M3 4a1 1 0 000 2h1.084l.371 7.428A2 2 0 006.456 15h7.088a2 2 0 002.001-1.572L16.916 6H18a1 1 0 100-2H3zM6.5 9a.5.5 0 01.5-.5h6a.5.5 0 010 1H7a.5.5 0 01-.5-.5z" />
+          </svg>
+        );
+      default:
+        return (
+          <svg className={`${iconClass} text-gray-500`} fill="currentColor" viewBox="0 0 20 20">
+            <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
+          </svg>
+        );
+    }
+  };
+
+  const handleViewDocument = (document) => {
+    const fileType = getFileType(document.name);
+    
+    if (fileType === 'image' || fileType === 'pdf') {
+      setSelectedDocumentForView(document);
+      setDocumentViewModalOpen(true);
+    } else {
+      // For other file types, open in new tab or download
+      window.open(document.download_link, '_blank');
+    }
+  };
 
   const fetchDocuments = async () => {
     dispatch(globalActions.setLoading(true));
@@ -296,15 +391,12 @@ export default function GuestPage() {
 
       const updatedData = sortedData.map((item) => {
         return {
-          date: moment(item.timeCreated).format('DD/MM/YYYY'),
+          date: moment(item.timeCreated).format('DD MMM, YYYY'),
           name: item.name,
           download_link: item.download_link,
           file_path: item.file_path,
-          deleteAction: () => handleDeleteDocument(item.name, item.file_path),
-          renameAction: () => {
-            setSelectedDocument(item);
-            setRenameModalOpen(true);
-          }
+          // These properties will be used in the action column
+          _raw: item // Store raw data for actions
         };
       });
 
@@ -314,6 +406,58 @@ export default function GuestPage() {
       }, 1000);
     }
   };
+
+  const documentsColumns = [
+    {
+      key: 'name',
+      label: 'NAME',
+      render: (value, document) => (
+        <div className="flex items-center">
+          {getFileIcon(value)}
+          <span className="truncate">{value}</span>
+        </div>
+      )
+    },
+    {
+      key: 'date',
+      label: 'DATE'
+    },
+    {
+      key: 'action',
+      label: 'ACTION',
+      searchable: false,
+      render: (value, document) => (
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={() => handleViewDocument(document)}
+            className="p-1 text-blue-600 hover:text-blue-800 transition-colors"
+            title="View Document"
+          >
+            <Eye size={16} />
+          </button>
+          <Can I="Create/Edit" a="Guest">
+            <button
+              onClick={() => {
+                setSelectedDocument(document._raw);
+                setRenameModalOpen(true);
+              }}
+              className="p-1 text-yellow-600 hover:text-yellow-800 transition-colors"
+              title="Rename Document"
+            >
+              <Edit size={16} />
+            </button>
+            <button
+              onClick={() => handleDeleteDocument(document.name, document.file_path)}
+              className="p-1 text-red-600 hover:text-red-800 transition-colors"
+              title="Delete Document"
+            >
+              <Trash2 size={16} />
+            </button>
+          </Can>
+        </div>
+      )
+    }
+  ];
 
   const handleTabChange = async (selectedTabName) => {
     switch (selectedTabName) {
@@ -364,9 +508,214 @@ export default function GuestPage() {
     }
   };
 
-  // Remove the course-related functions as they're now in GuestCourses component
-  // const getFilteredCourses = () => { ... };
-  // const renderCourseCard = (course) => { ... };
+  // Define columns for upcoming stays table
+  const upcomingStaysColumns = [
+    {
+      key: 'type',
+      label: 'TYPE',
+      render: (value) => <span className="font-medium">{value}</span>
+    },
+    {
+      key: 'check_in',
+      label: 'CHECK-IN'
+    },
+    {
+      key: 'check_out',
+      label: 'CHECK-OUT'
+    },
+    {
+      key: 'status',
+      label: 'STATUS',
+      render: (value) => (
+        <div style={{ maxWidth: '150px' }}>
+          <StatusBadge 
+            type={getStatusBadgeType(value.name)}
+            label={value.label}
+            size="small"
+          />
+        </div>
+      )
+    },
+    {
+      key: 'action',
+      label: 'ACTION',
+      searchable: false,
+      render: (value, booking) => (
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={() => router.push(booking.link)}
+            className="p-1 text-blue-600 hover:text-blue-800 transition-colors"
+            title="View Details"
+          >
+            <Eye size={16} />
+          </button>
+          {booking.allowDownloadEmail && (
+            <>
+              <button
+                onClick={() => handleDownloadPDF(booking.uuid)}
+                className="p-1 text-green-600 hover:text-green-800 transition-colors"
+                title="Download Summary"
+              >
+                <Download size={16} />
+              </button>
+              <button
+                onClick={() => handleEmailPDF(booking.uuid)}
+                className="p-1 text-purple-600 hover:text-purple-800 transition-colors"
+                title="Email Summary"
+              >
+                <Mail size={16} />
+              </button>
+            </>
+          )}
+        </div>
+      )
+    }
+  ];
+
+  // Define columns for past stays table
+  const pastStaysColumns = [
+    {
+      key: 'type',
+      label: 'TYPE',
+      render: (value) => <span className="font-medium">{value}</span>
+    },
+    {
+      key: 'check_in',
+      label: 'CHECK-IN'
+    },
+    {
+      key: 'check_out',
+      label: 'CHECK-OUT'
+    },
+    {
+      key: 'status',
+      label: 'STATUS',
+      render: (value) => (
+        <div style={{ maxWidth: '150px' }}>
+          <StatusBadge 
+            type={getStatusBadgeType(value.name)}
+            label={value.label}
+            size="small"
+          />
+        </div>
+      )
+    },
+    {
+      key: 'action',
+      label: 'ACTION',
+      searchable: false,
+      render: (value, booking) => (
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={() => router.push(booking.link)}
+            className="p-1 text-blue-600 hover:text-blue-800 transition-colors"
+            title="View Details"
+          >
+            <Eye size={16} />
+          </button>
+        </div>
+      )
+    }
+  ];
+
+  // Empty state component for upcoming stays
+  const UpcomingStaysEmptyState = () => (
+    <div className="flex flex-col items-center justify-center py-16 px-4">
+      <div className="mb-4">
+        <svg 
+          className="w-16 h-16 text-gray-300" 
+          fill="none" 
+          stroke="currentColor" 
+          viewBox="0 0 24 24"
+        >
+          <path 
+            strokeLinecap="round" 
+            strokeLinejoin="round" 
+            strokeWidth={1.5}
+            d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+          />
+        </svg>
+      </div>
+      <h3 className="text-lg font-semibold text-gray-800 mb-2">UPCOMING STAYS</h3>
+      <p className="text-gray-500 text-center">
+        No upcoming stays yet, we'll list them here when they're booked.
+      </p>
+    </div>
+  );
+
+  const DocumentViewerModal = ({ isOpen, onClose, document }) => {
+    if (!isOpen || !document) return null;
+
+    const fileType = getFileType(document.name);
+
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div className="bg-white rounded-lg max-w-6xl max-h-[90vh] w-full overflow-hidden">
+          {/* Modal Header */}
+          <div className="flex items-center justify-between p-4 border-b">
+            <h3 className="text-lg font-medium truncate mr-4">{document.name}</h3>
+            <div className="flex items-center space-x-2">
+              <a
+                href={document.download_link}
+                download
+                className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+              >
+                Download
+              </a>
+              <button
+                onClick={onClose}
+                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          {/* Modal Content */}
+          <div className="p-4 max-h-[calc(90vh-80px)] overflow-auto">
+            {fileType === 'image' && (
+              <img
+                src={document.download_link}
+                alt={document.name}
+                className="max-w-full h-auto mx-auto"
+                style={{ maxHeight: 'calc(90vh - 150px)' }}
+              />
+            )}
+            
+            {fileType === 'pdf' && (
+              <iframe
+                src={document.download_link}
+                className="w-full border-0"
+                style={{ height: 'calc(90vh - 150px)' }}
+                title={document.name}
+              />
+            )}
+            
+            {fileType !== 'image' && fileType !== 'pdf' && (
+              <div className="text-center py-8">
+                <div className="mb-4">
+                  {getFileIcon(document.name)}
+                </div>
+                <p className="text-gray-600 mb-4">
+                  Preview not available for this file type.
+                </p>
+                <a
+                  href={document.download_link}
+                  download
+                  className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+                >
+                  <Download size={16} className="mr-2" />
+                  Download File
+                </a>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <Layout hideTitleBar={true}>
@@ -406,8 +755,6 @@ export default function GuestPage() {
             />
           </div>
 
-          {/* Remove course sub-tabs as they're now handled in GuestCourses component */}
-
           <div className="">
             {selectedTab === "guest-profile" && (
               <div>
@@ -415,122 +762,108 @@ export default function GuestPage() {
               </div>
             )}
 
-            {/* Replace the courses section with the new GuestCourses component */}
             {selectedTab === "courses" && (
               <GuestCourses guest={guest} />
             )}
 
             {selectedTab === "health-information" && (
-              <div>
-                <div className="flex flex-col sm:flex-row sm:justify-between py-6 sm:py-10 space-y-2 sm:space-y-0">
-                  <h1 className="text-lg sm:text-xl font-bold">Health Information</h1>
-                  <p className="text-zinc-400 font-bold text-sm sm:text-base">
-                    <span>Last Update: {moment(healthInfoLastUpdated).format('DD/MM/YYYY')}</span>
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 p-4 sm:p-6 lg:p-10 rounded-2xl bg-slate-400 font-bold">
-                  <div className="flex flex-col sm:flex-row sm:items-center text-neutral-700 space-y-2 sm:space-y-0">
-                    <p className="text-sm sm:text-base">NDIS participant #</p>
-                    <p className={`h-fit w-full sm:w-fit bg-white p-2 px-4 sm:px-8 rounded-md sm:ml-6 text-center ${!ndis && 'sm:w-40'}`}>
-                      {ndis ? ndis : 'N/A'}
-                    </p>
-                  </div>
-                  <div className="flex flex-col sm:flex-row sm:items-center text-neutral-700 space-y-2 sm:space-y-0">
-                    <p className="text-sm sm:text-base">iCare participant #</p>
-                    <p className={`h-fit w-full sm:w-fit bg-white p-2 px-4 sm:px-8 rounded-md sm:ml-6 text-center ${!icare && 'sm:w-40'}`}>
-                      {icare ? icare : 'N/A'}
-                    </p>
-                  </div>
-                </div>
-                <div className="mt-4">
-                  {healthInfo.length > 0 ? <div>
-                    <div className="hidden sm:flex sm:justify-between">
-                      <p className="p-4 font-bold">Description</p>
-                      <div className="flex justify-between">
-                        <p className="p-4 font-bold">Last Stay</p>
-                      </div>
-                    </div>
-                    {healthInfo.map((health, index) =>
-                      <Box key={index} bg={(index % 2) !== 0 && 'bg-white'}>
-                        <div className="flex flex-col sm:flex-row sm:justify-between space-y-2 sm:space-y-0">
-                          <div className="sm:max-w-[50%]">
-                            <p className="text-sm sm:text-base font-medium sm:font-normal">{health.diagnose}</p>
-                          </div>
-                          <div className="flex justify-start sm:justify-between">
-                            <p className={`font-bold text-sm sm:text-base ${health.answer ? 'text-emerald-400' : 'text-red-500'}`}>
-                              {health.answer ? 'Yes' : 'No'}
-                            </p>
-                          </div>
-                        </div>
-                      </Box>)}
-                  </div> : <div className="bg-yellow-100 rounded-lg py-5 px-6 mb-4 text-base" role="alert">
-                    <h4 className="text-lg font-medium leading-tight mb-2">No health information to show.</h4>
-                  </div>}
-                </div>
-              </div>
+              <HealthInformation 
+                healthInfo={healthInfo}
+                healthInfoLastUpdated={healthInfoLastUpdated}
+                ndis={ndis}
+                icare={icare}
+              />
             )}
 
             {selectedTab === "upcoming-stays" && (
               <div>
-                <h1 className="text-lg sm:text-xl font-bold my-6 sm:my-8">Upcoming Stays</h1>
-                <div className="mt-6 sm:mt-10 overflow-x-auto">
-                  {upcomingStay.length > 0 ? <SimpleTable
-                    columns={[
-                      { label: "Type", attribute: "type" },
-                      { label: "Check-in", attribute: "preferred_arrival_date" },
-                      { label: "Check-out", attribute: "preferred_departure_date" },
-                      { label: "Status", attribute: "status.label" },
-                    ]}
-                    data={upcomingStay}
-                    options={{ hasViewOption: true, hasDownloadStayOption: true, hasSendEmailStayOption: true }}
-                    actions={true}
-                  /> : <p className="text-center py-8">No upcoming stays</p>}
-                </div>
+                {upcomingStay.length > 0 ? (
+                  <div className="mt-6 sm:mt-10">
+                    <Table
+                      title={`Upcoming Stays (${upcomingStay.length})`}
+                      columns={upcomingStaysColumns}
+                      data={upcomingStay}
+                      itemsPerPage={10}
+                      searchable={true}
+                    />
+                  </div>
+                ) : (
+                  <UpcomingStaysEmptyState />
+                )}
               </div>
             )}
 
             {selectedTab === "past-stays" && (
               <div>
-                <h1 className="text-lg sm:text-xl font-bold my-6 sm:my-8">Past Stays</h1>
-                <div className="mt-6 sm:mt-10 overflow-x-auto">
-                  {pastStay.length > 0 ? <SimpleTable
-                    columns={[
-                      { label: "Type", attribute: "type" },
-                      { label: "Check-in", attribute: "preferred_arrival_date" },
-                      { label: "Check-out", attribute: "preferred_departure_date" },
-                      { label: "Status", attribute: "status.label" },
-                    ]}
-                    data={pastStay}
-                    options={{ hasViewOption: true }}
-                    actions={true}
-                  /> : <p className="text-center py-8">No past stays</p>}
-                </div>
+                {pastStay.length > 0 ? (
+                  <div className="mt-6 sm:mt-10">
+                    <Table
+                      title={`Past Stays (${pastStay.length})`}
+                      columns={pastStaysColumns}
+                      data={pastStay}
+                      itemsPerPage={10}
+                      searchable={true}
+                    />
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-16 px-4">
+                    <div className="mb-4">
+                      <svg 
+                        className="w-16 h-16 text-gray-300" 
+                        fill="none" 
+                        stroke="currentColor" 
+                        viewBox="0 0 24 24"
+                      >
+                        <path 
+                          strokeLinecap="round" 
+                          strokeLinejoin="round" 
+                          strokeWidth={1.5}
+                          d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                        />
+                      </svg>
+                    </div>
+                    <h3 className="text-lg font-semibold text-gray-800 mb-2">PAST STAYS</h3>
+                    <p className="text-gray-500 text-center">
+                      No past stays to display.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 
             {selectedTab === "documents" && (
               <div>
-                <div className="mt-6 sm:mt-10 overflow-x-auto">
-                  <SimpleTable
-                    columns={[
-                      { label: "Date", attribute: "date" },
-                      { label: "name", attribute: "name" },
-                    ]}
+                {/* Upload Area */}
+                <div className="mb-6">
+                  <Can I="Create/Edit" a="Guest">
+                    {guest && <MultipleUploadFile 
+                      fileType={'guests/' + guest.id + '/documents/'}
+                      metadata={{ guest_id: guest.id }}
+                      onUpload={(url) => { fetchDocuments() }} 
+                    />}
+                  </Can>
+                </div>
+
+                {/* Documents Table */}
+                <div className="overflow-x-auto">
+                  <Table
+                    title={`Documents (${documents.length})`}
+                    columns={documentsColumns}
                     data={documents}
-                    options={{ hasDownloadLink: true, hasDeleteOption: true, hasRenameOption: true  }}
-                    actions={true}
+                    itemsPerPage={10}
+                    searchable={true}
                   />
                 </div>
 
-                <div className="mt-6 sm:mt-10">
-                  <Can I="Create/Edit" a="Guest">
-                    <h3 className="font-bold mb-4">Upload Documents</h3>
-                    {guest && <MultipleUploadFile fileType={'guests/' + guest.id + '/documents/'}
-                      metadata={{ guest_id: guest.id, }}
-                      onUpload={(url) => { fetchDocuments() }} />}
-                  </Can>
-                </div>
+                {/* Document Viewer Modal */}
+                <DocumentViewerModal
+                  isOpen={documentViewModalOpen}
+                  onClose={() => {
+                    setDocumentViewModalOpen(false);
+                    setSelectedDocumentForView(null);
+                  }}
+                  document={selectedDocumentForView}
+                />
               </div>
             )}
 

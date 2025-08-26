@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en-US">
+<head>
+    <meta content="text/html; charset=utf-8" http-equiv="Content-Type" />
+    <title>Guest Profile Information</title>
+    <meta name="description" content="Guest Profile Email Template.">
+    <style type="text/css">
+        a:hover {
+            text-decoration: underline !important;
+        }
+        .profile-button {
+            background: #ffd000;
+            text-decoration: none !important;
+            font-weight: 500;
+            margin-top: 20px;
+            color: #fff;
+            text-transform: uppercase;
+            font-size: 14px;
+            padding: 10px 24px;
+            display: inline-block;
+            border-radius: 50px;
+        }
+        .profile-button:hover {
+            background: #e6bb00;
+        }
+    </style>
+</head>
+<body marginheight="0" topmargin="0" marginwidth="0" style="margin: 0px; background-color: #f2f3f8;" leftmargin="0">
+    <div>
+        <p>Dear {{guestName}},</p>
+        
+        <p>We hope this email finds you well. Please find attached your complete profile information from Sargood on Collaroy.</p>
+        
+        <p>Your profile includes:</p>
+        <ul>
+            <li>Personal and contact information</li>
+            <li>Address details</li>
+            <li>Cultural information</li>
+            <li>Emergency contact details</li>
+            <li>GP/Specialist information</li>
+            <li>Spinal cord injury details</li>
+        </ul>
+
+        <p>You can also view your profile online by clicking the button below:</p>
+        
+        <a href="{{profileViewLink}}" class="profile-button">
+            <span>VIEW MY PROFILE</span>
+        </a>
+
+        <p style="margin-top: 30px;">If you need to make any updates to your information or have any questions about your profile, please don't hesitate to contact us.</p>
+
+        <p>Kind Regards,</p>
+        <p><strong>Sargood on Collaroy Team</strong></p>
+        <p>Ph: 02 8597 0600</p>
+        <p><a href="mailto:info@sargoodoncollaroy.com.au">info@sargoodoncollaroy.com.au</a></p>
+        
+        {{#if adminEmail}}
+        <p style="margin-top: 20px; font-size: 12px; color: #666;">
+            <em>This profile information was sent by {{adminEmail}}</em>
+        </p>
+        {{/if}}
+    </div>
+</body>
+</html>

@@ -6,7 +6,8 @@ const HorizontalCardSelection = memo(({
   onChange, 
   required = false,
   multi = false,
-  size = 'medium'
+  size = 'medium',
+  origin = null,
 }) => {
   // Local state for immediate UI updates
   const [localValue, setLocalValue] = useState(value);
@@ -178,7 +179,7 @@ const HorizontalCardSelection = memo(({
         >
           <div className={`flex w-full ${currentSize.card} items-center`}>
             {/* Image container */}
-            <div className={`flex-shrink-0 ${currentSize.image} bg-gray-100 flex items-center justify-center overflow-hidden rounded-l-xl`}>
+            <div className={`flex-shrink-0 ${currentSize.image} bg-gray-100 flex items-center justify-center overflow-hidden ${origin == 'room' ? '' : 'rounded-l-xl'}`}>
               {item.imageUrl ? (
                 <img 
                   src={item.imageUrl} 

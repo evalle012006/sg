@@ -1,7 +1,8 @@
-import { Booking, Equipment, EquipmentCategory, Guest, Log, QaPair, Section, Setting, sequelize } from "../../../models"
+import { Booking, Equipment, EquipmentCategory, Guest, Log, QaPair, Section, Setting, CourseOffer, Course, sequelize } from "../../../models"
 import { BookingService } from "../../../services/booking/booking";
 import { dispatchHttpTaskHandler } from "../../../services/queues/dispatchHttpTask";
 import StorageService from "../../../services/storage/storage";
+import { QUESTION_KEYS } from "../../../services/booking/question-helper";
 
 export default async function handler(req, res) {
     const storage = new StorageService({ bucketType: "restricted" });
@@ -15,6 +16,8 @@ export default async function handler(req, res) {
         const transaction = await sequelize.transaction();
         const response = [];
         let hasEquipment = false;
+        let courseOfferUpdated = false;
+        
         try {
             for (const record of qa_pairs) {
                 if (record.question_type == 'equipment') {
@@ -65,9 +68,13 @@ export default async function handler(req, res) {
                     response.push(instance);
                 }
             }
+
+            courseOfferUpdated = await handleCourseOfferLinking(qa_pairs, transaction);
+
             await transaction.commit();
         } catch (err) {
             await transaction.rollback();
+            console.error('Error in save-qa-pair transaction:', err);
             return res.status(500).json({ success: false, error: err });
         }
 
@@ -93,7 +100,11 @@ export default async function handler(req, res) {
 
                     const response = await updateBooking(booking, qa_pairs, flags, bookingService);
 
-                    return res.status(201).json({ success: true, bookingAmended: response?.bookingAmended ? response.bookingAmended : false });
+                    return res.status(201).json({ 
+                        success: true, 
+                        bookingAmended: response?.bookingAmended ? response.bookingAmended : false,
+                        courseOfferLinked: courseOfferUpdated
+                    });
                 }
             } else if (hasEquipment && equipmentChanges?.length > 0) {
                 const tempSection = await Section.findOne({ where: { id: qa_pairs[0].section_id } });
@@ -116,15 +127,181 @@ export default async function handler(req, res) {
 
                         await updateBooking(booking, qa_pairs, flags, bookingService);
 
-                        return res.status(201).json({ success: true, bookingAmended: true });
+                        return res.status(201).json({ 
+                            success: true, 
+                            bookingAmended: true,
+                            courseOfferLinked: courseOfferUpdated
+                        });
                     }
                 }
             }
 
-            return res.status(201).json({ success: true, bookingAmended: false });
+            return res.status(201).json({ 
+                success: true, 
+                bookingAmended: false,
+                courseOfferLinked: courseOfferUpdated
+            });
         }
 
         return res.status(400);
+    }
+}
+
+/**
+ * Handle linking course offers to bookings when course selections are made
+ */
+async function handleCourseOfferLinking(qa_pairs, transaction) {
+    try {
+        console.log('🎓 Checking for course selection answers to link with offers...');
+        
+        let courseOfferUpdated = false;
+        let bookingId = null;
+        let guestId = null;
+
+        // First, get the booking and guest information from the section
+        const firstQaPair = qa_pairs[0];
+        if (firstQaPair && firstQaPair.section_id) {
+            const section = await Section.findOne({
+                where: { id: firstQaPair.section_id },
+                transaction
+            });
+
+            if (section && section.model_type === 'booking') {
+                bookingId = section.model_id;
+                
+                const booking = await Booking.findOne({
+                    where: { id: bookingId },
+                    include: [Guest],
+                    transaction
+                });
+
+                if (booking && booking.Guest) {
+                    guestId = booking.Guest.id;
+                    console.log(`🎓 Found booking ${bookingId} for guest ${guestId}`);
+                }
+            }
+        }
+
+        if (!bookingId || !guestId) {
+            console.log('⚠️ Could not determine booking or guest ID for course linking');
+            return false;
+        }
+
+        // Check for course-related questions in the QA pairs
+        for (const qaPair of qa_pairs) {
+            const questionKey = qaPair.question_key;
+            const answer = qaPair.answer;
+
+            // Check if this is a course offer question with "Yes" answer
+            if (questionKey === QUESTION_KEYS.COURSE_OFFER_QUESTION && answer?.toLowerCase() === 'yes') {
+                console.log('✅ Course offer question answered "Yes"');
+                continue; // This just indicates they want to participate, actual linking happens on course selection
+            }
+
+            // Check if this is a course selection question with a valid course ID/offer ID
+            if (questionKey === QUESTION_KEYS.WHICH_COURSE && answer && answer !== '' && answer !== '0') {
+                console.log(`🎓 Course selection detected: ${answer}`);
+                
+                // The answer could be either a course_id or a course_offer_id
+                // We need to check both possibilities
+                const courseIdInt = parseInt(answer);
+                if (isNaN(courseIdInt)) {
+                    console.log('⚠️ Invalid course ID format:', answer);
+                    continue;
+                }
+
+                // Strategy 1: Try to find course offer by course_offer.id (most direct)
+                let courseOffer = await CourseOffer.findOne({
+                    where: {
+                        id: courseIdInt,
+                        guest_id: guestId,
+                        status: ['offered', 'accepted'], // Only link active offers
+                        booking_id: null // Only link offers that aren't already linked
+                    },
+                    include: [{
+                        model: Course,
+                        as: 'course',
+                        attributes: ['id', 'title']
+                    }],
+                    transaction
+                });
+
+                // Strategy 2: If not found by offer ID, try by course ID
+                if (!courseOffer) {
+                    courseOffer = await CourseOffer.findOne({
+                        where: {
+                            course_id: courseIdInt,
+                            guest_id: guestId,
+                            status: ['offered', 'accepted'],
+                            booking_id: null
+                        },
+                        include: [{
+                            model: Course,
+                            as: 'course',
+                            attributes: ['id', 'title']
+                        }],
+                        transaction
+                    });
+                }
+
+                if (courseOffer) {
+                    // Update the course offer to link it to this booking
+                    await courseOffer.update({
+                        booking_id: bookingId,
+                        status: 'accepted' // Update status to accepted when linked to booking
+                    }, { transaction });
+
+                    courseOfferUpdated = true;
+                    console.log(`✅ Successfully linked course offer ${courseOffer.id} (course: "${courseOffer.course.title}") to booking ${bookingId}`);
+                    
+                    // Log this action for audit purposes
+                    await Log.create({
+                        data: {
+                            course_offer_id: courseOffer.id,
+                            course_id: courseOffer.course_id,
+                            course_title: courseOffer.course.title,
+                            booking_id: bookingId,
+                            guest_id: guestId,
+                            action: 'course_offer_linked',
+                            linked_at: new Date(),
+                            question_answer: answer
+                        },
+                        type: 'course_offer_linked',
+                        loggable_type: 'booking',
+                        loggable_id: bookingId,
+                        createdAt: new Date(),
+                        updatedAt: new Date()
+                    }, { transaction });
+
+                } else {
+                    console.log(`⚠️ No linkable course offer found for course/offer ID ${courseIdInt} and guest ${guestId}`);
+                    
+                    // Log this for debugging
+                    await Log.create({
+                        data: {
+                            attempted_course_id: courseIdInt,
+                            booking_id: bookingId,
+                            guest_id: guestId,
+                            action: 'course_offer_link_failed',
+                            reason: 'no_matching_offer',
+                            attempted_at: new Date(),
+                            question_answer: answer
+                        },
+                        type: 'course_offer_link_failed',
+                        loggable_type: 'booking',
+                        loggable_id: bookingId,
+                        createdAt: new Date(),
+                        updatedAt: new Date()
+                    }, { transaction });
+                }
+            }
+        }
+
+        return courseOfferUpdated;
+        
+    } catch (error) {
+        console.error('❌ Error in handleCourseOfferLinking:', error);
+        throw error; // Re-throw to be caught by main transaction
     }
 }
 
@@ -140,9 +317,9 @@ const updateBooking = async (booking, qa_pairs, flags, bookingService) => {
         console.log('isBookingComplete', isBookingComplete);
         const validResponses = qa_pairs.filter(item => 'submit' in item);
         const allSubmitted = validResponses.every(qa => qa.submit);
-        // console.log(validResponses, allSubmitted)
+        
         if (isBookingComplete && (booking.complete || allSubmitted)) {
-            // console.log('Booking is complete');
+            console.log('Booking is complete');
             if (!booking.complete) {
                 console.log('Updating booking to complete')
                 await Booking.update({ complete: true }, { where: { id: booking.id } });
@@ -212,38 +389,25 @@ const updateBooking = async (booking, qa_pairs, flags, bookingService) => {
             }
             console.log('bookingAmended: ', bookingAmended)
             response.bookingAmended = bookingAmended;
-            // if (!flags?.hasOwnProperty('origin') && flags.origin != 'admin') {
-                if (bookingAmended && !flags?.hasOwnProperty('origin') && flags.origin != 'admin') {
-                    // trigger only if the previous status was confirmed
-                    if (currentBookingStatus?.name == 'booking_confirmed') {
-                        bookingService.sendBookingEmail('amendment', booking);
-                    }
-
-                    // await booking.reload();
-                    // if (await bookingService.validateBookingHasCourse(booking)) {
-                    //     const pendingApprovalStatus = bookingStatuses.find(status => JSON.parse(status.value).name == 'pending_approval');
-                    //     await Booking.update({ status: pendingApprovalStatus.value }, { where: { id: booking.id } });
-                    //     bookingService.generateBookingStatusChangeNotifications(booking, 'pending approval');
-                    // } else {
-                    const bookingAmendedStatus = bookingStatuses.find(status => JSON.parse(status.value).name == 'booking_amended');
-                    const bokkingStatusName = JSON.parse(bookingAmendedStatus.value).name;
-                    await Booking.update({ status_logs: JSON.stringify(updateStatusLogs(statusLogs, 'booking_amended')), status: bookingAmendedStatus.value, status_name: bokkingStatusName }, { where: { id: booking.id } });
-                    // }
-                } else if (currentBookingStatus?.name === 'pending_approval') {
-                    // validate if the booking has a course and change the status to ready_to_process only for returning guests
-                    // all other scenarios will be pending approval for both new and returning guests when the booking is completed.
-                    const bookingHasCourse = await bookingService.validateBookingHasCourse(booking);
-
-                    if (booking.type == 'Returning Guest' && !bookingHasCourse && !booking.status.includes('ready_to_process')) {
-                        const readyToProcessStatus = bookingStatuses.find(status => JSON.parse(status.value).name == 'ready_to_process');
-                        const bokkingStatusName = JSON.parse(readyToProcessStatus.value).name;
-                        await Booking.update({ status_logs: JSON.stringify(updateStatusLogs(statusLogs, 'ready_to_process')), status: readyToProcessStatus.value, status_name: bokkingStatusName }, { where: { id: booking.id } });
-                        bookingService.generateBookingStatusChangeNotifications(booking, 'ready_to_process');
-                    }
+            
+            if (bookingAmended && !flags?.hasOwnProperty('origin') && flags.origin != 'admin') {
+                if (currentBookingStatus?.name == 'booking_confirmed') {
+                    bookingService.sendBookingEmail('amendment', booking);
                 }
-            // }
 
-            // bookingService.triggerEmailsOnSubmit(booking);
+                const bookingAmendedStatus = bookingStatuses.find(status => JSON.parse(status.value).name == 'booking_amended');
+                const bokkingStatusName = JSON.parse(bookingAmendedStatus.value).name;
+                await Booking.update({ status_logs: JSON.stringify(updateStatusLogs(statusLogs, 'booking_amended')), status: bookingAmendedStatus.value, status_name: bokkingStatusName }, { where: { id: booking.id } });
+            } else if (currentBookingStatus?.name === 'pending_approval') {
+                const bookingHasCourse = await bookingService.validateBookingHasCourse(booking);
+
+                if (booking.type == 'Returning Guest' && !bookingHasCourse && !booking.status.includes('ready_to_process')) {
+                    const readyToProcessStatus = bookingStatuses.find(status => JSON.parse(status.value).name == 'ready_to_process');
+                    const bokkingStatusName = JSON.parse(readyToProcessStatus.value).name;
+                    await Booking.update({ status_logs: JSON.stringify(updateStatusLogs(statusLogs, 'ready_to_process')), status: readyToProcessStatus.value, status_name: bokkingStatusName }, { where: { id: booking.id } });
+                    bookingService.generateBookingStatusChangeNotifications(booking, 'ready_to_process');
+                }
+            }
 
             if (metainfo.notifications == undefined || metainfo.notifications == false) {
                 bookingService.generateNotifications(booking);

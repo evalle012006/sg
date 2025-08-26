@@ -8,18 +8,18 @@ import { findByQuestionKey, QUESTION_KEYS } from '../services/booking/question-h
  * @returns {Object} Course analysis result
  */
 export function extractCourseInformation(allQAPairs = [], formData = {}) {
-  console.log('🎓 Starting comprehensive course analysis...');
-  console.log('📊 Input data:', {
-    qaPairsCount: allQAPairs?.length || 0,
-    formDataKeys: Object.keys(formData || {}),
-    allQADetails: allQAPairs?.map(qa => ({
-      question: qa.question?.substring(0, 60) + '...',
-      question_key: qa.question_key,
-      answer: qa.answer,
-      hasAnswer: !!qa.answer,
-      hasQuestionObject: !!qa.Question
-    }))
-  });
+  // console.log('🎓 Starting comprehensive course analysis...');
+  // console.log('📊 Input data:', {
+  //   qaPairsCount: allQAPairs?.length || 0,
+  //   formDataKeys: Object.keys(formData || {}),
+  //   allQADetails: allQAPairs?.map(qa => ({
+  //     question: qa.question?.substring(0, 60) + '...',
+  //     question_key: qa.question_key,
+  //     answer: qa.answer,
+  //     hasAnswer: !!qa.answer,
+  //     hasQuestionObject: !!qa.Question
+  //   }))
+  // });
 
   const courseAnalysis = {
     hasCourse: false,
@@ -69,7 +69,7 @@ export function extractCourseInformation(allQAPairs = [], formData = {}) {
       const questionKey = qa.question_key || qa.Question?.question_key;
       if (questionKey && courseOfferKeys.includes(questionKey)) {
         courseOfferQA = qa;
-        console.log('✅ Found course offer question by key:', questionKey, '→', qa.answer);
+        // console.log('✅ Found course offer question by key:', questionKey, '→', qa.answer);
         courseAnalysis.rawData.foundBy = `question-key: ${questionKey}`;
         break;
       }
@@ -80,7 +80,7 @@ export function extractCourseInformation(allQAPairs = [], formData = {}) {
       const questionKey = qa.question_key || qa.Question?.question_key;
       if (questionKey && whichCourseKeys.includes(questionKey)) {
         whichCourseQA = qa;
-        console.log('✅ Found which course question by key:', questionKey, '→', qa.answer);
+        // console.log('✅ Found which course question by key:', questionKey, '→', qa.answer);
         if (!courseAnalysis.rawData.foundBy) {
           courseAnalysis.rawData.foundBy = `question-key: ${questionKey}`;
         }
@@ -93,7 +93,7 @@ export function extractCourseInformation(allQAPairs = [], formData = {}) {
       courseAnalysis.courseOfferAnswer = courseOfferQA.answer;
       const answer = courseOfferQA.answer?.toLowerCase() || '';
       courseAnalysis.courseOffered = answer.includes('yes') || answer.includes('true');
-      console.log('✅ Processed course offer answer:', courseOfferQA.answer, '→ offered:', courseAnalysis.courseOffered);
+      // console.log('✅ Processed course offer answer:', courseOfferQA.answer, '→ offered:', courseAnalysis.courseOffered);
     }
 
     // Process which course answer
@@ -109,7 +109,7 @@ export function extractCourseInformation(allQAPairs = [], formData = {}) {
         
         courseAnalysis.courseId = whichCourseQA.answer;
         courseAnalysis.hasCourse = true;
-        console.log('✅ Valid course selection found:', whichCourseQA.answer);
+        // console.log('✅ Valid course selection found:', whichCourseQA.answer);
       }
     }
 
@@ -382,7 +382,7 @@ export function analyzeCourseFromBookingData({
   allQAPairs = []        // Pre-collected all QA pairs
 } = {}) {
   
-  console.log('🎓 Analyzing course from booking data...');
+  // console.log('🎓 Analyzing course from booking data...');
   // console.log('📊 Input sources:', {
   //   qaDataLength: qaData?.length || 0,
   //   allBookingDataSections: allBookingData?.sections?.length || 0,

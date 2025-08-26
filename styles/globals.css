@@ -215,3 +215,156 @@
 .react-datepicker__day--outside-month {
   color: #999999; /* neutral */
 }
+/* Health Information Responsive Styles */
+/* Add these to your global CSS or component-specific styles */
+
+.health-info-container {
+  @apply space-y-6;
+}
+
+.health-info-header {
+  @apply flex flex-col sm:flex-row sm:justify-between py-6 sm:py-10 space-y-2 sm:space-y-0;
+}
+
+.health-info-title {
+  @apply text-lg sm:text-xl font-bold text-gray-900;
+}
+
+.health-info-last-updated {
+  @apply text-gray-500 font-bold text-sm sm:text-base;
+}
+
+.participant-numbers-grid {
+  @apply grid grid-cols-1 lg:grid-cols-2 gap-4 p-4 sm:p-6 lg:p-10 rounded-2xl bg-slate-400 font-bold;
+}
+
+.participant-number-row {
+  @apply flex flex-col sm:flex-row sm:items-center text-gray-700 space-y-2 sm:space-y-0;
+}
+
+.participant-number-label {
+  @apply text-sm sm:text-base flex-shrink-0;
+}
+
+.participant-number-value {
+  @apply h-fit w-full sm:w-fit bg-white p-2 px-4 sm:px-8 rounded-md sm:ml-6 text-center text-gray-900;
+}
+
+.participant-number-na {
+  @apply sm:w-40;
+}
+
+.health-categories-container {
+  @apply space-y-4;
+}
+
+.health-categories-title {
+  @apply text-lg font-semibold text-gray-900;
+}
+
+.health-category-card {
+  @apply bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden;
+}
+
+.health-category-header {
+  @apply w-full px-4 py-3 sm:px-6 sm:py-4 flex items-center justify-between hover:bg-gray-50 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-inset;
+}
+
+.health-category-header-content {
+  @apply flex items-center space-x-3;
+}
+
+.health-category-title {
+  @apply text-sm sm:text-base font-medium text-gray-900 text-left;
+}
+
+.health-category-status-badge {
+  @apply inline-flex items-center px-2 py-1 rounded text-xs font-medium;
+}
+
+.health-category-status-normal {
+  @apply bg-green-100 text-green-800;
+}
+
+.health-category-status-critical {
+  @apply bg-red-100 text-red-800;
+}
+
+.health-category-chevron {
+  @apply w-5 h-5 text-gray-400 transition-transform duration-200;
+}
+
+.health-category-content {
+  @apply px-4 pb-4 sm:px-6 sm:pb-6 border-t border-gray-100;
+}
+
+.health-conditions-list {
+  @apply space-y-3 pt-4;
+}
+
+.health-condition-item {
+  @apply flex flex-col sm:flex-row sm:justify-between sm:items-center p-3 rounded-lg space-y-2 sm:space-y-0;
+}
+
+.health-condition-item-even {
+  @apply bg-gray-50;
+}
+
+.health-condition-item-odd {
+  @apply bg-white;
+}
+
+.health-condition-text {
+  @apply text-sm sm:text-base font-medium sm:font-normal text-gray-700 sm:max-w-[70%];
+}
+
+.health-condition-answer {
+  @apply flex justify-start sm:justify-end;
+}
+
+.health-condition-badge {
+  @apply inline-flex items-center px-2 py-1 rounded text-xs font-medium;
+}
+
+.health-condition-badge-yes {
+  @apply bg-green-100 text-green-800;
+}
+
+.health-condition-badge-no {
+  @apply bg-red-100 text-red-800;
+}
+
+.health-info-empty-state {
+  @apply bg-yellow-50 border border-yellow-200 rounded-lg py-6 px-6 mb-4;
+}
+
+.health-info-empty-title {
+  @apply text-lg font-medium leading-tight mb-2 text-yellow-800;
+}
+
+.health-info-empty-description {
+  @apply text-yellow-700 text-sm;
+}
+
+/* Mobile optimizations */
+@media (max-width: 640px) {
+  .health-category-header {
+    @apply px-3 py-2;
+  }
+  
+  .health-category-title {
+    @apply text-sm;
+  }
+  
+  .health-category-content {
+    @apply px-3 pb-3;
+  }
+  
+  .health-condition-item {
+    @apply p-2;
+  }
+  
+  .participant-numbers-grid {
+    @apply p-3 gap-3;
+  }
+}

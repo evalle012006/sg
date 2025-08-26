@@ -2,6 +2,11 @@ import { Booking, Guest, QaPair, Room, RoomType, Section, Comment, User, HealthI
 import { omitAttribute } from "../../../utilities/common";
 import StorageService from "../../../services/storage/storage";
 import { Op } from "sequelize";
+import { 
+    QUESTION_KEYS, 
+    getAnswerByQuestionKey,
+    findByQuestionKeyWithFallback
+} from "../../../services/booking/question-helper";
 
 export default async function handler(req, res) {
     const dateRangeRegEx = /^20\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])\s-\s20\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
@@ -19,6 +24,7 @@ export default async function handler(req, res) {
             }
         ]
     });
+    
     if (!guest) {
         return res.status(404).json({ message: 'Guest not found' });
     }
@@ -55,7 +61,9 @@ export default async function handler(req, res) {
 
     const guestBookings = await Booking.findAll({
         where: {
-            deleted_at: null, guest_id: guest.id, [Op.not]: [{
+            deleted_at: null, 
+            guest_id: guest.id, 
+            [Op.not]: [{
                 [Op.and]: [
                     { status: { [Op.like]: '%guest_cancelled%' }, complete: { [Op.not]: true } }
                 ]
@@ -73,6 +81,7 @@ export default async function handler(req, res) {
     });
 
     let bookings = [];
+    
     for (let i = 0; i < guestBookings.length; i++) {
         let currentBooking = { ...guestBookings[i] };
 
@@ -81,43 +90,102 @@ export default async function handler(req, res) {
         let ndisNumber = null;
         let icareNumber = null;
 
+        // Collect all QA pairs from all sections for this booking
+        let allQaPairs = [];
         for (let j = 0; j < currentBooking.Sections.length; j++) {
-            let currentSection = { ...currentBooking.Sections[j] };
+            allQaPairs = [...allQaPairs, ...currentBooking.Sections[j].QaPairs];
+        }
 
-            for (let k = 0; k < currentSection.QaPairs.length; k++) {
-                if (currentSection.QaPairs[k].question === 'Check In Date and Check Out Date' && dateRangeRegEx.test(currentSection.QaPairs[k].answer)) {
-                    const dates = currentSection.QaPairs[k].answer.split(' - ');
-                    check_in_date = dates[0];
-                    check_out_date = dates[1];
+        // Extract dates using question keys with fallback to old question text
+        const checkInOutDateQA = findByQuestionKeyWithFallback(
+            allQaPairs, 
+            QUESTION_KEYS.CHECK_IN_OUT_DATE, 
+            'Check In Date and Check Out Date'
+        );
+        
+        if (checkInOutDateQA && dateRangeRegEx.test(checkInOutDateQA.answer)) {
+            const dates = checkInOutDateQA.answer.split(' - ');
+            check_in_date = dates[0];
+            check_out_date = dates[1];
+        }
+
+        // If combined date not found, look for individual dates
+        if (!check_in_date) {
+            check_in_date = getAnswerByQuestionKey(allQaPairs, QUESTION_KEYS.CHECK_IN_DATE) ||
+                           allQaPairs.find(qa => qa.question === 'Check In Date')?.answer;
+        }
+        
+        if (!check_out_date) {
+            check_out_date = getAnswerByQuestionKey(allQaPairs, QUESTION_KEYS.CHECK_OUT_DATE) ||
+                            allQaPairs.find(qa => qa.question === 'Check Out Date')?.answer;
+        }
+
+        // Extract NDIS and iCare numbers using question keys
+        ndisNumber = getAnswerByQuestionKey(allQaPairs, QUESTION_KEYS.NDIS_PARTICIPANT_NUMBER) ||
+                     allQaPairs.find(qa => qa.question === 'NDIS Participant Number')?.answer;
+
+        icareNumber = getAnswerByQuestionKey(allQaPairs, QUESTION_KEYS.ICARE_PARTICIPANT_NUMBER) ||
+                      allQaPairs.find(qa => qa.question === 'icare Participant Number')?.answer;
+
+        // Process rooms with images - handle multiple rooms per booking
+        let roomsWithImages = [];
+        if (currentBooking.Rooms && currentBooking.Rooms.length > 0) {
+            for (let roomIndex = 0; roomIndex < currentBooking.Rooms.length; roomIndex++) {
+                const room = currentBooking.Rooms[roomIndex];
+                let roomWithImage = { ...room.dataValues };
+
+                // Add room type image if available
+                if (room.RoomType && room.RoomType.image_filename) {
+                    try {
+                        const imageUrl = await storage.getSignedUrl('room-type-photo/' + room.RoomType.image_filename);
+                        roomWithImage.RoomType = {
+                            ...room.RoomType.dataValues,
+                            imageUrl: imageUrl
+                        };
+                    } catch (error) {
+                        console.warn(`Failed to generate signed URL for room image: ${room.RoomType.image_filename}`, error);
+                        roomWithImage.RoomType = {
+                            ...room.RoomType.dataValues,
+                            imageUrl: null
+                        };
+                    }
+                } else if (room.RoomType) {
+                    roomWithImage.RoomType = {
+                        ...room.RoomType.dataValues,
+                        imageUrl: null
+                    };
                 }
 
-                if (currentSection.QaPairs[k].question === 'Check In Date') {
-                    check_in_date = currentSection.QaPairs[k].answer;
-                }
-                if (currentSection.QaPairs[k].question === 'Check Out Date') {
-                    check_out_date = currentSection.QaPairs[k].answer;
-                }
-
-                if (currentSection.QaPairs[k].question === 'NDIS Participant Number') {
-                    ndisNumber = currentSection.QaPairs[k].answer;
-                }
-
-                if (currentSection.QaPairs[k].question === 'icare Participant Number') {
-                    icareNumber = currentSection.QaPairs[k].answer;
-                }
+                roomsWithImages.push(roomWithImage);
             }
         }
 
-        bookings.push({ ...currentBooking.dataValues, check_in_date, check_out_date, ndisNumber, icareNumber });
+        bookings.push({ 
+            ...currentBooking.dataValues, 
+            Rooms: roomsWithImages, // Updated rooms with images
+            check_in_date, 
+            check_out_date, 
+            ndisNumber, 
+            icareNumber 
+        });
     }
 
+    // Handle guest profile image
     let profileUrl;
     if (guest.profile_filename) {
-        profileUrl = await storage.getSignedUrl('profile-photo' + '/' +  guest.profile_filename);
+        profileUrl = await storage.getSignedUrl('profile-photo' + '/' + guest.profile_filename);
     }
 
     const healthInfo = await HealthInfo.findOne({ where: { guest_id: guest.id } });
 
-    const responseData = { ...omitAttribute(guest.dataValues, "password", "createdAt"), Bookings: bookings, profileUrl, HealthInfo: healthInfo, error, errorMessage };
+    const responseData = { 
+        ...omitAttribute(guest.dataValues, "password", "createdAt"), 
+        Bookings: bookings, 
+        profileUrl, 
+        HealthInfo: healthInfo, 
+        error, 
+        errorMessage 
+    };
+    
     return res.status(200).json(responseData);
 }

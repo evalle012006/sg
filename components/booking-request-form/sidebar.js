@@ -17,19 +17,6 @@ export default function RequestFormSidebar({ setBookingSubmittedState }) {
         await router.push(cleanedUrl);
     }
 
-    // ENHANCED: Check if NDIS page should exist based on funding status
-    const shouldNdisPageExist = () => {
-        return isNdisFunded && bookingRequestFormData.some(page => 
-            page.Sections?.some(section => 
-                section.Questions?.some(question => 
-                    question.question_key === 'funding-source' && 
-                    question.answer && 
-                    (question.answer.toLowerCase().includes('ndis') || question.answer.toLowerCase().includes('ndia'))
-                )
-            )
-        );
-    };
-
     const setCurrentPage = () => {
         // If URL contains submit=true and we're in submission mode, return null or early
         if (router.asPath.includes('&submit=true')) {
@@ -56,50 +43,29 @@ export default function RequestFormSidebar({ setBookingSubmittedState }) {
             // Extract page ID from URL
             const urlPageId = paths[1].split('=')[1];
             
-            // Check if the URL actually exists in our data
+            // Simply try to find the page - if it exists in data, it should be accessible
             let foundPage = bookingRequestFormData.find(r => r.url === "&&" + paths[1]);
             
-            // ENHANCED: Special handling for NDIS page
-            if (!foundPage && urlPageId === 'ndis_packages_page') {
-                // Check if NDIS page should exist but hasn't been created yet
-                if (shouldNdisPageExist()) {
-                    console.log('NDIS page should exist but not found, waiting for creation...');
-                    // Return null to wait for the page to be created
-                    return null;
-                } else {
-                    console.log('NDIS page not needed, redirecting to first page');
-                    // NDIS page shouldn't exist, redirect to first page
-                    if (bookingRequestFormData.length > 0) {
-                        const firstPage = bookingRequestFormData[0];
-                        handleRouterChange(router.asPath.split('&&')[0] + firstPage.url);
-                        return firstPage;
-                    }
+            // If not found by URL, try to find by ID
+            if (!foundPage && urlPageId) {
+                foundPage = bookingRequestFormData.find(r => r.id === urlPageId);
+                if (foundPage) {
+                    console.log(`Found page by ID: ${foundPage.title}, updating URL`);
+                    // Update URL to match the found page's URL format
+                    handleRouterChange(router.asPath.split('&&')[0] + foundPage.url);
                 }
             }
             
-            // ENHANCED: Better fallback for missing pages
+            // If page doesn't exist in data, redirect to first page
             if (!foundPage) {
                 console.log(`Page not found for URL: ${paths[1]}, available pages:`, 
-                    bookingRequestFormData.map(p => ({ id: p.id, url: p.url })));
+                    bookingRequestFormData.map(p => ({ id: p.id, title: p.title, url: p.url })));
                 
-                // Try to find page by ID instead of URL
-                if (urlPageId) {
-                    foundPage = bookingRequestFormData.find(r => r.id === urlPageId);
-                    if (foundPage) {
-                        console.log(`Found page by ID: ${foundPage.title}`);
-                        // Update URL to match the found page
-                        handleRouterChange(router.asPath.split('&&')[0] + foundPage.url);
-                    }
-                }
-                
-                // If still not found, redirect to first page
-                if (!foundPage && bookingRequestFormData.length > 0) {
-                    console.log('Redirecting to first page due to missing page');
+                if (bookingRequestFormData.length > 0) {
                     const firstPage = bookingRequestFormData[0];
                     handleRouterChange(router.asPath.split('&&')[0] + firstPage.url);
                     return firstPage;
                 }
-                
                 return null;
             }
             
@@ -123,53 +89,19 @@ export default function RequestFormSidebar({ setBookingSubmittedState }) {
         return baseUrl.replace('&submit=true', '');
     }
 
-    // ENHANCED: Include NDIS page in steps when it should exist
+    // SIMPLIFIED: Just use whatever pages exist in the data
     const steps = useMemo(() => {
         if (!bookingRequestFormData || bookingRequestFormData.length === 0) {
             return [];
         }
 
-        // ADDED: Check if we should show NDIS page in sidebar even if it doesn't exist yet
-        const ndisPageMissing = shouldNdisPageExist() && 
-            !bookingRequestFormData.find(p => p.id === 'ndis_packages_page');
-
-        let pagesForSteps = [...bookingRequestFormData];
-
-        // ADDED: Add placeholder NDIS page to sidebar if it should exist but doesn't
-        if (ndisPageMissing) {
-            // Find funding page to insert after it
-            const fundingPageIndex = pagesForSteps.findIndex(page => 
-                page.Sections?.some(section => 
-                    section.Questions?.some(question => 
-                        question.question_key === 'funding-source'
-                    )
-                )
-            );
-
-            if (fundingPageIndex !== -1) {
-                const placeholderNdisPage = {
-                    id: 'ndis_packages_page',
-                    title: 'NDIS Requirements',
-                    url: '&&page_id=ndis_packages_page',
-                    completed: false,
-                    placeholder: true // Mark as placeholder
-                };
-                pagesForSteps.splice(fundingPageIndex + 1, 0, placeholderNdisPage);
-            }
-        }
-
-        return pagesForSteps.map((page, index) => {
+        return bookingRequestFormData.map((page, index) => {
             // Determine the step state based on page properties
             let stepState = StepState.NOT_SELECTED;
             let status = null;
             let statusType = null;
 
-            if (page.placeholder) {
-                // Placeholder page - show as pending
-                stepState = StepState.NOT_SELECTED;
-                status = 'Pending';
-                statusType = 'pending';
-            } else if (currentUrl && currentUrl === page.url) {
+            if (currentUrl && currentUrl === page.url) {
                 stepState = StepState.SELECTED;
                 if (page.completed) {
                     status = 'Complete';
@@ -192,19 +124,16 @@ export default function RequestFormSidebar({ setBookingSubmittedState }) {
                 statusType: statusType,
                 pageData: page,
                 url: page.url,
-                placeholder: page.placeholder || false
+                placeholder: false
             };
         });
-    }, [bookingRequestFormData, currentUrl, isNdisFunded]);
+    }, [bookingRequestFormData, currentUrl]);
 
     // Handle step click for navigation
     const handleStepClick = (stepId) => {
         const step = steps.find(s => s.id === stepId);
-        if (!step) return;
-
-        // Don't allow navigation to placeholder pages
-        if (step.placeholder) {
-            console.log('Cannot navigate to placeholder page');
+        if (!step) {
+            console.log('Step not found:', stepId);
             return;
         }
 
@@ -219,12 +148,14 @@ export default function RequestFormSidebar({ setBookingSubmittedState }) {
             // Remove any submit=true parameter
             const cleanUrl = getCleanUrl(url);
             
+            // console.log('🔄 Sidebar navigation to:', step.label, 'URL:', cleanUrl);
+            
             setBookingSubmittedState(false);
             handleRouterChange(cleanUrl);
         }
     };
 
-    // ENHANCED: Re-run when NDIS funding status changes
+    // Set current page when router or form data changes
     useEffect(() => {
         if (router && bookingRequestFormData && bookingRequestFormData.length > 0) {
             try {
@@ -236,7 +167,7 @@ export default function RequestFormSidebar({ setBookingSubmittedState }) {
                 console.error("Error setting current page:", error);
             }
         }
-    }, [router, bookingRequestFormData, isNdisFunded]); // Added isNdisFunded dependency
+    }, [router, bookingRequestFormData]);
 
     // Early return if no data yet
     if (!bookingRequestFormData || bookingRequestFormData.length === 0) {

@@ -243,6 +243,15 @@ CourseOffer.belongsTo(Guest, {
   as: 'guest'
 });
 
+Booking.hasMany(CourseOffer, {
+  foreignKey: 'booking_id',
+  as: 'courseOffers'
+});
+CourseOffer.belongsTo(Booking, {
+  foreignKey: 'booking_id',
+  as: 'booking'
+});
+
 User.hasMany(CourseOffer, {
   foreignKey: 'offered_by',
   as: 'offeredCourses'
