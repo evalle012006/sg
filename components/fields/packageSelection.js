@@ -1050,41 +1050,46 @@ const PackageSelection = ({
   const isPackageSelected = (pkg) => {
     if (multi) {
       const result = Array.isArray(value) && value.includes(pkg.id);
-      // console.log('📦 Multi-select check for', pkg.name, ':', result, 'Current value:', value);
       return result;
     }
     const result = value == pkg.id; // Use == to handle string/number comparison
-    // console.log('📦 Single-select check for', pkg.name, ':', result, 'Current value:', value);
     return result;
   };
 
-  const getRateTypeLabel = (rateType) => {
-    const labels = {
-      weekday: 'Weekday',
-      saturday: 'Saturday', 
-      sunday: 'Sunday',
-      public_holiday: 'Holiday'
-    };
-    return labels[rateType] || 'Unknown';
+  const handlePackageClick = (pkg) => {
+    if (builderMode) return;
+    
+    if (multi) {
+      const currentValue = Array.isArray(value) ? value : [];
+      if (currentValue.includes(pkg.id)) {
+        // Remove from selection
+        const newValue = currentValue.filter(id => id !== pkg.id);
+        onChange(newValue);
+      } else {
+        // Add to selection
+        onChange([...currentValue, pkg.id]);
+      }
+    } else {
+      // Single selection
+      if (value === pkg.id) {
+        // Deselect if clicking the same package
+        onChange(null);
+      } else {
+        // Select new package
+        onChange(pkg.id);
+      }
+    }
   };
 
-  const getRateTypeBadgeStyle = (rateType) => {
-    const styles = {
-      weekday: 'bg-blue-100 text-blue-800',
-      saturday: 'bg-green-100 text-green-800', 
-      sunday: 'bg-purple-100 text-purple-800',
-      public_holiday: 'bg-red-100 text-red-800'
-    };
-    return styles[rateType] || 'bg-gray-100 text-gray-800';
-  };
-
-  // Render Non-NDIS Package Tile
-  const renderNonNdisTile = (pkg) => {
+  // Unified Package Card Component
+  const renderPackageCard = (pkg) => {
     const isSelected = isPackageSelected(pkg) || (!builderMode && packages.length === 1);
+    const isNdis = pkg.funder === 'NDIS';
     
     return (
       <div
         key={pkg.id}
+        onClick={() => handlePackageClick(pkg)}
         className={`relative rounded-lg overflow-hidden transition-all duration-200 ${
           builderMode 
             ? 'cursor-default' 
@@ -1136,9 +1141,19 @@ const PackageSelection = ({
               <span className="font-mono text-sm bg-gray-100 px-2 py-1 rounded">
                 {safeRender(pkg.package_code, 'N/A')}
               </span>
-              <span className="px-2 py-1 bg-orange-100 text-orange-800 rounded font-medium text-sm">
-                {safeRender(pkg.funder, 'Unknown')}
-              </span>
+              <div className="flex items-center gap-2">
+                <span className={`px-2 py-1 rounded font-medium text-sm ${
+                  isNdis ? 'bg-blue-100 text-blue-800' : 'bg-orange-100 text-orange-800'
+                }`}>
+                  {safeRender(pkg.funder, 'Unknown')}
+                </span>
+                {/* NDIS Package Type Badge */}
+                {isNdis && pkg.ndis_package_type && (
+                  <span className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded font-medium text-xs uppercase">
+                    {pkg.ndis_package_type === 'sta' ? 'STA' : safeRender(pkg.ndis_package_type, 'Unknown')}
+                  </span>
+                )}
+              </div>
             </div>
             
             <div className="text-2xl font-bold text-gray-900">
@@ -1155,35 +1170,49 @@ const PackageSelection = ({
                 </p>
               </div>
             )}
-            
-            {pkg.inclusions && pkg.inclusions.length > 0 && (
+
+            {/* Support Level for NDIS packages */}
+            {isNdis && pkg.support_level && (
               <div>
                 <h4 className="text-sm font-semibold text-gray-700 mb-2">
-                  What&apos;s Included
+                  Support Level
+                </h4>
+                <span className="px-2 py-1 bg-yellow-100 text-yellow-800 rounded text-sm font-medium">
+                  {safeRender(pkg.support_level, 'Not specified')}
+                </span>
+              </div>
+            )}
+            
+            {/* Inclusions (only for Non-NDIS packages with clean, readable data) */}
+            {!isNdis && pkg.inclusions && pkg.inclusions.length > 0 && (
+              <div>
+                <h4 className="text-sm font-semibold text-gray-700 mb-2">
+                  What's Included
                 </h4>
                 <ul className="text-sm text-gray-600 space-y-1">
                   {pkg.inclusions.slice(0, 4).map((inclusion, idx) => {
-                    const inclusionText = safeRender(
-                      typeof inclusion === 'string' ? inclusion : 
-                      inclusion?.name || inclusion?.item || inclusion,
-                      'Inclusion not available'
-                    );
-                    return (
-                      <li key={idx} className="flex items-start gap-2">
-                        <span className="text-xs mt-1 text-green-500">✓</span>
-                        {inclusionText}
-                      </li>
-                    );
-                  })}
-                  {pkg.inclusions.length > 4 && (
+                    // Only show simple string inclusions, skip complex objects
+                    if (typeof inclusion === 'string' && inclusion.length < 100) {
+                      return (
+                        <li key={idx} className="flex items-start gap-2">
+                          <span className="text-xs mt-1 text-green-500">✓</span>
+                          {inclusion}
+                        </li>
+                      );
+                    }
+                    // Skip complex inclusion objects
+                    return null;
+                  }).filter(Boolean)}
+                  {pkg.inclusions.filter(inc => typeof inc === 'string' && inc.length < 100).length > 4 && (
                     <li className="text-xs text-gray-500 italic">
-                      +{pkg.inclusions.length - 4} more inclusions
+                      +{pkg.inclusions.filter(inc => typeof inc === 'string' && inc.length < 100).length - 4} more inclusions
                     </li>
                   )}
                 </ul>
               </div>
             )}
             
+            {/* Features */}
             {pkg.features && pkg.features.length > 0 && (
               <div>
                 <h4 className="text-sm font-semibold text-gray-700 mb-2">
@@ -1213,189 +1242,20 @@ const PackageSelection = ({
                 </div>
               </div>
             )}
-          </div>
-        </div>
-      </div>
-    );
-  };
 
-  // Render NDIS Package Table
-  const renderNdisTable = (pkg) => {
-    const isSelected = isPackageSelected(pkg) || (!builderMode && packages.length === 1);
-    
-    return (
-      <div
-        key={pkg.id}
-        className={`border-2 rounded-lg overflow-hidden transition-all duration-200 ${
-          builderMode 
-            ? 'cursor-default border-gray-200' 
-            : 'cursor-pointer hover:shadow-md'
-        } ${
-          isSelected
-            ? 'border-green-500 bg-white shadow-lg'
-            : 'border-gray-200 bg-white hover:border-gray-300'
-        }`}
-      >
-        {/* Table Header */}
-        <div className={`px-6 py-4 border-b ${isSelected ? 'bg-gray-50 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <h3 className={`text-xl font-bold ${isSelected ? 'text-gray-900' : 'text-gray-900'}`}>
-                {safeRender(pkg.name, 'Package Name')}
-              </h3>
-            </div>
-            
-            {/* Selection Checkmark */}
-            {isSelected && (
-              <div className="w-6 h-6 bg-green-500 rounded-full flex items-center justify-center">
-                <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
-                </svg>
+            {/* NDIS-specific footer note */}
+            {isNdis && (
+              <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="flex items-start gap-2">
+                  <svg className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                  </svg>
+                  <p className="text-xs text-blue-700">
+                    This package is processed through NDIS funding. Final costs and line item details will be shown in your Summary of Stay.
+                  </p>
+                </div>
               </div>
             )}
-          </div>
-          
-          {/* Package Summary */}
-          <div className="mt-3 flex items-center gap-4 text-sm">
-            <span className={`font-mono px-2 py-1 rounded ${isSelected ? 'bg-gray-100 text-gray-700' : 'bg-gray-100 text-gray-700'}`}>
-              {safeRender(pkg.package_code, 'N/A')}
-            </span>
-            <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded font-medium">
-              {safeRender(pkg.funder, 'Unknown')} Funded
-            </span>
-            <span className={`font-semibold ${isSelected ? 'text-gray-900' : 'text-gray-900'}`}>
-              {safeRender(pkg.formattedPrice, 'Price not available')}
-            </span>
-          </div>
-        </div>
-
-        {/* Table Content */}
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <tbody>
-              {/* NDIS Package Type */}
-              {pkg.ndis_package_type && (
-                <tr className={isSelected ? 'bg-white' : 'bg-white'}>
-                  <td className={`px-6 py-3 font-medium border-b ${isSelected ? 'text-gray-700 border-gray-200' : 'text-gray-700 border-gray-200'}`}>
-                    NDIS Support Type
-                  </td>
-                  <td className={`px-6 py-3 border-b ${isSelected ? 'text-gray-900 border-gray-200' : 'text-gray-900 border-gray-200'}`}>
-                    <span className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded font-medium text-sm uppercase">
-                      {pkg.ndis_package_type === 'sta' ? 'Short Term Accommodation' : safeRender(pkg.ndis_package_type, 'Unknown')}
-                    </span>
-                  </td>
-                </tr>
-              )}
-
-              {/* Description */}
-              {pkg.description && (
-                <tr className={isSelected ? 'bg-gray-50' : 'bg-gray-50'}>
-                  <td className={`px-6 py-3 font-medium border-b align-top ${isSelected ? 'text-gray-700 border-gray-200' : 'text-gray-700 border-gray-200'}`}>
-                    Description
-                  </td>
-                  <td className={`px-6 py-3 border-b ${isSelected ? 'text-gray-900 border-gray-200' : 'text-gray-900 border-gray-200'}`}>
-                    {safeRender(pkg.description, 'No description available')}
-                  </td>
-                </tr>
-              )}
-
-              {/* NDIS Line Items */}
-              {pkg.ndis_line_items && pkg.ndis_line_items.length > 0 && (
-                <tr className={isSelected ? 'bg-white' : 'bg-white'}>
-                  <td className={`px-6 py-3 font-medium border-b align-top ${isSelected ? 'text-gray-700 border-gray-200' : 'text-gray-700 border-gray-200'}`}>
-                    NDIS Line Items & Pricing
-                  </td>
-                  <td className={`px-6 py-3 border-b ${isSelected ? 'text-gray-900 border-gray-200' : 'text-gray-900 border-gray-200'}`}>
-                    <div className="space-y-3">
-                      {pkg.ndis_line_items.map((item, idx) => (
-                        <div key={idx} className={`p-3 rounded-lg border ${isSelected ? 'bg-gray-50 border-gray-200' : 'bg-gray-50 border-gray-200'}`}>
-                          <div className="flex justify-between items-start mb-2">
-                            <div className="flex items-center space-x-2">
-                              <span className={`font-mono text-xs px-2 py-1 rounded ${isSelected ? 'bg-gray-100 text-gray-700' : 'bg-gray-100 text-gray-700'}`}>
-                                {safeRender(item.line_item, 'Line Item')}
-                              </span>
-                              <span className={`px-2 py-1 text-xs rounded font-medium ${getRateTypeBadgeStyle(item.rate_type)}`}>
-                                {getRateTypeLabel(item.rate_type)}
-                              </span>
-                            </div>
-                            <span className={`font-bold text-sm ${isSelected ? 'text-gray-900' : 'text-gray-900'}`}>
-                              ${safeRender(item.price_per_night, '0')}/night
-                            </span>
-                          </div>
-                          <p className={`text-sm ${isSelected ? 'text-gray-600' : 'text-gray-600'}`}>
-                            {safeRender(item.sta_package, 'STA Package')}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  </td>
-                </tr>
-              )}
-
-              {/* Support Level */}
-              {pkg.support_level && (
-                <tr className={isSelected ? 'bg-gray-50' : 'bg-gray-50'}>
-                  <td className={`px-6 py-3 font-medium border-b ${isSelected ? 'text-gray-700 border-gray-200' : 'text-gray-700 border-gray-200'}`}>
-                    Support Level
-                  </td>
-                  <td className={`px-6 py-3 border-b ${isSelected ? 'text-gray-900 border-gray-200' : 'text-gray-900 border-gray-200'}`}>
-                    <span className={`px-2 py-1 rounded text-sm font-medium ${
-                      isSelected ? 'bg-yellow-100 text-yellow-800' : 'bg-yellow-100 text-yellow-800'
-                    }`}>
-                      {safeRender(pkg.support_level, 'Not specified')}
-                    </span>
-                  </td>
-                </tr>
-              )}
-
-              {/* Care Hours (if applicable) */}
-              {/* {careAnalysis.totalHoursPerDay > 0 && (
-                <tr className={isSelected ? 'bg-white' : 'bg-white'}>
-                  <td className={`px-6 py-3 font-medium border-b ${isSelected ? 'text-gray-700 border-gray-200' : 'text-gray-700 border-gray-200'}`}>
-                    Daily Care Match
-                  </td>
-                  <td className={`px-6 py-3 border-b ${isSelected ? 'text-gray-900 border-gray-200' : 'text-gray-900 border-gray-200'}`}>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm">{careAnalysis.totalHoursPerDay}h care requirements</span>
-                      {careAnalysis.recommendedPackages?.includes(pkg.package_code) && (
-                        <span className="px-2 py-1 bg-yellow-100 text-yellow-800 rounded text-xs font-medium">
-                          ⭐ Perfect Match
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              )} */}
-
-              {/* Course Information (if applicable) */}
-              {/* {courseAnalysisData && courseAnalysisData.hasCourse && (
-                <tr className={isSelected ? 'bg-gray-50' : 'bg-gray-50'}>
-                  <td className={`px-6 py-3 font-medium border-b ${isSelected ? 'text-gray-700 border-gray-200' : 'text-gray-700 border-gray-200'}`}>
-                    Course Participation
-                  </td>
-                  <td className={`px-6 py-3 border-b ${isSelected ? 'text-gray-900 border-gray-200' : 'text-gray-900 border-gray-200'}`}>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm">Course participant</span>
-                      {courseAnalysisData.courseId && (
-                        <span className="px-2 py-1 bg-green-100 text-green-800 rounded text-xs font-medium">
-                          🎓 Course ID: {courseAnalysisData.courseId}
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              )} */}
-            </tbody>
-          </table>
-        </div>
-
-        {/* NDIS Package Footer */}
-        <div className={`px-6 py-3 border-t text-xs ${isSelected ? 'bg-gray-50 border-gray-200 text-gray-600' : 'bg-gray-50 border-gray-200 text-gray-600'}`}>
-          <div className="flex items-center gap-1">
-            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-            </svg>
-            <span>Pricing shown is per night and varies by day of week. Final costs are processed through NDIS funding and will be seen in the Summary of Stay at the end.</span>
           </div>
         </div>
       </div>
@@ -1515,12 +1375,12 @@ const PackageSelection = ({
                 </div>
               )}
 
-              {/* NDIS Category Header */}
-              {funderType === 'NDIS' && (builderMode || funderPackages.length > 1) && (
+              {/* Category Header (only show in builder mode or when multiple packages) */}
+              {(builderMode || funderPackages.length > 1) && (
                 <div className="mb-4">
                   <div className="flex items-center gap-3 mb-2">
                     <h2 className="text-lg font-semibold text-gray-900">
-                      NDIS Packages
+                      {funderType} Packages
                     </h2>
                     <span className="px-2 py-1 bg-gray-100 text-gray-600 text-sm rounded">
                       {funderPackages.length} available
@@ -1528,21 +1388,21 @@ const PackageSelection = ({
                   </div>
                   {!builderMode && funderPackages.length > 1 && (
                     <p className="text-sm text-gray-600">
-                      Please select the NDIS package that best suits your accommodation and support needs.
+                      Please select the package that best suits your accommodation and support needs.
                     </p>
                   )}
                 </div>
               )}
 
-              {/* NDIS Selection Status */}
-              {funderType === 'NDIS' && !builderMode && funderPackages.length > 1 && (
+              {/* Selection Status (only for multi-package scenarios) */}
+              {!builderMode && funderPackages.length > 1 && (
                 <div className="mb-4">
                   {!funderPackages.some(pkg => isPackageSelected(pkg)) ? (
                     <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
                       <div className="flex items-center gap-2">
                         <div className="w-4 h-4 border-2 border-blue-400 rounded-full"></div>
                         <span className="text-sm text-blue-700">
-                          Please select an NDIS package to continue
+                          Please select a package to continue
                         </span>
                       </div>
                     </div>
@@ -1555,7 +1415,7 @@ const PackageSelection = ({
                           </svg>
                         </div>
                         <span className="text-sm text-green-700">
-                          NDIS package selected: {(() => {
+                          Package selected: {(() => {
                             const selectedPkg = funderPackages.find(pkg => isPackageSelected(pkg));
                             return selectedPkg?.name || 'Package';
                           })()}
@@ -1566,17 +1426,19 @@ const PackageSelection = ({
                 </div>
               )}
 
-              {/* Render packages based on funder type */}
-              <div className={funderType === 'NDIS' ? 'space-y-4' : 'max-w-md'}>
-                {funderPackages.map((pkg) => {
-                  return (
-                    <ErrorBoundary key={pkg.id}>
-                      {pkg.funder === 'NDIS' 
-                        ? renderNdisTable(pkg)
-                        : renderNonNdisTile(pkg)}
-                    </ErrorBoundary>
-                  );
-                })}
+              {/* Package Cards Grid */}
+              <div className={`grid gap-6 ${
+                builderMode 
+                  ? 'grid-cols-1 lg:grid-cols-2 xl:grid-cols-3'
+                  : funderPackages.length === 1 
+                    ? 'grid-cols-1 max-w-lg'
+                    : 'grid-cols-1 lg:grid-cols-2'
+              }`}>
+                {funderPackages.map((pkg) => (
+                  <ErrorBoundary key={pkg.id}>
+                    {renderPackageCard(pkg)}
+                  </ErrorBoundary>
+                ))}
               </div>
             </div>
           );

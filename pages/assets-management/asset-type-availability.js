@@ -56,6 +56,17 @@ const AssetTypeAvailabilityPage = () => {
         fetchTypeAvailability(newDates[0], newDates[newDates.length - 1]);
     }
 
+    // Helper function to get the appropriate color classes based on value
+    const getColorClasses = (value) => {
+        if (value < 0) {
+            return 'bg-red-400 text-white'; // Coral/red-orange for negative values
+        } else if (value < 2) {
+            return 'bg-yellow-300 text-black'; // Yellow/amber for low values (0-1)
+        } else {
+            return 'bg-teal-400 text-white'; // Teal/green for higher values (2+)
+        }
+    }
+
     useEffect(() => {
         let dates = getWeekDates();
         setDates(dates);
@@ -96,7 +107,7 @@ const AssetTypeAvailabilityPage = () => {
                                     <div className="col-span-1 text-left text-base flex items-center">{_.startCase(assetType.name)}</div>
                                     <div className="col-span-7 grid grid-cols-7 gap-1 pb-1 text-left text-base w-full relative">
                                         {assetType.data.sort((a, b) => moment(a.date) - moment(b.date)).map((data, index) => {
-                                            return (<div className={`rounded-md p-4 text-center ${data.value < 0 ? 'bg-red-500 text-white' : data.value < 2 ? 'bg-orange-300' : 'bg-green-400'}`} key={index}>
+                                            return (<div className={`rounded-md p-4 text-center ${getColorClasses(data.value)}`} key={index}>
                                                 <p className="pb-2 font-semibold">{data.value}</p>
                                             </div>)
                                         })}

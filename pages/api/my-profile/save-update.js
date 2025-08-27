@@ -1,4 +1,4 @@
-import { Guest, HealthInfo, sequelize } from '../../../models';
+import { Guest, HealthInfo, GuestFunding, sequelize } from '../../../models';
 
 export default async function handler(req, res) {
     if (req.method !== 'POST' && req.method !== 'PUT') {
@@ -42,7 +42,13 @@ export default async function handler(req, res) {
             sci_type_level,
             sci_inpatient,
             sci_injury_type,
-            sci_other_details
+            sci_other_details,
+            // Funding information
+            approval_number,
+            nights_approved,
+            package_approved,
+            approval_from,
+            approval_to
         } = req.body;
 
         // Validate required guest_id
@@ -175,12 +181,55 @@ export default async function handler(req, res) {
                 }
             }
 
-            // 3. FETCH UPDATED COMPLETE PROFILE
+            // 3. HANDLE FUNDING INFORMATION (only if provided)
+            const fundingUpdateData = {};
+            if (approval_number !== undefined) fundingUpdateData.approval_number = approval_number || null;
+            if (nights_approved !== undefined) fundingUpdateData.nights_approved = parseInt(nights_approved) || null;
+            if (package_approved !== undefined) fundingUpdateData.package_approved = package_approved || 'iCare';
+            if (approval_from !== undefined) fundingUpdateData.approval_from = approval_from || null;
+            if (approval_to !== undefined) fundingUpdateData.approval_to = approval_to || null;
+
+            let fundingResult = null;
+            if (Object.keys(fundingUpdateData).length > 0) {
+                // Check if funding info already exists
+                const existingFundingInfo = await GuestFunding.findOne({ 
+                    where: { guest_id: parseInt(guest_id) },
+                    transaction
+                });
+
+                if (existingFundingInfo) {
+                    // Update existing funding info
+                    await GuestFunding.update(fundingUpdateData, {
+                        where: { guest_id: parseInt(guest_id) },
+                        transaction
+                    });
+                    
+                    fundingResult = await GuestFunding.findOne({ 
+                        where: { guest_id: parseInt(guest_id) },
+                        transaction
+                    });
+                } else {
+                    // Create new funding info record
+                    fundingResult = await GuestFunding.create({
+                        guest_id: parseInt(guest_id),
+                        ...fundingUpdateData
+                    }, { transaction });
+                }
+            }
+
+            // 4. FETCH UPDATED COMPLETE PROFILE
             const updatedGuest = await Guest.findByPk(parseInt(guest_id), {
-                include: [{
-                    model: HealthInfo,
-                    required: false
-                }],
+                include: [
+                    {
+                        model: HealthInfo,
+                        required: false
+                    },
+                    {
+                        model: GuestFunding,
+                        as: 'funding',
+                        required: false
+                    }
+                ],
                 transaction
             });
 
@@ -191,7 +240,8 @@ export default async function handler(req, res) {
             return {
                 guest: updatedGuest,
                 health: healthResult || updatedGuest.HealthInfo,
-                guestUpdated: guestUpdatedRows > 0 || Object.keys(healthUpdateData).length > 0
+                funding: fundingResult || updatedGuest.funding,
+                guestUpdated: guestUpdatedRows > 0 || Object.keys(healthUpdateData).length > 0 || Object.keys(fundingUpdateData).length > 0
             };
         });
 
@@ -214,7 +264,9 @@ export default async function handler(req, res) {
             address_postal: result.guest.address_postal,
             address_country: result.guest.address_country,
             // Include health info
-            HealthInfo: result.health
+            HealthInfo: result.health,
+            // Include funding info
+            FundingInfo: result.funding
         };
 
         return res.status(200).json({

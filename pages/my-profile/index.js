@@ -13,6 +13,7 @@ const Checkbox = dynamic(() => import('../../components/ui-v2/CheckboxButton'));
 const DatePicker = dynamic(() => import('../../components/ui-v2/DateField'));
 const TextField = dynamic(() => import('../../components/ui-v2/TextField'));
 const Select = dynamic(() => import('../../components/ui-v2/Select'));
+const SelectComponent = dynamic(() => import('../../components/ui/select'));
 
 export default function GuestProfilePage() {
     const dispatch = useDispatch();
@@ -62,6 +63,15 @@ export default function GuestProfilePage() {
         sci_inpatient: null,
     });
 
+    // Funding information state
+    const [fundingInfo, setFundingInfo] = useState({
+        approval_number: '',
+        nights_approved: '',
+        package_approved: 'iCare',
+        approval_from: '',
+        approval_to: ''
+    });
+
     // Dropdown Options
     const genderOptions = [
         { value: "Male", label: "Male" },
@@ -85,6 +95,14 @@ export default function GuestProfilePage() {
         { value: "spina_bifida", label: "Spina Bifida" },
         { value: "cauda_equina", label: "Cauda Equina" },
         { value: "other", label: "Other" }
+    ];
+
+    // Package options for funding
+    const packageOptions = [
+        { label: 'iCare', value: 'iCare' },
+        { label: 'NDIS', value: 'NDIS' },
+        { label: 'Private', value: 'Private' },
+        { label: 'Other', value: 'Other' }
     ];
 
     const cervicalOptions = ['C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7', 'C8'];
@@ -137,6 +155,14 @@ export default function GuestProfilePage() {
     const handleHealthInfoChange = (field, value) => {
         console.log(`Updating health info: ${field} = ${value}`);
         setHealthInfo(prev => ({
+            ...prev,
+            [field]: value
+        }));
+    };
+
+    // Funding info change handler
+    const handleFundingInfoChange = (field, value) => {
+        setFundingInfo(prev => ({
             ...prev,
             [field]: value
         }));
@@ -232,7 +258,7 @@ export default function GuestProfilePage() {
                 address_country: guestInfo.country
             };
 
-            // Single API call to save/update both guest and health information
+            // Single API call to save/update guest, health, and funding information
             const response = await fetch('/api/my-profile/save-update', {
                 method: 'POST',
                 headers: {
@@ -243,7 +269,9 @@ export default function GuestProfilePage() {
                     // Guest information with mapped field names
                     ...mappedGuestInfo,
                     // Health information
-                    ...healthInfo
+                    ...healthInfo,
+                    // Funding information
+                    ...fundingInfo
                 }),
             });
 
@@ -274,6 +302,11 @@ export default function GuestProfilePage() {
                     // Update health info state
                     if (result.data.HealthInfo) {
                         setHealthInfo(result.data.HealthInfo);
+                    }
+
+                    // Update funding info state
+                    if (result.data.funding) {
+                        setFundingInfo(result.data.funding);
                     }
                 }
             } else {
@@ -327,6 +360,17 @@ export default function GuestProfilePage() {
                         healthInfoData.sci_type_level = healthInfoData.sci_type_level.split(',').filter(level => level.trim());
                     }
                     setHealthInfo(healthInfoData);
+                }
+
+                // Load funding information if available
+                if (data.funding) {
+                    setFundingInfo({
+                        approval_number: data.funding.approval_number || '',
+                        nights_approved: data.funding.nights_approved || '',
+                        package_approved: data.funding.package_approved || 'iCare',
+                        approval_from: data.funding.approval_from || '',
+                        approval_to: data.funding.approval_to || ''
+                    });
                 }
             } else if (response.status === 404) {
                 toast.error('Profile not found');
@@ -616,7 +660,6 @@ export default function GuestProfilePage() {
 
                                 {/* Aboriginal/Torres Strait Islander Section */}
                                 <div className="border-t border-gray-200 pt-8">
-                                    {/* <h2 className="text-lg font-semibold mb-6 text-gray-700 uppercase">Identified as Aboriginal or Torres Strait Islander</h2> */}
                                     <div className="space-y-6">
                                         <div>
                                             <p className="text-sm font-medium mb-3 text-gray-700">Do you identify as Aboriginal or Torres Strait Islander? (Person with SCI)</p>
@@ -965,6 +1008,54 @@ export default function GuestProfilePage() {
                                                 </div>
                                             </div>
                                         </div>
+                                    </div>
+                                </div>
+
+                                {/* Funding Information Section */}
+                                <div className="border-t border-gray-200 pt-8">
+                                    <h2 className="text-lg font-semibold mb-6 text-gray-700 uppercase">Funding Information</h2>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                        <TextField
+                                            label="Approval number"
+                                            value={fundingInfo.approval_number}
+                                            onChange={(value) => handleFundingInfoChange('approval_number', value)}
+                                            placeholder="Enter approval number"
+                                            size="medium"
+                                        />
+
+                                        <TextField
+                                            label="Number of nights approved"
+                                            type="number"
+                                            value={fundingInfo.nights_approved}
+                                            onChange={(value) => handleFundingInfoChange('nights_approved', value)}
+                                            placeholder="Enter number of nights"
+                                            min="0"
+                                            size="medium"
+                                        />
+
+                                        <SelectComponent
+                                            label="Package Approved"
+                                            options={packageOptions}
+                                            value={fundingInfo.package_approved}
+                                            onChange={(selected) => handleFundingInfoChange('package_approved', selected.value)}
+                                            placeholder="Select package type"
+                                        />
+
+                                        <div></div>
+
+                                        <DatePicker
+                                            label="Approval From"
+                                            value={fundingInfo.approval_from}
+                                            onChange={(value) => handleFundingInfoChange('approval_from', value)}
+                                            size="medium"
+                                        />
+
+                                        <DatePicker
+                                            label="Approval To"
+                                            value={fundingInfo.approval_to}
+                                            onChange={(value) => handleFundingInfoChange('approval_to', value)}
+                                            size="medium"
+                                        />
                                     </div>
                                 </div>
 

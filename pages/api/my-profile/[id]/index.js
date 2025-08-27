@@ -1,4 +1,4 @@
-import { Guest, HealthInfo } from '../../../../models';
+import { Guest, GuestFunding, HealthInfo } from '../../../../models';
 import StorageService from '../../../../services/storage/storage';
 import { omitAttribute } from '../../../../utilities/common';
 
@@ -13,7 +13,17 @@ export default async function handler(req, res) {
 
         const guest = await Guest.findOne({ 
             where: { id }, 
-            include: HealthInfo 
+            include: [
+                {
+                    model: HealthInfo,
+                    required: false
+                },
+                {
+                    model: GuestFunding,
+                    as: 'funding',
+                    required: false
+                }
+            ]
         });
         
         if (!guest) {

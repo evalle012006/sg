@@ -10,6 +10,7 @@ import moment from "moment";
 import { AbilityContext, Can } from "../../services/acl/can";
 import { guestActions } from "../../store/guestSlice";
 import HealthInformation from "../../components/guests/HealthInformation";
+import FundingForm from "../../components/guests/FundingForm";
 import { Eye, Edit, Trash2, Download, Mail } from 'lucide-react';
 
 const Table = dynamic(() => import('../../components/ui-v2/Table'));
@@ -32,6 +33,9 @@ export default function GuestPage() {
   const [upcomingStay, setUpcomingStay] = useState([]);
   
   const [selectedTab, setSelectedTab] = useState("guest-profile");
+
+  // Funding state
+  const [fundingData, setFundingData] = useState(null);
 
   const [healthInfo, setHealthInfo] = useState([
     {
@@ -109,7 +113,7 @@ export default function GuestPage() {
   const [documentViewModalOpen, setDocumentViewModalOpen] = useState(false);
   const [selectedDocumentForView, setSelectedDocumentForView] = useState(null);
 
-  // Tab configuration for main navigation - responsive labels
+  // Tab configuration for main navigation - updated to include Funding
   const mainTabs = [
     { label: "PROFILE", size: "medium", fullLabel: "GUEST PROFILE" },
     { label: "COURSES", size: "medium", fullLabel: "COURSES" }, 
@@ -117,7 +121,8 @@ export default function GuestPage() {
     { label: "UPCOMING", size: "medium", fullLabel: "UPCOMING STAYS" },
     { label: "PAST", size: "medium", fullLabel: "PAST STAYS" },
     { label: "DOCS", size: "medium", fullLabel: "DOCUMENTS" },
-    { label: "NOTES", size: "medium", fullLabel: "NOTES & COMMENTS" }
+    { label: "NOTES", size: "medium", fullLabel: "NOTES & COMMENTS" },
+    { label: "FUNDING", size: "medium", fullLabel: "FUNDING" }
   ];
 
   const handleDownloadPDF = async (bookingId) => {
@@ -188,6 +193,21 @@ export default function GuestPage() {
       }, 1000);
     }
   });
+
+  // Fetch funding information
+  const fetchFundingInfo = useCallback(async () => {
+    if (!uuid) return;
+    
+    try {
+      const response = await fetch(`/api/guests/${uuid}/funding`);
+      if (response.ok) {
+        const data = await response.json();
+        setFundingData(data);
+      }
+    } catch (error) {
+      console.error('Error fetching funding info:', error);
+    }
+  }, [uuid]);
 
   useEffect(() => {
     if (router.isReady && uuid) {
@@ -463,6 +483,9 @@ export default function GuestPage() {
     switch (selectedTabName) {
       case "documents":
         fetchDocuments();
+        break;
+      case "funding":
+        await fetchFundingInfo();
         break;
       default:
         break;
@@ -746,7 +769,7 @@ export default function GuestPage() {
             <TabButton
               tabs={mainTabs}
               onChange={(index) => {
-                const tabNames = ["guest-profile", "courses", "health-information", "upcoming-stays", "past-stays", "documents", "notes-and-comments"];
+                const tabNames = ["guest-profile", "courses", "health-information", "upcoming-stays", "past-stays", "documents", "notes-and-comments", "funding"];
                 const selectedTabName = tabNames[index];
                 setSelectedTab(selectedTabName);
                 handleTabChange(selectedTabName);
@@ -870,6 +893,16 @@ export default function GuestPage() {
             {selectedTab === "notes-and-comments" && (
               <div>
                 <NotesAndComments guest={guest} comments={comments} />
+              </div>
+            )}
+
+            {selectedTab === "funding" && (
+              <div>
+                <FundingForm 
+                  uuid={uuid}
+                  initialData={fundingData}
+                  onSave={fetchFundingInfo}
+                />
               </div>
             )}
           </div>

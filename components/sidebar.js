@@ -209,7 +209,7 @@ export default function Sidebar({ isCollapsed }) {
 
                     {/* Settings */}
                     {user && user.type == 'user' && (ability.can('manage', 'Setting') || ability.can('manage', 'Checklist')) && (
-                        <li>
+                        <li className='cursor-pointer'>
                             <div
                                 onClick={() => toggleSubmenu('settings')}
                                 className={getMenuItemClasses("/settings")}
@@ -377,7 +377,7 @@ export default function Sidebar({ isCollapsed }) {
                     {/* Assets */}
                     {user && user.type == 'user' && (
                         <Can I="Read" a="Equipment">
-                            <li>
+                            <li className='cursor-pointer'>
                                 <div
                                     onClick={() => toggleSubmenu('assets')}
                                     className={getMenuItemClasses("/assets-management")}

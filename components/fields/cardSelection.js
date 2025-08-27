@@ -23,7 +23,6 @@ const CardSelection = ({
   stayDates = null,
   courseOffers = [],
   courseOffersLoaded = false,
-  // ✨ NEW: Enhanced props for pricing and filtering
   localFilterState = null,
   bestMatchPackage = null,
   ...restProps
@@ -50,42 +49,19 @@ const CardSelection = ({
     return null;
   };
 
-  // ✨ NEW: Helper function to get price based on NDIS package type
-  const getCoursePrice = (courseOffer) => {
-    // Don't show prices for non-NDIS funders
-    if (!localFilterState || localFilterState.funderType !== 'NDIS') {
-      return null;
+  // Helper function to format dates for display
+  const formatDate = (dateString) => {
+    if (!dateString) return null;
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString('en-AU', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric'
+      });
+    } catch (error) {
+      return dateString;
     }
-
-    if (!courseOffer.pricing || !courseOffer.pricing.hasPricing) {
-      return null;
-    }
-
-    const { ndisPackageType } = localFilterState;
-    
-    switch (ndisPackageType) {
-      case 'sta':
-        return courseOffer.pricing.staPrice;
-      case 'holiday':
-      case 'holiday-plus':
-        return courseOffer.pricing.holidayPrice;
-      default:
-        return null;
-    }
-  };
-
-  // ✨ NEW: Helper function to format price display
-  const formatPrice = (price) => {
-    if (!price) return null;
-    return `$${parseFloat(price).toFixed(2)}`;
-  };
-
-  // ✨ NEW: Helper function to get price label
-  const getPriceLabel = () => {
-    if (!localFilterState || localFilterState.funderType !== 'NDIS') {
-      return null;
-    }
-    return 'Price';
   };
 
   // Size configurations
@@ -128,9 +104,9 @@ const CardSelection = ({
   };
 
   const fetchActiveCourses = async () => {
-      // ✅ FIRST: Check if we have course offers passed from parent
+      // Check if we have course offers passed from parent
       if (courseOffers && courseOffers.length > 0) {
-          console.log('🎓 Using course offers passed from parent:', courseOffers.length);
+          console.log('Using course offers passed from parent:', courseOffers.length);
           
           const courses = courseOffers.map(offer => ({
               label: offer.courseName || 'Untitled Course',
@@ -147,15 +123,13 @@ const CardSelection = ({
               courseId: offer.courseId,
               disabled: offer.dateValid === false,
               statusText: offer.dateValid === false ? 'Incompatible dates' : 'Compatible dates',
-              statusColor: offer.dateValid === false ? 'red' : 'green',
-              // ✨ NEW: Pricing information
-              pricing: offer.pricing || null
+              statusColor: offer.dateValid === false ? 'red' : 'green'
           }));
           
           return courses;
       }
 
-      // ✅ FALLBACK: Only fetch if no course offers provided AND not already fetched globally
+      // Fallback: Only fetch if no course offers provided AND not already fetched globally
       if (coursesFetching) {
           if (globalCoursesData) {
               return globalCoursesData;
@@ -188,14 +162,7 @@ const CardSelection = ({
                       value: course.id?.toString() || generateValueFromLabel(course.title || 'untitled-course'),
                       description: course.description || '',
                       imageFilename: course.image_filename || null,
-                      imageUrl: course.imageUrl || null,
-                      // ✨ NEW: Pricing information from fetched courses
-                      pricing: {
-                          holidayPrice: course.holiday_price ? parseFloat(course.holiday_price) : null,
-                          staPrice: course.sta_price ? parseFloat(course.sta_price) : null,
-                          priceCalculatedAt: course.price_calculated_at,
-                          hasPricing: !!(course.holiday_price || course.sta_price)
-                      }
+                      imageUrl: course.imageUrl || null
                   }));
               }
           } else {
@@ -203,7 +170,7 @@ const CardSelection = ({
               const currentGuestId = getGuestId();
               
               if (!currentGuestId) {
-                  console.warn('⚠️ No guest ID available for fetching course offers');
+                  console.warn('No guest ID available for fetching course offers');
                   return [];
               }
 
@@ -215,7 +182,7 @@ const CardSelection = ({
               if (stayDates?.checkInDate && stayDates?.checkOutDate) {
                   checkInDate = stayDates.checkInDate;
                   checkOutDate = stayDates.checkOutDate;
-                  console.log('🎓 Using stay dates for course validation:', { checkInDate, checkOutDate });
+                  console.log('Using stay dates for course validation:', { checkInDate, checkOutDate });
               }
               
               // Build API URL with correct parameter name (uuid) and date parameters if available
@@ -231,20 +198,20 @@ const CardSelection = ({
                   apiUrl += `?${queryParams.join('&')}`;
               }
               
-              console.log('🎓 Fetching course offers with URL:', apiUrl);
+              console.log('Fetching course offers with URL:', apiUrl);
               
               const response = await fetch(apiUrl);
               
               if (!response.ok) {
                   if (response.status === 404) {
-                      console.log('📭 No course offers found for guest:', currentGuestId);
+                      console.log('No course offers found for guest:', currentGuestId);
                       return [];
                   }
                   throw new Error(`HTTP error! status: ${response.status}`);
               }
               
               const data = await response.json();
-              console.log('🎓 API Response:', data);
+              console.log('API Response:', data);
               
               if (data.success && Array.isArray(data.courseOffers)) {
                   courses = data.courseOffers.map(offer => ({
@@ -264,14 +231,13 @@ const CardSelection = ({
                       // Add visual indicators for validation
                       disabled: offer.dateValid === false, // Only disable if explicitly false
                       statusText: offer.dateValid === false ? 'Incompatible dates' : 'Compatible dates',
-                      statusColor: offer.dateValid === false ? 'red' : 'green',
-                      pricing: offer.pricing || null
+                      statusColor: offer.dateValid === false ? 'red' : 'green'
                   }));
                   
-                  console.log('✅ Enhanced course offers with validation and pricing:', courses);
-                  console.log('🎓 Date validation was performed:', data.dateValidationPerformed);
+                  console.log('Enhanced course offers with validation:', courses);
+                  console.log('Date validation was performed:', data.dateValidationPerformed);
               } else {
-                  console.log('📭 No course offers in response');
+                  console.log('No course offers in response');
               }
           }
           
@@ -279,15 +245,15 @@ const CardSelection = ({
           if (courses.length > 0) {
               globalCoursesData = courses;
               coursesFetched = true;
-              console.log(`✅ Courses fetched successfully: ${courses.length} courses`);
+              console.log(`Courses fetched successfully: ${courses.length} courses`);
           } else {
-              console.log(`📭 No courses available`);
+              console.log(`No courses available`);
           }
           
           return courses;
           
       } catch (error) {
-          console.error('❌ Error fetching courses:', error);
+          console.error('Error fetching courses:', error);
           return [];
       } finally {
           coursesFetching = false;
@@ -299,9 +265,9 @@ const CardSelection = ({
     if (initialized) return;
     
     if (optionType === 'course') {
-          // ✅ Use passed course offers if available
+          // Use passed course offers if available
           if (courseOffers && courseOffers.length > 0) {
-              console.log('🎓 Using passed course offers immediately');
+              console.log('Using passed course offers immediately');
               const courses = courseOffers.map(offer => ({
                   label: offer.courseName || 'Untitled Course',
                   value: offer.courseId?.toString() || offer.id?.toString(),
@@ -309,28 +275,29 @@ const CardSelection = ({
                   imageFilename: offer.courseImage || null,
                   imageUrl: offer.courseImageUrl || null,
                   offerStatus: offer.offerStatus,
+                  minStartDate: offer.minStartDate,
+                  minEndDate: offer.minEndDate,
                   dateValid: offer.dateValid !== undefined ? offer.dateValid : true,
                   validationMessage: offer.dateValidationMessage,
                   disabled: offer.dateValid === false,
                   statusText: offer.dateValid === false ? 'Incompatible dates' : 'Compatible dates',
-                  statusColor: offer.dateValid === false ? 'red' : 'green',
-                  pricing: offer.pricing || null
+                  statusColor: offer.dateValid === false ? 'red' : 'green'
               }));
               setDynamicItems(courses);
           } 
-          // ✅ Only fetch if no course offers provided AND parent says loading is complete
+          // Only fetch if no course offers provided AND parent says loading is complete
           else if (courseOffersLoaded && courseOffers.length === 0) {
-              console.log('🎓 No course offers from parent, fetching as fallback...');
+              console.log('No course offers from parent, fetching as fallback...');
               fetchActiveCourses().then(courses => {
                   setDynamicItems(courses);
               }).catch(error => {
-                  console.error('❌ Course fetch failed:', error);
+                  console.error('Course fetch failed:', error);
                   setDynamicItems([]);
               });
           }
-          // ✅ Still loading from parent, show loading state
+          // Still loading from parent, show loading state
           else if (!courseOffersLoaded) {
-              console.log('⏳ Waiting for course offers from parent...');
+              console.log('Waiting for course offers from parent...');
               setCoursesLoading(true);
           }
       } else {
@@ -380,21 +347,17 @@ const CardSelection = ({
       if (optionType === 'course' && value && displayItems?.length > 0) {
         const matchingCourse = displayItems.find(item => item.value === value);
         if (matchingCourse) {
-          // Log pricing information
-          if (matchingCourse.pricing) {
-            console.log('✅ Current answer matches course with pricing:', {
-              courseName: matchingCourse.label,
-              pricing: matchingCourse.pricing,
-              priceToShow: getCoursePrice(matchingCourse),
-              priceLabel: getPriceLabel()
-            });
-          }
+          console.log('Current answer matches course:', {
+            courseName: matchingCourse.label,
+            startDate: matchingCourse.minStartDate,
+            endDate: matchingCourse.minEndDate
+          });
         } else {
-          console.warn('⚠️ Current answer does not match any available course:', value);
+          console.warn('Current answer does not match any available course:', value);
         }
       }
     }
-  }, [displayItems, value, optionType, builderMode, initialized, multi, localFilterState]);
+  }, [displayItems, value, optionType, builderMode, initialized, multi]);
 
   // Handle card click for selection
   const handleCardClick = (itemValue, item, event) => {
@@ -406,7 +369,7 @@ const CardSelection = ({
       // Check if course is disabled due to date validation
       if (item.disabled && !item.dateValid) {
           // Show tooltip or message about why it's disabled
-          console.log('🚫 Course disabled due to date incompatibility:', item.validationMessage);
+          console.log('Course disabled due to date incompatibility:', item.validationMessage);
           return; // Don't allow selection
       }
 
@@ -628,29 +591,6 @@ const CardSelection = ({
                 </div>
             )}
 
-            {/* ✨ NEW: Show package info and pricing context */}
-            {!builderMode && optionType === 'course' && localFilterState && displayItems.length > 0 && (
-                <div className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-md">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium text-gray-700">
-                                Funding Type: {localFilterState.funderType || 'Unknown'}
-                            </span>
-                            {localFilterState.ndisPackageType && (
-                                <span className="px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-800 uppercase">
-                                    {localFilterState.ndisPackageType}
-                                </span>
-                            )}
-                        </div>
-                        {localFilterState.funderType === 'NDIS' && (
-                            <div className="text-xs text-gray-600">
-                                {getPriceLabel()}
-                            </div>
-                        )}
-                    </div>
-                </div>
-            )}
-
             {/* Show validation summary for multiple courses */}
             {!builderMode && optionType === 'course' && displayItems.length > 1 && (
                 <div className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-md">
@@ -672,13 +612,7 @@ const CardSelection = ({
                 </div>
             )}
             
-            {displayItems.map((item, index) => {
-                // ✨ NEW: Get course price for this item
-                const coursePrice = getCoursePrice(item);
-                const priceLabel = getPriceLabel();
-                const showPrice = coursePrice && priceLabel && localFilterState?.funderType === 'NDIS';
-
-                return (
+            {displayItems.map((item, index) => (
                 <div
                     key={item.value || index}
                     onClick={(e) => handleCardClick(item.value, item, e)}
@@ -793,18 +727,18 @@ const CardSelection = ({
                                 <h3 className={`${currentSize.title} text-gray-900 mb-1`}>
                                     {item.label || 'Untitled'}
                                 </h3>
-                                {item.description && (
-                                    <p className={`${currentSize.description} text-gray-600 mb-2`}>
-                                        {item.description}
-                                    </p>
-                                )}
                                 
-                                {/* ✨ NEW: Course pricing display */}
-                                {showPrice && (
+                                {/* Course dates display - NEW */}
+                                {optionType === 'course' && (item.minStartDate || item.minEndDate) && (
                                     <div className="mb-2">
-                                        <span className="inline-flex items-center px-2 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">
-                                            {priceLabel}: {formatPrice(coursePrice)}
-                                        </span>
+                                        <div className="flex items-center gap-2 text-sm text-gray-600">
+                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                            </svg>
+                                            <span>
+                                                {formatDate(item.minStartDate)} - {formatDate(item.minEndDate)}
+                                            </span>
+                                        </div>
                                     </div>
                                 )}
                                 
@@ -910,7 +844,7 @@ const CardSelection = ({
                         )}
                     </div>
                 </div>
-            )})}
+            ))}
 
             {displayItems.length === 0 && !coursesLoading && !coursesFetching && (
                 <div className="text-center py-8 text-gray-500">

@@ -1,4 +1,4 @@
-import { Booking, Guest, QaPair, Room, RoomType, Section, Comment, User, HealthInfo } from "./../../../models"
+import { Booking, Guest, QaPair, Room, RoomType, Section, Comment, User, HealthInfo, GuestFunding } from "./../../../models"
 import { omitAttribute } from "../../../utilities/common";
 import StorageService from "../../../services/storage/storage";
 import { Op } from "sequelize";
@@ -21,6 +21,11 @@ export default async function handler(req, res) {
                 model: Comment,
                 plain: true,
                 include: [User]
+            },
+            {
+                model: GuestFunding,
+                as: 'funding',
+                required: false
             }
         ]
     });
