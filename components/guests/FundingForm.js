@@ -1,4 +1,3 @@
-// components/guests/FundingForm.js
 import React, { useState, useEffect } from 'react';
 import { toast } from 'react-toastify';
 import moment from 'moment';

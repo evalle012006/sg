@@ -5,6 +5,7 @@ import { toast } from 'react-toastify';
 import { Home, Plus, X, Calendar, Clock, DollarSign, Users, Archive } from 'lucide-react';
 import moment from 'moment';
 import { getCourseCostSummary } from '../../utilities/courses';
+import { checkFileSize } from '../../utilities/common';
 
 const Button = dynamic(() => import('../ui-v2/Button'));
 const TextField = dynamic(() => import('../ui-v2/TextField'));
@@ -36,6 +37,8 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
     });
     const [isRecalculating, setIsRecalculating] = useState(false);
     const [datesChangedSinceCalculation, setDatesChangedSinceCalculation] = useState(false);
+
+    const [immediateErrors, setImmediateErrors] = useState({});
     
     const [course, setCourse] = useState({
         title: '',
@@ -84,6 +87,51 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
         { value: '20:00', label: '20:00' },
         { value: '24:00', label: '24:00' }
     ];
+
+    const validateDatesImmediately = useCallback(() => {
+        const errors = {};
+        
+        // Validate main course dates
+        if (course.start_date && course.end_date) {
+            const startDate = new Date(course.start_date + 'T00:00:00');
+            const endDate = new Date(course.end_date + 'T00:00:00');
+            
+            startDate.setHours(0, 0, 0, 0);
+            endDate.setHours(0, 0, 0, 0);
+            
+            if (!isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
+                if (startDate > endDate) {
+                    errors.start_date = 'Start date cannot be after end date';
+                    errors.end_date = 'End date cannot be before start date';
+                } else {
+                    // Check for Sundays only if date range is valid
+                    if (dateRangeContainsSunday(startDate, endDate)) {
+                        errors.start_date = 'Course date range cannot include any Sundays';
+                        errors.end_date = 'Course date range cannot include any Sundays';
+                    }
+                }
+            }
+        }
+        
+        // Validate minimum booking dates
+        if (course.min_start_date && course.min_end_date) {
+            const minStartDate = new Date(course.min_start_date + 'T00:00:00');
+            const minEndDate = new Date(course.min_end_date + 'T00:00:00');
+            
+            minStartDate.setHours(0, 0, 0, 0);
+            minEndDate.setHours(0, 0, 0, 0);
+            
+            if (!isNaN(minStartDate.getTime()) && !isNaN(minEndDate.getTime())) {
+                if (minStartDate > minEndDate) {
+                    errors.min_start_date = 'Minimum start date cannot be after minimum end date';
+                    errors.min_end_date = 'Minimum end date cannot be before minimum start date';
+                }
+            }
+        }
+        
+        setImmediateErrors(errors);
+        return errors;
+    }, [course.start_date, course.end_date, course.min_start_date, course.min_end_date]);
 
     // Track when course dates change to require recalculation
     useEffect(() => {
@@ -212,7 +260,7 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
         validateDate(course.min_end_date, 'min_end_date');
 
         // Cross-field date validation
-        if (course.start_date && course.end_date) {
+        if (course.start_date && course.end_date && !immediateErrors.start_date && !immediateErrors.end_date) {
             const startDate = new Date(course.start_date + 'T00:00:00');
             const endDate = new Date(course.end_date + 'T00:00:00');
             
@@ -221,9 +269,9 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
             
             if (!isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
                 if (startDate > endDate) {
-                    errors.end_date = 'End date must be after or same as start date';
+                    errors.start_date = 'Start date cannot be after end date';
+                    errors.end_date = 'End date cannot be before start date';
                 } else {
-                    // Check if course date range contains any Sundays
                     if (dateRangeContainsSunday(startDate, endDate)) {
                         errors.start_date = 'Course date range cannot include any Sundays';
                         errors.end_date = 'Course date range cannot include any Sundays';
@@ -232,15 +280,18 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
             }
         }
 
-        if (course.min_start_date && course.min_end_date) {
+        if (course.min_start_date && course.min_end_date && !immediateErrors.min_start_date && !immediateErrors.min_end_date) {
             const minStartDate = new Date(course.min_start_date + 'T00:00:00');
             const minEndDate = new Date(course.min_end_date + 'T00:00:00');
             
             minStartDate.setHours(0, 0, 0, 0);
             minEndDate.setHours(0, 0, 0, 0);
             
-            if (!isNaN(minStartDate.getTime()) && !isNaN(minEndDate.getTime()) && minStartDate > minEndDate) {
-                errors.min_end_date = 'Minimum end date must be after or same as minimum start date';
+            if (!isNaN(minStartDate.getTime()) && !isNaN(minEndDate.getTime())) {
+                if (minStartDate > minEndDate) {
+                    errors.min_start_date = 'Minimum start date cannot be after minimum end date';
+                    errors.min_end_date = 'Minimum end date cannot be before minimum start date';
+                }
             }
         }
 
@@ -276,7 +327,7 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
     // Check form validity whenever course data changes
     useEffect(() => {
         const { errors, isValid } = validateAllFields();
-        
+        console.log('Validation errors:', errors);
         setFieldErrors(prevErrors => {
             const errorKeys = Object.keys(errors);
             const prevErrorKeys = Object.keys(prevErrors);
@@ -551,8 +602,10 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
         const file = e.target.files[0];
         if (!file) return;
 
-        if (file.size > 2 * 1024 * 1024) {
-            toast.error('File size must be less than 2MB');
+        // Use utility function with 10MB limit (10 * 1024 * 1024 = 10485760)
+        const fileSizeError = checkFileSize(file.size, 10485760);
+        if (fileSizeError) {
+            toast.error(fileSizeError);
             return;
         }
 
@@ -590,9 +643,49 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
         });
     };
 
-    const formatPrice = (price) => {
-        if (!price) return 'Not specified';
-        return `$${parseFloat(price).toFixed(2)}`;
+    useEffect(() => {
+        // Auto-calculate minimum dates when course dates change
+        if (course.start_date || course.end_date) {
+            setCourse(prev => {
+                const updates = { ...prev };
+                let hasChanges = false;
+
+                if (prev.start_date) {
+                    const courseStartDate = new Date(prev.start_date);
+                    const minStartDate = new Date(courseStartDate);
+                    minStartDate.setDate(courseStartDate.getDate() - 1);
+                    const calculatedMinStart = minStartDate.toISOString().split('T')[0];
+                    
+                    if (prev.min_start_date !== calculatedMinStart) {
+                        updates.min_start_date = calculatedMinStart;
+                        hasChanges = true;
+                    }
+                }
+
+                if (prev.end_date) {
+                    const courseEndDate = new Date(prev.end_date);
+                    const minEndDate = new Date(courseEndDate);
+                    minEndDate.setDate(courseEndDate.getDate() + 1);
+                    const calculatedMinEnd = minEndDate.toISOString().split('T')[0];
+                    
+                    if (prev.min_end_date !== calculatedMinEnd) {
+                        updates.min_end_date = calculatedMinEnd;
+                        hasChanges = true;
+                    }
+                }
+
+                return hasChanges ? updates : prev;
+            });
+        }
+    }, [course.start_date, course.end_date]);
+
+    useEffect(() => {
+        validateDatesImmediately();
+    }, [validateDatesImmediately]);
+
+    const getFieldError = (fieldName) => {
+        // Show immediate errors first (for dates), then validation errors if form was attempted
+        return immediateErrors[fieldName] || (validationAttempted ? fieldErrors[fieldName] : '');
     };
 
     const getStatusBadge = (status) => {
@@ -1058,7 +1151,7 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
                                             allowPrevDate={false}
                                             blockSundays={true}
                                             size="large"
-                                            error={validationAttempted ? fieldErrors.start_date : ''}
+                                            error={getFieldError('start_date')}
                                         />
                                     </div>
                                     <div className="lg:col-span-1">
@@ -1070,7 +1163,7 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
                                             allowPrevDate={false}
                                             blockSundays={true}
                                             size="large"
-                                            error={validationAttempted ? fieldErrors.end_date : ''}
+                                            error={getFieldError('end_date')}
                                         />
                                     </div>
                                 </div>
@@ -1094,7 +1187,7 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
                                             allowPrevDate={false}
                                             blockSundays={false}
                                             size="large"
-                                            error={validationAttempted ? fieldErrors.min_start_date : ''}
+                                            error={getFieldError('min_start_date')}
                                         />
                                     </div>
                                     <div className="lg:col-span-1">
@@ -1106,7 +1199,7 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
                                             allowPrevDate={false}
                                             blockSundays={false}
                                             size="large"
-                                            error={validationAttempted ? fieldErrors.min_end_date : ''}
+                                            error={getFieldError('min_end_date')}
                                         />
                                     </div>
                                 </div>
@@ -1236,7 +1329,7 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
                                 </label>
                                 
                                 <div className="mt-2 text-xs text-gray-500 text-center">
-                                    You can upload photos up to <strong>2MB</strong>
+                                    You can upload photos up to <strong>10MB</strong>
                                 </div>
                             </div>
                         </div>

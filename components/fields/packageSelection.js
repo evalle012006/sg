@@ -1187,7 +1187,7 @@ const PackageSelection = ({
             {!isNdis && pkg.inclusions && pkg.inclusions.length > 0 && (
               <div>
                 <h4 className="text-sm font-semibold text-gray-700 mb-2">
-                  What's Included
+                  What&apos;s Included
                 </h4>
                 <ul className="text-sm text-gray-600 space-y-1">
                   {pkg.inclusions.slice(0, 4).map((inclusion, idx) => {

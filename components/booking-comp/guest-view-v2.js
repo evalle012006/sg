@@ -8,6 +8,7 @@ import dynamic from 'next/dynamic';
 import { globalActions } from "../../store/globalSlice";
 import Modal from "../ui/modal";
 import StatusBadge from "../ui-v2/StatusBadge";
+import { BOOKING_TYPES } from "../constants";
 
 const Layout = dynamic(() => import('../layout'));
 const Spinner = dynamic(() => import('../ui/spinner'));
@@ -352,13 +353,13 @@ export default function GuestBookingsV2() {
     }
 
     const editBooking = async (booking) => {
-        if (booking.complete == true && booking.Sections.length > 0) {
+        if (booking.complete === true && booking.Sections.length > 0) {
             window.open(`/booking-request-form?uuid=${booking.uuid}`, '_self');
         } else {
             const brf = await createBookingRequestForm(booking.id);
             if (brf.ok) {
                 setTimeout(() => {
-                    if (booking.id && booking.uuid && booking.type === 'Returning Guest' && prevBookingUuid) {
+                    if (booking.id && booking.uuid && booking.type === BOOKING_TYPES.RETURNING_GUEST && prevBookingUuid) {
                         window.open(`/booking-request-form?uuid=${booking.uuid}&prevBookingId=${prevBookingUuid}`, '_self');
                     } else {
                         window.open(`/booking-request-form?uuid=${booking.uuid}`, '_self');
@@ -431,19 +432,21 @@ export default function GuestBookingsV2() {
                                 </button>
                             );
                             
-                            // Download PDF Button - Download icon
-                            customButtons.push(
-                                <button 
-                                    key="download-pdf"
-                                    className="inline-flex items-center justify-center p-2 border border-blue-700 text-blue-700 rounded hover:bg-blue-50 transition-colors"
-                                    onClick={() => handleDownloadPDF(booking.id)}
-                                    aria-label="Download PDF"
-                                >
-                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
-                                        <path fillRule="evenodd" d="M12 2.25a.75.75 0 01.75.75v11.69l3.22-3.22a.75.75 0 111.06 1.06l-4.5 4.5a.75.75 0 01-1.06 0l-4.5-4.5a.75.75 0 111.06-1.06l3.22 3.22V3a.75.75 0 01.75-.75zm-9 13.5a.75.75 0 01.75.75v2.25a1.5 1.5 0 001.5 1.5h13.5a1.5 1.5 0 001.5-1.5V16.5a.75.75 0 011.5 0v2.25a3 3 0 01-3 3H5.25a3 3 0 01-3-3V16.5a.75.75 0 01.75-.75z" clipRule="evenodd" />
-                                    </svg>
-                                </button>
-                            );
+                            if (booking.complete === true) {
+                                // Download PDF Button - Download icon
+                                customButtons.push(
+                                    <button 
+                                        key="download-pdf"
+                                        className="inline-flex items-center justify-center p-2 border border-blue-700 text-blue-700 rounded hover:bg-blue-50 transition-colors"
+                                        onClick={() => handleDownloadPDF(booking.uuid)}
+                                        aria-label="Download PDF"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
+                                            <path fillRule="evenodd" d="M12 2.25a.75.75 0 01.75.75v11.69l3.22-3.22a.75.75 0 111.06 1.06l-4.5 4.5a.75.75 0 01-1.06 0l-4.5-4.5a.75.75 0 111.06-1.06l3.22 3.22V3a.75.75 0 01.75-.75zm-9 13.5a.75.75 0 01.75.75v2.25a1.5 1.5 0 001.5 1.5h13.5a1.5 1.5 0 001.5-1.5V16.5a.75.75 0 011.5 0v2.25a3 3 0 01-3 3H5.25a3 3 0 01-3-3V16.5a.75.75 0 01.75-.75z" clipRule="evenodd" />
+                                        </svg>
+                                    </button>
+                                );
+                            }
                         }
                         
                         return (

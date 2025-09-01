@@ -181,31 +181,33 @@ export default function Sidebar({ isCollapsed }) {
                     )}
 
                     {/* Courses */}
-                    <li>
-                        <Link href="/courses">
-                            <a 
-                                className={getMenuItemClasses("/courses")}
-                                title={isCollapsed ? "Courses" : ""}
-                            >
-                                {isMenuItemActive("/courses") && (
-                                    <div className="absolute inset-0 bg-[#FFCE00]"></div>
-                                )}
-                                <div className="relative flex items-center w-full px-4">
-                                    <div className="w-6 h-6 flex-shrink-0">
-                                        <svg width="30" height="25" viewBox="0 0 30 25" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                            <g opacity={isMenuItemActive("/courses") ? "1" : "0.5"}>
-                                                <path d="M27.9768 5.88197V5.42934C27.9768 3.53537 26.4414 2 24.5474 2H5.20277C3.3088 2 1.77344 3.53537 1.77344 5.42934V19.4037C1.77344 21.2976 3.3088 22.833 5.20277 22.833H24.5474C26.4414 22.833 27.9768 21.2976 27.9768 19.4037V6.5" stroke={getIconColor("/courses")} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
-                                                <path d="M17.5933 18.3773L14.7025 19.0128C14.3962 19.0802 14.135 18.7848 14.2394 18.489L15.0666 16.146L21.5606 10.4398C21.8851 10.1553 22.3188 9.99746 22.7693 9.99993C23.2198 10.0024 23.6514 10.165 23.9721 10.453C24.2965 10.7442 24.4814 11.1402 24.4866 11.5549C24.4918 11.9696 24.3169 12.3694 24 12.6672L17.5933 18.3773Z" fill={getIconColor("/courses")}/>
-                                                <path d="M6.43359 8.21118H17.3482" stroke={getIconColor("/courses")} strokeWidth="2" strokeMiterlimit="10" strokeLinecap="round"/>
-                                                <path d="M6.43359 12.8696H11.8684" stroke={getIconColor("/courses")} strokeWidth="2" strokeMiterlimit="10" strokeLinecap="round"/>
-                                            </g>
-                                        </svg>
+                    {user && user.type == 'user' && (
+                        <li>
+                            <Link href="/courses">
+                                <a 
+                                    className={getMenuItemClasses("/courses")}
+                                    title={isCollapsed ? "Courses" : ""}
+                                >
+                                    {isMenuItemActive("/courses") && (
+                                        <div className="absolute inset-0 bg-[#FFCE00]"></div>
+                                    )}
+                                    <div className="relative flex items-center w-full px-4">
+                                        <div className="w-6 h-6 flex-shrink-0">
+                                            <svg width="30" height="25" viewBox="0 0 30 25" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                                <g opacity={isMenuItemActive("/courses") ? "1" : "0.5"}>
+                                                    <path d="M27.9768 5.88197V5.42934C27.9768 3.53537 26.4414 2 24.5474 2H5.20277C3.3088 2 1.77344 3.53537 1.77344 5.42934V19.4037C1.77344 21.2976 3.3088 22.833 5.20277 22.833H24.5474C26.4414 22.833 27.9768 21.2976 27.9768 19.4037V6.5" stroke={getIconColor("/courses")} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+                                                    <path d="M17.5933 18.3773L14.7025 19.0128C14.3962 19.0802 14.135 18.7848 14.2394 18.489L15.0666 16.146L21.5606 10.4398C21.8851 10.1553 22.3188 9.99746 22.7693 9.99993C23.2198 10.0024 23.6514 10.165 23.9721 10.453C24.2965 10.7442 24.4814 11.1402 24.4866 11.5549C24.4918 11.9696 24.3169 12.3694 24 12.6672L17.5933 18.3773Z" fill={getIconColor("/courses")}/>
+                                                    <path d="M6.43359 8.21118H17.3482" stroke={getIconColor("/courses")} strokeWidth="2" strokeMiterlimit="10" strokeLinecap="round"/>
+                                                    <path d="M6.43359 12.8696H11.8684" stroke={getIconColor("/courses")} strokeWidth="2" strokeMiterlimit="10" strokeLinecap="round"/>
+                                                </g>
+                                            </svg>
+                                        </div>
+                                        {!isCollapsed && <span className="ml-3 font-medium">Courses</span>}
                                     </div>
-                                    {!isCollapsed && <span className="ml-3 font-medium">Courses</span>}
-                                </div>
-                            </a>
-                        </Link>
-                    </li>
+                                </a>
+                            </Link>
+                        </li>
+                    )}
 
                     {/* Settings */}
                     {user && user.type == 'user' && (ability.can('manage', 'Setting') || ability.can('manage', 'Checklist')) && (

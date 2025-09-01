@@ -94,15 +94,18 @@ const transformDataForSaving = (tableData) => {
     }
     
     Object.entries(periods).forEach(([period, values]) => {
-      result.push({
-        care: period,
-        date: formattedDate,
-        values: {
-          carers: values.carers,
-          time: values.time,
-          duration: values.duration
-        }
-      });
+      // Only include periods that have carers selected (non-empty care periods)
+      if (values.carers && values.carers.trim() !== '') {
+        result.push({
+          care: period,
+          date: formattedDate,
+          values: {
+            carers: values.carers,
+            time: values.time,
+            duration: values.duration
+          }
+        });
+      }
     });
   });
   
@@ -168,6 +171,7 @@ const hasAnyValues = (tableData) => {
   return false;
 };
 
+// UPDATED: New validation logic - only validate periods that have carers selected
 const validateAllFieldsFilled = (tableData) => {
   const errors = {
     hasErrors: false,
@@ -185,24 +189,23 @@ const validateAllFieldsFilled = (tableData) => {
     
     for (const period in tableData[date]) {
       const values = tableData[date][period];
-
-      if (!values.carers) {
-        dateErrors[period].carers = true;
-        hasDateErrors = true;
-        errors.hasErrors = true;
-      }
       
-      if (!values.time) {
-        dateErrors[period].time = true;
-        hasDateErrors = true;
-        errors.hasErrors = true;
+      // Only validate if carers is selected (non-empty care period)
+      if (values.carers && values.carers.trim() !== '') {
+        // If carers is selected, then time and duration must also be filled
+        if (!values.time) {
+          dateErrors[period].time = true;
+          hasDateErrors = true;
+          errors.hasErrors = true;
+        }
+        
+        if (!values.duration) {
+          dateErrors[period].duration = true;
+          hasDateErrors = true;
+          errors.hasErrors = true;
+        }
       }
-      
-      if (!values.duration) {
-        dateErrors[period].duration = true;
-        hasDateErrors = true;
-        errors.hasErrors = true;
-      }
+      // If carers is empty, we don't validate time and duration (allowing empty periods)
     }
     
     if (hasDateErrors) {
@@ -385,32 +388,60 @@ export default function CareTable({
     }
   }, [startDate, endDate]);
 
+  // UPDATED: Enhanced handleChange to clear time and duration when carers is deselected
   const handleChange = useCallback((date, period, field, value) => {
     if (autoPopulate) {
       setTableData(prev => {
         const newData = { ...prev };
         Object.keys(newData).forEach(dateStr => {
-          newData[dateStr] = {
-            ...newData[dateStr],
-            [period]: {
-              ...newData[dateStr][period],
-              [field]: value
-            }
-          };
+          if (field === 'carers' && (!value || value.trim() === '')) {
+            // If carers is being cleared, also clear time and duration
+            newData[dateStr] = {
+              ...newData[dateStr],
+              [period]: {
+                carers: '',
+                time: '',
+                duration: ''
+              }
+            };
+          } else {
+            newData[dateStr] = {
+              ...newData[dateStr],
+              [period]: {
+                ...newData[dateStr][period],
+                [field]: value
+              }
+            };
+          }
         });
         return newData;
       });
     } else {
-      setTableData(prev => ({
-        ...prev,
-        [date]: {
-          ...prev[date],
-          [period]: {
-            ...prev[date][period],
-            [field]: value
-          }
+      setTableData(prev => {
+        const newData = { ...prev };
+        
+        if (field === 'carers' && (!value || value.trim() === '')) {
+          // If carers is being cleared, also clear time and duration for this specific date/period
+          newData[date] = {
+            ...newData[date],
+            [period]: {
+              carers: '',
+              time: '',
+              duration: ''
+            }
+          };
+        } else {
+          newData[date] = {
+            ...newData[date],
+            [period]: {
+              ...newData[date][period],
+              [field]: value
+            }
+          };
         }
-      }));
+        
+        return newData;
+      });
     }
   }, [autoPopulate]);
 
@@ -607,7 +638,7 @@ export default function CareTable({
       {validationErrors && validationErrors.hasErrors && (
         <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative text-sm" role="alert">
           <strong className="font-bold">Validation Error!</strong>
-          <span className="block sm:inline"> Please fill in all required fields for all days.</span>
+          <span className="block sm:inline"> Please complete the Time and Duration for periods where you've selected Carers.</span>
         </div>
       )}
 

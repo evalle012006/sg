@@ -4,7 +4,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import { bookingRequestFormActions } from '../../store/bookingRequestFormSlice';
 import NumberedListComponent, { StepState } from '../ui-v2/NumberedListComponent';
 
-export default function RequestFormSidebar({ setBookingSubmittedState }) {
+export default function RequestFormSidebar({ setBookingSubmittedState, prevBookingId }) {
     const router = useRouter();
     const dispatch = useDispatch();
     const bookingRequestFormData = useSelector(state => state.bookingRequestForm.data);
@@ -95,11 +95,14 @@ export default function RequestFormSidebar({ setBookingSubmittedState }) {
             return [];
         }
 
-        return bookingRequestFormData.map((page, index) => {
+        const stablePages = bookingRequestFormData.filter(page => page.id && page.title);
+
+        return stablePages.map((page, index) => {
             // Determine the step state based on page properties
             let stepState = StepState.NOT_SELECTED;
             let status = null;
             let statusType = null;
+            const isCompleted = Boolean(page.completed);
 
             if (currentUrl && currentUrl === page.url) {
                 stepState = StepState.SELECTED;
@@ -110,7 +113,7 @@ export default function RequestFormSidebar({ setBookingSubmittedState }) {
                     status = 'Pending';
                     statusType = 'pending';
                 }
-            } else if (page.completed) {
+            } else if (isCompleted) {
                 stepState = StepState.COMPLETED;
                 status = 'Complete';
                 statusType = 'success';
@@ -127,7 +130,7 @@ export default function RequestFormSidebar({ setBookingSubmittedState }) {
                 placeholder: false
             };
         });
-    }, [bookingRequestFormData, currentUrl]);
+    }, [bookingRequestFormData, currentUrl, prevBookingId]);
 
     // Handle step click for navigation
     const handleStepClick = (stepId) => {

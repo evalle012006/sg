@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en-US">
+<head>
+    <meta content="text/html; charset=utf-8" http-equiv="Content-Type" />
+    <title>iCare Funding Status Update</title>
+    <meta name="description" content="iCare Funding Status Update Email Template.">
+    <style type="text/css">
+        body {
+            margin: 0px; 
+            background-color: #f2f3f8;
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+        }
+        .email-container {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            padding: 40px;
+        }
+        a:hover {
+            text-decoration: underline !important;
+        }
+        .profile-button {
+            background: #ffd000;
+            text-decoration: none !important;
+            font-weight: 500;
+            margin-top: 20px;
+            color: #fff;
+            text-transform: uppercase;
+            font-size: 14px;
+            padding: 10px 24px;
+            display: inline-block;
+            border-radius: 50px;
+        }
+        .profile-button:hover {
+            background: #e6bb00;
+        }
+        .funding-summary {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        .nights-remaining {
+            font-size: 18px;
+            font-weight: bold;
+            color: #1e4a72;
+            margin: 15px 0;
+        }
+        p {
+            margin: 15px 0;
+        }
+        ul {
+            margin: 15px 0;
+            padding-left: 20px;
+        }
+        li {
+            margin-bottom: 8px;
+        }
+    </style>
+</head>
+<body marginheight="0" topmargin="0" marginwidth="0" style="margin: 0px; background-color: #f2f3f8;" leftmargin="0">
+    <div class="email-container">
+        <p>Dear {{guest_name}},</p>
+        
+        <p>We hope this email finds you well. We wanted to provide you with an update on your current iCare funding status following your recent booking activity.</p>
+
+        <div class="funding-summary">
+            <p><strong>Your Current iCare Funding Status:</strong></p>
+            <ul>
+                <li>Approval Number: {{approval_number}}</li>
+                <li>Total Approved Nights: {{nights_approved}}</li>
+                <li>Nights Used: {{nights_used}}</li>
+                <li>Approval Period: {{approval_from}} to {{approval_to}}</li>
+            </ul>
+            <p class="nights-remaining">Remaining Nights Available: {{nights_remaining}}</p>
+        </div>
+
+        <p>Your recent booking has used {{nights_requested}} nights from your approval, leaving you with {{nights_remaining}} nights available for future stays during your current approval period.</p>
+
+        <p>For planning future stays:</p>
+        <ul>
+            <li>You have {{nights_remaining}} nights remaining in your current approval</li>
+            <li>These nights are available until {{approval_to}}</li>
+            <li>We recommend booking early to secure your preferred dates</li>
+            <li>Contact us if you need assistance planning within your remaining allocation</li>
+        </ul>
+
+        <p>If you have any questions about your funding status or would like to plan future bookings:</p>
+        
+        <a href="mailto:info@sargoodoncollaroy.com.au" class="profile-button">
+            <span>CONTACT OUR TEAM</span>
+        </a>
+
+        <p style="margin-top: 30px;">We're here to help you make the most of your approved nights. Please don't hesitate to reach out if you need any assistance with future booking planning.</p>
+
+        <p>Kind Regards,</p>
+        <p><strong>Sargood on Collaroy Team</strong></p>
+        <p>Ph: 02 8597 0600</p>
+        <p><a href="mailto:info@sargoodoncollaroy.com.au">info@sargoodoncollaroy.com.au</a></p>
+        
+        <p style="margin-top: 20px; font-size: 12px; color: #666;">
+            <em>This update was sent to keep you informed of your current iCare funding status.</em>
+        </p>
+    </div>
+</body>
+</html>

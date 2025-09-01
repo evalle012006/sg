@@ -40,6 +40,7 @@ import { useAutofillDetection } from "../../hooks/useAutofillDetection";
 import { BOOKING_TYPES } from "../../components/constants";
 import { calculateCareHours, createPackageFilterCriteria } from '../../utilities/careHoursCalculator';
 import { getBestMatchPackageId, getCurrentPackageAnswer } from "../../utilities/packageMatchChecker";
+import { scroller, Element } from 'react-scroll';
 
 const BookingProgressHeader = dynamic(() => import('../../components/booking-request-form/booking-progress-header'));
 const QuestionPage = dynamic(() => import('../../components/booking-request-form/questions'));
@@ -133,6 +134,45 @@ const BookingRequestForm = () => {
 
     const [selectedCourseOfferId, setSelectedCourseOfferId] = useState(null);
     const [courseOfferPreselected, setCourseOfferPreselected] = useState(false);
+
+    const debugPageQuestions = (page) => {
+        if (!page || !page.Sections) return;
+        
+        console.log(`🔍 DEBUG Page "${page.title}" questions:`);
+        let totalRequired = 0;
+        let answered = 0;
+        
+        page.Sections.forEach(section => {
+            if (section.hidden) return;
+            
+            section.Questions?.forEach(question => {
+                if (question.hidden) return;
+                
+                if (question.required) {
+                    totalRequired++;
+                    let isAnswered = false;
+                    
+                    if (question.type === 'checkbox' || question.type === 'checkbox-button') {
+                        isAnswered = Array.isArray(question.answer) && question.answer.length > 0;
+                    } else if (question.type === 'multi-select') {
+                        isAnswered = Array.isArray(question.answer) && question.answer.length > 0;
+                    } else if (question.type === 'simple-checkbox') {
+                        isAnswered = question.answer === true || question.answer === "1";
+                    } else {
+                        isAnswered = question.answer !== null && question.answer !== undefined && question.answer !== '';
+                    }
+                    
+                    if (isAnswered) {
+                        answered++;
+                    } else {
+                        console.log(`❌ UNANSWERED: "${question.question}" (type: ${question.type}, answer: ${JSON.stringify(question.answer)})`);
+                    }
+                }
+            });
+        });
+        
+        console.log(`📊 DEBUG Total: ${answered}/${totalRequired} answered`);
+    };
 
     const prePopulateCourseSelection = useCallback((pages, courseOfferId) => {
         if (!courseOfferId || courseOfferPreselected) return pages;
@@ -539,7 +579,7 @@ const BookingRequestForm = () => {
                                     (movedQuestionKeys.has(questionKey) || movedQuestionKeys.has(compositeKey));
                     
                     if (shouldRemove) {
-                        console.log(`🗑️ Removing NDIS question from ${page.title}: "${question.question}"`);
+                        // console.log(`🗑️ Removing NDIS question from ${page.title}: "${question.question}"`);
                         return false;
                     }
                     
@@ -557,7 +597,7 @@ const BookingRequestForm = () => {
                                     (movedQuestionKeys.has(questionKey) || movedQuestionKeys.has(compositeKey));
                     
                     if (shouldRemove) {
-                        console.log(`🗑️ Removing NDIS QaPair from ${page.title}: "${question.question}"`);
+                        // console.log(`🗑️ Removing NDIS QaPair from ${page.title}: "${question.question}"`);
                         return false;
                     }
                     
@@ -573,7 +613,7 @@ const BookingRequestForm = () => {
                 const shouldKeep = hasQuestions || hasQaPairs;
                 
                 if (!shouldKeep) {
-                    console.log(`🗑️ Removing empty section "${section.id}" from page "${page.title}" - no remaining content after NDIS cleanup`);
+                    // console.log(`🗑️ Removing empty section "${section.id}" from page "${page.title}" - no remaining content after NDIS cleanup`);
                 }
                 
                 return shouldKeep;
@@ -717,9 +757,10 @@ const BookingRequestForm = () => {
                 // ✅ STEP 4: Calculate completion AFTER all dependencies are applied
                 const withCompletion = withDependencies.map(page => {
                     const wasCompleted = page.completed;
-                    const newCompleted = calculatePageCompletion(page);
+                    // Use the centralized function with current state
+                    const newCompleted = calculatePageCompletion(page, visitedPages, pagesWithSavedData);
                     
-                    if (wasCompleted !== newCompleted && (page.id === 'ndis_packages_page' || page.title === 'NDIS Requirements')) {
+                    if (wasCompleted !== newCompleted && page.title.includes('NDIS')) {
                         console.log(`🎯 NDIS page completion updated: ${wasCompleted} → ${newCompleted}`);
                     }
                     
@@ -753,10 +794,10 @@ const BookingRequestForm = () => {
     }, [isProcessingNdis, calculatePageCompletion, applyQuestionDependenciesAcrossPages, removeDuplicateQuestions]);
 
     const extractAllQAPairsFromForm = useCallback((formData = null) => {
-        // Use provided data or fall back to stable data
+        const debugKey = 'extractAllQAPairs';
+        
         let dataToUse = formData;
         
-        // If no data provided, try to get it from stable sources
         if (!dataToUse || dataToUse.length === 0) {
             if (stableProcessedFormData && stableProcessedFormData.length > 0) {
                 dataToUse = stableProcessedFormData;
@@ -768,7 +809,6 @@ const BookingRequestForm = () => {
         const allQAPairs = [];
         
         if (!dataToUse || dataToUse.length === 0) {
-            console.warn('⚠️ No form data available for QA extraction');
             return allQAPairs;
         }
 
@@ -776,9 +816,39 @@ const BookingRequestForm = () => {
             if (!page.Sections) return;
             
             page.Sections.forEach((section, sectionIndex) => {
-                // ONLY add QaPairs (answered questions from saved sessions) - as per user instruction
+                // PRIORITY 1: Check Questions array (current answers)
+                if (section.Questions && section.Questions.length > 0) {
+                    const answeredQuestions = section.Questions.filter(q => 
+                        q.answer !== null && q.answer !== undefined && q.answer !== ''
+                    );
+                    
+                    answeredQuestions.forEach((question) => {
+                        const qaData = {
+                            question_key: question.question_key,
+                            question: question.question,
+                            answer: question.answer,
+                            Question: { question_key: question.question_key },
+                            source: 'Questions',
+                            pageTitle: page.title,
+                            sectionId: section.id,
+                            questionId: question.id
+                        };
+                        allQAPairs.push(qaData);
+                    });
+                }
+                
+                // PRIORITY 2: Check QaPairs array (saved answers)
                 if (section.QaPairs && section.QaPairs.length > 0) {
-                    section.QaPairs.forEach(qaPair => {
+                    section.QaPairs.forEach((qaPair) => {
+                        // Check if we already have this from Questions
+                        const existingFromQuestions = allQAPairs.find(qa => 
+                            qa.source === 'Questions' && 
+                            (qa.question_key === qaPair.Question?.question_key || 
+                            qa.question === qaPair.question)
+                        );
+                        
+                        if (existingFromQuestions || !qaPair.answer) return;
+                        
                         const qaData = {
                             question_key: qaPair.Question?.question_key || qaPair.question_key,
                             question: qaPair.question || qaPair.Question?.question,
@@ -790,29 +860,22 @@ const BookingRequestForm = () => {
                             qaPairId: qaPair.id
                         };
                         allQAPairs.push(qaData);
-                        
-                        // Log care-related questions specifically
-                        if (qaData.question?.toLowerCase().includes('care') || 
-                            qaData.question_key?.includes('care')) {
-                        }
                     });
                 }
             });
         });
 
-        console.log('🔍 Total QA pairs extracted (QaPairs ONLY):', {
+        const summary = {
             total: allQAPairs.length,
-            careRelated: allQAPairs.filter(qa => 
-                qa.question?.toLowerCase().includes('care') || 
-                qa.question_key?.includes('care')
-            ).length,
+            fromQuestions: allQAPairs.filter(qa => qa.source === 'Questions').length,
+            fromQaPairs: allQAPairs.filter(qa => qa.source === 'QaPairs').length,
             careScheduleSpecific: allQAPairs.filter(qa => 
                 qa.question_key === 'when-do-you-require-care'
             ).length
-        });
+        };
 
         return allQAPairs;
-    }, []);
+    }, [stableProcessedFormData, stableBookingRequestFormData]);
 
     const currentCareAnalysis = useMemo(() => {
         let formDataToUse = null;
@@ -827,7 +890,6 @@ const BookingRequestForm = () => {
         }
 
         if (!formDataToUse) {
-            console.log('⏸️ currentCareAnalysis: No form data available yet');
             return {
                 requiresCare: false,
                 totalHoursPerDay: 0,
@@ -838,58 +900,69 @@ const BookingRequestForm = () => {
             };
         }
 
-        // console.log(`🔍 currentCareAnalysis: Using ${dataSource} with ${formDataToUse.length} pages`);
-
-        // Extract QaPairs directly from the form data
+        // Extract both Questions and QaPairs
         const allQAPairs = [];
         
         formDataToUse.forEach((page) => {
             if (!page.Sections) return;
             
             page.Sections.forEach((section) => {
-                // ONLY add QaPairs (answered questions from saved sessions)
+                // PRIORITY 1: Add current Questions (immediate answers)
+                if (section.Questions && section.Questions.length > 0) {
+                    section.Questions.forEach(question => {
+                        if (question.answer !== null && question.answer !== undefined && question.answer !== '') {
+                            const qaData = {
+                                question_key: question.question_key,
+                                question: question.question,
+                                answer: question.answer,
+                                Question: { question_key: question.question_key },
+                                source: 'Questions',
+                                pageTitle: page.title,
+                                sectionId: section.id,
+                                questionId: question.id
+                            };
+                            allQAPairs.push(qaData);
+                        }
+                    });
+                }
+                
+                // PRIORITY 2: Add QaPairs (saved answers) - only if not already in Questions
                 if (section.QaPairs && section.QaPairs.length > 0) {
                     section.QaPairs.forEach(qaPair => {
-                        const qaData = {
-                            question_key: qaPair.Question?.question_key || qaPair.question_key,
-                            question: qaPair.question || qaPair.Question?.question,
-                            answer: qaPair.answer,
-                            Question: qaPair.Question,
-                            source: 'QaPairs',
-                            pageTitle: page.title,
-                            sectionId: section.id,
-                            qaPairId: qaPair.id
-                        };
-                        allQAPairs.push(qaData);
+                        // Skip if we already have this from Questions
+                        const alreadyHave = allQAPairs.find(qa => 
+                            qa.source === 'Questions' && 
+                            (qa.question_key === qaPair.Question?.question_key || 
+                            qa.question === qaPair.question)
+                        );
                         
-                        // Log care-related questions specifically
-                        if (qaData.question?.toLowerCase().includes('care') || 
-                            qaData.question_key?.includes('care')) {
-                            // console.log(`🏥 currentCareAnalysis - Found care-related QaPair: ${qaData.question_key} on page "${page.title}"`);
+                        if (!alreadyHave && qaPair.answer) {
+                            const qaData = {
+                                question_key: qaPair.Question?.question_key || qaPair.question_key,
+                                question: qaPair.question || qaPair.Question?.question,
+                                answer: qaPair.answer,
+                                Question: qaPair.Question,
+                                source: 'QaPairs',
+                                pageTitle: page.title,
+                                sectionId: section.id,
+                                qaPairId: qaPair.id
+                            };
+                            allQAPairs.push(qaData);
                         }
                     });
                 }
             });
         });
         
-        // Look for care schedule data in ALL pages (QaPairs ONLY)
+        // Look for care schedule data
         const careScheduleQA = findByQuestionKey(allQAPairs, QUESTION_KEYS.WHEN_DO_YOU_REQUIRE_CARE);
         const personalCareQA = findByQuestionKey(allQAPairs, QUESTION_KEYS.DO_YOU_REQUIRE_ASSISTANCE_WITH_PERSONAL_CARE) ||
-                          allQAPairs.find(qa => 
-                              qa.question_key === QUESTION_KEYS.ASSISTANCE_WITH_PERSONAL_CARE ||
-                              qa.question?.toLowerCase().includes('personal care')
-                          );
-
-        console.log('🔍 Care questions search result:', {
-            careScheduleFound: !!careScheduleQA,
-            personalCareFound: !!personalCareQA,
-            personalCareAnswer: personalCareQA?.answer,
-            searchKey: QUESTION_KEYS.WHEN_DO_YOU_REQUIRE_CARE,
-            totalQAPairs: allQAPairs.length
-        });
+                        allQAPairs.find(qa => 
+                            qa.question_key === QUESTION_KEYS.ASSISTANCE_WITH_PERSONAL_CARE ||
+                            qa.question?.toLowerCase().includes('personal care')
+                        );
 
         if (personalCareQA && (personalCareQA.answer === 'No' || personalCareQA.answer === 'no')) {
-            console.log('🚫 Personal care assistance is "No" - returning no-care analysis');
             return {
                 requiresCare: false,
                 totalHoursPerDay: 0,
@@ -901,7 +974,6 @@ const BookingRequestForm = () => {
         }
         
         if (!careScheduleQA || !careScheduleQA.answer) {
-            console.log('❌ No care schedule found in QaPairs - returning no-care analysis');
             return {
                 requiresCare: false,
                 totalHoursPerDay: 0,
@@ -913,22 +985,13 @@ const BookingRequestForm = () => {
         }
 
         try {
-            // Parse the care data (should be in the format from your attached JSON)
+            // Parse the care data
             const careData = typeof careScheduleQA.answer === 'string' 
                 ? JSON.parse(careScheduleQA.answer) 
                 : careScheduleQA.answer;
 
             // Calculate care hours using existing utility
             const analysis = calculateCareHours(careData);
-            
-            console.log('🏥 ✅ Care Analysis FINAL SUCCESS:', {
-                inputDataLength: careData?.length || 0,
-                totalHours: analysis.totalHoursPerDay,
-                pattern: analysis.carePattern,
-                recommended: analysis.recommendedPackages,
-                foundOnPage: careScheduleQA.pageTitle,
-                dataSource: dataSource
-            });
 
             return {
                 requiresCare: true,
@@ -937,7 +1000,6 @@ const BookingRequestForm = () => {
                 dataSource: dataSource
             };
         } catch (error) {
-            console.error('❌ Error parsing care schedule data in BookingRequestForm:', error);
             return {
                 requiresCare: true,
                 totalHoursPerDay: 0,
@@ -948,9 +1010,10 @@ const BookingRequestForm = () => {
             };
         }
     }, [
+        // Keep your existing dependencies
         bookingRequestFormData?.length || 0,
         processedFormData?.length || 0,
-        // Enhanced dependency tracking for care-specific questions
+        // Your existing enhanced dependency tracking...
         bookingRequestFormData?.map(p => {
             const careQuestions = [];
             p.Sections?.forEach(s => {
@@ -1782,7 +1845,6 @@ const BookingRequestForm = () => {
     const preloadProfileData = useCallback(async () => {
         const guestId = getGuestId();
 
-        // Always try to load profile data if we have a guest ID
         if (!guestId) {
             console.log('❌ No guest ID available for profile preload');
             setProfileDataLoaded(true);
@@ -1794,8 +1856,20 @@ const BookingRequestForm = () => {
             return;
         }
 
+        // DIRECT FIX: Check for actual questions, not just pages
         if (stableBookingRequestFormData.length === 0) {
             console.log('⏸️ No form data available yet for profile preload');
+            return;
+        }
+
+        const hasQuestions = stableBookingRequestFormData.some(page =>
+            page.Sections?.some(section =>
+                section.Questions?.length > 0
+            )
+        );
+
+        if (!hasQuestions) {
+            console.log('⏸️ Form questions not ready yet for profile preload');
             return;
         }
 
@@ -1834,7 +1908,7 @@ const BookingRequestForm = () => {
     }, [getGuestId, profileDataLoaded, stableBookingRequestFormData, mapProfileDataToQuestions, applyQuestionDependencies, safeDispatchData]);
 
 
-    const calculatePageCompletion = useCallback((page) => {
+    const calculatePageCompletion = useCallback((page, currentVisitedPages = visitedPages, currentSavedPages = pagesWithSavedData) => {
         if (!page || !page.Sections) {
             return false;
         }
@@ -1843,101 +1917,172 @@ const BookingRequestForm = () => {
             return equipmentPageCompleted;
         }
 
-        // ONLY apply visited pages logic when prevBookingId exists (when prefilling occurs)
+        // DEBUGGING: Add this for the problematic page
+        if (page.title === 'Guest Details & SCI Information' && prevBookingId) {
+            debugPageQuestions(page);
+        }
+
+        // For returning guests with prevBookingId: use more reliable completion logic
         if (prevBookingId && currentBookingType === BOOKING_TYPES.RETURNING_GUEST) {
-            const hasBeenVisited = visitedPages.has(page.id);
-            const hasSavedAnswers = page.Sections?.some(section => 
+            const hasBeenVisited = currentVisitedPages.has(page.id);
+            const hasActualSavedData = currentSavedPages.has(page.id);
+            const hasQaPairs = page.Sections?.some(section => 
                 section.QaPairs && section.QaPairs.length > 0
             );
             
-            if (!hasBeenVisited && !hasSavedAnswers) {
-                // console.log(`📋 Returning guest with prevBookingId - Page "${page.title}" has prefilled answers but hasn't been visited yet. Not marking as completed.`);
+            // If page hasn't been interacted with at all, don't mark as completed
+            if (!hasBeenVisited && !hasActualSavedData && !hasQaPairs) {
                 return false;
             }
             
-            if (hasBeenVisited || hasSavedAnswers) {
-                // console.log(`📋 Returning guest with prevBookingId - Page "${page.title}" ${hasBeenVisited ? 'has been visited' : 'has saved answers'}. Checking completion normally.`);
-            }
-
-            // Check if page was marked as having saved data from user interaction
-            const hasActualSavedData = pagesWithSavedData.has(page.id);
-
-            // If page hasn't been visited AND doesn't have saved data, don't mark as completed
-            if (!hasBeenVisited && !hasSavedAnswers && !hasActualSavedData) {
-                // console.log(`📋 Returning guest with prevBookingId - Page "${page.title}" has prefilled answers but hasn't been visited/saved yet. Not marking as completed.`);
-                return false;
+            // If user has visited or saved data on this page, check normal completion
+            if (hasBeenVisited || hasActualSavedData) {
+                // Fall through to normal completion check
+            } else if (hasQaPairs) {
+                // Has prefilled data but no user interaction - check if it's actually complete
+                // Only mark as complete if ALL required questions are answered
             }
         }
 
-        // NORMAL COMPLETION CALCULATION (for first-time guests or visited pages)
+        // Standard completion calculation
         let totalRequiredQuestions = 0;
         let answeredRequiredQuestions = 0;
 
         for (const section of page.Sections) {
-            if (section.hidden) {
-                continue;
-            }
+            if (section.hidden) continue;
 
             for (const question of section.Questions || []) {
-                if (question.hidden) {
-                    continue;
+                if (question.hidden || !question.required) continue;
+
+                totalRequiredQuestions++;
+
+                // Check if question is answered based on type
+                let isAnswered = false;
+
+                if (question.type === 'checkbox' || question.type === 'checkbox-button') {
+                    let answerArray = question.answer;
+                    
+                    // Handle JSON string answers
+                    if (typeof answerArray === 'string' && answerArray.startsWith('[')) {
+                        try {
+                            answerArray = JSON.parse(answerArray);
+                        } catch (e) {
+                            answerArray = [];
+                        }
+                    }
+                    
+                    isAnswered = Array.isArray(answerArray) && answerArray.length > 0;
+                } else if (question.type === 'multi-select') {
+                    isAnswered = Array.isArray(question.answer) && question.answer.length > 0;
+                } else if (question.type === 'simple-checkbox') {
+                    isAnswered = question.answer === true || question.answer === "1";
+                } else if (question.type === 'equipment') {
+                    isAnswered = equipmentPageCompleted || 
+                                (equipmentChangesState && equipmentChangesState.length > 0) ||
+                                (question.answer !== null && question.answer !== undefined && question.answer !== '');
+                } else {
+                    isAnswered = question.answer !== null &&
+                                question.answer !== undefined &&
+                                question.answer !== '';
                 }
 
-                if (question.required) {
-                    totalRequiredQuestions++;
-
-                    // Check if question is answered based on type
-                    let isAnswered = false;
-
-                    if (question.type === 'checkbox' || question.type === 'checkbox-button') {
-                        isAnswered = Array.isArray(question.answer) && question.answer.length > 0;
-                    } else if (question.type === 'multi-select') {
-                        isAnswered = Array.isArray(question.answer) && question.answer.length > 0;
-                    } else if (question.type === 'simple-checkbox') {
-                        isAnswered = question.answer === true || question.answer === "1";
-                    } else if (question.type === 'radio' || question.type === 'radio-ndis') {
-                        isAnswered = question.answer !== null &&
-                                question.answer !== undefined &&
-                                question.answer !== '';
-                    } else if (question.type === 'equipment') {
-                        isAnswered = equipmentPageCompleted || 
-                                    (equipmentChangesState && equipmentChangesState.length > 0) ||
-                                    (question.answer !== null && question.answer !== undefined && question.answer !== '');
-                    } else {
-                        isAnswered = question.answer !== null &&
-                                question.answer !== undefined &&
-                                question.answer !== '';
-                    }
-
-                    if (isAnswered) {
-                        answeredRequiredQuestions++;
-                    }
+                if (isAnswered) {
+                    answeredRequiredQuestions++;
                 }
             }
         }
 
         const isComplete = totalRequiredQuestions > 0 && answeredRequiredQuestions === totalRequiredQuestions;
         
-        // console.log(`📊 Page "${page.title}" completion: ${answeredRequiredQuestions}/${totalRequiredQuestions} required questions answered. Complete: ${isComplete}`);
+        // Debug log for returning guests only
+        if (prevBookingId && currentBookingType === BOOKING_TYPES.RETURNING_GUEST) {
+            const hasBeenVisited = currentVisitedPages.has(page.id);
+            const hasActualSavedData = currentSavedPages.has(page.id);
+            console.log(`📊 Page "${page.title}" completion: ${answeredRequiredQuestions}/${totalRequiredQuestions} answered. Complete: ${isComplete}. Visited: ${hasBeenVisited}, SavedData: ${hasActualSavedData}`);
+        }
 
         return isComplete;
-    }, [equipmentPageCompleted, equipmentChangesState, currentBookingType, visitedPages, pagesWithSavedData, prevBookingId]);
+    }, [equipmentPageCompleted, equipmentChangesState, currentBookingType, prevBookingId, visitedPages, pagesWithSavedData]);
+
+    const updatePageCompletionStatus = useCallback((pages, context = 'general') => {
+        console.log(`🔄 Updating page completion status: ${context}`);
+        
+        return pages.map(page => {
+            const wasCompleted = page.completed;
+            // Pass current state values to avoid stale closure issues
+            const newCompleted = calculatePageCompletion(page, visitedPages, pagesWithSavedData);
+            
+            if (wasCompleted !== newCompleted) {
+                console.log(`📊 Page "${page.title}" completion changed: ${wasCompleted} → ${newCompleted} (${context})`);
+            }
+            
+            return { ...page, completed: newCompleted };
+        });
+    }, [calculatePageCompletion, visitedPages, pagesWithSavedData]);
 
     const markPageAsVisited = useCallback((pageId) => {
-        // Only track visits when prefilling from previous booking (prevBookingId exists)
-        if (prevBookingId && pageId && !visitedPages.has(pageId)) {
-            console.log(`📝 Marking page as visited (prevBookingId present): ${pageId}`);
-            setVisitedPages(prev => new Set([...prev, pageId]));
+        if (prevBookingId && pageId) {
+            setVisitedPages(prev => {
+                if (!prev.has(pageId)) {
+                    console.log(`📝 Marking page as visited (prevBookingId present): ${pageId}`);
+                    const newVisitedPages = new Set([...prev, pageId]);
+                    
+                    // CRITICAL: Don't trigger additional completion updates here
+                    // Let the main state sync handle it
+                    
+                    return newVisitedPages;
+                }
+                return prev;
+            });
         }
-    }, [visitedPages, prevBookingId]);
+    }, [prevBookingId]);
 
-    // Track pages with actual saved data (user interaction)
     const markPageWithSavedData = useCallback((pageId) => {
-        if (prevBookingId && pageId && !pagesWithSavedData.has(pageId)) {
-            console.log(`💾 Marking page as having saved data: ${pageId}`);
-            setPagesWithSavedData(prev => new Set([...prev, pageId]));
+        if (prevBookingId && pageId) {
+            setPagesWithSavedData(prev => {
+                if (!prev.has(pageId)) {
+                    console.log(`💾 Marking page as having saved data: ${pageId}`);
+                    const newSavedPages = new Set([...prev, pageId]);
+                    
+                    // CRITICAL: Don't trigger additional completion updates here
+                    // The save operation will handle completion directly
+                    
+                    return newSavedPages;
+                }
+                return prev;
+            });
         }
-    }, [pagesWithSavedData, prevBookingId]);
+    }, [prevBookingId]);
+
+    const forcePageCompletionUpdate = useCallback((pageId, newVisitedSet = null, newSavedSet = null) => {
+        if (!stableProcessedFormData || stableProcessedFormData.length === 0) return;
+        
+        const pageIndex = stableProcessedFormData.findIndex(p => p.id === pageId);
+        if (pageIndex === -1) return;
+        
+        // Use current state or provided state
+        const visitedSet = newVisitedSet || visitedPages;
+        const savedSet = newSavedSet || pagesWithSavedData;
+        
+        const updatedPages = [...stableProcessedFormData];
+        const page = updatedPages[pageIndex];
+        const wasCompleted = page.completed;
+        const newCompleted = calculatePageCompletion(page, visitedSet, savedSet);
+        
+        if (wasCompleted !== newCompleted) {
+            console.log(`🎯 FORCED completion update for "${page.title}": ${wasCompleted} → ${newCompleted}`);
+            updatedPages[pageIndex] = { ...page, completed: newCompleted };
+            
+            // Update both local and Redux state immediately
+            setProcessedFormData(updatedPages);
+            safeDispatchData(updatedPages, `forced completion for ${pageId}`);
+            
+            return true; // Indicates update was made
+        }
+        
+        return false; // No update needed
+    }, [stableProcessedFormData, calculatePageCompletion, visitedPages, pagesWithSavedData, setProcessedFormData, safeDispatchData]);
+
 
     // Get the status of a page for accordion display
     const getPageStatus = (page) => {
@@ -2027,109 +2172,82 @@ const BookingRequestForm = () => {
         courseOffers, courseOffersLoaded]);
 
     // Centralized scroll function, now explicitly waiting for layoutRef.current.mainContentRef
-    const scrollToAccordionItemInLayout = useCallback((index, attempts = 0) => {
-        const maxAttempts = 50; // Increased max attempts significantly
-        const delayBetweenAttempts = 50; // Keep delay small
-
-        if (attempts >= maxAttempts) {
-            return;
-        }
-
-        // --- CRITICAL CHECK HERE ---
-        if (!layoutRef.current || !layoutRef.current.mainContentRef) {
-            setTimeout(() => scrollToAccordionItemInLayout(index, attempts + 1), delayBetweenAttempts);
-            return;
-        }
-
-        requestAnimationFrame(() => {
-            const targetElement = document.getElementById(`accordion-item-${index}`);
-            const layoutScrollContainer = layoutRef.current.mainContentRef; // Access the internal ref exposed by BookingFormLayout
-
-            // Further debug for the content area and chevron after layoutRef is ready
-            const contentArea = targetElement ? targetElement.querySelector('.bg-white') : null;
-            const chevronDown = targetElement ? targetElement.querySelector('svg[data-lucide="chevron-down"]') : null;
-
-            // If targetElement is not found OR content is not ready, retry
-            if (!targetElement || !contentArea || contentArea.clientHeight === 0 || !chevronDown) {
-                setTimeout(() => scrollToAccordionItemInLayout(index, attempts + 1), delayBetweenAttempts);
-                return;
-            }
-
-            // All conditions met, perform scroll
-            const headerOffset = 100;
-            const elementPosition = targetElement.getBoundingClientRect().top;
-            const containerPosition = layoutScrollContainer.getBoundingClientRect().top;
-            const scrollPosition = elementPosition - containerPosition + layoutScrollContainer.scrollTop - headerOffset;
-
-            layoutScrollContainer.scrollTo({
-                top: Math.max(0, scrollPosition),
-                behavior: 'smooth'
-            });
+    const scrollToAccordionItemInLayout = useCallback((index) => {
+        scroller.scrollTo(`accordion-item-${index}`, {
+            duration: 500,
+            delay: 0,
+            smooth: 'easeInOutQuart',
+            containerId: 'main-content-container', // Add this ID to your layout
+            offset: -100 // Adjust for header offset
         });
     }, []);
 
     const handleAccordionNavigation = async (targetIndex, action) => {
         const targetPage = stableProcessedFormData[targetIndex];
-
         if (!targetPage) return;
 
-        // Mark target page as visited when navigating to it
-        if (prevBookingId) {
-            markPageAsVisited(prevBookingId);
+        // Mark target page as visited
+        if (prevBookingId && targetPage.id) {
+            markPageAsVisited(targetPage.id);
         }
 
         if (action === 'submit') {
             if (validateAllPages()) {
-                return false;
+                return false; // Block if validation fails
             }
             showWarningReturningBookingNotSave(currentBookingType, currentBookingStatus, targetPage, true);
             return;
         }
 
-        // Validate current page from processedFormData
-        if (currentPage) {
+        // Validate and save current page
+        if (currentPage && action !== 'back') {
             const currentPageInProcessed = stableProcessedFormData.find(p => p.id === currentPage.id);
             const pageToValidate = currentPageInProcessed || currentPage;
 
-            if (action != 'back') {
-                const errorMsg = validate([pageToValidate], courseOffers);
-
-                if (errorMsg.length > 0) {
-                    console.log('Validation errors:', errorMsg);
-
-                    const dateErrors = errorMsg.filter(error => error.type === 'date' || error.type === 'date-range');
-                    if (dateErrors.length > 0) {
-                        toast.error(dateErrors[0].message);
-                    } else {
-                        toast.error('There are some REQUIRED questions not answered or contain errors. Please correct them before proceeding.');
-                    }
-
-                    const pages = updatePageData(pageToValidate?.Sections, pageToValidate.id, 'VALIDATE_DATA', true);
-                    setTimeout(() => scrollToAccordionItemInLayout(activeAccordionIndex), 250);
-                    return;
-                }
-
-                // Mark current page as having saved data when successfully navigating away
-                markPageWithSavedData(currentPage.id);
-
-                const currentPageIndex = stableProcessedFormData.findIndex(p => p.id === currentPage.id);
-                if (currentPageIndex !== -1) {
-                    let updatedProcessedData = structuredClone(stableProcessedFormData);
-                    updatedProcessedData[currentPageIndex].completed = true;
-                    console.log(`Marking page "${currentPage.title}" as completed before navigation`);
-                    setProcessedFormData(updatedProcessedData);
-                }
-            }
-
             try {
+                const pageErrors = validate([pageToValidate], courseOffers);
+                
+                if (pageErrors.length > 0) {
+                    console.log('❌ Validation errors found on current page:', pageErrors);
+                    
+                    // Update the page with completion status = false due to errors
+                    const updatedPages = stableProcessedFormData.map(page => {
+                        if (page.id === pageToValidate.id) {
+                            return { ...page, completed: false };
+                        }
+                        return page;
+                    });
+                    
+                    setProcessedFormData(updatedPages);
+                    safeDispatchData(updatedPages, 'Page validation failed');
+                    
+                    // IMPROVED: Show specific error message
+                    const createNavigationErrorMessage = () => {
+                        if (pageErrors.length === 1) {
+                            return `Please complete the required field "${pageErrors[0].question}" before continuing.`;
+                        } else if (pageErrors.length <= 3) {
+                            const questions = pageErrors.map(error => `"${error.question}"`).join(', ');
+                            return `Please complete these required fields before continuing: ${questions}`;
+                        } else {
+                            return `Please complete ${pageErrors.length} required fields on this page before continuing.`;
+                        }
+                    };
+                    
+                    toast.error(createNavigationErrorMessage());
+                    return; // Block navigation
+                }
+                
+                // If validation passes, save the page
                 await saveCurrentPage(pageToValidate, false);
+                
             } catch (error) {
-                console.error('Error saving page:', error);
+                console.error('Error validating/saving page:', error);
                 toast.error('Error saving your progress. Please try again.');
-                return;
+                return; // Block navigation
             }
         }
 
+        // Only navigate if validation passed
         dispatch(bookingRequestFormActions.setCurrentPage(targetPage));
         setActiveAccordionIndex(targetIndex);
 
@@ -2325,7 +2443,6 @@ const BookingRequestForm = () => {
     const updatePageData = (updates, pageId, action = 'UPDATE_DATA', submit = false, hasError) => {
         if (prevBookingId) {
             markPageAsVisited(pageId);
-            // Also mark as having saved data when user saves changes
             if (!hasError) {
                 markPageWithSavedData(pageId);
             }
@@ -2340,72 +2457,37 @@ const BookingRequestForm = () => {
         }
         
         const pages = structuredClone(stableProcessedFormData);
-
-        // Update only the specific page that was modified
         pages[pageIndex].Sections = validatedSections;
         pages[pageIndex].dirty = !hasError;
 
-        // ✅ IMPORTANT: Don't calculate completion yet - do it after dependencies are refreshed
-
-        // Check for NDIS funding status changes
+        // Handle NDIS funding changes
         const fundingStatusResult = checkAndUpdateNdisFundingStatus(pages, isNdisFunded, dispatch, bookingRequestFormActions);
         
         let updatedPages = pages;
         
-        // CLEAR PACKAGE ANSWERS if funding status changed
         if (fundingStatusResult.hasChanged) {
-            console.log('🔄 Funding status changed, clearing package question answers...', {
-                from: fundingStatusResult.previousStatus ? 'NDIS' : 'Non-NDIS',
-                to: fundingStatusResult.newStatus ? 'NDIS' : 'Non-NDIS',
-                answer: fundingStatusResult.fundingAnswer
-            });
-            
-            // Clear package answers from all pages
+            console.log('🔄 Funding status changed, clearing package question answers...');
             updatedPages = clearPackageQuestionAnswers(updatedPages, fundingStatusResult.newStatus);
         }
         
         if (submit) {
-            // For submit, calculate completion immediately without dependency processing
-            updatedPages = updatedPages.map(page => {
-                const wasCompleted = page.completed;
-                const newCompleted = calculatePageCompletion(page);
-                
-                if (wasCompleted !== newCompleted) {
-                    console.log(`📊 Page "${page.title}" completion: ${wasCompleted} → ${newCompleted}`);
-                }
-                
-                return { ...page, completed: newCompleted };
-            });
+            // For submit, calculate completion immediately
+            updatedPages = updatePageCompletionStatus(updatedPages, 'submit');
         } else {
-            // STEP 1: Refresh dependencies with cascade support
-            console.log('🔄 Refreshing dependencies with cascade support...');
+            // Refresh dependencies first
+            console.log('🔄 Refreshing dependencies...');
             updatedPages = forceRefreshAllDependencies(updatedPages);
-            
-            // STEP 2: Clear answers from questions that are now hidden
             updatedPages = clearHiddenQuestionAnswers(updatedPages);
-            
-            // STEP 3: Final dependency refresh after clearing hidden answers
             updatedPages = forceRefreshAllDependencies(updatedPages);
             
-            // ✅ STEP 4: Now calculate completion for all pages with properly refreshed dependencies
-            updatedPages = updatedPages.map(page => {
-                const wasCompleted = page.completed;
-                const newCompleted = calculatePageCompletion(page);
-                
-                if (wasCompleted !== newCompleted) {
-                    console.log(`📊 Page "${page.title}" completion changed after dependency refresh: ${wasCompleted} → ${newCompleted}`);
-                }
-                
-                return { ...page, completed: newCompleted };
-            });
+            // Then calculate completion with proper state
+            updatedPages = updatePageCompletionStatus(updatedPages, 'after_dependencies');
         }
 
-        // Update the processed form data
         setProcessedFormData(updatedPages);
 
-        // Always update Redux state
         if (!isProcessingNdis || pageId === 'ndis_packages_page') {
-            safeDispatchData(updatedPages, `updatePageData with dependency-aware completion`);
+            safeDispatchData(updatedPages, `updatePageData: ${action}`);
         }
 
         return updatedPages;
@@ -2569,20 +2651,17 @@ const BookingRequestForm = () => {
                         
                         if (question.answer?.toLowerCase() === 'yes') {
                             console.log(`🎓 Course answer is YES, checking course offers...`);
-                            console.log(`🎓 Available course offers:`, courseOffers);
                             
                             const activeOffers = courseOffers.filter(offer => 
                                 ['offered', 'accepted'].includes(offer.offerStatus)
                             );
-                            
-                            console.log(`🎓 Active course offers:`, activeOffers);
                             
                             if (activeOffers.length === 0) {
                                 console.log(`❌ No active course offers found`);
                                 errorMessage.add({
                                     pageId: page.id,
                                     pageTitle: page.title,
-                                    message: 'You do not have any course offers',
+                                    message: 'You do not have any course offers available.',
                                     question: question.question,
                                     type: question.type
                                 });
@@ -2594,7 +2673,7 @@ const BookingRequestForm = () => {
                                     errorMessage.add({
                                         pageId: page.id,
                                         pageTitle: page.title,
-                                        message: 'None of your course offers are compatible with your selected stay dates. Please review your dates.',
+                                        message: 'None of your course offers are compatible with your selected stay dates. Please review your dates or change your course selection to "No".',
                                         question: question.question,
                                         type: question.type
                                     });
@@ -2602,16 +2681,13 @@ const BookingRequestForm = () => {
                                     console.log(`✅ Found ${validOffers.length} valid course offers`);
                                 }
                             }
-                        } else {
-                            console.log(`🎓 Course answer is not YES (${question.answer}), skipping validation`);
                         }
                     }
 
-                    // SIMPLIFIED: Validate "Which course?" question selection
                     if (questionHasKey(question, QUESTION_KEYS.WHICH_COURSE)) {
                         console.log(`🎓 Validating which course question: "${question.question}" with answer: "${question.answer}"`);
                         
-                        // Only validate if the course offer question was answered "Yes"
+                        // Check if course offer question was answered "Yes" OR if there's a prefilled course answer
                         const courseOfferQuestion = pages.find(p => 
                             p.Sections?.some(s => 
                                 s.Questions?.some(q => 
@@ -2621,36 +2697,51 @@ const BookingRequestForm = () => {
                             )
                         );
                         
-                        if (courseOfferQuestion && question.answer) {
-                            // ✅ SIMPLIFIED: Just check if the selected course is date-valid (API already validated)
+                        const hasPrefilled = question.temporaryFromPreviousBooking || question.prefill;
+                        
+                        // Validate if course offer is "Yes" OR if there's a prefilled answer (for returning guests)
+                        if ((courseOfferQuestion || hasPrefilled) && question.answer) {
                             const selectedOffer = courseOffers.find(offer => 
                                 ['offered', 'accepted'].includes(offer.offerStatus) &&
-                                (offer.courseId?.toString() === question.answer || offer.id?.toString() === question.answer)
+                                (offer.courseId?.toString() === question.answer.toString() || 
+                                offer.id?.toString() === question.answer.toString())
                             );
                             
                             if (selectedOffer) {
                                 if (selectedOffer.dateValid === false) {
-                                    console.log(`❌ Selected course is not compatible with stay dates`);
+                                    console.log(`❌ Course "${selectedOffer.courseName}" is incompatible with stay dates`);
                                     errorMessage.add({
                                         pageId: page.id,
                                         pageTitle: page.title,
-                                        message: selectedOffer.dateValidationMessage || 'Selected course is not compatible with your stay dates',
+                                        message: selectedOffer.dateValidationMessage || 'Selected course is not compatible with your stay dates. Please update your dates or remove this course selection.',
                                         question: question.question,
                                         type: question.type
                                     });
                                 } else {
-                                    console.log(`✅ Selected course is compatible with stay dates`);
+                                    console.log(`✅ Course "${selectedOffer.courseName}" is compatible with stay dates`);
                                 }
                             } else {
-                                console.log(`❌ Selected course not found in offers`);
+                                console.log(`❌ Selected course not found in current offers`);
                                 errorMessage.add({
                                     pageId: page.id,
                                     pageTitle: page.title,
-                                    message: 'Selected course is not available',
+                                    message: 'Selected course is no longer available. Please choose a different course.',
                                     question: question.question,
                                     type: question.type
                                 });
                             }
+                        }
+                        
+                        // ADDITIONAL: If there's an answer but no valid course offer question, that's also an error
+                        else if (question.answer && !courseOfferQuestion && !hasPrefilled) {
+                            console.log(`❌ Course selected but no course offer question answered`);
+                            errorMessage.add({
+                                pageId: page.id,
+                                pageTitle: page.title,
+                                message: 'Please answer the course offer question first.',
+                                question: question.question,
+                                type: question.type
+                            });
                         }
                     }
                 });
@@ -2666,10 +2757,11 @@ const BookingRequestForm = () => {
     const validateAllPages = () => {
         const validatingPages = stableProcessedFormData.filter(page => !page.title.includes('Equipment'));
         
-        // Pass courseOffers to the validate function
+        // Pass courseOffers to the validate function and ensure we have the latest offers
         const allErrors = validate(validatingPages, courseOffers);
         
         console.log(`Total validation errors found across all pages: ${allErrors.length}`, allErrors);
+        
         if (allErrors.length > 0) {
             // Group errors by page
             const errorsByPage = {};
@@ -2694,7 +2786,20 @@ const BookingRequestForm = () => {
                 let p = {...page};
 
                 if (errorsByPage[page.id]) {
-                    p.completed = false;
+                    p.completed = false; // Force completion to false
+                    
+                    p.Sections = p.Sections.map(section => ({
+                        ...section,
+                        Questions: section.Questions.map(question => {
+                            const questionError = errorsByPage[page.id].find(error => 
+                                error.question === question.question
+                            );
+                            if (questionError) {
+                                return { ...question, error: questionError.message };
+                            }
+                            return question;
+                        })
+                    }));
 
                     if (!firstErrorPage) {
                         firstErrorPage = page;
@@ -2705,24 +2810,40 @@ const BookingRequestForm = () => {
             });
 
             setProcessedFormData(updatedPages);
+            safeDispatchData(updatedPages, 'Validation errors applied');
 
+            // Navigate to first page with errors
             if (firstErrorPage) {
                 const pageIndex = stableProcessedFormData.findIndex(p => p.id === firstErrorPage.id);
                 setActiveAccordionIndex(pageIndex);
                 dispatch(bookingRequestFormActions.setCurrentPage(firstErrorPage));
             }
 
-            toast.error(`The following pages have validation errors: ${pagesWithErrors.join(', ')}`);
-            return true;
+            // IMPROVED: Create user-friendly error message
+            const createErrorMessage = () => {
+                if (allErrors.length === 1) {
+                    return `Please complete the required field: "${allErrors[0].question}"`;
+                } else if (allErrors.length <= 3) {
+                    const questions = allErrors.map(error => `"${error.question}"`).join(', ');
+                    return `Please complete these required fields: ${questions}`;
+                } else {
+                    const errorCount = allErrors.length;
+                    const pageNames = pagesWithErrors.join(', ');
+                    return `Please complete ${errorCount} required fields on the following pages: ${pageNames}`;
+                }
+            };
+
+            toast.error(createErrorMessage());
+            return true; // Validation failed
         }
 
-        return false;
+        return false; // Validation passed
     };
 
     const showWarningReturningBookingNotSave = (bookingType, bookingStatus, cPage, submit = false) => {
         if (validateAllPages()) {
-        dispatch(globalActions.setLoading(false));
-        return false;
+            dispatch(globalActions.setLoading(false));
+            return false;
         }
 
         // Pass courseOffers to the validate function
@@ -2732,7 +2853,20 @@ const BookingRequestForm = () => {
         if (errorMsg.length > 0) {
             console.log(errorMsg)
             dispatch(globalActions.setLoading(false));
-            toast.error('There are some REQUIRED questions not answered. Please input/select an answer.');
+            
+            // IMPROVED: Create specific error message for current page
+            const createPageErrorMessage = () => {
+                if (errorMsg.length === 1) {
+                    return `Please complete the required field: "${errorMsg[0].question}"`;
+                } else if (errorMsg.length <= 3) {
+                    const questions = errorMsg.map(error => `"${error.question}"`).join(', ');
+                    return `Please complete these required fields: ${questions}`;
+                } else {
+                    return `Please complete ${errorMsg.length} required fields on this page.`;
+                }
+            };
+            
+            toast.error(createPageErrorMessage());
         } else {
             setSubmitting(submit);
             const dirtyQuestionsList = stableProcessedFormData.filter(page => {
@@ -2787,40 +2921,53 @@ const BookingRequestForm = () => {
         dispatch(globalActions.setLoading(true));
 
         if (submit && validateAllPages()) {
-        dispatch(globalActions.setLoading(false));
-        return false;
-        } else {
-        // Pass courseOffers to the validate function
-        const errorMsg = validate([cPage], courseOffers);
-        if (errorMsg.length > 0 && submit) {
             dispatch(globalActions.setLoading(false));
-            toast.error('There are some REQUIRED questions not answered. Please input/select an answer.');
+            return false;
         } else {
-            const response = await saveCurrentPage(cPage, submit);
-            if (submit) {
-            dispatch(globalActions.setLoading(false));
-            if (funder?.toLowerCase() === 'icare') {
-                if (origin && origin == 'admin') {
-                window.opener.location.reload(true);
-                setTimeout(() => {
-                    window.close();
-                }, 2000);
+            // Pass courseOffers to the validate function
+            const errorMsg = validate([cPage], courseOffers);
+            if (errorMsg.length > 0 && submit) {
+                dispatch(globalActions.setLoading(false));
+                
+                // IMPROVED: Create specific error message for save/exit
+                const createSaveErrorMessage = () => {
+                    if (errorMsg.length === 1) {
+                        return `Cannot submit: Please complete the required field "${errorMsg[0].question}".`;
+                    } else if (errorMsg.length <= 3) {
+                        const questions = errorMsg.map(error => `"${error.question}"`).join(', ');
+                        return `Cannot submit: Please complete these required fields: ${questions}`;
+                    } else {
+                        return `Cannot submit: Please complete ${errorMsg.length} required fields.`;
+                    }
+                };
+                
+                toast.error(createSaveErrorMessage());
+            } else {
+                const response = await saveCurrentPage(cPage, submit);
+                if (submit) {
+                    dispatch(globalActions.setLoading(false));
+                    if (funder?.toLowerCase() === 'icare') {
+                        if (origin && origin == 'admin') {
+                            window.opener.location.reload(true);
+                            setTimeout(() => {
+                                window.close();
+                            }, 2000);
+                        } else {
+                            setTimeout(() => {
+                                getRequestFormTemplate();
+                                window.open('https://sargoodoncollaroy.com.au/thanks/', '_self');
+                            }, 500);
+                        }
+                    } else {
+                        // Update URL to include submission status
+                        setBookingSubmittedState(true);
+                    }
                 } else {
-                setTimeout(() => {
-                    getRequestFormTemplate();
-                    window.open('https://sargoodoncollaroy.com.au/thanks/', '_self');
-                }, 500);
+                    dispatch(bookingRequestFormActions.setData([]));
+                    dispatch(bookingRequestFormActions.setQuestionDependencies([]));
+                    window.open('/bookings', '_self');
                 }
-            } else {
-                // Update URL to include submission status
-                setBookingSubmittedState(true);
             }
-            } else {
-                dispatch(bookingRequestFormActions.setData([]));
-                dispatch(bookingRequestFormActions.setQuestionDependencies([]));
-                window.open('/bookings', '_self');
-            }
-        }
         }
     }
 
@@ -3086,9 +3233,18 @@ const BookingRequestForm = () => {
                     setBookingAmended(true);
                 }
 
+                // CRITICAL CHANGE: Handle completion immediately after successful save
                 if (prevBookingId && cPage?.id) {
-                    markPageWithSavedData(cPage.id);
-                    console.log(`💾 Page "${cPage.title}" saved successfully - marking as having saved data`);
+                    console.log(`💾 Page "${cPage.title}" saved successfully - updating completion`);
+                    
+                    // Update saved pages state synchronously
+                    const newSavedPages = new Set([...pagesWithSavedData, cPage.id]);
+                    setPagesWithSavedData(newSavedPages);
+                    
+                    // Force immediate completion update with new state
+                    setTimeout(() => {
+                        forcePageCompletionUpdate(cPage.id, visitedPages, newSavedPages);
+                    }, 0); // Use 0 timeout to ensure state update completes first
                 }
             }
 
@@ -3591,7 +3747,7 @@ const BookingRequestForm = () => {
                                         qaPair.createdAt || qaPair.updatedAt || qaPair.dirty
                                     );
                                     temp.completed = hasRealSavedData;
-                                    console.log(`📋 Returning guest with prevBookingId - Page "${temp.title}": hasAnswered=${hasAnsweredQuestions}, hasSavedQaPairs=${hasSavedQaPairs}, hasRealSavedData=${hasRealSavedData}, completed=${temp.completed}`);
+                                    // console.log(`📋 Returning guest with prevBookingId - Page "${temp.title}": hasAnswered=${hasAnsweredQuestions}, hasSavedQaPairs=${hasSavedQaPairs}, hasRealSavedData=${hasRealSavedData}, completed=${temp.completed}`);
                                     
                                     // If page has real saved data, mark it in our tracking
                                     if (hasRealSavedData) {
@@ -3846,6 +4002,30 @@ const BookingRequestForm = () => {
     };
 
     useEffect(() => {
+        // Only sync completion on major state changes, with debouncing
+        if (prevBookingId && currentBookingType === BOOKING_TYPES.RETURNING_GUEST && 
+            stableProcessedFormData && stableProcessedFormData.length > 0) {
+            
+            // Debounce to prevent rapid updates
+            const timeoutId = setTimeout(() => {
+                const updatedPages = updatePageCompletionStatus(stableProcessedFormData, 'debounced_state_sync');
+                
+                // Only update if there are actual changes
+                const currentCompletions = stableProcessedFormData.map(p => p.completed);
+                const newCompletions = updatedPages.map(p => p.completed);
+                
+                if (JSON.stringify(currentCompletions) !== JSON.stringify(newCompletions)) {
+                    console.log('📊 Debounced completion sync applied');
+                    setProcessedFormData(updatedPages);
+                    safeDispatchData(updatedPages, 'debounced state sync');
+                }
+            }, 500); // 500ms debounce
+
+            return () => clearTimeout(timeoutId);
+        }
+    }, [visitedPages.size, pagesWithSavedData.size, currentBookingType, prevBookingId]);
+
+    useEffect(() => {
         if (isUpdating) {
             return;
         }
@@ -3993,21 +4173,30 @@ const BookingRequestForm = () => {
         });
     }, [uuid, prevBookingId, router.asPath]);
 
-    useEffect(() => {
+   useEffect(() => {
         // IMPORTANT: Run profile loading for ALL booking types
         if (stableBookingRequestFormData?.length > 0 && 
             currentPage && 
             !profileDataLoaded && 
             !profilePreloadInProgressRef.current) {
 
+            // DIRECT FIX: Ensure form has actual questions before proceeding
+            const hasQuestions = stableBookingRequestFormData.some(page =>
+                page.Sections?.some(section =>
+                    section.Questions?.length > 0
+                )
+            );
+
+            if (!hasQuestions) {
+                return; // Form structure not ready yet
+            }
+
             const guestId = getGuestId();
             if (guestId) {
-                // Use a shorter timeout to ensure profile data loads quickly
-                // and overrides any prefilled data from previous bookings
                 const timeoutId = setTimeout(() => {
                     console.log(`🚀 Starting profile data load for ${currentBookingType} booking`);
                     preloadProfileData();
-                }, 200); // Reduced timeout for faster loading
+                }, 200);
 
                 return () => clearTimeout(timeoutId);
             } else {
@@ -4020,7 +4209,7 @@ const BookingRequestForm = () => {
         currentPage?.id,
         profileDataLoaded,
         preloadProfileData,
-        currentBookingType // Add booking type to dependencies for debugging
+        currentBookingType
     ]);
 
     useEffect(() => {
@@ -4367,14 +4556,82 @@ const BookingRequestForm = () => {
     useEffect(() => {
         if (prevBookingId) {
             setVisitedPages(new Set());
-            setPagesWithSavedData(new Set()); // ADD THIS LINE
+            setPagesWithSavedData(new Set());
             console.log('📋 New booking with prevBookingId loaded, resetting page tracking');
         } else {
             setVisitedPages(new Set());
-            setPagesWithSavedData(new Set()); // ADD THIS LINE
+            setPagesWithSavedData(new Set());
             console.log('📋 Booking without prevBookingId loaded, no page tracking needed');
         }
     }, [uuid, prevBookingId]);
+
+    useEffect(() => {
+        // Only run for returning guests when course offers are loaded
+        if (courseOffersLoaded && currentBookingType === BOOKING_TYPES.RETURNING_GUEST && 
+            courseOffers.length > 0 && stableProcessedFormData?.length > 0) {
+            
+            console.log('🔍 Validating prefilled course answers for returning guest...');
+            
+            let hasInvalidPrefill = false;
+            const updatedPages = stableProcessedFormData.map(page => {
+                const updatedSections = page.Sections.map(section => {
+                    const updatedQuestions = section.Questions.map(question => {
+                        // Check if this is a prefilled "which course" question
+                        if (questionHasKey(question, QUESTION_KEYS.WHICH_COURSE) && 
+                            question.answer && 
+                            (question.temporaryFromPreviousBooking || question.prefill)) {
+                            
+                            console.log('🎓 Checking prefilled course answer:', question.answer);
+                            
+                            // Find the corresponding course offer
+                            const selectedOffer = courseOffers.find(offer => 
+                                ['offered', 'accepted'].includes(offer.offerStatus) &&
+                                (offer.courseId?.toString() === question.answer.toString() || 
+                                offer.id?.toString() === question.answer.toString())
+                            );
+                            
+                            if (selectedOffer && selectedOffer.dateValid === false) {
+                                console.log('❌ Clearing incompatible prefilled course answer:', {
+                                    course: selectedOffer.courseName,
+                                    reason: selectedOffer.dateValidationMessage
+                                });
+                                
+                                hasInvalidPrefill = true;
+                                return {
+                                    ...question,
+                                    answer: null, // Clear the incompatible prefilled answer
+                                    error: null, // Clear any existing error
+                                    dirty: true,
+                                    temporaryFromPreviousBooking: false,
+                                    prefill: false
+                                };
+                            } else if (!selectedOffer) {
+                                console.log('❌ Clearing prefilled answer - course not found in current offers');
+                                hasInvalidPrefill = true;
+                                return {
+                                    ...question,
+                                    answer: null,
+                                    error: null,
+                                    dirty: true,
+                                    temporaryFromPreviousBooking: false,
+                                    prefill: false
+                                };
+                            }
+                        }
+                        return question;
+                    });
+                    return { ...section, Questions: updatedQuestions };
+                });
+                return { ...page, Sections: updatedSections };
+            });
+            
+            if (hasInvalidPrefill) {
+                console.log('🧹 Cleared invalid prefilled course answers');
+                setProcessedFormData(updatedPages);
+                safeDispatchData(updatedPages, 'Cleared invalid prefilled course answers');
+            }
+        }
+    }, [courseOffersLoaded, courseOffers, currentBookingType, stableProcessedFormData]);
 
     useEffect(() => {
         if (activeAccordionIndex >= 0) {
@@ -4385,7 +4642,7 @@ const BookingRequestForm = () => {
 
     return (<>
         {stableProcessedFormData && (
-            <BookingFormLayout ref={layoutRef} setBookingSubmittedState={setBookingSubmittedState}>
+            <BookingFormLayout ref={layoutRef} setBookingSubmittedState={setBookingSubmittedState} prevBookingId={prevBookingId}>
                 {!bookingSubmitted && !router.asPath.includes('&submit=true') && (
                     <BookingProgressHeader
                         bookingRequestFormData={stableProcessedFormData}

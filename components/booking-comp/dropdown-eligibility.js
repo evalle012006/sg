@@ -31,7 +31,6 @@ export const DropdownEligibility = ({ status, booking, fetchData, disabled }) =>
   }
 
   const updateStatus = async (status, booking) => {
-    console.log(status, booking)
     await fetch(`/api/bookings/${booking.uuid}/update-status`, {
       method: 'POST',
       headers: {

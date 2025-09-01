@@ -61,21 +61,56 @@ const QuestionPage = ({
     const getCurrentFormQAData = useCallback(() => {
         const qaPairs = [];
         
-        if (!currentPage?.Sections) return qaPairs;
+        if (!currentPage?.Sections) {
+            return qaPairs;
+        }
 
-        currentPage.Sections.forEach(section => {
-            section.Questions?.forEach(question => {
-                if (question.answer !== null && question.answer !== undefined && question.answer !== '') {
-                    qaPairs.push({
-                        question_key: question.question_key,
-                        question: question.question,
-                        answer: question.answer,
-                        Question: {
-                            question_key: question.question_key
+        let foundCareSchedule = false;
+
+        currentPage.Sections.forEach((section) => {
+            // Priority 1: Get current Questions (active form answers)
+            if (section.Questions && section.Questions.length > 0) {
+                section.Questions.forEach(question => {
+                    if (question.answer !== null && question.answer !== undefined && question.answer !== '') {
+                        qaPairs.push({
+                            question_key: question.question_key,
+                            question: question.question,
+                            answer: question.answer,
+                            Question: { question_key: question.question_key },
+                            source: 'Questions'
+                        });
+                        
+                        if (question.question_key === 'when-do-you-require-care') {
+                            foundCareSchedule = true;
                         }
-                    });
-                }
-            });
+                    }
+                });
+            }
+            
+            // Priority 2: Get QaPairs (saved answers)
+            if (section.QaPairs && section.QaPairs.length > 0) {
+                section.QaPairs.forEach((qaPair) => {
+                    const existingFromQuestions = qaPairs.find(qa => 
+                        qa.source === 'Questions' && 
+                        (qa.question_key === qaPair.Question?.question_key || 
+                        qa.question === qaPair.question)
+                    );
+                    
+                    if (!existingFromQuestions && qaPair.answer !== null && qaPair.answer !== undefined && qaPair.answer !== '') {
+                        qaPairs.push({
+                            question_key: qaPair.Question?.question_key || qaPair.question_key,
+                            question: qaPair.question || qaPair.Question?.question,
+                            answer: qaPair.answer,
+                            Question: qaPair.Question,
+                            source: 'QaPairs'
+                        });
+                        
+                        if (qaPair.Question?.question_key === 'when-do-you-require-care') {
+                            foundCareSchedule = true;
+                        }
+                    }
+                });
+            }
         });
 
         return qaPairs;

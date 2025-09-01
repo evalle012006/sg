@@ -52,7 +52,7 @@ const BookingProgressHeader = ({
                             </div>
                         </div>
                         <div className="text-sm text-gray-600">
-                            <span className="font-medium">{completedSteps}</span> of <span className="font-medium">{totalSteps}</span> steps completed
+                            <span className="font-medium">{completedSteps}</span> of <span className="font-medium">{totalSteps}</span> page completed
                         </div>
 
                         {/* Action Buttons */}

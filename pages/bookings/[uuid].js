@@ -65,39 +65,105 @@ function BookingDetail() {
   const handleUpdateStatus = async (selected) => {
     dispatch(globalActions.setLoading(true));
     setStatus(selected);
-    await fetch(`/api/bookings/${booking.uuid}/update-status`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        status: selected
-      })
-    })
-      .then(() => {
-        fetchBooking();
+    
+    try {
+      const response = await fetch(`/api/bookings/${booking.uuid}/update-status`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          status: selected
+        })
+      });
 
-        if (status.name == 'eligible') {
-          const notify = () => toast("An invitation email has been sent to the guest.", { type: 'success' });
-          notify();
+      if (!response.ok) {
+        // Try to parse error message from response
+        let errorMessage = 'Failed to update booking status';
+        try {
+          const errorData = await response.json();
+          if (errorData.message) {
+            errorMessage = errorData.message;
+          } else if (errorData.error) {
+            errorMessage = errorData.error;
+          }
+        } catch (parseError) {
+          // If JSON parsing fails, use default message
+          console.error('Error parsing error response:', parseError);
         }
-      })
-      .catch(err => console.log(err));
+        
+        toast.error(errorMessage);
+        dispatch(globalActions.setLoading(false));
+        return;
+      }
+
+      // Success case
+      await fetchBooking();
+
+      if (status.name == 'eligible') {
+        toast.success("An invitation email has been sent to the guest.");
+      }
+      
+      // Show success message for booking confirmation
+      if (selected.name === 'booking_confirmed') {
+        toast.success("Booking has been confirmed successfully!");
+      }
+
+    } catch (error) {
+      console.error('Network error updating status:', error);
+      toast.error('Network error occurred. Please check your connection and try again.');
+      dispatch(globalActions.setLoading(false));
+    }
   }
 
   const handleUpdateEligibility = async (selected) => {
     dispatch(globalActions.setLoading(true));
     setEligibility(selected);
-    await fetch(`/api/bookings/${booking.uuid}/update-status`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        eligibility: selected
-      })
-    });
-    fetchBooking();
+    
+    try {
+      const response = await fetch(`/api/bookings/${booking.uuid}/update-status`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          eligibility: selected
+        })
+      });
+
+      if (!response.ok) {
+        // Try to parse error message from response
+        let errorMessage = 'Failed to update booking eligibility';
+        try {
+          const errorData = await response.json();
+          if (errorData.message) {
+            errorMessage = errorData.message;
+          } else if (errorData.error) {
+            errorMessage = errorData.error;
+          }
+        } catch (parseError) {
+          console.error('Error parsing error response:', parseError);
+        }
+        
+        toast.error(errorMessage);
+        dispatch(globalActions.setLoading(false));
+        return;
+      }
+
+      // Success case
+      await fetchBooking();
+      
+      if (selected.name === 'eligible') {
+        toast.success("Guest eligibility approved successfully!");
+      } else if (selected.name === 'ineligible') {
+        toast.success("Guest eligibility status updated.");
+      }
+
+    } catch (error) {
+      console.error('Network error updating eligibility:', error);
+      toast.error('Network error occurred. Please check your connection and try again.');
+      dispatch(globalActions.setLoading(false));
+    }
   }
 
   const handleEditBooking = () => {

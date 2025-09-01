@@ -10,6 +10,7 @@ const Spinner = dynamic(() => import('../ui/spinner'));
 
 const BookingFormLayout = forwardRef(({
     setBookingSubmittedState,
+    prevBookingId,
     children
 }, ref) => {
     const loading = useSelector(state => state.global.loading);
@@ -76,12 +77,11 @@ const BookingFormLayout = forwardRef(({
                 </div>
             </div>
 
-            {/* Main Layout - Below Header - UPDATED: Single scrollable container with ref */}
-            <div className="flex-1 overflow-auto" ref={mainContentRef}>
+            <div className="flex-1 overflow-auto" ref={mainContentRef} id="main-content-container">
                 <div className="flex min-h-full">
                     {/* Sidebar */}
                     <div className="hidden md:block w-96 lg:w-80 xl:w-72 flex-shrink-0">
-                        <RequestFormSidebar setBookingSubmittedState={setBookingSubmittedState} />
+                        <RequestFormSidebar setBookingSubmittedState={setBookingSubmittedState} prevBookingId={prevBookingId} />
                     </div>
 
                     {/* Main Content Area */}

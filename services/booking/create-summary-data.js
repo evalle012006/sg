@@ -286,7 +286,7 @@ export const generateSummaryData = (stayData, question, answer, questionType = n
                questionMatches(questionObj, 'Check Out Date', QUESTION_KEYS.CHECK_OUT_DATE)) {
           const checkOut = moment(answer, ['YYYY-MM-DD', 'DD/MM/YYYY']);
           summaryOfStayData.checkoutDate = checkOut.format('DD/MM/YYYY');
-          
+
           // If we have both dates, calculate the date range and nights
           if (summaryOfStayData.checkinDate && checkOut.isValid()) {
               const checkIn = moment(summaryOfStayData.checkinDate, 'DD/MM/YYYY');
@@ -376,9 +376,8 @@ export const createSummaryData = async (booking) => {
             // Get question text from either the pair itself or the related Question object
             const question = pair.question || pair.Question?.question;
             const answer = pair.answer;
-            const questionKey = pair.Question?.question_key;
-            const questionType = pair.question_type;
-            
+            const questionKey = question?.question_key;
+            const questionType = question?.question_type;
             // Generate summary data with question key support
             data = generateSummaryData(data, question, answer, questionType, section.QaPairs, questionKey);
         });

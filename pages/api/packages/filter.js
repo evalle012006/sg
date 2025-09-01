@@ -294,13 +294,13 @@ function calculateCareMatchScore(pkg, criteria) {
     if (care_hours === 0 && req.requires_no_care === true) {
       // This is a perfect match - guest needs no care, package requires no care
       score += 0.5; // Highest bonus
-      console.log(`🎯 PERFECT NO-CARE MATCH for ${pkg.package_code}: Guest needs 0h care, package requires no care`);
+      // console.log(`🎯 PERFECT NO-CARE MATCH for ${pkg.package_code}: Guest needs 0h care, package requires no care`);
     }
     // Check if package violates no-care requirement
     else if (care_hours > 0 && req.requires_no_care === true) {
       // Package requires no care but guest needs care - major penalty
       score -= 0.8;
-      console.log(`❌ NO-CARE VIOLATION for ${pkg.package_code}: Guest needs ${care_hours}h care but package requires no care`);
+      // console.log(`❌ NO-CARE VIOLATION for ${pkg.package_code}: Guest needs ${care_hours}h care but package requires no care`);
     }
     // Check care hours range compatibility
     else if (req.requires_no_care !== true) {
