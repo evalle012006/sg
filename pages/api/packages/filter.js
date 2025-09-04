@@ -47,16 +47,16 @@ export default async function handler(req, res) {
       finalPackages: []
     } : null;
 
-    if (debug) {
-      console.log('🔍 Enhanced package filter request:', {
-        care_hours,
-        care_pattern,
-        recommended_packages,
-        funder_type,
-        ndis_package_type,
-        has_course
-      });
-    }
+    // if (debug) {
+    //   console.log('🔍 Enhanced package filter request:', {
+    //     care_hours,
+    //     care_pattern,
+    //     recommended_packages,
+    //     funder_type,
+    //     ndis_package_type,
+    //     has_course
+    //   });
+    // }
 
     // ✅ FIXED: Build the basic WHERE clause with proper NDIS package type filtering
     const whereClause = {};
@@ -72,7 +72,7 @@ export default async function handler(req, res) {
       if (funder_type === 'NDIS' || !funder_type) {
         whereClause.ndis_package_type = ndis_package_type;
         if (debug) debugInfo.processingSteps.push(`Added NDIS package type filter: ${ndis_package_type}`);
-        console.log(`🎯 FILTERING BY NDIS PACKAGE TYPE: ${ndis_package_type}`);
+        // console.log(`🎯 FILTERING BY NDIS PACKAGE TYPE: ${ndis_package_type}`);
       }
     }
 
@@ -86,7 +86,7 @@ export default async function handler(req, res) {
     }
 
     // ✅ Add explicit logging to see what WHERE clause is being used
-    console.log('🔍 Final WHERE clause for database query:', whereClause);
+    // console.log('🔍 Final WHERE clause for database query:', whereClause);
 
     const queryOptions = {
       where: whereClause,
@@ -119,14 +119,14 @@ export default async function handler(req, res) {
 
     const { count, rows: basePackages } = await Package.findAndCountAll(queryOptions);
 
-    if (debug) {
-      console.log('📦 Packages returned from database:', basePackages.map(p => ({
-        code: p.package_code,
-        name: p.name,
-        funder: p.funder,
-        ndis_package_type: p.ndis_package_type
-      })));
-    }
+    // if (debug) {
+    //   console.log('📦 Packages returned from database:', basePackages.map(p => ({
+    //     code: p.package_code,
+    //     name: p.name,
+    //     funder: p.funder,
+    //     ndis_package_type: p.ndis_package_type
+    //   })));
+    // }
 
     if (debug) {
       debugInfo.processingSteps.push(`Found ${basePackages.length} packages after basic filtering`);
@@ -219,23 +219,23 @@ export default async function handler(req, res) {
       return (a.name || '').localeCompare(b.name || '');
     });
 
-    if (debug) {
-      debugInfo.finalPackages = filteredPackages.map(pkg => ({
-        package_code: pkg.package_code,
-        name: pkg.name,
-        matchScore: pkg.matchScore,
-        isRecommended: pkg.isRecommended,
-        hasRequirement: !!pkg.requirement
-      }));
+    // if (debug) {
+    //   debugInfo.finalPackages = filteredPackages.map(pkg => ({
+    //     package_code: pkg.package_code,
+    //     name: pkg.name,
+    //     matchScore: pkg.matchScore,
+    //     isRecommended: pkg.isRecommended,
+    //     hasRequirement: !!pkg.requirement
+    //   }));
       
-      console.log('🎯 Final filtering results:', {
-        totalFound: basePackages.length,
-        afterCareFiltering: filteredPackages.length,
-        recommendedPackages: recommended_packages,
-        careHours: care_hours,
-        funderType: funder_type
-      });
-    }
+    //   console.log('🎯 Final filtering results:', {
+    //     totalFound: basePackages.length,
+    //     afterCareFiltering: filteredPackages.length,
+    //     recommendedPackages: recommended_packages,
+    //     careHours: care_hours,
+    //     funderType: funder_type
+    //   });
+    // }
 
     const response = {
       success: true,
@@ -326,7 +326,7 @@ function calculateCareMatchScore(pkg, criteria) {
     }
   } else {
     // Fallback to old logic for packages without requirements data
-    console.log(`⚠️ Package ${pkg.package_code} has no requirements data, using fallback logic`);
+    // console.log(`⚠️ Package ${pkg.package_code} has no requirements data, using fallback logic`);
     
     if (care_hours === 0) {
       // No care required - suitable for WS, NDIS SP, Holiday Support
@@ -368,12 +368,12 @@ function calculateCareMatchScore(pkg, criteria) {
   // Ensure score stays within bounds
   const finalScore = Math.max(0, Math.min(1, score));
   
-  console.log(`📊 Score calculation for ${pkg.package_code}:`, {
-    care_hours,
-    requires_no_care: pkg.requirement?.requires_no_care,
-    finalScore,
-    hasRequirement: !!pkg.requirement
-  });
+  // console.log(`📊 Score calculation for ${pkg.package_code}:`, {
+  //   care_hours,
+  //   requires_no_care: pkg.requirement?.requires_no_care,
+  //   finalScore,
+  //   hasRequirement: !!pkg.requirement
+  // });
   
   return finalScore;
 }

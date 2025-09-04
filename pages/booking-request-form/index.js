@@ -135,45 +135,6 @@ const BookingRequestForm = () => {
     const [selectedCourseOfferId, setSelectedCourseOfferId] = useState(null);
     const [courseOfferPreselected, setCourseOfferPreselected] = useState(false);
 
-    const debugPageQuestions = (page) => {
-        if (!page || !page.Sections) return;
-        
-        console.log(`🔍 DEBUG Page "${page.title}" questions:`);
-        let totalRequired = 0;
-        let answered = 0;
-        
-        page.Sections.forEach(section => {
-            if (section.hidden) return;
-            
-            section.Questions?.forEach(question => {
-                if (question.hidden) return;
-                
-                if (question.required) {
-                    totalRequired++;
-                    let isAnswered = false;
-                    
-                    if (question.type === 'checkbox' || question.type === 'checkbox-button') {
-                        isAnswered = Array.isArray(question.answer) && question.answer.length > 0;
-                    } else if (question.type === 'multi-select') {
-                        isAnswered = Array.isArray(question.answer) && question.answer.length > 0;
-                    } else if (question.type === 'simple-checkbox') {
-                        isAnswered = question.answer === true || question.answer === "1";
-                    } else {
-                        isAnswered = question.answer !== null && question.answer !== undefined && question.answer !== '';
-                    }
-                    
-                    if (isAnswered) {
-                        answered++;
-                    } else {
-                        console.log(`❌ UNANSWERED: "${question.question}" (type: ${question.type}, answer: ${JSON.stringify(question.answer)})`);
-                    }
-                }
-            });
-        });
-        
-        console.log(`📊 DEBUG Total: ${answered}/${totalRequired} answered`);
-    };
-
     const prePopulateCourseSelection = useCallback((pages, courseOfferId) => {
         if (!courseOfferId || courseOfferPreselected) return pages;
 
@@ -538,6 +499,9 @@ const BookingRequestForm = () => {
     const cleanReduxStateBeforeDispatch = useCallback((pages, isNdisFunded) => {
         console.log('🧹 Cleaning Redux state before dispatch...');
         
+        // STEP 1: Store the original Equipment page completion status before cleaning
+        const originalEquipmentCompletion = pages.find(p => p.title === 'Equipment')?.completed;
+        
         const ndisPageExists = pages.some(p => p.id === 'ndis_packages_page');
         let movedQuestionKeys = new Set();
         
@@ -628,9 +592,18 @@ const BookingRequestForm = () => {
         // Recalculate completion after cleanup
         cleanedPages.forEach(page => {
             const oldCompleted = page.completed;
-            page.completed = calculatePageCompletion(page);
             
-            // if (oldCompleted !== page.completed) {
+            // CRITICAL FIX: Preserve Equipment page completion status
+            if (page.title === 'Equipment' && originalEquipmentCompletion !== undefined) {
+                // Don't recalculate Equipment page completion - preserve the original calculated value
+                page.completed = originalEquipmentCompletion;
+                console.log(`🛡️ Preserved Equipment page completion during cleaning: ${originalEquipmentCompletion}`);
+            } else {
+                // For all other pages, recalculate normally
+                page.completed = calculatePageCompletion(page);
+            }
+            
+            // if (oldCompleted !== page.completed && page.title !== 'Equipment') {
             //     console.log(`📊 Redux cleanup - Page "${page.title}" completion: ${oldCompleted} → ${page.completed}`);
             // }
         });
@@ -642,7 +615,7 @@ const BookingRequestForm = () => {
         const seenQuestions = new Set();
         const ndisPageExists = pages.some(p => p.id === 'ndis_packages_page');
         
-        console.log('🔧 Starting enhanced duplicate removal with section cleanup...');
+        // console.log('🔧 Starting enhanced duplicate removal with section cleanup...');
         
         return pages.map(page => {
             // Skip processing for NDIS page itself
@@ -659,14 +632,14 @@ const BookingRequestForm = () => {
                     if (question.ndis_only && isNdisFunded && ndisPageExists) {
                         const shouldKeepHere = page.id === 'ndis_packages_page';
                         if (!shouldKeepHere) {
-                            console.log(`🗑️ Removing NDIS question from ${page.title}: "${question.question}"`);
+                            // console.log(`🗑️ Removing NDIS question from ${page.title}: "${question.question}"`);
                             return false;
                         }
                     }
                     
                     // STEP 2: Remove duplicates
                     if (seenQuestions.has(questionKey)) {
-                        console.log(`🗑️ Removing duplicate: ${question.question} from ${page.title}`);
+                        // console.log(`🗑️ Removing duplicate: ${question.question} from ${page.title}`);
                         return false;
                     }
                     
@@ -684,7 +657,7 @@ const BookingRequestForm = () => {
                     if (question.ndis_only && isNdisFunded && ndisPageExists) {
                         const shouldKeepHere = page.id === 'ndis_packages_page';
                         if (!shouldKeepHere) {
-                            console.log(`🗑️ Removing NDIS QaPair from ${page.title}: "${question.question}"`);
+                            // console.log(`🗑️ Removing NDIS QaPair from ${page.title}: "${question.question}"`);
                             return false;
                         }
                     }
@@ -708,7 +681,7 @@ const BookingRequestForm = () => {
                 const shouldKeep = hasQuestions || hasQaPairs;
                 
                 if (!shouldKeep) {
-                    console.log(`🗑️ Removing empty section "${section.id}" from page "${page.title}" - no remaining content`);
+                    // console.log(`🗑️ Removing empty section "${section.id}" from page "${page.title}" - no remaining content`);
                 }
                 
                 return shouldKeep;
@@ -749,7 +722,7 @@ const BookingRequestForm = () => {
                 
                 // STEP 2: Remove duplicates AND clean up empty sections (combined operation)
                 const deduplicated = removeDuplicateQuestions(processed, ndisFunded);
-                console.log('🧹 Completed duplicate removal and section cleanup');
+                // console.log('🧹 Completed duplicate removal and section cleanup');
                 
                 // STEP 3: Apply dependencies thoroughly
                 const withDependencies = forceRefreshAllDependencies(deduplicated);
@@ -761,7 +734,7 @@ const BookingRequestForm = () => {
                     const newCompleted = calculatePageCompletion(page, visitedPages, pagesWithSavedData);
                     
                     if (wasCompleted !== newCompleted && page.title.includes('NDIS')) {
-                        console.log(`🎯 NDIS page completion updated: ${wasCompleted} → ${newCompleted}`);
+                        // console.log(`🎯 NDIS page completion updated: ${wasCompleted} → ${newCompleted}`);
                     }
                     
                     return { ...page, completed: newCompleted };
@@ -794,8 +767,6 @@ const BookingRequestForm = () => {
     }, [isProcessingNdis, calculatePageCompletion, applyQuestionDependenciesAcrossPages, removeDuplicateQuestions]);
 
     const extractAllQAPairsFromForm = useCallback((formData = null) => {
-        const debugKey = 'extractAllQAPairs';
-        
         let dataToUse = formData;
         
         if (!dataToUse || dataToUse.length === 0) {
@@ -1913,13 +1884,81 @@ const BookingRequestForm = () => {
             return false;
         }
         
+        // FIXED: Enhanced Equipment page completion logic
         if (page.title === 'Equipment') {
-            return equipmentPageCompleted;
-        }
+            // For first time guests: if API says completed, trust it
+            if (currentBookingType === BOOKING_TYPES.FIRST_TIME_GUEST) {
+                return equipmentPageCompleted;
+            }
+            
+            // For returning guests: check if there are additional required questions
+            if (currentBookingType === BOOKING_TYPES.RETURNING_GUEST) {
+                // Check if there are any required questions on the Equipment page
+                let totalRequiredQuestions = 0;
+                let answeredRequiredQuestions = 0;
+                
+                for (const section of page.Sections) {
+                    if (section.hidden) continue;
 
-        // DEBUGGING: Add this for the problematic page
-        if (page.title === 'Guest Details & SCI Information' && prevBookingId) {
-            debugPageQuestions(page);
+                    for (const question of section.Questions || []) {
+                        if (question.hidden || !question.required) continue;
+
+                        totalRequiredQuestions++;
+
+                        // Special handling for equipment type questions
+                        let isAnswered = false;
+                        if (question.type === 'equipment') {
+                            isAnswered = equipmentPageCompleted || 
+                                        (equipmentChangesState && equipmentChangesState.length > 0) ||
+                                        (question.answer !== null && question.answer !== undefined && question.answer !== '');
+                        } else {
+                            // Handle other question types normally
+                            if (question.type === 'checkbox' || question.type === 'checkbox-button') {
+                                let answerArray = question.answer;
+                                if (typeof answerArray === 'string' && answerArray.startsWith('[')) {
+                                    try {
+                                        answerArray = JSON.parse(answerArray);
+                                    } catch (e) {
+                                        answerArray = [];
+                                    }
+                                }
+                                isAnswered = Array.isArray(answerArray) && answerArray.length > 0;
+                            } else if (question.type === 'multi-select') {
+                                isAnswered = Array.isArray(question.answer) && question.answer.length > 0;
+                            } else if (question.type === 'simple-checkbox') {
+                                isAnswered = question.answer === true || question.answer === "1";
+                            } else {
+                                isAnswered = question.answer !== null &&
+                                            question.answer !== undefined &&
+                                            question.answer !== '';
+                            }
+                        }
+
+                        if (isAnswered) {
+                            answeredRequiredQuestions++;
+                        }
+                    }
+                }
+                
+                // If there are no additional required questions, trust the API flag
+                if (totalRequiredQuestions === 0) {
+                    return equipmentPageCompleted;
+                }
+                
+                // If there are additional required questions, check if they're all answered
+                const allRequiredAnswered = totalRequiredQuestions > 0 && answeredRequiredQuestions === totalRequiredQuestions;
+                
+                // Equipment page is complete if API says it's complete AND all additional questions are answered
+                const isComplete = equipmentPageCompleted && allRequiredAnswered;
+                
+                // Add debug logging to track the calculation
+                console.log(`🔧 Equipment completion calculation: API=${equipmentPageCompleted}, totalRequired=${totalRequiredQuestions}, answered=${answeredRequiredQuestions}, final=${isComplete}`);
+                
+                return isComplete;
+            }
+            
+            // Fallback: trust the API flag
+            return equipmentPageCompleted;
         }
 
         // For returning guests with prevBookingId: use more reliable completion logic
@@ -1944,7 +1983,7 @@ const BookingRequestForm = () => {
             }
         }
 
-        // Standard completion calculation
+        // Standard completion calculation for all other pages
         let totalRequiredQuestions = 0;
         let answeredRequiredQuestions = 0;
 
@@ -1977,9 +2016,8 @@ const BookingRequestForm = () => {
                 } else if (question.type === 'simple-checkbox') {
                     isAnswered = question.answer === true || question.answer === "1";
                 } else if (question.type === 'equipment') {
-                    isAnswered = equipmentPageCompleted || 
-                                (equipmentChangesState && equipmentChangesState.length > 0) ||
-                                (question.answer !== null && question.answer !== undefined && question.answer !== '');
+                    // For non-Equipment pages, equipment questions follow normal logic
+                    isAnswered = (question.answer !== null && question.answer !== undefined && question.answer !== '');
                 } else {
                     isAnswered = question.answer !== null &&
                                 question.answer !== undefined &&
@@ -4231,23 +4269,21 @@ const BookingRequestForm = () => {
             const equipmentPage = stableProcessedFormData.find(page => page.title === 'Equipment');
             
             if (equipmentPage && !equipmentPage.completed) {
-                console.log('✅ Updating Equipment page completion status');
+                console.log('✅ Basic Equipment page completion update');
                 
                 const updatedPages = stableProcessedFormData.map(page => {
                     if (page.title === 'Equipment') {
-                        return { ...page, completed: true };
+                        // Use the main calculatePageCompletion function for consistency
+                        return { ...page, completed: calculatePageCompletion(page) };
                     }
                     return page;
                 });
 
-                // Update local state
                 setProcessedFormData(updatedPages);
-                
-                // CRITICAL FIX: Dispatch the updated data back to Redux so sidebar gets the update
                 safeDispatchData(updatedPages, 'Equipment page completion update');
             }
         }
-    }, [equipmentPageCompleted]);
+    }, [equipmentPageCompleted, calculatePageCompletion]);
 
     useEffect(() => {
         if (!origin || origin !== 'admin') {

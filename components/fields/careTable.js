@@ -638,7 +638,7 @@ export default function CareTable({
       {validationErrors && validationErrors.hasErrors && (
         <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative text-sm" role="alert">
           <strong className="font-bold">Validation Error!</strong>
-          <span className="block sm:inline"> Please complete the Time and Duration for periods where you've selected Carers.</span>
+          <span className="block sm:inline"> Please complete the Time and Duration for periods where you&apos;ve selected Carers.</span>
         </div>
       )}
 
