@@ -592,7 +592,7 @@ export default function AdminGuestProfile() {
 
         const formData = new FormData();
 
-        const fileSizeMsg = checkFileSize(file.size, 5120000); // 5MB limit
+        const fileSizeMsg = checkFileSize(file.size, 5120000);
         if (fileSizeMsg) {
             toast.error(fileSizeMsg);
             e.target.value = null;
@@ -616,11 +616,17 @@ export default function AdminGuestProfile() {
                     const data = await response.json();
                     console.log('Upload response:', data);
                     
-                    // Reload profile info to get updated data with new signed URL
+                    // Clear the previous URL to trigger a fresh load
+                    setProfileImageUrl('');
+                    
+                    // Reload profile info after a short delay
                     setTimeout(async () => {
                         try {
                             await loadProfileInfo();
                             toast.success('Profile picture updated successfully');
+                            setTimeout(() => {
+                                window.location.reload();
+                            }, 1000);
                         } catch (error) {
                             console.error('Error reloading profile:', error);
                             toast.error('Profile picture uploaded but failed to refresh');
@@ -628,7 +634,7 @@ export default function AdminGuestProfile() {
                             setImageUploading(false);
                             dispatch(globalActions.setLoading(false));
                         }
-                    }, 1000);
+                    }, 1500); // Increased delay to ensure server processing is complete
                 } else {
                     const errorData = await response.json();
                     toast.error(errorData.message || 'Failed to upload profile picture');
@@ -643,7 +649,6 @@ export default function AdminGuestProfile() {
             }
         }
 
-        // Clear the input value to allow re-uploading the same file
         e.target.value = null;
     };
 

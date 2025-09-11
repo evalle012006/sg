@@ -229,7 +229,8 @@ function AssetsAndEquipment(props) {
 
     return <>
         <div className="flex justify-between">
-            <h1 className="text-2xl text-sargood-blue font-bold mb-5">Assets & Equipment</h1>
+            {/* <h1 className="text-2xl text-sargood-blue font-bold mb-5">Assets & Equipment</h1> */}
+            <span></span>
             <Can I="Create/Edit" a="Booking">
                 <div onClick={() => setEditMode(!editMode)} className="cursor-pointer">
                     {editMode ? <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">

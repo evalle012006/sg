@@ -161,48 +161,47 @@ export class BookingService extends EntityBuilder {
         }
     }
 
-    getBookingTemplate = async (booking, raw) => {
+    getBookingTemplate = async (booking, raw, includeSections = true) => {
         const bookingOriginalSectionId = booking.Sections[0].orig_section_id;
         const originalSection = await Section.findOne({ where: { id: bookingOriginalSectionId } });
         const page = await Page.findOne({ where: { id: originalSection.model_id } })
 
         let template;
 
-        if (raw) {
-            template = await Template.findOne({
-                where: { id: page.template_id },
-                include: [{
-                    model: Page,
+        let pageInclude = [];
+        
+        if (includeSections) {
+            if (raw) {
+                pageInclude = [{
+                    model: Section,
                     include: [{
-                        model: Section,
+                        model: Question,
                         include: [{
-                            model: Question,
-                            include: [{
-                                model: QuestionDependency,
-                                include: ['dependency']
-                            }],
-                            raw: true
-                        }]
+                            model: QuestionDependency,
+                            include: ['dependency']
+                        }],
+                        raw: true
                     }]
-                }],
-                order: [[Page, 'order', 'ASC']]
-             });
-        } else {
-            template = await Template.findOne({
-                where: { id: page.template_id },
-                include: [{
-                    model: Page,
+                }];
+            } else {
+                pageInclude = [{
+                    model: Section,
                     include: [{
-                        model: Section,
-                        include: [{
-                            model: Question,
-                            include: [QuestionDependency]
-                        }]
+                        model: Question,
+                        include: [QuestionDependency]
                     }]
-                }],
-                order: [[Page, 'order', 'ASC']]
-             });
+                }];
+            }
         }
+
+        template = await Template.findOne({
+            where: { id: page.template_id },
+            include: [{
+                model: Page,
+                include: pageInclude
+            }],
+            order: [[Page, 'order', 'ASC']]
+        });
 
         return template;
     }
