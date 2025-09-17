@@ -9,6 +9,7 @@ const NotificationBell = dynamic(() => import('../notification-bell'));
 const Spinner = dynamic(() => import('../ui/spinner'));
 
 const BookingFormLayout = forwardRef(({
+    bookingFormData,
     setBookingSubmittedState,
     prevBookingId,
     children
@@ -81,7 +82,7 @@ const BookingFormLayout = forwardRef(({
                 <div className="flex min-h-full">
                     {/* Sidebar */}
                     <div className="hidden md:block w-96 lg:w-80 xl:w-72 flex-shrink-0">
-                        <RequestFormSidebar setBookingSubmittedState={setBookingSubmittedState} prevBookingId={prevBookingId} />
+                        <RequestFormSidebar setBookingSubmittedState={setBookingSubmittedState} prevBookingId={prevBookingId} bookingRequestFormData={bookingFormData} />
                     </div>
 
                     {/* Main Content Area */}

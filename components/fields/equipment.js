@@ -151,8 +151,14 @@ const EquipmentField = memo((props) => {
             const equipmentCount = categoryEquipments.length;
             
             // Force specific categories to be single_select (radio buttons)
-            if (categoryName === 'mattress_options' || categoryName === 'sling' || categoryName === 'shower_commodes') {
+            if (categoryName === 'mattress_options' || categoryName === 'sling') {
                 types[categoryName] = 'single_select';
+                return;
+            }
+            
+            // Special handling for shower_commodes - use confirmation with single select
+            if (categoryName === 'shower_commodes') {
+                types[categoryName] = 'confirmation_single';
                 return;
             }
             
@@ -214,7 +220,7 @@ const EquipmentField = memo((props) => {
                     selections[categoryName] = null;
                 }
                 
-            } else if (categoryType === 'confirmation_multi') {
+            } else if (categoryType === 'confirmation_multi' || categoryType === 'confirmation_single') {
                 // Confirmation categories: Same fix applies here
                 const hasEquipmentInCategory = currentBookingEquipments.some(ce => 
                     ce.EquipmentCategory && ce.EquipmentCategory.name === categoryName
@@ -231,13 +237,21 @@ const EquipmentField = memo((props) => {
                     selections[`confirm_${categoryName}`] = null;
                 }
                 
-                // Multi-select: get all selected equipment IDs (only if we have booking data)
+                // Handle equipment selection based on type
                 if (currentBookingEquipments.length > 0) {
-                    selections[categoryName] = categoryEquipments
-                        .filter(equipment => currentBookingEquipments.some(ce => ce.name === equipment.name))
-                        .map(equipment => equipment.id);
+                    if (categoryType === 'confirmation_single') {
+                        // Single-select: get selected equipment ID
+                        const selectedEquipment = categoryEquipments
+                            .find(equipment => currentBookingEquipments.some(ce => ce.name === equipment.name));
+                        selections[categoryName] = selectedEquipment ? selectedEquipment.id : null;
+                    } else {
+                        // Multi-select: get all selected equipment IDs
+                        selections[categoryName] = categoryEquipments
+                            .filter(equipment => currentBookingEquipments.some(ce => ce.name === equipment.name))
+                            .map(equipment => equipment.id);
+                    }
                 } else {
-                    selections[categoryName] = [];
+                    selections[categoryName] = categoryType === 'confirmation_single' ? null : [];
                 }
             } else if (categoryType === 'multi_select') {
                 // Multi-select categories: only populate if we have booking data
@@ -321,7 +335,7 @@ const EquipmentField = memo((props) => {
                             allValid = false;
                         }
                     }
-                } else if (categoryType === 'confirmation_multi') {
+                } else if (categoryType === 'confirmation_multi' || categoryType === 'confirmation_single') {
                     const confirmationKey = `confirm_${categoryName}`;
                     const confirmSelection = categorySelections[confirmationKey];
                     
@@ -333,17 +347,27 @@ const EquipmentField = memo((props) => {
                         }
                     }
                     
-                    if (confirmSelection === 'yes' && (!categorySelections[categoryName] || 
-                        (Array.isArray(categorySelections[categoryName]) && categorySelections[categoryName].length === 0))) {
-                        errors[categoryName] = `Please select at least one option from ${formatCategoryName(categoryName)}`;
-                        allValid = false;
+                    if (confirmSelection === 'yes') {
+                        if (categoryType === 'confirmation_single') {
+                            // Single select validation
+                            if (!categorySelections[categoryName]) {
+                                errors[categoryName] = `Please select an option from ${formatCategoryName(categoryName)}`;
+                                allValid = false;
+                            }
+                        } else {
+                            // Multi select validation
+                            if (!categorySelections[categoryName] || 
+                                (Array.isArray(categorySelections[categoryName]) && categorySelections[categoryName].length === 0)) {
+                                errors[categoryName] = `Please select at least one option from ${formatCategoryName(categoryName)}`;
+                                allValid = false;
+                            }
+                        }
                     }
                 } else if (categoryType === 'single_select') {
                     if (!categorySelections[categoryName]) {
                         // Only error if required
                         if (isRequired) {
                             const fieldName = categoryName === 'mattress_options' ? 'Mattress Options' :
-                                            categoryName === 'shower_commodes' ? 'Shower Commodes' :
                                             categoryName === 'sling' ? 'Sling' :
                                             formatCategoryName(categoryName);
                             errors[categoryName] = `Please select a ${fieldName}`;
@@ -445,7 +469,7 @@ const EquipmentField = memo((props) => {
             
             // Handle confirmation "No" selections
             if (isConfirmation && value === 'no') {
-                newSelections[categoryName] = categoryType === 'confirmation_multi' ? [] : null;
+                newSelections[categoryName] = (categoryType === 'confirmation_multi') ? [] : null;
                 setCategoryErrors(prevErrors => {
                     const newErrors = { ...prevErrors };
                     delete newErrors[categoryName];
@@ -479,7 +503,7 @@ const EquipmentField = memo((props) => {
                 { category: 'sling', value: null }
             ]);
         } else if (isConfirmation && value === 'no') {
-            const nestedValue = categoryType === 'confirmation_multi' ? [] : null;
+            const nestedValue = (categoryType === 'confirmation_multi') ? [] : null;
             updateEquipmentChanges(categoryName, nestedValue, false);
         } else {
             updateEquipmentChanges(categoryName, value, isConfirmation);
@@ -536,7 +560,7 @@ const EquipmentField = memo((props) => {
                 
                 selectedEquipments = [...selectedEquipments, ...prevEquipments];
             }
-        } else if (categoryType === 'single_select') {
+        } else if (categoryType === 'single_select' || categoryType === 'confirmation_single') {
             if (value) {
                 const selectedEquipment = categoryEquipments.find(eq => eq.id === value);
                 if (selectedEquipment) {
@@ -674,7 +698,7 @@ const EquipmentField = memo((props) => {
         
         const isRequired = isRequiredCategory(categoryName, categoryType) ||
                           (categoryName === 'sling' && categorySelections['ceiling_hoist'] === 'yes') ||
-                          (isConfirmation && categoryType === 'confirmation_multi') ||
+                          (isConfirmation && (categoryType === 'confirmation_multi' || categoryType === 'confirmation_single')) ||
                           (categoryName === 'need_tilt_over_toilet' && showTiltQuestion);
         
         let isValid = false;
@@ -828,7 +852,7 @@ const EquipmentField = memo((props) => {
 
     const getConfirmationQuestionLabel = (categoryName) => {
         const specialLabels = {
-            'shower_commodes': 'Would you like to use one of our self-propelled or attendant-propelled Shower Commodes?',
+            'shower_commodes': 'Would you like to book a shower commode?',
             'adaptive_bathroom_options': 'Would you like to use any of our adaptive bathroom options?'
         };
         return specialLabels[categoryName] || `Would you like to use ${formatCategoryName(categoryName)}?`;
@@ -867,8 +891,8 @@ const EquipmentField = memo((props) => {
             );
         }
 
-        // Handle confirmation categories
-        if (categoryType === 'confirmation_multi') {
+        // Handle confirmation categories (both multi and single)
+        if (categoryType === 'confirmation_multi' || categoryType === 'confirmation_single') {
             const { shouldShowError: confirmError, isRequired: confirmRequired } = getValidationStyling(categoryName, true);
             
             return (

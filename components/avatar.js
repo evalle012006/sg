@@ -55,13 +55,11 @@ export default function Avatar() {
         return colors[seed % colors.length];
     };
 
-    const retryImageLoad = () => {
-        console.log('image retry')
+    // Handle image load error - just set error state permanently
+    const handleImageError = (e) => {
+        console.log('Image failed to load, showing initials instead');
         setIsProfilePhotoError(true);
-        setTimeout(() => {
-            setIsProfilePhotoError(false);
-        }, 1000);
-    }
+    };
 
     const fetchAndUpdateUser = async () => {
         const response = await fetch("/api/" + user.type + "s/by-email/" + user.email, {
@@ -83,9 +81,10 @@ export default function Avatar() {
         }
     }, []);
 
+    // Reset error state when user changes (new user might have valid image)
     useEffect(() => {
         setIsProfilePhotoError(false)
-    }, [user])
+    }, [user?.profile_url]); // Only reset when profile_url changes
 
     const logout = async () => {
         setDropdownStatus(false);
@@ -119,11 +118,7 @@ export default function Avatar() {
                                 width={56}
                                 height={56}
                                 src={user.profile_url}
-                                onError={(e) => {
-                                    console.log(e)
-                                    setIsProfilePhotoError(true);
-                                    user.profile_url && retryImageLoad();
-                                }}
+                                onError={handleImageError}
                                 alt="profile picture"
                             />
                         )}

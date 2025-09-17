@@ -51,11 +51,11 @@ export default function CheckBox(props) {
     }
   }
 
-  const checkBox = () => {
-    if (ref.current) {
-      ref.current.checked = !props.value;
+  // Simplified checkbox toggle - let the native input handle the change
+  const handleCheckboxClick = () => {
+    if (!props.disabled && !builderMode) {
+      props.onChange(props.label, !props.checked, props.notAvailableFlag);
     }
-    props.onChange(props.label, !props.value, props.notAvailableFlag);
   }
 
   useEffect(() => {
@@ -95,9 +95,8 @@ export default function CheckBox(props) {
             type="checkbox"
             className="sr-only"
             name={props.name}
-            value={props.value ? props.value : false}
-            checked={props.checked ? props.checked : false}
-            onChange={() => props.onChange(props.label, !props.value)}
+            checked={props.checked || false}
+            onChange={handleCheckboxClick}
             disabled={props.disabled}
           />
           <div 
@@ -105,7 +104,6 @@ export default function CheckBox(props) {
               getButtonModeClasses()
             } ${builderMode ? 'hover:bg-gray-100 cursor-text relative' : ''}`}
             style={{ border: '1px solid #E3EEF6' }}
-            onClick={builderMode ? undefined : checkBox}
           >
             {props.checked && (
               <div className={`${iconSize} rounded-full flex items-center justify-center flex-shrink-0`} 
@@ -178,16 +176,14 @@ export default function CheckBox(props) {
             type="checkbox"
             className="sr-only"
             name={props.name}
-            value={props.value ? props.value : false}
-            checked={props.checked ? props.checked : false}
-            onChange={() => props.onChange(props.label, !props.value)}
+            checked={props.checked || false}
+            onChange={handleCheckboxClick}
             disabled={props.disabled}
           />
           <div 
             className={`${checkboxSize} rounded border transition-colors duration-200 ${
               getCheckboxClasses()
             } flex items-center justify-center`}
-            onClick={checkBox}
           >
             {props.checked && (
               <svg 
@@ -214,6 +210,7 @@ export default function CheckBox(props) {
               defaultValue={label} 
               className={`border-b border-zinc-300 outline-none ${label.length > 30 && 'w-[40em]'}`} 
               onBlur={(e) => { handleChange(e) }} 
+              onClick={(e) => e.stopPropagation()} // Prevent checkbox toggle when editing text
             />
             <div className="flex flex-row justify-end pr-4 invisible group-hover/field:visible">
               <button 

@@ -77,7 +77,7 @@ const PrintToPDF = ({ summary, totalPackageCost, totalRoomCosts, getTotalOutOfPo
                   <h3 className="font-semibold text-slate-700 mb-1">Room Upgrade</h3>
                   <p className="text-gray-900 p-2">
                     {totalRoomCosts.roomUpgrade > 0 ? 
-                      `$${formatPrice(totalRoomCosts.roomUpgrade)} total` : 
+                      `AUD ${formatPrice(totalRoomCosts.roomUpgrade)} total` : 
                       'N/A'}
                   </p>
                 </div>
@@ -85,7 +85,7 @@ const PrintToPDF = ({ summary, totalPackageCost, totalRoomCosts, getTotalOutOfPo
                   <h3 className="font-semibold text-slate-700 mb-1">Additional Room</h3>
                   <p className="text-gray-900 p-2">
                     {totalRoomCosts.additionalRoom > 0 ? 
-                      `$${formatPrice(totalRoomCosts.additionalRoom)} total` : 
+                      `AUD ${formatPrice(totalRoomCosts.additionalRoom)} total` : 
                       'N/A'}
                   </p>
                 </div>

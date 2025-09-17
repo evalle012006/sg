@@ -694,7 +694,7 @@ export class BookingService extends EntityBuilder {
                 }
                 
                 if (packageCost) {
-                    emailData['package'] = `${packageAnswer} - $${packageCost}/night`;
+                    emailData['package'] = `${packageAnswer} - AUD ${packageCost}/night`;
                 } else {
                     emailData['package'] = packageAnswer;
                 }

@@ -24,8 +24,8 @@ import { fetchBookingStatuses, fetchBookingEligibilities } from "../../services/
 import { QUESTION_KEYS } from "./../../services/booking/question-helper";
 import dynamic from 'next/dynamic';
 import _ from 'lodash';
+import { getFirstLetters, getFunder } from "../../utilities/common";
 
-// Dynamic imports for layout and existing components
 const Layout = dynamic(() => import('../../components/layout'));
 const BookingEditView = dynamic(() => import('../../components/booking-comp/booking-edit-view'));
 const AssetsAndEquipment = dynamic(() => import('../../components/booking-comp/assets-and-equipment'));
@@ -35,22 +35,38 @@ const Spinner = dynamic(() => import('../../components/ui/spinner'));
 const Button = dynamic(() => import('../../components/ui-v2/Button'));
 const Select = dynamic(() => import('../../components/fields/select'));
 
-// Custom Accordion Item Component matching the screenshot design
-const CustomAccordionItem = ({ title, description, isOpen, onToggle, children, status }) => {
+const CustomAccordionItem = ({ title, description, isOpen, onToggle, children, status, bookingStatus }) => {
+  // Check if this is the booking status accordion and status is confirmed
+  const isBookingStatusConfirmed = title === 'Booking Status' && bookingStatus?.name === 'booking_confirmed';
+  
   return (
     <div>
       {/* Header */}
       <div 
-        className={`flex items-center justify-between py-6 px-6 cursor-pointer hover:bg-gray-50 transition-colors ${isOpen ? 'bg-gray-100' : 'bg-white'}`}
+        className={`flex items-center justify-between py-6 px-6 cursor-pointer transition-colors ${
+          isBookingStatusConfirmed 
+            ? (isOpen ? 'bg-green-100' : 'bg-green-50 hover:bg-green-100') 
+            : (isOpen ? 'bg-gray-100' : 'bg-white hover:bg-gray-50')
+        }`}
         onClick={onToggle}
       >
         <div className="flex items-center space-x-4 flex-1">
           <div className="flex-1">
-            <h3 className="font-semibold text-gray-800 text-base uppercase tracking-wide">{title}</h3>
-            {description && <p className="text-sm text-gray-600 mt-1">{description}</p>}
+            <h3 className={`font-semibold text-base uppercase tracking-wide ${
+              isBookingStatusConfirmed ? 'text-green-800' : 'text-gray-800'
+            }`}>
+              {title}
+            </h3>
+            {description && (
+              <p className={`text-sm mt-1 ${
+                isBookingStatusConfirmed ? 'text-green-700' : 'text-gray-600'
+              }`}>
+                {description}
+              </p>
+            )}
           </div>
         </div>
-        <div className="text-sargood-blue">
+        <div className={isBookingStatusConfirmed ? 'text-green-600' : 'text-sargood-blue'}>
           {isOpen ? <ChevronDown className="w-6 h-6" /> : <ChevronRight className="w-6 h-6" />}
         </div>
       </div>
@@ -343,6 +359,10 @@ const GoalTableDisplay = ({ data }) => {
     console.error('Error displaying goal data:', e);
     return <span className="text-red-500">Error displaying goal data</span>;
   }
+};
+
+const handleEditBooking = (uuid) => {
+  window.open(`/booking-request-form?uuid=${uuid}&origin=admin`, '_blank');
 };
 
 // Question Display Component
@@ -668,6 +688,72 @@ const AmendmentDisplay = ({ amendment, onApprove, onDecline, currentUser }) => {
   const qaPair = amendment.data.qa_pair || amendment.data;
   const isUser = currentUser && currentUser.type === 'user';
   const globalLoading = useSelector(state => state.global.loading);
+  const [packageCache, setPackageCache] = useState({});
+  const [loadingPackages, setLoadingPackages] = useState(new Set());
+
+  const fetchPackageDetails = async (packageId) => {
+    if (!packageId || packageCache[packageId] || loadingPackages.has(packageId)) {
+      return packageCache[packageId] || null;
+    }
+
+    setLoadingPackages(prev => new Set([...prev, packageId]));
+    
+    try {
+      const response = await fetch(`/api/packages/${packageId}`);
+      
+      if (response.ok) {
+        const data = await response.json();
+        
+        if (data.success && data.package) {
+          setPackageCache(prev => ({
+            ...prev,
+            [packageId]: data.package
+          }));
+          return data.package;
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching package details for amendment:', error);
+    } finally {
+      setLoadingPackages(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(packageId);
+        return newSet;
+      });
+    }
+    
+    return null;
+  };
+
+  const formatPackageDisplay = (packageId, packageData) => {
+    if (packageData) {
+      return (
+        <div className="flex items-center space-x-2">
+          <CheckCircle className="w-4 h-4 text-green-500" />
+          <div>
+            <span className="font-medium">{packageData.name}</span>
+            {packageData.package_code && (
+              <span className="text-xs text-gray-500 ml-2">({packageData.package_code})</span>
+            )}
+          </div>
+        </div>
+      );
+    } else if (loadingPackages.has(packageId)) {
+      return (
+        <div className="flex items-center space-x-2">
+          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+          <span className="text-sm text-gray-600">Loading package...</span>
+        </div>
+      );
+    } else {
+      return (
+        <div className="flex items-center space-x-2">
+          <AlertCircle className="w-4 h-4 text-orange-500" />
+          <span className="text-sm">Package ID: {packageId}</span>
+        </div>
+      );
+    }
+  };
 
   // Parse answer logic from old component
   const parseAnswer = (answer, questionType) => {
@@ -715,6 +801,20 @@ const AmendmentDisplay = ({ amendment, onApprove, onDecline, currentUser }) => {
             }
           }
           return answer;
+        case 'package-selection':
+          // Handle package selection specially
+          if (/^\d+$/.test(String(answer))) {
+            const packageId = String(answer);
+            const packageData = packageCache[packageId];
+            
+            // Trigger fetch if not already cached
+            if (!packageData && !loadingPackages.has(packageId)) {
+              fetchPackageDetails(packageId);
+            }
+            
+            return formatPackageDisplay(packageId, packageData);
+          }
+          return String(answer);
         default:
           return String(answer);
       }
@@ -928,13 +1028,16 @@ const AmendmentDisplay = ({ amendment, onApprove, onDecline, currentUser }) => {
       }
     };
 
+    // Parse both sets of data
     const oldGoals = parseGoalData(oldData);
     const newGoals = parseGoalData(newData);
     
+    // If we have no data to show, return null
     if ((!oldGoals || oldGoals.length === 0) && (!newGoals || newGoals.length === 0)) {
       return null;
     }
     
+    // Helper to determine if goals are significantly different
     const areGoalsDifferent = (goal1, goal2) => {
       if (!goal1 || !goal2) return true;
       
@@ -947,7 +1050,9 @@ const AmendmentDisplay = ({ amendment, onApprove, onDecline, currentUser }) => {
       );
     };
 
+    // For added or removed goals, simply show them
     if (oldGoals.length === 0 && newGoals.length > 0) {
+      // All goals are new
       return {
         type: 'all-new',
         goals: newGoals
@@ -955,12 +1060,15 @@ const AmendmentDisplay = ({ amendment, onApprove, onDecline, currentUser }) => {
     }
     
     if (newGoals.length === 0 && oldGoals.length > 0) {
+      // All goals were removed
       return {
         type: 'all-removed',
         goals: oldGoals
       };
     }
     
+    // Otherwise, we need to compare the goals
+    // This is a simplified comparison that assumes goals are in the same order
     const maxLength = Math.max(oldGoals.length, newGoals.length);
     const comparisonItems = [];
     
@@ -969,16 +1077,19 @@ const AmendmentDisplay = ({ amendment, onApprove, onDecline, currentUser }) => {
       const newGoal = i < newGoals.length ? newGoals[i] : null;
       
       if (!oldGoal && newGoal) {
+        // Goal was added
         comparisonItems.push({
           type: 'ADDED',
           newGoal
         });
       } else if (oldGoal && !newGoal) {
+        // Goal was removed
         comparisonItems.push({
           type: 'REMOVED',
           oldGoal
         });
       } else if (areGoalsDifferent(oldGoal, newGoal)) {
+        // Goal was changed
         comparisonItems.push({
           type: 'CHANGED',
           oldGoal,
@@ -987,10 +1098,12 @@ const AmendmentDisplay = ({ amendment, onApprove, onDecline, currentUser }) => {
       }
     }
     
+    // If no differences, return null
     if (comparisonItems.length === 0) {
       return null;
     }
     
+    // Return the comparison data
     return {
       type: 'comparison',
       items: comparisonItems
@@ -1115,9 +1228,50 @@ const AmendmentDisplay = ({ amendment, onApprove, onDecline, currentUser }) => {
                 ))}
               </>
             )}
-            {/* Add more goal diff cases as needed from original */}
           </div>
-        ) : qaPair.question_type === 'checkbox' && Array.isArray(answerStr) ? (
+        ) : qaPair.question_type === 'goal-table' ? (
+          <>
+            {oldAnswerStr && (
+              <div className="mb-4">
+                <div className="text-sm font-medium text-gray-500 mb-2">Previous Goals:</div>
+                <div className="line-through opacity-60">
+                  {typeof oldAnswerStr === 'object' && oldAnswerStr.formatted ? (
+                    <GoalTableDisplay data={oldAnswerStr} />
+                  ) : (
+                    <GoalTableDisplay data={oldAnswerStr} />
+                  )}
+                </div>
+              </div>
+            )}
+            <div>
+              <div className="text-sm font-medium text-gray-700 mb-2">Updated Goals:</div>
+              {typeof answerStr === 'object' && answerStr.formatted ? (
+                <GoalTableDisplay data={answerStr} />
+              ) : (
+                <GoalTableDisplay data={answerStr} />
+              )}
+            </div>
+          </>
+        ) : qaPair.question_type === 'package-selection' ? (
+          <div className="space-y-3">
+            {oldAnswerStr && (
+              <div>
+                <div className="text-sm font-medium text-gray-500 mb-1">Previous Package:</div>
+                <div className="line-through opacity-60">
+                  {typeof oldAnswerStr === 'object' ? oldAnswerStr : (
+                    <span className="text-sm">{safeStringify(oldAnswerStr)}</span>
+                  )}
+                </div>
+              </div>
+            )}
+            <div>
+              <div className="text-sm font-medium text-gray-700 mb-1">Updated Package:</div>
+              {typeof answerStr === 'object' ? answerStr : (
+                <span className="text-sm">{safeStringify(answerStr)}</span>
+              )}
+            </div>
+          </div>
+          ) : qaPair.question_type === 'checkbox' && Array.isArray(answerStr) ? (
           <div className="space-y-2">
             {oldAnswerStr && Array.isArray(oldAnswerStr) && (
               <div className="line-through text-gray-500 mb-2">
@@ -1655,9 +1809,11 @@ export default function BookingDetail() {
   const [eligibility, setEligibility] = useState(null);
   const [amendments, setAmendments] = useState([]);
   const [healthInfo, setHealthInfo] = useState(null);
-  const [equipmentAvailability, setEquipmentAvailability] = useState([]);
-  const [packages, setPackages] = useState(null);
-  const [openAccordionItems, setOpenAccordionItems] = useState({}); 
+
+  const [openAccordionItems, setOpenAccordionItems] = useState(() => {
+    // Initialize with empty object, will be set by useEffect
+    return {};
+  });
   const [editBooking, setEditBooking] = useState(false);
   const [editEquipment, setEditEquipment] = useState(false);
   
@@ -1685,6 +1841,121 @@ export default function BookingDetail() {
   const [selectedFunderOption, setSelectedFunderOption] = useState(null);
 
   const accordionInitialized = useRef(false);
+
+  const [editingPackage, setEditingPackage] = useState(false);
+  const [packageOptions, setPackageOptions] = useState([]);
+  const [loadingPackageOptions, setLoadingPackageOptions] = useState(false);
+  const [selectedPackageValue, setSelectedPackageValue] = useState(null);
+
+  const loadPackageOptions = useCallback(async () => {
+    console.log('Loading package options for:', packageQaPairInfo);
+    if (!packageQaPairInfo) return;
+    console.log('Package QA Pair Info:' , !packageQaPairInfo);
+    setLoadingPackageOptions(true);
+    
+    try {
+      const { question } = packageQaPairInfo;
+
+      if (question.type === 'package-selection') {
+        // Use your existing packages API
+        const response = await fetch('/api/packages');
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success && data.packages) {
+            const formattedOptions = data.packages.map(pkg => ({
+              label: pkg.name,
+              value: pkg.id.toString(),
+              packageData: pkg
+            }));
+            setPackageOptions(formattedOptions);
+          }
+        }
+      } else {
+        // Load options from Question.options
+        if (question?.options) {
+          try {
+            const options = typeof question.options === 'string' 
+              ? JSON.parse(question.options) 
+              : question.options;
+            
+            const formattedOptions = Array.isArray(options) ? options.map(option => ({
+              label: option.label || option.name || option.value,
+              value: option.value || option.id || option.label,
+              optionData: option
+            })) : [];
+            
+            setPackageOptions(formattedOptions);
+          } catch (e) {
+            console.error('Failed to parse package options:', e);
+            setPackageOptions([]);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error loading package options:', error);
+      toast.error('Failed to load package options');
+    } finally {
+      setLoadingPackageOptions(false);
+    }
+  }, [packageQaPairInfo]);
+
+  const handleUpdatePackage = useCallback(async (selectedOption) => {
+    if (!packageQaPairInfo || !selectedOption) return;
+    
+    dispatch(globalActions.setLoading(true));
+    
+    try {
+      const { qaPairId, currentAnswer } = packageQaPairInfo;
+      
+      // Use the new direct qa_pair update API
+      const response = await fetch(`/api/qa-pairs/${qaPairId}/update`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          answer: selectedOption.value,
+          oldAnswer: currentAnswer
+        })
+      });
+      
+      if (response.ok) {
+        const result = await response.json();
+        
+        if (result.success) {
+          toast.success('Package updated successfully!');
+          setEditingPackage(false);
+          setSelectedPackageValue(null);
+          setPackageOptions([]);
+          
+          // Refresh booking data
+          await fetchBooking();
+        } else {
+          toast.error(result.message || 'Failed to update package');
+        }
+      } else {
+        const errorData = await response.json();
+        toast.error(errorData.message || 'Failed to update package');
+      }
+    } catch (error) {
+      console.error('Error updating package:', error);
+      toast.error('Failed to update package');
+    } finally {
+      dispatch(globalActions.setLoading(false));
+    }
+  }, [packageQaPairInfo, dispatch, fetchBooking]);
+
+  const handleEditPackage = useCallback(() => {
+    setEditingPackage(true);
+    setSelectedPackageValue(packageQaPairInfo?.currentAnswer || null);
+    loadPackageOptions();
+  }, [packageQaPairInfo, loadPackageOptions]);
+
+  const handleCancelPackageEdit = useCallback(() => {
+    setEditingPackage(false);
+    setSelectedPackageValue(null);
+    setPackageOptions([]);
+  }, []);
 
   // Helper function to serialize package names to short codes
   const serializePackage = (packageType) => {
@@ -1834,7 +2105,7 @@ export default function BookingDetail() {
       };
     }
     
-    console.log('❌ No course information available');
+    // console.log('❌ No course information available');
     return null;
   };
 
@@ -1996,6 +2267,40 @@ export default function BookingDetail() {
       foundQaPair: foundQaPair?.id
     };
   }, [booking, packageDetails]);
+
+  const packageQaPairInfo = useMemo(() => {
+    if (!booking?.Sections) return null;
+    
+    let qaPairData = null;
+    
+    booking.Sections.forEach(section => {
+      section.QaPairs?.forEach(qaPair => {
+        const question = qaPair.Question;
+        const questionType = question?.question_type || '';
+        const questionKey = qaPair.question_key || '';
+        
+        // Check for package-related questions
+        if (questionKey === QUESTION_KEYS.ACCOMMODATION_PACKAGE_COURSES ||
+            questionKey === QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL ||
+            questionType === 'package-selection' ||
+            (question?.question?.toLowerCase().includes('accommodation') && 
+            question?.question?.toLowerCase().includes('package'))) {
+          
+          qaPairData = {
+            qaPair: qaPair,
+            section: section,
+            question: question,
+            questionType: questionType,
+            questionKey: questionKey,
+            currentAnswer: qaPair.answer,
+            qaPairId: qaPair.id
+          };
+        }
+      });
+    });
+    
+    return qaPairData;
+  }, [booking]);
 
   // Fetch package details when packageId is available
   useEffect(() => {
@@ -2195,6 +2500,57 @@ export default function BookingDetail() {
     }
   }, [booking?.uuid, dispatch]);
 
+  // Summary PDF handlers
+  const handleDownloadPDF = async (bookingId) => {
+    toast.info('Generating PDF. Please wait...');
+    try {
+      const response = await fetch(`/api/bookings/${bookingId}/download-summary-pdf-v2`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ origin: currentUser.type }),
+      });
+
+      if (!response.ok) throw new Error('Failed to generate PDF');
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `summary-of-stay-${bookingId}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error('Error downloading PDF:', error);
+      toast.error('Failed to download summary of stay. Please try again.');
+    }
+  };
+
+  const handleEmailPDF = async (bookingId) => {
+    toast.info('Your email is being sent in the background. Feel free to navigate away or continue with other tasks.');
+    try {
+      const response = await fetch(`/api/bookings/${bookingId}/email-summary-v2`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          adminEmail: currentUser.type === 'user' ? currentUser.email : null, 
+          origin: currentUser.type 
+        }),
+      });
+
+      if (!response.ok) throw new Error('Failed to send email');
+      toast.success('Summary sent to your email successfully!');
+    } catch (error) {
+      console.error('Error sending email:', error);
+      toast.error('Failed to send email. Please try again.');
+    }
+  };
+
   // Fetch booking data
   const fetchBooking = useCallback(async () => {
     if (!uuid) return;
@@ -2210,7 +2566,31 @@ export default function BookingDetail() {
         setBooking(data);
         setStatus(JSON.parse(data.status));
         setEligibility(JSON.parse(data.eligibility));
-        setAmendments(data.Logs || []);
+
+        const userAmendments = (data.Logs || [])
+          .filter(log => log.type === 'qa_pair')
+          .sort((a, b) => {
+            // Primary sort: by createdAt date (most recent first)
+            const dateA = new Date(a.createdAt);
+            const dateB = new Date(b.createdAt);
+            
+            // Handle invalid dates gracefully
+            if (isNaN(dateA.getTime()) || isNaN(dateB.getTime())) {
+              console.warn('Invalid date found in amendments:', { a: a.createdAt, b: b.createdAt });
+              return 0;
+            }
+            
+            const dateDiff = dateB.getTime() - dateA.getTime();
+            
+            // If dates are exactly the same, use ID as secondary sort (higher ID = more recent)
+            if (dateDiff === 0) {
+              return (b.id || 0) - (a.id || 0);
+            }
+            
+            return dateDiff;
+          });
+        
+        setAmendments(userAmendments);
       } else {
         toast.error('Failed to load booking');
       }
@@ -2336,6 +2716,14 @@ export default function BookingDetail() {
     });
   }, []);
 
+  // Determine if summary options should be shown
+  const showSummaryOptions = useMemo(() => {
+    if (!booking || !status) return false;
+    
+    const funder = getFunder(booking.Sections)?.toLowerCase();
+    return status.name === 'booking_confirmed' && funder && funder !== 'icare';
+  }, [booking, status]);
+
   // Room setup calculation
   const roomSetupData = useMemo(() => {
     if (!booking?.Sections) return { adults: 0, children: 0, infants: 0, pets: 0 };
@@ -2352,20 +2740,6 @@ export default function BookingDetail() {
   // Create accordion items
   const accordionItems = useMemo(() => {
     if (!booking) return [];
-
-    const getStatusType = (status) => {
-      try {
-        const statusObj = JSON.parse(status);
-        switch (statusObj.name) {
-          case 'booking_confirmed': return 'success';
-          case 'booking_pending': return 'pending';
-          case 'booking_cancelled': return 'error';
-          default: return 'pending';
-        }
-      } catch {
-        return 'pending';
-      }
-    };
 
     const items = [
       {
@@ -2504,7 +2878,14 @@ export default function BookingDetail() {
                               </svg>
                             </div>
                             <div className="text-sm font-semibold text-gray-900 mb-2">PACKAGE</div>
-                            <div className="text-lg font-bold text-gray-900">
+                            <div 
+                              className={`font-bold text-gray-900 ${
+                                packageInfo && packageInfo.length > 12 
+                                  ? 'text-sm break-words' 
+                                  : 'text-lg'
+                              }`}
+                              title={packageInfo}
+                            >
                               {packageInfo}
                             </div>
                           </div>
@@ -2604,28 +2985,45 @@ export default function BookingDetail() {
           <div className="p-6">
             <Can I="Read" a="Booking">
               {isUser ? (
-                <AssetsAndEquipment equipmentsData={booking.Equipment} bookingId={booking.id} />
+                <AssetsAndEquipment 
+                  equipmentsData={booking.Equipment ? 
+                    [...booking.Equipment].sort((a, b) => 
+                      (a.name || '').localeCompare(b.name || '', undefined, { 
+                        numeric: true, 
+                        sensitivity: 'base' 
+                      })
+                    ) : []
+                  } 
+                  bookingId={booking.id} 
+                />
               ) : (
                 <div className="space-y-4">
                   {booking.Equipment && booking.Equipment.length > 0 ? (
                     <ul className="space-y-2">
-                      {booking.Equipment.map((equipment, index) => {
-                        const equipmentDisplay = `${equipment.name} - ${equipment.serial_number ? equipment.serial_number : 'N/A'}`;
-                        return (
-                          <li key={index} className="flex gap-1 items-start">
-                            <div className="relative min-w-5 min-h-5 w-5 h-5 mt-0.5">
-                              <Image
-                                alt={"check in sargood"}
-                                src={"/icons/check-green.png"}
-                                width={20}
-                                height={20}
-                                className="w-full h-full object-contain"
-                              />
-                            </div>
-                            <span className="font-bold">{equipmentDisplay}</span>
-                          </li>
-                        );
-                      })}
+                      {[...booking.Equipment]
+                        .sort((a, b) => 
+                          (a.name || '').localeCompare(b.name || '', undefined, { 
+                            numeric: true, 
+                            sensitivity: 'base' 
+                          })
+                        )
+                        .map((equipment, index) => {
+                          const equipmentDisplay = `${equipment.name} - ${equipment.serial_number ? equipment.serial_number : 'N/A'}`;
+                          return (
+                            <li key={index} className="flex gap-1 items-start">
+                              <div className="relative min-w-5 min-h-5 w-5 h-5 mt-0.5">
+                                <Image
+                                  alt={"check in sargood"}
+                                  src={"/icons/check-green.png"}
+                                  width={20}
+                                  height={20}
+                                  className="w-full h-full object-contain"
+                                />
+                              </div>
+                              <span className="font-bold">{equipmentDisplay}</span>
+                            </li>
+                          );
+                        })}
                     </ul>
                   ) : (
                     <div className="text-center py-8">
@@ -2750,28 +3148,114 @@ export default function BookingDetail() {
               </div>
             ) : (() => {
               const packageDisplay = getPackageTypeDisplay();
-              return packageDisplay ? (
-                <div className="bg-gray-50 p-4 rounded-lg">
-                  <div className="flex items-center space-x-4">
-                    <div className="flex-shrink-0">
-                      <Image
-                        alt={"check in sargood"}
-                        src={"/icons/check-green.png"}
-                        width={20}
-                        height={20}
-                      />
+              
+              return (
+                <div className="space-y-4">
+                  {packageDisplay ? (
+                    <div className="bg-gray-50 p-4 rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-4">
+                          <div className="flex-shrink-0">
+                            <Image
+                              alt={"check in sargood"}
+                              src={"/icons/check-green.png"}
+                              width={20}
+                              height={20}
+                            />
+                          </div>
+                          <div className="flex-1">
+                            <p className="font-medium text-gray-900">
+                              {packageDisplay.name}
+                            </p>
+                            {packageDisplay.code && (
+                              <p className="text-sm text-gray-600">
+                                Code: {packageDisplay.code}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        
+                        {/* Edit Button - Only show for users with edit permissions */}
+                        <Can I="Create/Edit" a="Booking">
+                          {isUser && packageQaPairInfo && (
+                            <Button
+                              color="outline"
+                              size="small"
+                              label="EDIT"
+                              onClick={handleEditPackage}
+                              disabled={editingPackage}
+                            />
+                          )}
+                        </Can>
+                      </div>
                     </div>
-                    <div className="flex-1">
-                      <p className="font-medium text-gray-900">
-                        {packageDisplay.name}
-                      </p>
+                  ) : (
+                    <div className="text-center py-8">
+                      <Package className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                      <p className="text-gray-500">No package information available</p>
+                      
+                      {/* Add Package Button - Only show for users with edit permissions */}
+                      <Can I="Create/Edit" a="Booking">
+                        {isUser && packageQaPairInfo && (
+                          <div className="mt-4">
+                            <Button
+                              color="primary"
+                              size="small"
+                              label="ADD PACKAGE"
+                              onClick={handleEditPackage}
+                              disabled={editingPackage}
+                            />
+                          </div>
+                        )}
+                      </Can>
                     </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="text-center py-8">
-                  <Package className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                  <p className="text-gray-500">No package information available</p>
+                  )}
+                  
+                  {/* Package Edit Mode */}
+                  {editingPackage && (
+                    <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                      <h4 className="font-medium text-blue-900 mb-3">Update Package</h4>
+                      
+                      {loadingPackageOptions ? (
+                        <div className="flex items-center justify-center py-4">
+                          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+                          <span className="ml-2 text-blue-700">Loading options...</span>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          <div className="w-full">
+                            <SelectComponent
+                              label="Select Package"
+                              placeholder="Choose a package..."
+                              value={packageOptions.find(opt => opt.value === selectedPackageValue)?.label || ''}
+                              options={packageOptions}
+                              onChange={(selected) => {
+                                setSelectedPackageValue(selected.value);
+                                handleUpdatePackage(selected);
+                              }}
+                              width="100%"
+                            />
+                          </div>
+                          
+                          <div className="flex space-x-2">
+                            <Button
+                              color="outline"
+                              size="small"
+                              label="Cancel"
+                              onClick={handleCancelPackageEdit}
+                            />
+                          </div>
+                          
+                          {/* Show current selection */}
+                          {selectedPackageValue && (
+                            <div className="text-sm text-blue-700 mt-2">
+                              Current: {packageOptions.find(opt => opt.value === selectedPackageValue)?.label}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })()}
@@ -2962,17 +3446,17 @@ export default function BookingDetail() {
     return items;
   }, [booking, amendments, healthInfo, loadingStates, editEquipment, currentUser, roomSetupData, isUser, status, eligibility, statuses, eligibilities, handleUpdateStatus, handleUpdateEligibility, packageDetails, loadingPackageDetails, courseInfo, funderInfo, getPackageTypeDisplay]);
 
-  useEffect(() => {
-    // Set all accordion items to open by default when booking data loads
-    if (booking && accordionItems.length > 0 && !accordionInitialized.current) {
-      const allOpenItems = {};
-      accordionItems.forEach((_, index) => {
-        allOpenItems[index] = true;
-      });
-      setOpenAccordionItems(allOpenItems);
-      accordionInitialized.current = true;
-    }
-  }, [booking?.id, accordionItems.length]);
+  // useEffect(() => {
+  //   // Set all accordion items to open by default when booking data loads
+  //   if (booking && accordionItems.length > 0 && !accordionInitialized.current) {
+  //     const allOpenItems = {};
+  //     accordionItems.forEach((_, index) => {
+  //       allOpenItems[index] = true;
+  //     });
+  //     setOpenAccordionItems(allOpenItems);
+  //     accordionInitialized.current = true;
+  //   }
+  // }, [booking?.id, accordionItems]); 
 
   useEffect(() => {
     if (booking?.id) {
@@ -3043,15 +3527,45 @@ export default function BookingDetail() {
               </div>
             </div>
             
-            {/* Edit Booking Button */}
+            {/* Action Buttons */}
             <Can I="Create/Edit" a="Booking">
               {isUser && (
-                <Button
-                  color="primary"
-                  size="medium"
-                  label="EDIT BOOKING"
-                  onClick={() => setEditBooking(true)}
-                />
+                <div className="flex items-center space-x-3">
+                  {/* Summary Options - only show for confirmed bookings with specific funders */}
+                  {showSummaryOptions && (
+                    <>
+                      {/* Download Summary Button */}
+                      <button
+                        onClick={() => handleDownloadPDF(booking.uuid)}
+                        className="p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                        title="Download Summary of Stay"
+                      >
+                        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
+                      </button>
+                      
+                      {/* Email Summary Button */}
+                      <button
+                        onClick={() => handleEmailPDF(booking.uuid)}
+                        className="p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                        title="Send Summary of Stay via Email"
+                      >
+                        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                        </svg>
+                      </button>
+                    </>
+                  )}
+                  
+                  {/* Edit Booking Button */}
+                  <Button
+                    color="primary"
+                    size="medium"
+                    label="EDIT BOOKING"
+                    onClick={() => handleEditBooking(booking.uuid)}
+                  />
+                </div>
               )}
             </Can>
           </div>
@@ -3070,6 +3584,7 @@ export default function BookingDetail() {
                     title={item.title}
                     description={item.description}
                     status={item.status}
+                    bookingStatus={status}
                     isOpen={openAccordionItems[index] || false}
                     onToggle={() => toggleAccordionItem(index)}
                   >

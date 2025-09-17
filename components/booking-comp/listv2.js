@@ -401,28 +401,43 @@ const fetchBookings = async (searchTerm = searchValue, invalidateCache = false) 
 
   // Helper function to get package information using question keys
   const getPackageInfo = (booking) => {
-    const packageData = { package: null, courseAnsweredYes: false };
+    const packageData = { package: null, courseAnsweredYes: false, packageDetails: null, packageCode: null };
     
     if (booking.Sections) {
       for (const section of booking.Sections) {
         if (!section.QaPairs) continue;
         
-        // Check for full accommodation package using question key
-        const packageQuestion = section.QaPairs.find(qaPair => 
-          qaPair.Question?.question_key === QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL
+        // First, check for package-selection question type with packageDetails
+        const packageSelectionQuestion = section.QaPairs.find(qaPair => 
+          qaPair.Question?.type === 'package-selection' && qaPair.packageDetails
         );
         
-        if (packageQuestion) {
-          packageData.package = packageQuestion.answer;
+        if (packageSelectionQuestion && packageSelectionQuestion.packageDetails) {
+          packageData.package = packageSelectionQuestion.packageDetails.name;
+          packageData.packageDetails = packageSelectionQuestion.packageDetails;
+          packageData.packageCode = packageSelectionQuestion.packageDetails.package_code;
         }
         
-        // Check for course package using question key
-        const coursePackageQuestion = section.QaPairs.find(qaPair => 
-          qaPair.Question?.question_key === QUESTION_KEYS.ACCOMMODATION_PACKAGE_COURSES
-        );
+        // Fallback: Check for full accommodation package using question key
+        if (!packageData.package) {
+          const packageQuestion = section.QaPairs.find(qaPair => 
+            qaPair.Question?.question_key === QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL
+          );
+          
+          if (packageQuestion) {
+            packageData.package = packageQuestion.answer;
+          }
+        }
         
-        if (coursePackageQuestion) {
-          packageData.package = coursePackageQuestion.answer;
+        // Fallback: Check for course package using question key
+        if (!packageData.package) {
+          const coursePackageQuestion = section.QaPairs.find(qaPair => 
+            qaPair.Question?.question_key === QUESTION_KEYS.ACCOMMODATION_PACKAGE_COURSES
+          );
+          
+          if (coursePackageQuestion) {
+            packageData.package = coursePackageQuestion.answer;
+          }
         }
         
         // Check if course was selected using question key
@@ -435,12 +450,24 @@ const fetchBookings = async (searchTerm = searchValue, invalidateCache = false) 
         }
       }
     }
-    
+    console.log(booking.reference_id, packageData)
     return packageData;
   };
 
   // Helper to get abbreviated package code
-  const getPackageCode = (packageType) => {
+  const getPackageCode = (packageData) => {
+    // If we have packageDetails with package_code, use it directly
+    if (packageData?.packageCode) {
+      return packageData.packageCode;
+    }
+    
+    // If we have packageDetails but no packageCode, try to extract from package_code field
+    if (packageData?.packageDetails?.package_code) {
+      return packageData.packageDetails.package_code;
+    }
+    
+    // Fallback: Parse package type text (legacy logic)
+    const packageType = packageData?.package;
     if (!packageType) return '';
     
     if (packageType.includes("Wellness & Very High Support Package")) {
@@ -471,7 +498,7 @@ const fetchBookings = async (searchTerm = searchValue, invalidateCache = false) 
           );
           
           if (questionFound) {
-            result = questionFound.answer;
+            result = questionFound.answer?.toUpperCase() || "N/A";
             break;
           }
         }
@@ -643,18 +670,29 @@ const fetchBookings = async (searchTerm = searchValue, invalidateCache = false) 
         accessor: "package_type",
         Cell: ({ row: { original } }) => {
           const packageData = getPackageInfo(original);
-          const packageCode = getPackageCode(packageData.package);
+          const packageCode = getPackageCode(packageData);
           const displayCode = packageData.courseAnsweredYes ? `Course${packageCode}` : packageCode;
           
           return (
             <div className="flex flex-nowrap">
               <p>{displayCode || "N/A"}</p>
-              {packageData.package && displayCode !== "N/A" && (
+              {(packageData.package || packageData.packageDetails) && displayCode !== "N/A" && (
                 <div className="group relative">
                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 ml-2">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
                   </svg>
-                  <div className="absolute text-xs p-4 bg-black/80 rounded-md text-white bottom-[100%] right-0 hidden group-hover:block w-[300px]">{packageData.package}</div>
+                  <div className="absolute text-xs p-4 bg-black/80 rounded-md text-white bottom-[100%] right-0 hidden group-hover:block w-[300px]">
+                    {packageData.packageDetails?.name || packageData.package}
+                    {packageData.packageDetails && (
+                      <div className="mt-2 text-gray-300">
+                        <div>Code: {packageData.packageDetails.package_code}</div>
+                        <div>Funder: {packageData.packageDetails.funder}</div>
+                        {packageData.packageDetails.ndis_package_type && (
+                          <div>Type: {packageData.packageDetails.ndis_package_type.toUpperCase()}</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -690,11 +728,11 @@ const fetchBookings = async (searchTerm = searchValue, invalidateCache = false) 
             <div className="flex relative">
               {labels.map((label, index) => {
                 const color = labelColors[label] || 'gray';
-                
+                const displayLabel = label instanceof Object ? label.label : label;
                 return (
                   <p key={index} className={`${index > 0 && 'ml-1'} bg-${color}-500 w-fit px-2 p-1 text-xs text-white rounded-full group`}>
-                    {getFirstLetters(label, '_')}
-                    <span className="absolute bg-black/90 p-4 py-2 rounded-md hidden group-hover:block whitespace-nowrap bottom-2/3">{_.startCase(label)}</span>
+                    {getFirstLetters(displayLabel, '_')}
+                    <span className="absolute bg-black/90 p-4 py-2 rounded-md hidden group-hover:block whitespace-nowrap bottom-2/3">{_.startCase(displayLabel)}</span>
                   </p>
                 );
               })}

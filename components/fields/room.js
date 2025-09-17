@@ -183,7 +183,7 @@ const RoomsField = (props) => {
       let priceLabel = 'Included in your package price';
       
       // Only show out-of-pocket fee for additional rooms or upgrades
-      if (isAdditional) {
+      if (isAdditional || room.type !== 'studio') {
         if (isNdisFunded) {
           priceLabel = `Out of pocket fee of ${room.price_per_night}/night (May be covered by some funders)`;
         } else {
@@ -202,6 +202,7 @@ const RoomsField = (props) => {
           <div className="w-full grid grid-cols-12 gap-3">
             <div className="col-span-12">
               <div className="grid grid-cols-3 gap-x-4 gap-y-3">
+                {/* Bedrooms - First */}
                 <div className="text-left">
                   <div className="flex items-center gap-2 mb-1">
                     <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -211,6 +212,8 @@ const RoomsField = (props) => {
                   </div>
                   <p className="mt-1 text-base">{room.bedrooms}</p>
                 </div>
+                
+                {/* Bathrooms - Second, under bedrooms */}
                 <div className="text-left">
                   <div className="flex items-center gap-2 mb-1">
                     <svg className="w-4 h-4 text-blue-600" fill="currentColor" viewBox="0 0 24 24">
@@ -220,24 +223,8 @@ const RoomsField = (props) => {
                   </div>
                   <p className="mt-1 text-base">{room.bathrooms}</p>
                 </div>
-                <div className="text-left">
-                  <div className="flex items-center gap-2 mb-1">
-                    <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 14v3m4-3v3m4-3v3M3 21h18M3 10h18M3 7l9-4 9 4M4 10h16v11H4V10z" />
-                    </svg>
-                    <p className="text-sm text-slate-400">Ergonomic King Beds</p>
-                  </div>
-                  <p className="mt-1 text-base">{room.ergonomic_king_beds}</p>
-                </div>
-                <div className="text-left">
-                  <div className="flex items-center gap-2 mb-1">
-                    <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 14v3m4-3v3M3 21h18M3 10h18M3 7l9-4 9 4M4 10h16v11H4V10z" />
-                    </svg>
-                    <p className="text-sm text-slate-400">King Single Beds</p>
-                  </div>
-                  <p className="mt-1 text-base">{room.king_single_beds}</p>
-                </div>
+
+                {/* Max Guests - Third position */}
                 <div className="text-left">
                   <div className="flex items-center gap-2 mb-1">
                     <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -247,6 +234,31 @@ const RoomsField = (props) => {
                   </div>
                   <p className="mt-1 text-base">{room.max_guests}</p>
                 </div>
+
+                {/* Bed types grouped together - Second row */}
+                {/* Ergonomic King Beds */}
+                <div className="text-left">
+                  <div className="flex items-center gap-2 mb-1">
+                    <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 14v3m4-3v3m4-3v3M3 21h18M3 10h18M3 7l9-4 9 4M4 10h16v11H4V10z" />
+                    </svg>
+                    <p className="text-sm text-slate-400">Ergonomic King Beds</p>
+                  </div>
+                  <p className="mt-1 text-base">{room.ergonomic_king_beds}</p>
+                </div>
+                
+                {/* King Single Beds */}
+                <div className="text-left">
+                  <div className="flex items-center gap-2 mb-1">
+                    <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 14v3m4-3v3M3 21h18M3 10h18M3 7l9-4 9 4M4 10h16v11H4V10z" />
+                    </svg>
+                    <p className="text-sm text-slate-400">King Single Beds</p>
+                  </div>
+                  <p className="mt-1 text-base">{room.king_single_beds}</p>
+                </div>
+                
+                {/* Queen Sofa Beds */}
                 <div className="text-left">
                   <div className="flex items-center gap-2 mb-1">
                     <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -257,6 +269,8 @@ const RoomsField = (props) => {
                   <p className="mt-1 text-base">{room.queen_sofa_beds}</p>
                 </div>
               </div>
+              
+              {/* Price section */}
               <div className="mt-4">
                 <div className="flex items-center gap-2 mb-1">
                   <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -514,7 +528,7 @@ const RoomsField = (props) => {
               )}
 
               {/* Add next room button */}
-              {roomIndex === additionalRooms.length - 1 && (
+              {(additionalRooms.length < 2 && roomIndex === additionalRooms.length - 1) && (
                 <button
                   onClick={addAdditionalRoom}
                   className="group flex items-center gap-2 px-6 py-3 text-blue-600 bg-blue-50 border-2 border-blue-200 rounded-xl hover:bg-blue-100 hover:border-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-200 transition-all duration-200 font-medium"
@@ -529,6 +543,20 @@ const RoomsField = (props) => {
           );
         })}
       </div>
+
+      {/* Maximum rooms reached message */}
+      {additionalRooms.length >= 2 && (
+        <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+          <div className="flex items-center">
+            <svg className="w-5 h-5 text-amber-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <p className="text-amber-800 text-sm font-medium">
+              Maximum of 3 rooms total (1 main room + 2 additional rooms) allowed per booking.
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

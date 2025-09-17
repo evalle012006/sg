@@ -1141,19 +1141,6 @@ const PackageSelection = ({
               <span className="font-mono text-sm bg-gray-100 px-2 py-1 rounded">
                 {safeRender(pkg.package_code, 'N/A')}
               </span>
-              <div className="flex items-center gap-2">
-                <span className={`px-2 py-1 rounded font-medium text-sm ${
-                  isNdis ? 'bg-blue-100 text-blue-800' : 'bg-orange-100 text-orange-800'
-                }`}>
-                  {safeRender(pkg.funder, 'Unknown')}
-                </span>
-                {/* NDIS Package Type Badge */}
-                {isNdis && pkg.ndis_package_type && (
-                  <span className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded font-medium text-xs uppercase">
-                    {pkg.ndis_package_type === 'sta' ? 'STA' : safeRender(pkg.ndis_package_type, 'Unknown')}
-                  </span>
-                )}
-              </div>
             </div>
             
             <div className="text-2xl font-bold text-gray-900">
@@ -1163,86 +1150,6 @@ const PackageSelection = ({
 
           {/* Package Details */}
           <div className="space-y-4">
-            {pkg.description && (
-              <div>
-                <p className="text-sm text-gray-600">
-                  {safeRender(pkg.description, 'No description available')}
-                </p>
-              </div>
-            )}
-
-            {/* Support Level for NDIS packages */}
-            {isNdis && pkg.support_level && (
-              <div>
-                <h4 className="text-sm font-semibold text-gray-700 mb-2">
-                  Support Level
-                </h4>
-                <span className="px-2 py-1 bg-yellow-100 text-yellow-800 rounded text-sm font-medium">
-                  {safeRender(pkg.support_level, 'Not specified')}
-                </span>
-              </div>
-            )}
-            
-            {/* Inclusions (only for Non-NDIS packages with clean, readable data) */}
-            {!isNdis && pkg.inclusions && pkg.inclusions.length > 0 && (
-              <div>
-                <h4 className="text-sm font-semibold text-gray-700 mb-2">
-                  What&apos;s Included
-                </h4>
-                <ul className="text-sm text-gray-600 space-y-1">
-                  {pkg.inclusions.slice(0, 4).map((inclusion, idx) => {
-                    // Only show simple string inclusions, skip complex objects
-                    if (typeof inclusion === 'string' && inclusion.length < 100) {
-                      return (
-                        <li key={idx} className="flex items-start gap-2">
-                          <span className="text-xs mt-1 text-green-500">✓</span>
-                          {inclusion}
-                        </li>
-                      );
-                    }
-                    // Skip complex inclusion objects
-                    return null;
-                  }).filter(Boolean)}
-                  {pkg.inclusions.filter(inc => typeof inc === 'string' && inc.length < 100).length > 4 && (
-                    <li className="text-xs text-gray-500 italic">
-                      +{pkg.inclusions.filter(inc => typeof inc === 'string' && inc.length < 100).length - 4} more inclusions
-                    </li>
-                  )}
-                </ul>
-              </div>
-            )}
-            
-            {/* Features */}
-            {pkg.features && pkg.features.length > 0 && (
-              <div>
-                <h4 className="text-sm font-semibold text-gray-700 mb-2">
-                  Key Features
-                </h4>
-                <div className="flex flex-wrap gap-2">
-                  {pkg.features.slice(0, 6).map((feature, idx) => {
-                    const featureText = safeRender(
-                      typeof feature === 'string' ? feature : 
-                      feature?.name || feature?.title || feature,
-                      'Feature'
-                    );
-                    return (
-                      <span 
-                        key={idx} 
-                        className="px-2 py-1 text-xs rounded-full bg-blue-100 text-blue-700"
-                      >
-                        {featureText}
-                      </span>
-                    );
-                  })}
-                  {pkg.features.length > 6 && (
-                    <span className="px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-600">
-                      +{pkg.features.length - 6} more
-                    </span>
-                  )}
-                </div>
-              </div>
-            )}
-
             {/* NDIS-specific footer note */}
             {isNdis && (
               <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
@@ -1360,97 +1267,114 @@ const PackageSelection = ({
 
   return (
     <div className={`package-selection ${className}`}>
-      {/* Package Display */}
-      <div className="space-y-6">
-        {Object.entries(groupedPackages).map(([funderType, funderPackages]) => {
-          if (funderPackages.length === 0) return null;
-          
-          return (
-            <div key={funderType} className="space-y-4">
-              {!builderMode && (
-                <div className="mb-4">
-                  <p className="text-gray-700 text-sm">
-                    Based on the information provided, the following {funderPackages.length === 1 ? 'package is' : 'packages are'} available to you:
-                  </p>
-                </div>
-              )}
+      {/* Main Content Layout */}
+      <div className="flex flex-col lg:flex-row gap-3">
+        {/* Package Display - Main Content */}
+        <div className="flex-1 min-w-0">
+          <div className="space-y-6">
+            {Object.entries(groupedPackages).map(([funderType, funderPackages]) => {
+              if (funderPackages.length === 0) return null;
+              
+              return (
+                <div key={funderType} className="space-y-4">
+                  {!builderMode && (
+                    <div className="mb-4">
+                      <p className="text-gray-700 text-sm">
+                        Based on the information provided, the following {funderPackages.length === 1 ? 'package is' : 'packages are'} available to you:
+                      </p>
+                    </div>
+                  )}
 
-              {/* Category Header (only show in builder mode or when multiple packages) */}
-              {(builderMode || funderPackages.length > 1) && (
-                <div className="mb-4">
-                  <div className="flex items-center gap-3 mb-2">
-                    <h2 className="text-lg font-semibold text-gray-900">
-                      {funderType} Packages
-                    </h2>
-                    <span className="px-2 py-1 bg-gray-100 text-gray-600 text-sm rounded">
-                      {funderPackages.length} available
-                    </span>
-                  </div>
+                  {/* Category Header (only show in builder mode or when multiple packages) */}
+                  {(builderMode || funderPackages.length > 1) && (
+                    <div className="mb-4">
+                      <div className="flex items-center gap-3 mb-2">
+                        <h2 className="text-lg font-semibold text-gray-900">
+                          {funderType} Packages
+                        </h2>
+                        <span className="px-2 py-1 bg-gray-100 text-gray-600 text-sm rounded">
+                          {funderPackages.length} available
+                        </span>
+                      </div>
+                      {!builderMode && funderPackages.length > 1 && (
+                        <p className="text-sm text-gray-600">
+                          Please select the package that best suits your accommodation and support needs.
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Selection Status (only for multi-package scenarios) */}
                   {!builderMode && funderPackages.length > 1 && (
-                    <p className="text-sm text-gray-600">
-                      Please select the package that best suits your accommodation and support needs.
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {/* Selection Status (only for multi-package scenarios) */}
-              {!builderMode && funderPackages.length > 1 && (
-                <div className="mb-4">
-                  {!funderPackages.some(pkg => isPackageSelected(pkg)) ? (
-                    <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                      <div className="flex items-center gap-2">
-                        <div className="w-4 h-4 border-2 border-blue-400 rounded-full"></div>
-                        <span className="text-sm text-blue-700">
-                          Please select a package to continue
-                        </span>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
-                      <div className="flex items-center gap-2">
-                        <div className="w-4 h-4 bg-green-500 rounded-full flex items-center justify-center">
-                          <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
-                          </svg>
+                    <div className="mb-4">
+                      {!funderPackages.some(pkg => isPackageSelected(pkg)) ? (
+                        <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                          <div className="flex items-center gap-2">
+                            <div className="w-4 h-4 border-2 border-blue-400 rounded-full"></div>
+                            <span className="text-sm text-blue-700">
+                              Please select a package to continue
+                            </span>
+                          </div>
                         </div>
-                        <span className="text-sm text-green-700">
-                          Package selected: {(() => {
-                            const selectedPkg = funderPackages.find(pkg => isPackageSelected(pkg));
-                            return selectedPkg?.name || 'Package';
-                          })()}
-                        </span>
-                      </div>
+                      ) : (
+                        <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                          <div className="flex items-center gap-2">
+                            <div className="w-4 h-4 bg-green-500 rounded-full flex items-center justify-center">
+                              <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
+                              </svg>
+                            </div>
+                            <span className="text-sm text-green-700">
+                              Package selected: {(() => {
+                                const selectedPkg = funderPackages.find(pkg => isPackageSelected(pkg));
+                                return selectedPkg?.name || 'Package';
+                              })()}
+                            </span>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
+
+                  {/* Package Cards Grid */}
+                  <div className={`grid gap-6 ${
+                    builderMode 
+                      ? 'grid-cols-1 lg:grid-cols-2 xl:grid-cols-3'
+                      : funderPackages.length === 1 
+                        ? 'grid-cols-1 max-w-lg'
+                        : 'grid-cols-1 lg:grid-cols-2'
+                  }`}>
+                    {funderPackages.map((pkg) => (
+                      <ErrorBoundary key={pkg.id}>
+                        {renderPackageCard(pkg)}
+                      </ErrorBoundary>
+                    ))}
+                  </div>
                 </div>
-              )}
+              );
+            })}
+          </div>
 
-              {/* Package Cards Grid */}
-              <div className={`grid gap-6 ${
-                builderMode 
-                  ? 'grid-cols-1 lg:grid-cols-2 xl:grid-cols-3'
-                  : funderPackages.length === 1 
-                    ? 'grid-cols-1 max-w-lg'
-                    : 'grid-cols-1 lg:grid-cols-2'
-              }`}>
-                {funderPackages.map((pkg) => (
-                  <ErrorBoundary key={pkg.id}>
-                    {renderPackageCard(pkg)}
-                  </ErrorBoundary>
-                ))}
-              </div>
+          {/* Error indicator */}
+          {error && (
+            <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded text-red-600 text-sm">
+              {error}
             </div>
-          );
-        })}
-      </div>
-
-      {/* Error indicator */}
-      {error && (
-        <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded text-red-600 text-sm">
-          {error}
+          )}
         </div>
-      )}
+        
+        {/* Right Sidebar - Lorem Ipsum Section */}
+        {!builderMode && (
+          <div className="w-full lg:w-96 xl:w-1/2 flex-shrink-0">
+            <div className="p-4 bg-gray-50 rounded-lg border border-gray-200 sticky top-4">
+              <h3 className="font-semibold text-gray-900 mb-3">Promo code</h3>
+              <p className="text-gray-700 text-sm leading-relaxed">
+                Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 };

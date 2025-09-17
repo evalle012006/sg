@@ -443,11 +443,30 @@ const DateField = (props) => {
 
     // Handle calendar date selection
     const handleCalendarDateSelect = (selectedDate) => {
+        // Check past date restriction first
         if (!allowPrevDate && isDateInPast(selectedDate)) {
             toast.error('Past dates are not allowed!');
-            return;
+            return; // Prevent selection entirely
         }
 
+        // Check cross-field validation before allowing selection
+        const formattedDateForValidation = moment(selectedDate).format('YYYY-MM-DD');
+        
+        if (props.name === 'checkoutDate' && checkin) {
+            const checkoutValidationError = validateCheckoutDate(checkin, formattedDateForValidation);
+            if (checkoutValidationError) {
+                toast.error(checkoutValidationError);
+                return; // Prevent selection entirely
+            }
+        } else if (props.name === 'checkinDate' && checkout) {
+            const checkinValidationError = validateCheckinDate(formattedDateForValidation, checkout);
+            if (checkinValidationError) {
+                toast.error(checkinValidationError);
+                return; // Prevent selection entirely
+            }
+        }
+
+        // Only proceed if validation passes
         const formattedDate = moment(selectedDate).format('DD-MM-YYYY');
         const dateArr = formattedDate.split('-');
         setDay(dateArr[0]);
@@ -460,7 +479,7 @@ const DateField = (props) => {
         setError(false);
         setErrorMessage('');
 
-        // FIXED: Immediately notify parent of the valid date
+        // Notify parent of the valid date
         if (props.onChange) {
             const isoFormattedDate = moment(selectedDate).format('YYYY-MM-DD');
             props.onChange(isoFormattedDate, null);

@@ -19,14 +19,6 @@ const AccordionItem = ({
   isLastItem,
   origin
 }) => {
-  const getStatusIcon = () => {
-    if (status === 'complete') {
-      return <div className="flex items-center justify-center w-6 h-6 rounded-full bg-green-500"><Check size={16} color="white" /></div>;
-    } else if (status === 'error') {
-      return <div className="flex items-center justify-center w-6 h-6 rounded-full bg-red-500"><AlertCircle size={16} color="white" /></div>;
-    }
-    return <div className="flex items-center justify-center w-6 h-6 rounded-full bg-gray-300 text-white text-xs font-medium">{index + 1}</div>;
-  };
 
   const getStatusBadgeType = () => {
     switch (status) {
@@ -70,7 +62,7 @@ const AccordionItem = ({
     >
       {/* Header - Now clickable */}
       <div 
-        className={`flex items-center justify-between py-6 px-8 ${isOpen ? 'bg-gray-50' : 'bg-white'} transition-colors cursor-pointer hover:bg-gray-50`}
+        className={`flex items-center justify-between py-4 px-8 ${isOpen ? 'bg-gray-50' : 'bg-white'} transition-colors cursor-pointer hover:bg-gray-50`}
         onClick={handleHeaderClick}
       >
         <div className="flex items-center space-x-4 flex-1">

@@ -735,8 +735,8 @@ const QuestionPage = ({
     return (
         <React.Fragment>
             <div className="w-full flex flex-col">
-                <div className="min-h-screen flex flex-col w-full">
-                    <div className="mt-2 px-8 py-4">
+                <div className="flex flex-col w-full">
+                    <div className="mt-2 px-8 py-2">
                         {currentPage && guest && currentPage.Sections.map((section, idx) => {
                             let s = { ...section };
                             const label = s.label;
@@ -763,7 +763,7 @@ const QuestionPage = ({
 
                             return (
                                 <div key={idx} className={`flex flex-col ${s.hidden && 'hidden'}`}>
-                                    <div className={`${sec_css} p-2 mb-6 w-full`}>
+                                    <div className={`${sec_css} p-2 w-full`}>
                                         {s.Questions && s.Questions
                                             .filter(question => {
                                                 // Must be a supported question type
@@ -1004,7 +1004,7 @@ const QuestionPage = ({
                                                             <div className="flex flex-col w-full flex-1">
                                                                 {q.label && <span className="font-bold text-sargood-blue text-xl mb-2">{q.label}</span>}
                                                                 <div className="text-xs flex flex-row">
-                                                                    <span className="font-bold">{q.question}</span>
+                                                                    <span className="font-bold text-sm">{q.question}</span>
                                                                 </div>
                                                                 <div className="flex align-middle mt-2">
                                                                     <GetField  key={q.id} type='url' width='100%' url={details.url} error={q.error} label={details.label} />
@@ -1017,7 +1017,7 @@ const QuestionPage = ({
                                                             <div className="flex flex-col w-full flex-1">
                                                                 {q.label && <span className="font-bold text-sargood-blue text-xl mb-2">{q.label}</span>}
                                                                 <div className="text-xs flex flex-row">
-                                                                    <span className="font-bold">{q.question}</span>
+                                                                    <span className="font-bold text-sm">{q.question}</span>
                                                                 </div>
                                                                 <div className="flex align-middle mt-2">
                                                                     <GetField key={q.id} type='rich-text' width='100%' description={typeof q.details == 'string' ? JSON.parse(q.details)?.description : q.details.description} />
@@ -1030,7 +1030,7 @@ const QuestionPage = ({
                                                             <div className="flex flex-col w-full flex-1">
                                                                 {q.label && <span className="font-bold text-sargood-blue text-xl mb-2">{q.label}</span>}
                                                                 <div className="text-xs flex flex-row">
-                                                                    <span className="font-bold">{q.question}</span>
+                                                                    <span className="font-bold text-sm">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
                                                                 </div>
                                                                 <div className="flex align-middle mt-2">
@@ -1054,7 +1054,7 @@ const QuestionPage = ({
                                                             <div className="flex flex-col w-full flex-1">
                                                                 {q.label && <span className="font-bold text-sargood-blue text-xl mb-2">{q.label}</span>}
                                                                 <div className="text-xs flex flex-row">
-                                                                    <span className="font-bold">{q.question}</span>
+                                                                    <span className="font-bold text-sm">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
                                                                 </div>
                                                                 <div className="flex align-middle mt-2">
@@ -1078,7 +1078,7 @@ const QuestionPage = ({
                                                             <div className="flex flex-col w-full flex-1">
                                                                 {q.label && <span className="font-bold text-sargood-blue text-xl mb-2">{q.label}</span>}
                                                                 <div className="text-xs flex flex-row">
-                                                                    <span className="font-bold">{q.question}</span>
+                                                                    <span className="font-bold text-sm">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
                                                                 </div>
                                                                 <div className="flex align-middle mt-2">
@@ -1102,7 +1102,7 @@ const QuestionPage = ({
                                                             <div className="flex flex-col w-full justify-between">
                                                                 {q.label && <span className="font-bold text-sargood-blue text-xl mb-2">{q.label}</span>}
                                                                 <div className="text-xs flex flex-row">
-                                                                    <span className="font-bold">{q.question}</span>
+                                                                    <span className="font-bold text-sm">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
                                                                 </div>
                                                                 <div className="flex align-middle mt-2">
@@ -1116,7 +1116,7 @@ const QuestionPage = ({
                                                             <div className="flex flex-col w-full flex-1">
                                                                 {q.label && <span className="font-bold text-sargood-blue text-xl mb-2">{q.label}</span>}
                                                                 <div className="text-xs flex flex-row mb-6">
-                                                                    <span className="font-bold">{q.question}</span>
+                                                                    <span className="font-bold text-sm">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
                                                                 </div>
                                                                 <div className="flex align-middle mt-2">
@@ -1130,7 +1130,7 @@ const QuestionPage = ({
                                                             <div className="flex flex-col w-full flex-1">
                                                                 {q.label && <span className="font-bold text-sargood-blue text-xl mb-2">{q.label}</span>}
                                                                 <div className="text-xs flex flex-row">
-                                                                    <span className="font-bold">{q.question}</span>
+                                                                    <span className="font-bold text-sm">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
                                                                 </div>
                                                                 <div className="flex align-middle mt-2">
@@ -1144,7 +1144,7 @@ const QuestionPage = ({
                                                             <div className="flex flex-col w-full flex-1">
                                                                 {q.label && <span className="font-bold text-sargood-blue text-xl mb-2">{q.label}</span>}
                                                                 <div className="text-xs flex flex-row">
-                                                                    <span className="font-bold">{q.question}</span>
+                                                                    <span className="font-bold text-sm">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500  ml-1 font-bold">*</span>}
                                                                 </div>
                                                                 {selectedCourseOfferId && questionHasKey(q, QUESTION_KEYS.CHECK_IN_OUT_DATE) && (
@@ -1179,7 +1179,7 @@ const QuestionPage = ({
                                                             <div className="flex flex-col w-full flex-1">
                                                                 {q.label && <span className="font-bold text-sargood-blue text-xl mb-2">{q.label}</span>}
                                                                 <div className="text-xs flex flex-row">
-                                                                    <span className="font-bold">{q.question}</span>
+                                                                    <span className="font-bold text-sm">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
                                                                 </div>
                                                                 <div className="flex align-middle mt-2">
@@ -1200,7 +1200,7 @@ const QuestionPage = ({
                                                             <div className="flex flex-col w-full flex-1">
                                                                 {q.label && <span className="font-bold text-sargood-blue text-xl mb-2">{q.label}</span>}
                                                                 <div className="text-xs flex flex-row">
-                                                                    <span className="font-bold">{q.question}</span>
+                                                                    <span className="font-bold text-sm">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
                                                                 </div>
                                                                 <div className="flex align-middle mt-2">
@@ -1216,7 +1216,7 @@ const QuestionPage = ({
                                                                 {options && options.length > 0 ? (
                                                                     <React.Fragment>
                                                                         <div className="text-xs flex flex-row">
-                                                                            <span className="font-bold">{q.question}</span>
+                                                                            <span className="font-bold text-sm">{q.question}</span>
                                                                             {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
                                                                         </div>
                                                                         {/* Add container styling around the checkbox group with updated validation logic */}
@@ -1293,7 +1293,7 @@ const QuestionPage = ({
                                                                 {options && options.length > 0 ? (
                                                                     <React.Fragment>
                                                                         <div className="text-xs flex flex-row">
-                                                                            <span className="font-bold">{q.question}</span>
+                                                                            <span className="font-bold text-sm">{q.question}</span>
                                                                             {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
                                                                         </div>
                                                                         {/* Button mode container with flex-wrap for horizontal layout */}
@@ -1379,7 +1379,7 @@ const QuestionPage = ({
                                                             <div className="flex flex-col w-full flex-1" id={q.id}>
                                                                 {q.label && <span className="font-bold text-sargood-blue text-xl mb-2">{q.label}</span>}
                                                                 <div className="text-xs flex flex-row">
-                                                                    <span className="font-bold">{q.question}</span>
+                                                                    <span className="font-bold text-sm">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
                                                                 </div>
                                                                 {/* Add container styling around the radio group with success state and updated validation logic */}
@@ -1419,7 +1419,7 @@ const QuestionPage = ({
                                                             <div className="flex flex-col w-full flex-1">
                                                                 {q.label && <span className="font-bold text-sargood-blue text-xl mb-2">{q.label}</span>}
                                                                 <div className="text-xs flex flex-row">
-                                                                    <span className="font-bold">{q.question}</span>
+                                                                    <span className="font-bold text-sm">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500  ml-1 font-bold">*</span>}
                                                                 </div>
                                                                 <div className="flex align-middle ml-2">
@@ -1433,7 +1433,7 @@ const QuestionPage = ({
                                                             <div className="flex flex-col w-full flex-1">
                                                                 {q.label && <span className="font-bold text-sargood-blue text-xl mb-2">{q.label}</span>}
                                                                 <div className="text-xs flex flex-row">
-                                                                    <span className="font-bold">{q.question}</span>
+                                                                    <span className="font-bold text-sm">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
                                                                 </div>
                                                                 <div className="flex align-middle mt-2">
@@ -1447,7 +1447,7 @@ const QuestionPage = ({
                                                             <div className="flex flex-col w-full flex-1">
                                                                 {q.label && <span className="font-bold text-sargood-blue text-xl mb-2">{q.label}</span>}
                                                                 <div className="text-xs flex flex-row">
-                                                                    <span className="font-bold">{q.question}</span>
+                                                                    <span className="font-bold text-sm">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
                                                                 </div>
                                                                 <div className="flex align-middle mt-2">
@@ -1486,7 +1486,7 @@ const QuestionPage = ({
                                                             <div className="flex flex-col w-full flex-1">
                                                                 {q.label && <span className="font-bold text-sargood-blue text-xl mb-2">{q.label}</span>}
                                                                 <div className="text-xs flex flex-row">
-                                                                    <span className="font-bold">{q.question}</span>
+                                                                    <span className="font-bold text-sm">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
                                                                 </div>
                                                                 <div className="flex flex-col align-middle mt-2">
@@ -1507,7 +1507,7 @@ const QuestionPage = ({
                                                             <div className="flex flex-col w-full flex-1">
                                                                 {q.label && <span className="font-bold text-sargood-blue text-xl mb-2">{q.label}</span>}
                                                                 <div className="text-xs flex flex-row">
-                                                                    <span className="font-bold">{q.question}</span>
+                                                                    <span className="font-bold text-sm">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
                                                                 </div>
                                                                 <GetField type='goal-table'
@@ -1525,9 +1525,10 @@ const QuestionPage = ({
                                                             <div className="flex flex-col max-w-screen-2xl flex-1">
                                                                 {q.label && <span className="font-bold text-sargood-blue text-xl mb-2">{q.label}</span>}
                                                                 <div className="text-xs flex flex-row">
-                                                                    <span className="font-bold">{q.question}</span>
+                                                                    <span className="font-bold text-sm">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
                                                                 </div>
+                                                                <span className="italic text-sm my-2">Please note, we do not provide scheduled care between midnight and 6:30am</span>
                                                                 <GetField type='care-table'
                                                                     name={`care-table`}
                                                                     value={q.answer}
@@ -1545,7 +1546,7 @@ const QuestionPage = ({
                                                             <div className="flex flex-col w-full flex-1 col-span-full">
                                                                 {q.label && <span className="font-bold text-sargood-blue text-xl mb-2">{q.label}</span>}
                                                                 <div className="text-xs flex flex-row">
-                                                                    <span className="font-bold">{q.question}</span>
+                                                                    <span className="font-bold text-sm">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
                                                                 </div>
 
@@ -1591,7 +1592,7 @@ const QuestionPage = ({
                                                             <div className="flex flex-col w-full flex-1 col-span-full">
                                                                 {q.label && <span className="font-bold text-sargood-blue text-xl mb-2">{q.label}</span>}
                                                                 <div className="text-xs flex flex-row">
-                                                                    <span className="font-bold">{q.question}</span>
+                                                                    <span className="font-bold text-sm">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
                                                                 </div>
                                                                 
@@ -1623,7 +1624,7 @@ const QuestionPage = ({
                                                             <div className="flex flex-col w-full flex-1 col-span-full">
                                                                 {q.label && <span className="font-bold text-sargood-blue text-xl mb-2">{q.label}</span>}
                                                                 <div className="text-xs flex flex-row">
-                                                                    <span className="font-bold">{q.question}</span>
+                                                                    <span className="font-bold text-sm">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
                                                                 </div>
                                                                 <GetField 
@@ -1654,7 +1655,7 @@ const QuestionPage = ({
                                                             <div className="flex flex-col w-full flex-1 col-span-full">
                                                                 {q.label && <span className="font-bold text-sargood-blue text-xl mb-2">{q.label}</span>}
                                                                 <div className="text-xs flex flex-row">
-                                                                    <span className="font-bold">{q.question}</span>
+                                                                    <span className="font-bold text-sm">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
                                                                 </div>
                                                                 
@@ -1684,68 +1685,6 @@ const QuestionPage = ({
                                                     {(q.type === 'package-selection' && !q.hidden) && (
                                                         <React.Fragment>
                                                             <div className="flex flex-col w-full flex-1 col-span-full">
-                                                                {/* {q.label && <span className="font-bold text-sargood-blue text-xl mb-2">{q.label}</span>}
-                                                                <div className="text-xs flex flex-row mb-4">
-                                                                    <span className="font-bold">{q.question}</span>
-                                                                    {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
-                                                                </div> */}
-
-                                                                {/* NEW: Care Analysis Display */}
-                                                                {/* {careAnalysisData && careAnalysisData.requiresCare && (
-                                                                    <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                                                                        <h4 className="text-sm font-semibold text-blue-800 mb-2">
-                                                                            Care Requirements Analysis
-                                                                        </h4>
-                                                                        <div className="text-sm text-blue-700">
-                                                                            <p className="mb-1">
-                                                                                <span className="font-medium">Daily Care Hours:</span> {careAnalysisData.totalHoursPerDay} hours
-                                                                            </p>
-                                                                            <p className="mb-1">
-                                                                                <span className="font-medium">Care Pattern:</span> {careAnalysisData.carePattern}
-                                                                            </p>
-                                                                            <p className="text-xs text-blue-600 mt-2">
-                                                                                📦 Showing packages compatible with your care requirements
-                                                                            </p>
-                                                                        </div>
-                                                                    </div>
-                                                                )} */}
-
-                                                                {/* NEW: Course Analysis Display */}
-                                                                {/* {courseAnalysisData && courseAnalysisData.hasCourse && (
-                                                                    <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
-                                                                        <h4 className="text-sm font-semibold text-green-800 mb-2">
-                                                                            Course Participation Analysis
-                                                                        </h4>
-                                                                        <div className="text-sm text-green-700">
-                                                                            <p className="mb-1">
-                                                                                <span className="font-medium">Course Offered:</span> {courseAnalysisData.courseOffered ? 'Yes' : 'No'}
-                                                                            </p>
-                                                                            {courseAnalysisData.courseId && (
-                                                                                <p className="mb-1">
-                                                                                    <span className="font-medium">Course ID:</span> {courseAnalysisData.courseId}
-                                                                                </p>
-                                                                            )}
-                                                                            <p className="text-xs text-green-600 mt-2">
-                                                                                🎓 Showing packages compatible with course participation
-                                                                            </p>
-                                                                        </div>
-                                                                    </div>
-                                                                )} */}
-
-
-                                                                {/* NEW: Warning if no care data but package selection is shown */}
-                                                                {/* {!hasCareScheduleData() && (
-                                                                    <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                                                                        <div className="flex items-center gap-2">
-                                                                            <span className="text-amber-600">⚠️</span>
-                                                                            <div className="text-sm text-amber-700">
-                                                                                <p className="font-medium">Care schedule needed</p>
-                                                                                <p className="text-xs">Please complete the care schedule question to see packages suited to your needs.</p>
-                                                                            </div>
-                                                                        </div>
-                                                                    </div>
-                                                                )} */}
-
                                                                 <GetField 
                                                                     key={q.id} 
                                                                     type='package-selection' 
@@ -1774,7 +1713,7 @@ const QuestionPage = ({
                                                             <div className="flex flex-col w-full flex-1 col-span-full">
                                                                 {q.label && <span className="font-bold text-sargood-blue text-xl mb-2">{q.label}</span>}
                                                                 <div className="text-xs flex flex-row">
-                                                                    <span className="font-bold">{q.question}</span>
+                                                                    <span className="font-bold text-sm">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
                                                                 </div>
                                                                 <GetField 

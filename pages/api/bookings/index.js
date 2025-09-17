@@ -1,5 +1,5 @@
 import { QUESTION_KEYS } from '../../../services/booking/question-helper';
-import { Booking, Guest, QaPair, Section, Question } from './../../../models'
+import { Booking, Guest, QaPair, Section, Question, Package } from './../../../models'
 import { Op } from 'sequelize'
 
 // PRIMARY: Use predefined question keys as the authoritative list
@@ -174,6 +174,9 @@ async function getImportantQAPairsPrecise(bookingIds) {
       OR
       -- Match by exact predefined question texts
       qp.question IN (:questionTexts)
+      OR
+      -- ADDED: Include package-selection question types
+      q.type = 'package-selection'
     )
   `, {
     replacements: { 
@@ -199,7 +202,10 @@ async function getImportantQAPairs(bookingIds, useQuestionKeys = true) {
       JOIN questions q ON q.id = qp.question_id
       WHERE s.model_type = 'booking'
       AND s.model_id IN (:bookingIds)
-      AND q.question_key IN (:importantQuestionKeys)
+      AND (
+        q.question_key IN (:importantQuestionKeys)
+        OR q.type = 'package-selection'
+      )
     `, {
       replacements: { 
         bookingIds: bookingIds,
@@ -231,6 +237,68 @@ async function getImportantQAPairs(bookingIds, useQuestionKeys = true) {
   }
 }
 
+// Helper function to fetch package details for package-selection questions
+async function enrichQAPairsWithPackageData(qaPairs) {
+  if (!qaPairs || qaPairs.length === 0) {
+    return qaPairs;
+  }
+
+  // Find all package-selection questions and collect package IDs
+  const packageSelectionQAPairs = [];
+  const packageIds = new Set();
+
+  qaPairs.forEach(qaPair => {
+    if (qaPair.Question?.type === 'package-selection' && qaPair.answer) {
+      // Check if the answer looks like a package ID (numeric)
+      const trimmedAnswer = qaPair.answer.toString().trim();
+      if (/^\d+$/.test(trimmedAnswer)) {
+        packageSelectionQAPairs.push(qaPair);
+        packageIds.add(parseInt(trimmedAnswer));
+      }
+    }
+  });
+
+  if (packageIds.size === 0) {
+    return qaPairs;
+  }
+
+  try {
+    // Fetch package details for all found package IDs
+    const packages = await Package.findAll({
+      where: {
+        id: {
+          [Op.in]: Array.from(packageIds)
+        }
+      },
+      attributes: ['id', 'name', 'package_code', 'funder', 'price', 'ndis_package_type', 'ndis_line_items', 'image_filename']
+    });
+
+    const packageMap = new Map();
+    packages.forEach(pkg => {
+      packageMap.set(pkg.id, pkg.toJSON ? pkg.toJSON() : {...pkg});
+    });
+
+    // Enrich the QA pairs with package information
+    return qaPairs.map(qaPair => {
+      if (qaPair.Question?.type === 'package-selection' && qaPair.answer) {
+        const packageId = parseInt(qaPair.answer.toString().trim());
+        if (packageMap.has(packageId)) {
+          const packageData = packageMap.get(packageId);
+          return {
+            ...qaPair,
+            packageDetails: packageData
+          };
+        }
+      }
+      return qaPair;
+    });
+
+  } catch (error) {
+    console.error('Error fetching package details:', error.message);
+    return qaPairs;
+  }
+}
+
 // FIXED: Helper function to get section data with question key filtering
 async function getSectionData(sectionIds, useQuestionKeys = true) {
   if (sectionIds.length === 0) {
@@ -252,7 +320,7 @@ async function getSectionData(sectionIds, useQuestionKeys = true) {
           {
             model: Question,
             required: false,
-            attributes: ['id', 'question_key', 'question']
+            attributes: ['id', 'question_key', 'question', 'type']
           }
         ],
         attributes: ['id', 'label', 'question', 'answer', 'question_type', 'question_id', 'section_id']
@@ -279,18 +347,11 @@ async function getSectionData(sectionIds, useQuestionKeys = true) {
         
         const matchesQuestionText = qaPair.question && 
           questionTexts.includes(qaPair.question);
+
+        // ADDED: Check for package-selection question type
+        const isPackageSelection = qaPair.Question?.question_type === 'package-selection';
         
-        const isImportant = matchesQuestionId || matchesQuestionKey || matchesQuestionText;
-        
-        // if (isImportant) {
-        //   const reason = matchesQuestionId ? 'question_id' :
-        //                 matchesQuestionKey ? 'question_key' :
-        //                 'question_text';
-          
-        //   console.log(`  💬 Including QA pair ${qaPair.id}: "${qaPair.question?.substring(0, 50)}..." (reason: ${reason})`);
-        // } else {
-        //   console.log(`  🚫 Excluding QA pair ${qaPair.id}: "${qaPair.question?.substring(0, 50)}..." (not in important list)`);
-        // }
+        const isImportant = matchesQuestionId || matchesQuestionKey || matchesQuestionText || isPackageSelection;
         
         return isImportant;
       });
@@ -299,9 +360,12 @@ async function getSectionData(sectionIds, useQuestionKeys = true) {
     return sectionData;
   }).filter(section => section.QaPairs && section.QaPairs.length > 0);
   
-  // filteredResult.forEach((section, index) => {
-  //   console.log(`  📄 Section ${index + 1}: id=${section.id}, model_id=${section.model_id}, QaPairs=${section.QaPairs?.length || 0}`);
-  // });
+  // Enrich QA pairs with package data for package-selection questions
+  for (const section of filteredResult) {
+    if (section.QaPairs) {
+      section.QaPairs = await enrichQAPairsWithPackageData(section.QaPairs);
+    }
+  }
   
   return filteredResult;
 }
@@ -329,7 +393,8 @@ async function getDirectSectionData(bookingIds) {
       qp.answer as qa_answer,
       qp.question_type as qa_question_type,
       qp.question_id,
-      q.question_key
+      q.question_key,
+      q.type as question_question_type
     FROM sections s
     INNER JOIN qa_pairs qp ON qp.section_id = s.id
     LEFT JOIN questions q ON q.id = qp.question_id
@@ -344,6 +409,9 @@ async function getDirectSectionData(bookingIds) {
         OR
         -- Match by exact predefined question texts
         qp.question IN (:questionTexts)
+        OR
+        -- ADDED: Include package-selection question types
+        q.type = 'package-selection'
       )
     ORDER BY s.model_id, s.id, qp.id
   `, {
@@ -393,7 +461,8 @@ async function getDirectSectionData(bookingIds) {
           question_id: row.question_id,
           section_id: row.section_id,
           Question: {
-            question_key: row.question_key
+            question_key: row.question_key,
+            question_type: row.question_question_type
           }
         });
       }
@@ -404,6 +473,15 @@ async function getDirectSectionData(bookingIds) {
     Object.keys(sectionsByBookingId).forEach(bookingId => {
       result[bookingId] = Object.values(sectionsByBookingId[bookingId]);
     });
+    
+    // Enrich with package data
+    for (const bookingId of Object.keys(result)) {
+      for (const section of result[bookingId]) {
+        if (section.QaPairs) {
+          section.QaPairs = await enrichQAPairsWithPackageData(section.QaPairs);
+        }
+      }
+    }
     
     return result;
   }

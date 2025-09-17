@@ -9,6 +9,10 @@ import { useDebouncedCallback } from "use-debounce";
 import { globalActions } from "../../store/globalSlice"
 import { Can } from "../../services/acl/can";
 import DateField from "../fields/date";
+import dynamic from 'next/dynamic';
+
+// Import the Button component
+const Button = dynamic(() => import('../ui-v2/Button'));
 
 function AssetsAndEquipment(props) {
     const { equipmentsData, bookingId } = props;
@@ -227,129 +231,210 @@ function AssetsAndEquipment(props) {
         }
     }
 
-    return <>
-        <div className="flex justify-between">
-            {/* <h1 className="text-2xl text-sargood-blue font-bold mb-5">Assets & Equipment</h1> */}
-            <span></span>
-            <Can I="Create/Edit" a="Booking">
-                <div onClick={() => setEditMode(!editMode)} className="cursor-pointer">
-                    {editMode ? <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                        : <Image
-                            alt=""
-                            src={"/icons/edit.png"}
-                            width={30}
-                            height={30}
-                        />}
-                </div>
-            </Can>
-        </div>
-        {editMode ? <div>
-            <table className="w-full">
-                <thead>
-                    <tr className="bg-slate-400">
-                        <th className="text-left p-8 px-6 rounded-tl-lg">Asset, Serial Number</th>
-                        <th className="text-left p-8 px-6">Date Range</th>
-                        <th className="text-left p-8 px-6 w-24"></th>
-                        <th className="text-left p-8 px-6 rounded-tr-lg"></th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {equipments.map((equipment, index) => {
-                        return <tr key={index} className={index % 2 ? 'bg-zinc-100' : ''}>
-                            <td className="p-4 px-6">{`${equipment.name} - ${equipment.serial_number ? equipment.serial_number : 'N/A'}`}</td>
-                            <td className="p-4 px-6">
-                                <DateField type="date-range"
-                                    value={equipment.start_date ? moment(equipment.start_date).format('YYYY-MM-DD') + ' - ' + moment(equipment.end_date).format('YYYY-MM-DD') : null}
-                                    onChange={(range) => debounceUpdateBookingEquipmentDates(range, equipment)} />
-                            </td>
-                            <td className={`p-4 px-6 font-bold ${equipment.available ? 'text-green-500' : 'text-red-500'}`}>{equipment.available ? <Image
-                                alt=""
-                                src={"/icons/check-green.png"}
-                                width={20}
-                                height={20}
-                            /> : <Image
-                                alt=""
-                                src={"/icons/cancel-red.png"}
-                                width={20}
-                                height={20}
-                            />}</td>
-                            <td className="p-4 px-6">
-                                <div title={`Remove ${equipment.name}`}>
-                                    <svg
-                                        xmlns="http://www.w3.org/2000/svg"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        strokeWidth="1.5"
-                                        stroke="currentColor"
-                                        className="w-5 h-5 cursor-pointer"
-                                        onClick={() => removeEquipment(equipment)}
-                                    >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"
-                                        />
-                                    </svg>
-                                </div>
-                            </td>
-                        </tr>
-                    })}
-                    <tr>
-                        <td className="relative">
-                            <input className="p-4 px-6 focus:outline-none" placeholder="Add Asset"
-                                value={searchQuery}
-                                onFocus={(e) => {
-                                    e.target.placeholder = "Type to search"
-                                    if (newEquipments.length == 0) {
-                                        fetchNewEquipments();
-                                    }
-                                    setShowSearch(true)
-                                }}
-                                onChange={(e) => {
-                                    setSearchQuery(e.target.value);
-                                }} />
-                            {showSearch && <div className="absolute z-50 bg-white rounded w-full shadow-lg border border-slate-200 max-h-48 overflow-y-scroll">
-                                {searchResults.map((result, index) => {
+    return (
+        <>
+            <div className="flex justify-end items-center mb-6">
+                <Can I="Create/Edit" a="Booking">
+                    <Button
+                        color={editMode ? "secondary" : "primary"}
+                        size="medium"
+                        label={editMode ? "SAVE CHANGES" : "MANAGE EQUIPMENT"}
+                        onClick={() => setEditMode(!editMode)}
+                        className="min-w-[160px] transition-all duration-200"
+                    />
+                </Can>
+            </div>
 
-                                    return (<p key={index} onClick={() => addEquipmentToBooking(result)} className="hover:bg-slate-100 p-2 px-4 cursor-pointer text-lg">{result.name} - {result.serial_number}</p>)
-                                })}
-                            </div>}
-                            {showSearch && <div className="fixed inset-0 z-40" onClick={() => setShowSearch(false)}></div>}
-                        </td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
-            :
-            <Box>
-                {equipments.length > 0 ? equipments.map((equipment, index) => {
-                    return <div key={index} className="flex space-x-2 py-2">
-                        {equipment.available ? <div>
-                            <Image
-                                alt=""
-                                src={"/icons/check-green.png"}
-                                width={20}
-                                height={20}
-                            />
-                        </div> :
-                            <div>
-                                <Image
-                                    alt=""
-                                    src={"/icons/cancel-red.png"}
-                                    width={20}
-                                    height={20}
-                                />
-                            </div>}
-                        <div>
-                            <p>{equipment.name + ', Serial Number ' + equipment.serial_number}</p>
-                            {equipment.start_date && <p className="text-sm bg-slate-200 rounded-full w-fit p-2 py-1">{moment(equipment.start_date).format('DD / MM / YYYY')} - {moment(equipment.end_date).format('DD / MM / YYYY')}</p>}
+            {/* Equipment Content */}
+            {editMode ? (
+                <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                    {/* Edit Mode Alert */}
+                    <div className="bg-blue-50 border-b border-blue-200 px-6 py-3">
+                        <div className="flex items-center space-x-2">
+                            <div className="w-2 h-2 bg-blue-600 rounded-full animate-pulse"></div>
+                            <span className="text-sm font-medium text-blue-800">
+                                Edit Mode Active - Make your changes and click &quot;Save Changes&quot; when done
+                            </span>
                         </div>
                     </div>
-                }) : <p>No equipment added.</p>}
-            </Box>}
-    </>
+
+                    <table className="w-full">
+                        <thead>
+                            <tr className="bg-gray-50 border-b border-gray-200">
+                                <th className="text-left p-4 px-6 font-semibold text-gray-700">Asset, Serial Number</th>
+                                <th className="text-left p-4 px-6 font-semibold text-gray-700">Date Range</th>
+                                <th className="text-left p-4 px-6 w-24 font-semibold text-gray-700">Status</th>
+                                <th className="text-left p-4 px-6 w-20 font-semibold text-gray-700">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {equipments.map((equipment, index) => {
+                                return (
+                                    <tr key={index} className={`border-b border-gray-100 hover:bg-gray-50 ${index % 2 ? 'bg-gray-25' : 'bg-white'}`}>
+                                        <td className="p-4 px-6 font-medium text-gray-900">
+                                            {`${equipment.name} - ${equipment.serial_number ? equipment.serial_number : 'N/A'}`}
+                                        </td>
+                                        <td className="p-4 px-6">
+                                            <DateField 
+                                                type="date-range"
+                                                value={equipment.start_date ? moment(equipment.start_date).format('YYYY-MM-DD') + ' - ' + moment(equipment.end_date).format('YYYY-MM-DD') : null}
+                                                onChange={(range) => debounceUpdateBookingEquipmentDates(range, equipment)} 
+                                            />
+                                        </td>
+                                        <td className="p-4 px-6">
+                                            {equipment.available ? (
+                                                <div className="flex items-center space-x-2">
+                                                    <Image
+                                                        alt="Available"
+                                                        src={"/icons/check-green.png"}
+                                                        width={20}
+                                                        height={20}
+                                                    />
+                                                    <span className="text-sm text-green-600 font-medium">Available</span>
+                                                </div>
+                                            ) : (
+                                                <div className="flex items-center space-x-2">
+                                                    <Image
+                                                        alt="Unavailable"
+                                                        src={"/icons/cancel-red.png"}
+                                                        width={20}
+                                                        height={20}
+                                                    />
+                                                    <span className="text-sm text-red-600 font-medium">Unavailable</span>
+                                                </div>
+                                            )}
+                                        </td>
+                                        <td className="p-4 px-6">
+                                            <button
+                                                title={`Remove ${equipment.name}`}
+                                                className="p-2 rounded-md text-red-600 hover:bg-red-50 hover:text-red-800 transition-colors duration-150"
+                                                onClick={() => removeEquipment(equipment)}
+                                            >
+                                                <svg
+                                                    xmlns="http://www.w3.org/2000/svg"
+                                                    fill="none"
+                                                    viewBox="0 0 24 24"
+                                                    strokeWidth="1.5"
+                                                    stroke="currentColor"
+                                                    className="w-5 h-5"
+                                                >
+                                                    <path
+                                                        strokeLinecap="round"
+                                                        strokeLinejoin="round"
+                                                        d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"
+                                                    />
+                                                </svg>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                )
+                            })}
+                            <tr className="border-b border-gray-100">
+                                <td className="relative p-0">
+                                    <input 
+                                        className="w-full p-4 px-6 focus:outline-none focus:bg-blue-50 border-2 border-transparent focus:border-blue-200 rounded-md" 
+                                        placeholder="Add Equipment - Start typing to search..."
+                                        value={searchQuery}
+                                        onFocus={(e) => {
+                                            e.target.placeholder = "Type equipment name or category to search"
+                                            if (newEquipments.length == 0) {
+                                                fetchNewEquipments();
+                                            }
+                                            setShowSearch(true)
+                                        }}
+                                        onChange={(e) => {
+                                            setSearchQuery(e.target.value);
+                                        }} 
+                                    />
+                                    {showSearch && (
+                                        <div className="absolute z-50 bg-white rounded-lg w-full shadow-lg border border-gray-200 max-h-64 overflow-y-auto mt-1">
+                                            {searchResults.length > 0 ? (
+                                                searchResults.map((result, index) => (
+                                                    <div 
+                                                        key={index} 
+                                                        onClick={() => addEquipmentToBooking(result)} 
+                                                        className="hover:bg-blue-50 p-3 px-4 cursor-pointer border-b border-gray-100 last:border-b-0 transition-colors duration-150"
+                                                    >
+                                                        <div className="font-medium text-gray-900">{result.name}</div>
+                                                        <div className="text-sm text-gray-600">Serial: {result.serial_number}</div>
+                                                        <div className="text-xs text-gray-500 mt-1">Category: {result.EquipmentCategory?.name}</div>
+                                                    </div>
+                                                ))
+                                            ) : (
+                                                <div className="p-4 text-center text-gray-500">
+                                                    {searchQuery ? 'No equipment found matching your search' : 'Loading equipment...'}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                    {showSearch && <div className="fixed inset-0 z-40" onClick={() => setShowSearch(false)}></div>}
+                                </td>
+                                <td colSpan="3" className="p-4 px-6 text-sm text-gray-500">
+                                    Search for equipment to add to this booking
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            ) : (
+                // View Mode
+                <Box>
+                    {equipments.length > 0 ? (
+                        <div className="space-y-3">
+                            {equipments.map((equipment, index) => {
+                                return (
+                                    <div key={index} className="flex items-start space-x-3 py-3 border-b border-gray-100 last:border-b-0">
+                                        <div className="flex-shrink-0 mt-0.5">
+                                            {equipment.available ? (
+                                                <Image
+                                                    alt="Available"
+                                                    src={"/icons/check-green.png"}
+                                                    width={20}
+                                                    height={20}
+                                                />
+                                            ) : (
+                                                <Image
+                                                    alt="Unavailable"
+                                                    src={"/icons/cancel-red.png"}
+                                                    width={20}
+                                                    height={20}
+                                                />
+                                            )}
+                                        </div>
+                                        <div className="flex-1">
+                                            <p className="font-medium text-gray-900">
+                                                {equipment.name}
+                                            </p>
+                                            <p className="text-sm text-gray-600">
+                                                Serial Number: {equipment.serial_number || 'N/A'}
+                                            </p>
+                                            {equipment.start_date && (
+                                                <div className="mt-2">
+                                                    <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                                        {moment(equipment.start_date).format('DD/MM/YYYY')} - {moment(equipment.end_date).format('DD/MM/YYYY')}
+                                                    </span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )
+                            })}
+                        </div>
+                    ) : (
+                        <div className="text-center py-8">
+                            <div className="text-gray-400 mb-3">
+                                <svg className="w-12 h-12 mx-auto" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                                </svg>
+                            </div>
+                            <p className="text-gray-500 text-lg font-medium">No equipment assigned</p>
+                            <p className="text-gray-400 text-sm mt-1">Click &quot;Manage Equipment&quot; to add equipment to this booking</p>
+                        </div>
+                    )}
+                </Box>
+            )}
+        </>
+    )
 }
 
 export default AssetsAndEquipment;

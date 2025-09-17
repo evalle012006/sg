@@ -58,12 +58,12 @@ export default function ManagePackages() {
                     if (temp.funder === 'NDIS') {
                         if (temp.ndis_line_items && temp.ndis_line_items.length > 0) {
                             const totalPrice = temp.ndis_line_items.reduce((sum, item) => sum + (parseFloat(item.price_per_night) || 0), 0);
-                            temp.formattedPrice = `${temp.ndis_line_items.length} items (Total: $${totalPrice.toFixed(2)})`;
+                            temp.formattedPrice = `${temp.ndis_line_items.length} items (Total: AUD ${totalPrice.toFixed(2)})`;
                         } else {
                             temp.formattedPrice = 'NDIS Package';
                         }
                     } else {
-                        temp.formattedPrice = temp.price ? `$${parseFloat(temp.price).toFixed(2)}` : '$0.00';
+                        temp.formattedPrice = temp.price ? `AUD ${parseFloat(temp.price).toFixed(2)}` : 'AUD 0.00';
                     }
                     
                     packageList.push(temp);
@@ -249,7 +249,7 @@ export default function ManagePackages() {
             render: (value, row) => (
                 <div className="flex flex-col">
                     <span className="text-gray-700 font-medium">
-                        {value || (row.price ? `$${parseFloat(row.price).toFixed(2)}` : '$0.00')}
+                        {value || (row.price ? `AUD ${parseFloat(row.price).toFixed(2)}` : 'AUD $0.00')}
                     </span>
                 </div>
             )

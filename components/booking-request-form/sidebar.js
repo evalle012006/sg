@@ -1,14 +1,12 @@
 import { useRouter } from "next/router";
 import { useEffect, useState, useMemo } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch } from 'react-redux';
 import { bookingRequestFormActions } from '../../store/bookingRequestFormSlice';
 import NumberedListComponent, { StepState } from '../ui-v2/NumberedListComponent';
 
-export default function RequestFormSidebar({ setBookingSubmittedState, prevBookingId }) {
+export default function RequestFormSidebar({ setBookingSubmittedState, prevBookingId, bookingRequestFormData }) {
     const router = useRouter();
     const dispatch = useDispatch();
-    const bookingRequestFormData = useSelector(state => state.bookingRequestForm.data);
-    const isNdisFunded = useSelector(state => state.bookingRequestForm.isNdisFunded);
     const [currentUrl, setCurrentUrl] = useState();
 
     const handleRouterChange = async (url) => {

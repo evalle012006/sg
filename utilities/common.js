@@ -1,8 +1,9 @@
 import moment from 'moment';
+import { QUESTION_KEYS } from '../services/booking/question-helper';
 
 
 export const getFirstLetters = (str, delimiter = '-') => {
-    if (str) {
+    if (str && typeof str === 'string') {
         // Split the string into words
         const words = str.split(delimiter);
 
@@ -118,25 +119,82 @@ export const serializePackage = (packageType) => {
 }
 
 export const getFunder = (sections) => {
-  if (sections && sections.length == 0) return;
+  if (!sections || sections.length === 0) return null;
+  
   let funder = null;
-  sections.map(section => {
-    if (section.QaPairs.length > 0) {
-      const funderQaPair = section.QaPairs.find(qaPair => qaPair.question == 'How will your stay be funded?');
-      if (funderQaPair) {
+  
+  sections.forEach(section => {
+    // Check QaPairs structure (most common)
+    if (section.QaPairs && section.QaPairs.length > 0) {
+      const funderQaPair = section.QaPairs.find(qaPair => {
+        const question = qaPair.Question;
+        const qKey = qaPair.question_key || question?.question_key;
+        const questionText = qaPair.question || question?.question;
+        
+        // Priority 1: Check by question_key (most reliable)
+        if (qKey === QUESTION_KEYS.FUNDING_SOURCE) {
+          return true;
+        }
+        
+        // Priority 2: Check by specific question_key variants
+        if (qKey === 'how-will-your-stay-be-funded') {
+          return true;
+        }
+        
+        // Priority 3: Fallback to question text (for backward compatibility)
+        if (questionText === 'How will your stay be funded?') {
+          return true;
+        }
+        
+        // Priority 4: Partial text match (most flexible)
+        if (questionText && questionText.toLowerCase().includes('how will your stay be funded')) {
+          return true;
+        }
+        
+        return false;
+      });
+      
+      if (funderQaPair && funderQaPair.answer) {
         funder = funderQaPair.answer;
       }
-    } else if (section?.Questions?.length > 0) {
-      const funderQuestion = section.Questions.find(question => question.question == 'How will your stay be funded?');
-      if (funderQuestion && funderQuestion.fromQa) {
+    }
+    // Check Questions structure (alternative format)
+    else if (section?.Questions?.length > 0) {
+      const funderQuestion = section.Questions.find(question => {
+        const qKey = question.question_key;
+        const questionText = question.question;
+        
+        // Priority 1: Check by question_key (most reliable)
+        if (qKey === QUESTION_KEYS.FUNDING_SOURCE) {
+          return true;
+        }
+        
+        // Priority 2: Check by specific question_key variants
+        if (qKey === 'how-will-your-stay-be-funded') {
+          return true;
+        }
+        
+        // Priority 3: Fallback to question text (for backward compatibility)
+        if (questionText === 'How will your stay be funded?') {
+          return true;
+        }
+        
+        // Priority 4: Partial text match (most flexible)
+        if (questionText && questionText.toLowerCase().includes('how will your stay be funded')) {
+          return true;
+        }
+        
+        return false;
+      });
+      
+      if (funderQuestion && funderQuestion.fromQa && funderQuestion.answer) {
         funder = funderQuestion.answer;
       }
-
     }
   });
 
   return funder;
-}
+};
 
 export const getCheckInOutAnswer = (qaPairs = []) => {
   if (qaPairs.length > 0) {

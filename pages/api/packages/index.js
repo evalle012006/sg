@@ -160,14 +160,14 @@ export default async function handler(req, res) {
           const minPrice = Math.min(...priceRange);
           const maxPrice = Math.max(...priceRange);
           transformed.formattedPrice = minPrice === maxPrice 
-            ? `$${minPrice}/night` 
-            : `$${minPrice}-$${maxPrice}/night`;
+            ? `AUD ${minPrice}/night` 
+            : `AUD ${minPrice}-AUD ${maxPrice}/night`;
         } else {
           transformed.formattedPrice = 'NDIS Funded';
         }
       } else {
         transformed.formattedPrice = packageData.price 
-          ? `$${parseFloat(packageData.price).toFixed(2)}` 
+          ? `AUD ${parseFloat(packageData.price).toFixed(2)}` 
           : 'Price TBA';
       }
 

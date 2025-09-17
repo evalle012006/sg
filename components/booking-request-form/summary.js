@@ -455,7 +455,7 @@ const SummaryOfStay = ({
       ): (
         <div className="mt-8">
           <h2 className="text-lg font-semibold mb-4 text-slate-700">Package to be paid for by your funder:</h2>
-          <p className="text-slate-700">{` ${summary?.data?.packageType} - $${formatPrice(summary?.data?.packageCost || 0)} per night`}</p>
+          <p className="text-slate-700">{` ${summary?.data?.packageType} - AUD ${formatPrice(summary?.data?.packageCost || 0)} per night`}</p>
         </div>
       )}
 
@@ -467,7 +467,7 @@ const SummaryOfStay = ({
             <h3 className="font-semibold text-slate-700 mb-1">Room Upgrade</h3>
             <p className="text-gray-900 p-2">
               {summary?.roomUpgrade ? 
-                `$${formatPrice(summary.roomUpgrade)} per night ($${formatPrice(totalRoomCosts.roomUpgrade)} total)` : 
+                `AUD ${formatPrice(summary.roomUpgrade)} per night (AUD ${formatPrice(totalRoomCosts.roomUpgrade)} total)` : 
                 'N/A'}
             </p>
           </div>
@@ -475,7 +475,7 @@ const SummaryOfStay = ({
             <h3 className="font-semibold text-slate-700 mb-1">Additional Room</h3>
             <p className="text-gray-900 p-2">
               {summary?.additionalRoom ? 
-                `$${formatPrice(summary.additionalRoom)} per night ($${formatPrice(totalRoomCosts.additionalRoom)} total)` : 
+                `AUD ${formatPrice(summary.additionalRoom)} per night (AUD ${formatPrice(totalRoomCosts.additionalRoom)} total)` : 
                 'N/A'}
             </p>
           </div>

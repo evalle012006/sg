@@ -321,7 +321,7 @@ export default function GuestProfilePage() {
     };
 
     const handleCancel = () => {
-        window.location.reload();
+        window.open('/bookings', '_self');
     };
 
     const loadProfileInfo = async () => {
@@ -479,8 +479,11 @@ export default function GuestProfilePage() {
                     // Reload profile info to get updated data with new signed URL
                     setTimeout(async () => {
                         try {
-                            await loadProfileInfo();
+                            // await loadProfileInfo();
                             toast.success('Profile picture updated successfully');
+                            setTimeout(() => {
+                                window.location.reload();
+                            }, 1000);
                         } catch (error) {
                             console.error('Error reloading profile:', error);
                             toast.error('Profile picture uploaded but failed to refresh');
