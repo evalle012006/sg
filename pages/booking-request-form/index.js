@@ -33,6 +33,14 @@ import {
     extractCurrentFundingAnswer,
 } from "../../utilities/bookingRequestForm";
 
+import { 
+    calculateReturningGuestPageCompletion, 
+    batchUpdateReturningGuestCompletions,
+    forceUpdateReturningGuestPageCompletion, 
+    debugReturningGuestCompletion,
+    validateReturningGuestCompletionConsistency
+} from "../../utilities/returningGuestCompletionHelper";
+
 import dynamic from 'next/dynamic';
 import Modal from "../../components/ui/modal";
 import SummaryOfStay from "../../components/booking-request-form/summary";
@@ -134,6 +142,56 @@ const BookingRequestForm = () => {
 
     const [selectedCourseOfferId, setSelectedCourseOfferId] = useState(null);
     const [courseOfferPreselected, setCourseOfferPreselected] = useState(false);
+
+    const useCompletionLock = () => {
+        const completionLockRef = useRef(new Set());
+        
+        const lockPageCompletion = useCallback((pageId) => {
+            if (currentBookingType === BOOKING_TYPES.RETURNING_GUEST && prevBookingId) {
+                completionLockRef.current.add(pageId);
+                console.log(`🔒 Completion locked for returning guest page: ${pageId}`);
+            }
+        }, [currentBookingType, prevBookingId]);
+        
+        const unlockPageCompletion = useCallback((pageId) => {
+            completionLockRef.current.delete(pageId);
+            console.log(`🔓 Completion unlocked for page: ${pageId}`);
+        }, []);
+        
+        const isCompletionLocked = useCallback((pageId) => {
+            return completionLockRef.current.has(pageId);
+        }, []);
+        
+        const lockAllPagesForReturningGuest = useCallback(() => {
+            if (currentBookingType === BOOKING_TYPES.RETURNING_GUEST && prevBookingId) {
+                // Lock all pages except equipment (which the helper handles specially)
+                if (stableProcessedFormData) {
+                    stableProcessedFormData.forEach(page => {
+                        if (page.id !== 301) { // Don't lock equipment page
+                            completionLockRef.current.add(page.id);
+                        }
+                    });
+                    // console.log(`🔒 All pages locked for returning guest. Locked pages:`, Array.from(completionLockRef.current));
+                }
+            }
+        }, [currentBookingType, prevBookingId, stableProcessedFormData]);
+        
+        return {
+            lockPageCompletion,
+            unlockPageCompletion,
+            isCompletionLocked,
+            lockAllPagesForReturningGuest
+        };
+    };
+
+    const { lockPageCompletion, unlockPageCompletion, isCompletionLocked, lockAllPagesForReturningGuest } = useCompletionLock();
+
+    useEffect(() => {
+        if (currentBookingType === BOOKING_TYPES.RETURNING_GUEST && prevBookingId && stableProcessedFormData?.length > 0) {
+            lockAllPagesForReturningGuest();
+        }
+    }, [currentBookingType, prevBookingId, stableProcessedFormData?.length, lockAllPagesForReturningGuest]);
+
 
     const prePopulateCourseSelection = useCallback((pages, courseOfferId) => {
         if (!courseOfferId || courseOfferPreselected) return pages;
@@ -711,19 +769,29 @@ const BookingRequestForm = () => {
                 // STEP 3: Apply dependencies
                 const withDependencies = forceRefreshAllDependencies(deduplicated, bookingFormRoomSelected);
                 
-                // STEP 4: Calculate completion AFTER all dependencies are applied - FIXED
+                // STEP 4: ✅ CRITICAL FIX: Use guarded completion calculation
                 const withCompletion = withDependencies.map(page => {
                     const wasCompleted = page.completed;
                     let newCompleted;
                     
-                    // ✅ FIXED: Use the correct completion function for each page type
-                    if (page.id === 'ndis_packages_page') {
-                        // For NDIS page, use the specialized completion calculation
-                        newCompleted = calculateNdisPageCompletion(page);
-                        console.log(`🎯 NDIS Requirements page completion: ${wasCompleted} → ${newCompleted}`);
+                    // ✅ FIXED: For returning guests, ONLY use the helper - ignore other calculations
+                    if (currentBookingType === BOOKING_TYPES.RETURNING_GUEST && prevBookingId) {
+                        newCompleted = calculateReturningGuestPageCompletion(page, {
+                            visitedPages,
+                            pagesWithSavedData,
+                            equipmentPageCompleted,
+                            equipmentChangesState,
+                            prevBookingId,
+                            currentBookingType
+                        });
+                        console.log(`🔒 NDIS Processing: Using helper completion for "${page.title}": ${wasCompleted} → ${newCompleted}`);
                     } else {
-                        // For all other pages, use the general completion calculation
-                        newCompleted = calculatePageCompletion(page, visitedPages, pagesWithSavedData);
+                        // For first-time guests, use standard calculation
+                        if (page.id === 'ndis_packages_page') {
+                            newCompleted = calculateNdisPageCompletion(page);
+                        } else {
+                            newCompleted = calculatePageCompletion(page, visitedPages, pagesWithSavedData);
+                        }
                     }
                     
                     return { ...page, completed: newCompleted };
@@ -736,27 +804,49 @@ const BookingRequestForm = () => {
                 }
                 
                 setProcessedFormData(withCompletion);
-                safeDispatchData(withCompletion, 'Debounced NDIS processing with correct completion');
+                safeDispatchData(withCompletion, 'Debounced NDIS processing with completion lock');
                 
             } catch (error) {
                 console.error('❌ NDIS processing error:', error);
-                // Fallback with proper completion calculation
+                // Fallback with guarded completion calculation
                 const fallback = forceRefreshAllDependencies(formData, bookingFormRoomSelected);
                 const fallbackWithCompletion = fallback.map(page => {
-                    if (page.id === 'ndis_packages_page') {
-                        return { ...page, completed: calculateNdisPageCompletion(page) };
+                    if (currentBookingType === BOOKING_TYPES.RETURNING_GUEST && prevBookingId) {
+                        return { ...page, completed: calculateReturningGuestPageCompletion(page, {
+                            visitedPages,
+                            pagesWithSavedData,
+                            equipmentPageCompleted,
+                            equipmentChangesState,
+                            prevBookingId,
+                            currentBookingType
+                        })};
                     } else {
-                        return { ...page, completed: calculatePageCompletion(page) };
+                        if (page.id === 'ndis_packages_page') {
+                            return { ...page, completed: calculateNdisPageCompletion(page) };
+                        } else {
+                            return { ...page, completed: calculatePageCompletion(page) };
+                        }
                     }
                 });
                 setProcessedFormData(fallbackWithCompletion);
-                safeDispatchData(fallbackWithCompletion, 'NDIS processing fallback with correct completion');
+                safeDispatchData(fallbackWithCompletion, 'NDIS processing fallback with completion lock');
             } finally {
                 setIsProcessingNdis(false);
                 setTimeout(() => setIsUpdating(false), 300);
             }
         }, 150); // 150ms debounce
-    }, [isProcessingNdis, bookingFormRoomSelected, calculatePageCompletion, calculateNdisPageCompletion, applyQuestionDependenciesAcrossPages, removeDuplicateQuestions]);
+    }, [
+        isProcessingNdis, 
+        bookingFormRoomSelected, 
+        calculatePageCompletion, 
+        calculateNdisPageCompletion, 
+        currentBookingType,
+        prevBookingId,
+        visitedPages,
+        pagesWithSavedData,
+        equipmentPageCompleted,
+        equipmentChangesState
+    ]);
 
     const extractAllQAPairsFromForm = useCallback((formData = null) => {
         let dataToUse = formData;
@@ -1135,50 +1225,54 @@ const BookingRequestForm = () => {
 
     const safeDispatchData = useCallback((data, context) => {
         try {
-            // Store NDIS page completion BEFORE cleaning
-            const ndisPage = data.find(p => p.id === 'ndis_packages_page');
-            const originalNdisCompletion = ndisPage?.completed;
-            
-            // Clean the data before dispatching to Redux
-            const cleanedData = cleanReduxStateBeforeDispatch(data, isNdisFunded);
-            
-            // CRITICAL FIX: Restore NDIS page completion after cleaning
-            if (originalNdisCompletion !== undefined && ndisPage) {
-                const cleanedNdisPage = cleanedData.find(p => p.id === 'ndis_packages_page');
-                if (cleanedNdisPage) {
-                    cleanedNdisPage.completed = originalNdisCompletion;
-                    console.log(`🔧 Restored NDIS page completion after cleaning: ${originalNdisCompletion}`);
-                }
-            }
-            
-            const dataStr = JSON.stringify(cleanedData);
-            const lastDataStr = JSON.stringify(lastDispatchedDataRef.current);
-            
-            if (dataStr !== lastDataStr) {
-                console.log(`📤 Dispatching cleaned data to Redux: ${context}`);
+            // ✅ CRITICAL FIX: For returning guests, preserve completion from helper
+            if (currentBookingType === BOOKING_TYPES.RETURNING_GUEST && prevBookingId) {
+                // console.log(`🔒 Completion lock active - preserving helper completion during dispatch: ${context}`);
                 
-                // Additional verification - check if funding page still has NDIS questions
-                const fundingPage = cleanedData.find(p => p.title === 'Funding' || p.id === 'funding');
-                if (fundingPage && isNdisFunded) {
-                    const remainingNdisQuestions = [];
-                    fundingPage.Sections?.forEach(section => {
-                        section.Questions?.forEach(question => {
-                            if (question.ndis_only || shouldMoveQuestionToNdisPage?.(question, isNdisFunded)) {
-                                remainingNdisQuestions.push(question.question);
-                            }
-                        });
-                    });
-                }
+                // Store completion from the helper BEFORE cleaning
+                const completionMap = new Map();
+                data.forEach(page => {
+                    completionMap.set(page.id, page.completed);
+                });
                 
-                dispatch(bookingRequestFormActions.setData(cleanedData));
-                lastDispatchedDataRef.current = structuredClone(cleanedData);
+                // Clean the data before dispatching to Redux
+                const cleanedData = cleanReduxStateBeforeDispatch(data, isNdisFunded);
+                
+                // ✅ CRITICAL FIX: Restore completion from helper after cleaning
+                cleanedData.forEach(page => {
+                    if (completionMap.has(page.id)) {
+                        page.completed = completionMap.get(page.id);
+                        // console.log(`🔒 Restored completion for "${page.title}": ${page.completed}`);
+                    }
+                });
+                
+                const dataStr = JSON.stringify(cleanedData);
+                const lastDataStr = JSON.stringify(lastDispatchedDataRef.current);
+                
+                if (dataStr !== lastDataStr) {
+                    console.log(`📤 Dispatching data with preserved completion: ${context}`);
+                    dispatch(bookingRequestFormActions.setData(cleanedData));
+                    lastDispatchedDataRef.current = structuredClone(cleanedData);
+                }
+            } else {
+                // Original logic for first-time guests
+                const cleanedData = cleanReduxStateBeforeDispatch(data, isNdisFunded);
+                
+                const dataStr = JSON.stringify(cleanedData);
+                const lastDataStr = JSON.stringify(lastDispatchedDataRef.current);
+                
+                if (dataStr !== lastDataStr) {
+                    console.log(`📤 Dispatching cleaned data to Redux: ${context}`);
+                    dispatch(bookingRequestFormActions.setData(cleanedData));
+                    lastDispatchedDataRef.current = structuredClone(cleanedData);
+                }
             }
         } catch (error) {
             console.error('❌ Error in enhanced safeDispatchData:', error);
             // Fallback to original dispatch if cleaning fails
             dispatch(bookingRequestFormActions.setData(data));
         }
-    }, [dispatch, cleanReduxStateBeforeDispatch, isNdisFunded]);
+    }, [dispatch, cleanReduxStateBeforeDispatch, isNdisFunded, currentBookingType, prevBookingId]);
 
     const stableBookingRequestFormData = useMemo(() => {
         return bookingRequestFormData;
@@ -1832,30 +1926,27 @@ const BookingRequestForm = () => {
         }
     }, [getGuestId, profileDataLoaded, stableBookingRequestFormData, mapProfileDataToQuestions, applyQuestionDependencies, safeDispatchData]);
 
-    const questionHasSavedQaPairs = useCallback((question, section) => {
-        if (!section.QaPairs || section.QaPairs.length === 0) return false;
-        
-        // Check if there's a corresponding QaPair for this question
-        const hasQaPair = section.QaPairs.some(qaPair => {
-            // Match by question text, question_id, or question_key
-            return qaPair.question === question.question ||
-                qaPair.question_id === question.id ||
-                qaPair.question_id === question.question_id ||
-                qaPair.Question?.question_key === question.question_key;
-        });
-        
-        return hasQaPair;
-    }, []);
-
     const calculateNdisPageCompletion = useCallback((page) => {
         if (!page || !page.Sections || page.id !== 'ndis_packages_page') {
             return false;
         }
+
+        // FOR RETURNING GUESTS: Use dedicated helper
+        if (currentBookingType === BOOKING_TYPES.RETURNING_GUEST && prevBookingId) {
+            return calculateReturningGuestPageCompletion(page, {
+                visitedPages,
+                pagesWithSavedData,
+                equipmentPageCompleted,
+                equipmentChangesState,
+                prevBookingId,
+                currentBookingType
+            });
+        }
         
+        // FOR FIRST-TIME GUESTS: Original NDIS completion logic
         let totalRequiredQuestions = 0;
         let answeredRequiredQuestions = 0;
         
-        // Count all visible, required questions on NDIS page
         for (const section of page.Sections) {
             if (section.hidden) continue;
             
@@ -1864,7 +1955,6 @@ const BookingRequestForm = () => {
                 
                 totalRequiredQuestions++;
                 
-                // Check if question is answered
                 let isAnswered = false;
                 
                 if (question.type === 'checkbox' || question.type === 'checkbox-button') {
@@ -1887,133 +1977,39 @@ const BookingRequestForm = () => {
                                 question.answer !== '';
                 }
                 
-                // ENHANCED: For returning guests, also check if question has saved QaPairs
-                if (isAnswered && currentBookingType === BOOKING_TYPES.RETURNING_GUEST && prevBookingId) {
-                    const hasQaPairs = questionHasSavedQaPairs(question, section);
-                    if (!hasQaPairs) {
-                        console.log(`🔍 NDIS Question "${question.question_key}" has answer but no saved QaPairs - marking as incomplete`);
-                        isAnswered = false;
-                    }
-                }
-                
                 if (isAnswered) {
                     answeredRequiredQuestions++;
                 }
-                
-                console.log(`🔍 NDIS Question "${question.question_key}" answered: ${isAnswered} (Answer: ${JSON.stringify(question.answer)}) (Hidden: ${question.hidden})`);
             }
         }
         
         const isComplete = totalRequiredQuestions > 0 && answeredRequiredQuestions === totalRequiredQuestions;
-        
-        console.log(`📊 NDIS Requirements page completion: ${answeredRequiredQuestions}/${totalRequiredQuestions} answered. Complete: ${isComplete}`);
-        
         return isComplete;
-    }, [currentBookingType, prevBookingId, questionHasSavedQaPairs]);
+    }, [currentBookingType, prevBookingId, visitedPages, pagesWithSavedData, equipmentPageCompleted, equipmentChangesState]);
 
     const calculatePageCompletion = useCallback((page, currentVisitedPages = visitedPages, currentSavedPages = pagesWithSavedData) => {
         if (!page || !page.Sections) {
             return false;
         }
+
+        // FOR RETURNING GUESTS: Use dedicated helper (SINGLE SOURCE OF TRUTH)
+        if (currentBookingType === BOOKING_TYPES.RETURNING_GUEST && prevBookingId) {
+            return calculateReturningGuestPageCompletion(page, {
+                visitedPages: currentVisitedPages,
+                pagesWithSavedData: currentSavedPages,
+                equipmentPageCompleted,
+                equipmentChangesState,
+                prevBookingId,
+                currentBookingType
+            });
+        }
         
+        // FOR FIRST-TIME GUESTS: Keep existing logic
         if (page.title === 'Equipment') {
-            if (currentBookingType === BOOKING_TYPES.FIRST_TIME_GUEST) {
-                return equipmentPageCompleted;
-            }
-            
-            if (currentBookingType === BOOKING_TYPES.RETURNING_GUEST) {
-                let totalRequiredQuestions = 0;
-                let answeredRequiredQuestions = 0;
-                
-                for (const section of page.Sections) {
-                    if (section.hidden) continue;
-                    for (const question of section.Questions || []) {
-                        if (question.hidden || !question.required) continue;
-                        totalRequiredQuestions++;
-                        
-                        let isAnswered = false;
-                        if (question.type === 'equipment') {
-                            isAnswered = equipmentPageCompleted || 
-                                        (equipmentChangesState && equipmentChangesState.length > 0) ||
-                                        (question.answer !== null && question.answer !== undefined && question.answer !== '');
-                        } else {
-                            // Handle other question types normally
-                            if (question.type === 'checkbox' || question.type === 'checkbox-button') {
-                                let answerArray = question.answer;
-                                if (typeof answerArray === 'string' && answerArray.startsWith('[')) {
-                                    try {
-                                        answerArray = JSON.parse(answerArray);
-                                    } catch (e) {
-                                        answerArray = [];
-                                    }
-                                }
-                                isAnswered = Array.isArray(answerArray) && answerArray.length > 0;
-                            } else if (question.type === 'multi-select') {
-                                isAnswered = Array.isArray(question.answer) && question.answer.length > 0;
-                            } else if (question.type === 'simple-checkbox') {
-                                isAnswered = question.answer === true || question.answer === "1";
-                            } else {
-                                isAnswered = question.answer !== null &&
-                                            question.answer !== undefined &&
-                                            question.answer !== '';
-                            }
-                        }
-                        
-                        // ENHANCED: For returning guests, check if new required questions have QaPairs
-                        if (isAnswered && prevBookingId) {
-                            const hasQaPairs = questionHasSavedQaPairs(question, section);
-                            if (!hasQaPairs) {
-                                console.log(`🔍 Equipment Question "${question.question || question.question_key}" has answer but no saved QaPairs - marking as incomplete`);
-                                isAnswered = false;
-                            }
-                        }
-                        
-                        if (isAnswered) {
-                            answeredRequiredQuestions++;
-                        }
-                    }
-                }
-                
-                if (totalRequiredQuestions === 0) {
-                    return equipmentPageCompleted;
-                }
-                const allRequiredAnswered = totalRequiredQuestions > 0 && answeredRequiredQuestions === totalRequiredQuestions;
-                const finalCompletion = equipmentPageCompleted && allRequiredAnswered;
-                
-                console.log(`📊 Equipment page (returning guest): ${answeredRequiredQuestions}/${totalRequiredQuestions} required questions with QaPairs. Final completion: ${finalCompletion}`);
-                return finalCompletion;
-            }
-            
             return equipmentPageCompleted;
         }
 
-        // FIXED: Consolidated logic for returning guests with prevBookingId
-        if (prevBookingId && currentBookingType === BOOKING_TYPES.RETURNING_GUEST) {
-            const hasBeenVisited = currentVisitedPages.has(page.id);
-            const hasActualSavedData = currentSavedPages.has(page.id);
-            
-            // Check if page has QaPairs that indicate actual previous interaction
-            const hasRealQaPairs = page.Sections?.some(section => 
-                section.QaPairs && section.QaPairs.length > 0 && 
-                section.QaPairs.some(qaPair => 
-                    // Only consider QaPairs with real interaction indicators
-                    qaPair.createdAt || qaPair.updatedAt || qaPair.dirty || 
-                    // Or QaPairs that are not just prefilled temporary data
-                    (!qaPair.temporaryFromPreviousBooking && !qaPair.prefill)
-                )
-            );
-            
-            // CRITICAL FIX: Only proceed with completion check if there's real interaction
-            if (!hasBeenVisited && !hasActualSavedData && !hasRealQaPairs) {
-                console.log(`📋 Page "${page.title}" not visited, no saved data, no real QaPairs - marking incomplete`);
-                return false;
-            }
-            
-            // If there's real interaction (visited, saved, or has real QaPairs), proceed with normal validation
-            console.log(`📋 Page "${page.title}" has real interaction - checking completion normally`);
-        }
-
-        // Standard completion calculation for all other cases
+        // Standard completion calculation for first-time guests
         let totalRequiredQuestions = 0;
         let answeredRequiredQuestions = 0;
 
@@ -2050,54 +2046,45 @@ const BookingRequestForm = () => {
                                 question.answer !== '';
                 }
 
-                // ENHANCED: For returning guests on non-Equipment/non-NDIS pages, also check QaPairs
-                if (isAnswered && currentBookingType === BOOKING_TYPES.RETURNING_GUEST && 
-                    prevBookingId && page.title !== 'Equipment' && page.id !== 'ndis_packages_page') {
-                    const hasQaPairs = questionHasSavedQaPairs(question, section);
-                    if (!hasQaPairs) {
-                        console.log(`🔍 Question "${question.question || question.question_key}" on page "${page.title}" has answer but no saved QaPairs - marking as incomplete`);
-                        isAnswered = false;
-                    }
-                }
-
                 if (isAnswered) {
                     answeredRequiredQuestions++;
                 }
             }
         }
 
-        const isComplete = totalRequiredQuestions > 0 && answeredRequiredQuestions === totalRequiredQuestions;
-
-        // Debug log for returning guests only
-        if (prevBookingId && currentBookingType === BOOKING_TYPES.RETURNING_GUEST) {
-            const hasBeenVisited = currentVisitedPages.has(page.id);
-            const hasActualSavedData = currentSavedPages.has(page.id);
-            const hasRealQaPairs = page.Sections?.some(section => 
-                section.QaPairs && section.QaPairs.length > 0 && 
-                section.QaPairs.some(qaPair => 
-                    qaPair.createdAt || qaPair.updatedAt || qaPair.dirty || 
-                    (!qaPair.temporaryFromPreviousBooking && !qaPair.prefill)
-                )
-            );
-            console.log(`📊 RETURNING GUEST - Page "${page.title}": ${answeredRequiredQuestions}/${totalRequiredQuestions} answered with QaPairs. Complete: ${isComplete}. Visited: ${hasBeenVisited}, SavedData: ${hasActualSavedData}, RealQaPairs: ${hasRealQaPairs}`);
-        }
-
-        return isComplete;
-    }, [equipmentPageCompleted, equipmentChangesState, currentBookingType, prevBookingId, visitedPages, pagesWithSavedData, questionHasSavedQaPairs]);
+        return totalRequiredQuestions > 0 && answeredRequiredQuestions === totalRequiredQuestions;
+    }, [
+        equipmentPageCompleted, 
+        equipmentChangesState, 
+        currentBookingType, 
+        prevBookingId, 
+        visitedPages, 
+        pagesWithSavedData
+    ]);
 
     const updatePageCompletionStatus = useCallback((pages, context = 'general') => {
         console.log(`🔄 Updating page completion status: ${context}`);
         
+        // FOR RETURNING GUESTS: Use batch update helper
+        if (currentBookingType === BOOKING_TYPES.RETURNING_GUEST && prevBookingId) {
+            return batchUpdateReturningGuestCompletions(pages, {
+                visitedPages,
+                pagesWithSavedData,
+                equipmentPageCompleted,
+                equipmentChangesState,
+                prevBookingId,
+                currentBookingType
+            });
+        }
+        
+        // FOR FIRST-TIME GUESTS: Original logic
         return pages.map(page => {
             const wasCompleted = page.completed;
             let newCompleted;
             
-            // ✅ FIXED: Use the correct completion function for each page type
             if (page.id === 'ndis_packages_page') {
-                // For NDIS page, use the specialized completion calculation
                 newCompleted = calculateNdisPageCompletion(page);
             } else {
-                // For all other pages, use the general completion calculation with current state values
                 newCompleted = calculatePageCompletion(page, visitedPages, pagesWithSavedData);
             }
             
@@ -2107,7 +2094,16 @@ const BookingRequestForm = () => {
             
             return { ...page, completed: newCompleted };
         });
-    }, [calculatePageCompletion, calculateNdisPageCompletion, visitedPages, pagesWithSavedData]);
+    }, [
+        calculatePageCompletion, 
+        calculateNdisPageCompletion, 
+        visitedPages, 
+        pagesWithSavedData,
+        currentBookingType,
+        prevBookingId,
+        equipmentPageCompleted,
+        equipmentChangesState
+    ]);
 
     const markPageAsVisited = useCallback((pageId) => {
         if (prevBookingId && pageId) {
@@ -2133,26 +2129,56 @@ const BookingRequestForm = () => {
                     console.log(`💾 Marking page as having saved data: ${pageId}`);
                     const newSavedPages = new Set([...prev, pageId]);
                     
-                    // CRITICAL: Don't trigger additional completion updates here
-                    // The save operation will handle completion directly
+                    // FOR RETURNING GUESTS: Immediate completion update
+                    if (currentBookingType === BOOKING_TYPES.RETURNING_GUEST) {
+                        // Use timeout to ensure state update completes first
+                        setTimeout(() => {
+                            forcePageCompletionUpdate(pageId, visitedPages, newSavedPages);
+                        }, 0);
+                    }
                     
                     return newSavedPages;
                 }
                 return prev;
             });
         }
-    }, [prevBookingId]);
+    }, [prevBookingId, currentBookingType, forcePageCompletionUpdate, visitedPages]);
 
     const forcePageCompletionUpdate = useCallback((pageId, newVisitedSet = null, newSavedSet = null) => {
-        if (!stableProcessedFormData || stableProcessedFormData.length === 0) return;
+        if (!stableProcessedFormData || stableProcessedFormData.length === 0) return false;
         
         const pageIndex = stableProcessedFormData.findIndex(p => p.id === pageId);
-        if (pageIndex === -1) return;
+        if (pageIndex === -1) return false;
         
         // Use current state or provided state
         const visitedSet = newVisitedSet || visitedPages;
         const savedSet = newSavedSet || pagesWithSavedData;
         
+        // FOR RETURNING GUESTS: Use dedicated helper
+        if (currentBookingType === BOOKING_TYPES.RETURNING_GUEST && prevBookingId) {
+            const updatedPages = forceUpdateReturningGuestPageCompletion(
+                stableProcessedFormData, 
+                pageId, 
+                {
+                    visitedPages: visitedSet,
+                    pagesWithSavedData: savedSet,
+                    equipmentPageCompleted,
+                    equipmentChangesState,
+                    prevBookingId,
+                    currentBookingType
+                }
+            );
+            
+            // Only update if there were actual changes
+            if (updatedPages !== stableProcessedFormData) {
+                setProcessedFormData(updatedPages);
+                safeDispatchData(updatedPages, `forced completion for ${pageId}`);
+                return true;
+            }
+            return false;
+        }
+        
+        // FOR FIRST-TIME GUESTS: Original logic
         const updatedPages = [...stableProcessedFormData];
         const page = updatedPages[pageIndex];
         const wasCompleted = page.completed;
@@ -2162,15 +2188,24 @@ const BookingRequestForm = () => {
             console.log(`🎯 FORCED completion update for "${page.title}": ${wasCompleted} → ${newCompleted}`);
             updatedPages[pageIndex] = { ...page, completed: newCompleted };
             
-            // Update both local and Redux state immediately
             setProcessedFormData(updatedPages);
             safeDispatchData(updatedPages, `forced completion for ${pageId}`);
-            
-            return true; // Indicates update was made
+            return true;
         }
         
-        return false; // No update needed
-    }, [stableProcessedFormData, calculatePageCompletion, visitedPages, pagesWithSavedData, setProcessedFormData, safeDispatchData]);
+        return false;
+    }, [
+        stableProcessedFormData, 
+        calculatePageCompletion, 
+        visitedPages, 
+        pagesWithSavedData, 
+        setProcessedFormData, 
+        safeDispatchData,
+        currentBookingType,
+        prevBookingId,
+        equipmentPageCompleted,
+        equipmentChangesState
+    ]);
 
 
     // Get the status of a page for accordion display
@@ -2560,18 +2595,48 @@ const BookingRequestForm = () => {
             updatedPages = clearPackageQuestionAnswers(updatedPages, fundingStatusResult.newStatus);
         }
         
-        if (submit) {
-            // For submit, calculate completion immediately
-            updatedPages = updatePageCompletionStatus(updatedPages, 'submit');
-        } else {
-            // Refresh dependencies first
-            console.log('🔄 Refreshing dependencies...');
-            updatedPages = forceRefreshAllDependencies(updatedPages, bookingFormRoomSelected);
-            updatedPages = clearHiddenQuestionAnswers(updatedPages);
-            updatedPages = forceRefreshAllDependencies(updatedPages, bookingFormRoomSelected);
+        // ✅ CRITICAL FIX: Use completion lock for returning guests
+        if (currentBookingType === BOOKING_TYPES.RETURNING_GUEST && prevBookingId) {
+            console.log('🔒 Using completion lock for returning guest - only helper determines completion');
+            
+            if (submit) {
+                // For submit, use batch helper update
+                updatedPages = batchUpdateReturningGuestCompletions(updatedPages, {
+                    visitedPages,
+                    pagesWithSavedData,
+                    equipmentPageCompleted,
+                    equipmentChangesState,
+                    prevBookingId,
+                    currentBookingType
+                });
+            } else {
+                // For regular updates, refresh dependencies first but don't calculate completion
+                console.log('🔄 Refreshing dependencies for returning guest...');
+                updatedPages = forceRefreshAllDependencies(updatedPages, bookingFormRoomSelected);
+                updatedPages = clearHiddenQuestionAnswers(updatedPages);
+                updatedPages = forceRefreshAllDependencies(updatedPages, bookingFormRoomSelected);
 
-            // Then calculate completion with proper state
-            updatedPages = updatePageCompletionStatus(updatedPages, 'after_dependencies');
+                // Then use batch helper update for completion
+                updatedPages = batchUpdateReturningGuestCompletions(updatedPages, {
+                    visitedPages,
+                    pagesWithSavedData,
+                    equipmentPageCompleted,
+                    equipmentChangesState,
+                    prevBookingId,
+                    currentBookingType
+                });
+            }
+        } else {
+            // Original logic for first-time guests
+            if (submit) {
+                updatedPages = updatePageCompletionStatus(updatedPages, 'submit');
+            } else {
+                console.log('🔄 Refreshing dependencies...');
+                updatedPages = forceRefreshAllDependencies(updatedPages, bookingFormRoomSelected);
+                updatedPages = clearHiddenQuestionAnswers(updatedPages);
+                updatedPages = forceRefreshAllDependencies(updatedPages, bookingFormRoomSelected);
+                updatedPages = updatePageCompletionStatus(updatedPages, 'after_dependencies');
+            }
         }
 
         setProcessedFormData(updatedPages);
@@ -3316,14 +3381,25 @@ const BookingRequestForm = () => {
                 if (prevBookingId && cPage?.id) {
                     console.log(`💾 Page "${cPage.title}" saved successfully - updating completion`);
                     
-                    // Update saved pages state synchronously
-                    const newSavedPages = new Set([...pagesWithSavedData, cPage.id]);
-                    setPagesWithSavedData(newSavedPages);
-                    
-                    // Force immediate completion update with new state
-                    setTimeout(() => {
-                        forcePageCompletionUpdate(cPage.id, visitedPages, newSavedPages);
-                    }, 0); // Use 0 timeout to ensure state update completes first
+                    // FOR RETURNING GUESTS: Use dedicated helper
+                    if (currentBookingType === BOOKING_TYPES.RETURNING_GUEST) {
+                        // Update saved pages state synchronously
+                        const newSavedPages = new Set([...pagesWithSavedData, cPage.id]);
+                        setPagesWithSavedData(newSavedPages);
+                        
+                        // Force immediate completion update with new state
+                        setTimeout(() => {
+                            forcePageCompletionUpdate(cPage.id, visitedPages, newSavedPages);
+                        }, 0);
+                    } else {
+                        // FOR FIRST-TIME GUESTS: Original logic
+                        const newSavedPages = new Set([...pagesWithSavedData, cPage.id]);
+                        setPagesWithSavedData(newSavedPages);
+                        
+                        setTimeout(() => {
+                            forcePageCompletionUpdate(cPage.id, visitedPages, newSavedPages);
+                        }, 0);
+                    }
                 }
             }
 
@@ -3717,8 +3793,25 @@ const BookingRequestForm = () => {
             return p;
         });
 
-        return list;
+        const finalPages = list.map(page => {
+            // ✅ CRITICAL FIX: Don't calculate completion here for returning guests
+            if (isReturningGuestWithHelper) {
+                return page; // Keep existing completion, helper will handle it
+            }
+            
+            // Original completion logic for first-time guests
+            return {
+                ...page,
+                completed: calculatePageCompletion(page)
+            };
+        });
+        
+        return finalPages;
     }
+
+    const isReturningGuestWithHelper = useMemo(() => {
+        return currentBookingType === BOOKING_TYPES.RETURNING_GUEST && prevBookingId;
+    }, [currentBookingType, prevBookingId]);
 
     const getRequestFormTemplate = async () => {
         let url = '/api/booking-request-form';
@@ -3759,7 +3852,6 @@ const BookingRequestForm = () => {
                 dispatch(bookingRequestFormActions.setIsNdisFunded(true));
             }
             
-            // ... REST OF THE EXISTING GETREUESTFORMTEMPLATE LOGIC UNCHANGED ...
             if (data.booking) {
                 const guestData = data.booking.Guest;
                 setGuest(guestData);
@@ -3815,7 +3907,14 @@ const BookingRequestForm = () => {
                 temp.hasBack = index === 0 ? false : true;
                 temp.lastPage = index === data.template.Pages.length - 1 ? true : false;
                 temp.pageQuestionDependencies = [];
-                temp.completed = false;
+                
+                // ✅ CRITICAL FIX: For returning guests, ALWAYS start with false
+                // Let the helper handle ALL completion logic
+                if (bookingType === BOOKING_TYPES.RETURNING_GUEST && prevBookingId) {
+                    temp.completed = false;
+                } else {
+                    temp.completed = false; // Will be calculated later for first-time guests
+                }
 
                 let numberItems = 0;
                 let returnee = false;
@@ -3823,57 +3922,56 @@ const BookingRequestForm = () => {
                     let s = structuredClone(sec);
                     s.hidden = false;
 
-                    // EXISTING LOGIC FOR FIRST TIME OR COMPLETED BOOKING - UNCHANGED
+                    // Process existing booking data
                     if (data.booking && !data.newBooking) {
                         const bookingSection = data.booking.Sections && data.booking.Sections.find(o => o.orig_section_id === sec.id);
                         if (bookingSection) {
                             s = structuredClone(bookingSection);
 
                             if (s.QaPairs.length > 0) {
-                                // ENHANCED: Use NDIS-aware convertQAtoQuestion to prevent duplicates
-                                // This filters out NDIS-only questions from being converted back to Questions
-                                // on original pages, preventing duplicates when they get moved to NDIS page
                                 const qa_pairs = s.QaPairs ? convertQAtoQuestionWithNdisFilter(s.QaPairs, s.id, returnee, temp.title, isNdisFunded) : [];
                                 s.Questions = qa_pairs.questionList;
 
-                                // EXISTING LOGIC - UNCHANGED
                                 if (s.QaPairs.length !== sec.Questions.length) {
                                     const removedQuestions = sec.Questions.filter(q => !qa_pairs.questionList.some(qp => qp.question === q.question))
-                                                                          .map(q => { return { ...q, question: q.question, type: q.type, answer: null } });
+                                                                        .map(q => { return { ...q, question: q.question, type: q.type, answer: null } });
                                     s.Questions.push(...removedQuestions);
                                 }
 
                                 const hasAnsweredQuestions = qa_pairs.answered;
-                                const hasSavedQaPairs = s.QaPairs && s.QaPairs.length > 0;
 
-                                // For returning guests: Only mark as completed if there are actual saved QaPairs (not just prefilled answers)
+                                // ✅ CRITICAL FIX: NEVER set completion during template load for returning guests
                                 if (bookingType === BOOKING_TYPES.RETURNING_GUEST && prevBookingId) {
-                                    // CRITICAL: For returning guests, NEVER set completion during template load
-                                    // Always start with false and let the runtime completion logic handle it
-                                    temp.completed = false;
+                                    // Do nothing - completion will be handled by the helper
+                                    // console.log(`📋 Template load: Skipping completion for returning guest page "${temp.title}"`);
                                     
-                                    // Check if this section has actual real saved data
-                                    const hasRealSavedData = hasSavedQaPairs && s.QaPairs.some(qaPair => 
+                                    // Only track real saved data
+                                    const hasRealSavedData = s.QaPairs.some(qaPair => 
                                         qaPair.createdAt || qaPair.updatedAt || qaPair.dirty ||
                                         (!qaPair.temporaryFromPreviousBooking && !qaPair.prefill)
                                     );
                                     
-                                    // Only mark in tracking if there's genuinely saved data
                                     if (hasRealSavedData) {
                                         setTimeout(() => {
                                             setPagesWithSavedData(prev => new Set([...prev, temp.id]));
                                         }, 100);
                                     }
                                 } else {
-                                    // For non-returning guests, use existing logic
+                                    // For first-time guests, use original logic
                                     temp.completed = hasAnsweredQuestions;
                                 }
                             } else {
                                 s.Questions = sec.Questions;
                             }
 
+                            // ✅ CRITICAL FIX: Equipment page completion guard
                             if (temp.title == 'Equipment' && data?.completedEquipments) {
-                                temp.completed = true;
+                                if (bookingType === BOOKING_TYPES.RETURNING_GUEST && prevBookingId) {
+                                    // Let the helper handle equipment completion too
+                                    // console.log(`📋 Template load: Equipment completion will be handled by helper for returning guest`);
+                                } else {
+                                    temp.completed = true;
+                                }
                             }
                         }
                     }
@@ -3898,28 +3996,22 @@ const BookingRequestForm = () => {
                             }
 
                             if (s.QaPairs.length > 0) {
-                                // ENHANCED: Use NDIS-aware convertQAtoQuestion to prevent duplicates
-                                // This filters out NDIS-only questions from being converted back to Questions
-                                // on original pages, preventing duplicates when they get moved to NDIS page
                                 const qa_pairs = s.QaPairs ? convertQAtoQuestionWithNdisFilter(s.QaPairs, s.id, returnee, temp.title, isNdisFunded) : [];
                                 s.Questions = qa_pairs.questionList;
 
-                                // EXISTING LOGIC - UNCHANGED
                                 if (s.QaPairs.length !== sec.Questions.length) {
                                     const removedQuestions = sec.Questions.filter(q => !qa_pairs.questionList.some(qp => qp.question === q.question))
-                                                                                  .map(q => { return { ...q, question: q.question, type: q.type, answer: null } });
+                                                                                .map(q => { return { ...q, question: q.question, type: q.type, answer: null } });
                                     s.Questions.push(...removedQuestions);
                                 }
 
                                 const hasAnsweredQuestions = qa_pairs.answered;
-                                const hasSavedQaPairs = s.QaPairs && s.QaPairs.length > 0;
 
-                                // For returning guests: Only mark as completed if there are actual saved QaPairs (not just prefilled answers)
+                                // ✅ CRITICAL FIX: Same guard for new booking processing
                                 if (bookingType === BOOKING_TYPES.RETURNING_GUEST && prevBookingId) {
-                                    // CRITICAL: Same rule - never set completion during template load for returning guests
-                                    temp.completed = false;
+                                    // Do nothing - completion will be handled by the helper
+                                    // console.log(`📋 Template load: Skipping new booking completion for returning guest page "${temp.title}"`);
                                     
-                                    // Check for real saved data in newBooking sections
                                     if (newSections) {
                                         const nSec = newSections.find(ns => ns.orig_section_id === s.orig_section_id);
                                         if (nSec && nSec.QaPairs && nSec.QaPairs.length > 0) {
@@ -3936,15 +4028,21 @@ const BookingRequestForm = () => {
                                         }
                                     }
                                 } else {
-                                    // For non-returning guests, use existing logic  
+                                    // For first-time guests, use original logic  
                                     temp.completed = hasAnsweredQuestions;
                                 }
                             } else {
                                 s.Questions = sec.Questions;
                             }
 
+                            // ✅ CRITICAL FIX: Equipment page guard for new booking too
                             if (temp.title == 'Equipment' && data?.completedEquipments) {
-                                temp.completed = true;
+                                if (bookingType === BOOKING_TYPES.RETURNING_GUEST && prevBookingId) {
+                                    // Let the helper handle it
+                                    // console.log(`📋 Template load: Equipment completion (new booking) will be handled by helper`);
+                                } else {
+                                    temp.completed = true;
+                                }
                             }
                         }
 
@@ -4095,22 +4193,20 @@ const BookingRequestForm = () => {
             // APPLY EXISTING DEPENDENCIES
             const pagesWithDependencies = applyQuestionDependencies(pagesArr);
             
-            // POST-PROCESS FOR NDIS (ONLY IF NDIS FUNDED)
             const finalPages = isNdisFunded ? 
-                postProcessPagesForNdis(pagesWithDependencies, isNdisFunded, calculatePageCompletion) : 
+                postProcessPagesForNdis(pagesWithDependencies, isNdisFunded, 
+                    // Pass a guarded completion function
+                    (page) => {
+                        if (bookingType === BOOKING_TYPES.RETURNING_GUEST && prevBookingId) {
+                            return false; // Let the helper handle it later
+                        }
+                        return calculatePageCompletion(page);
+                    }
+                ) : 
                 pagesWithDependencies;
 
-            if (selectedCourseOfferId && !courseOfferPreselected) {
-                console.log('🎓 Applying course pre-population as final step');
-                finalPages = prePopulateCourseSelection(finalPages, selectedCourseOfferId);
-            }
-
-            await Promise.all([
-                new Promise(resolve => setTimeout(resolve, 100))
-            ]);
-
             // Store the form data
-            safeDispatchData(finalPages, 'template load with NDIS post-processing');
+            safeDispatchData(finalPages, 'template load with completion guard');
 
             setTimeout(() => {
                 dispatch(globalActions.setLoading(false));
@@ -4119,20 +4215,27 @@ const BookingRequestForm = () => {
     };
 
     useEffect(() => {
-        // Only sync completion on major state changes, with debouncing
-        if (prevBookingId && currentBookingType === BOOKING_TYPES.RETURNING_GUEST && 
+        // Only run debounced sync for returning guests
+        if (isReturningGuestWithHelper && 
             stableProcessedFormData && stableProcessedFormData.length > 0) {
             
             // Debounce to prevent rapid updates
             const timeoutId = setTimeout(() => {
-                const updatedPages = updatePageCompletionStatus(stableProcessedFormData, 'debounced_state_sync');
+                const updatedPages = batchUpdateReturningGuestCompletions(stableProcessedFormData, {
+                    visitedPages,
+                    pagesWithSavedData,
+                    equipmentPageCompleted,
+                    equipmentChangesState,
+                    prevBookingId,
+                    currentBookingType
+                });
                 
                 // Only update if there are actual changes
                 const currentCompletions = stableProcessedFormData.map(p => p.completed);
                 const newCompletions = updatedPages.map(p => p.completed);
                 
                 if (JSON.stringify(currentCompletions) !== JSON.stringify(newCompletions)) {
-                    console.log('📊 Debounced completion sync applied');
+                    console.log('📊 Debounced completion sync applied for returning guest');
                     setProcessedFormData(updatedPages);
                     safeDispatchData(updatedPages, 'debounced state sync');
                 }
@@ -4140,7 +4243,13 @@ const BookingRequestForm = () => {
 
             return () => clearTimeout(timeoutId);
         }
-    }, [visitedPages.size, pagesWithSavedData.size, currentBookingType, prevBookingId]);
+    }, [
+        visitedPages.size, 
+        pagesWithSavedData.size, 
+        isReturningGuestWithHelper,
+        equipmentPageCompleted,
+        equipmentChangesState
+    ]);
 
     useEffect(() => {
         if (isUpdating) {
@@ -4151,20 +4260,31 @@ const BookingRequestForm = () => {
             // Use helper function to analyze processing needs
             const analysis = analyzeNdisProcessingNeeds(stableBookingRequestFormData, isNdisFunded);
 
-            // If template was already loaded with NDIS awareness, apply dependencies
+            // If template was already loaded with NDIS awareness, apply dependencies but lock completion
             if (analysis.templateAlreadyNdisAware) {
                 const updatedData = forceRefreshAllDependencies(stableBookingRequestFormData, bookingFormRoomSelected);
                 
-                // Apply stable completion calculation for NDIS page
-                const withStableCompletion = updatedData.map(page => {
-                    if (page.id === 'ndis_packages_page') {
-                        return { ...page, completed: calculateNdisPageCompletion(page) };
+                // ✅ CRITICAL FIX: Apply locked completion for returning guests
+                const withLockedCompletion = updatedData.map(page => {
+                    if (currentBookingType === BOOKING_TYPES.RETURNING_GUEST && prevBookingId) {
+                        return { ...page, completed: calculateReturningGuestPageCompletion(page, {
+                            visitedPages,
+                            pagesWithSavedData,
+                            equipmentPageCompleted,
+                            equipmentChangesState,
+                            prevBookingId,
+                            currentBookingType
+                        })};
+                    } else {
+                        if (page.id === 'ndis_packages_page') {
+                            return { ...page, completed: calculateNdisPageCompletion(page) };
+                        }
+                        return page;
                     }
-                    return page;
                 });
                 
-                if (JSON.stringify(stableProcessedFormData) !== JSON.stringify(withStableCompletion)) {
-                    setProcessedFormData(withStableCompletion);
+                if (JSON.stringify(stableProcessedFormData) !== JSON.stringify(withLockedCompletion)) {
+                    setProcessedFormData(withLockedCompletion);
                 }
                 return;
             }
@@ -4201,18 +4321,16 @@ const BookingRequestForm = () => {
             const currentFormDataKey = createFormDataKey(stableBookingRequestFormData, isNdisFunded);
             const currentFormDataStr = JSON.stringify(currentFormDataKey);
 
-            // Add cooldown period to prevent rapid successive processing
             const now = Date.now();
             const timeSinceLastUpdate = now - (lastProcessingTimeRef.current || 0);
-            const PROCESSING_COOLDOWN = 500; // 500ms cooldown
+            const PROCESSING_COOLDOWN = 500;
 
-            // Only process if key data actually changed AND enough time has passed
             const dataChanged = prevFormDataRef.current !== currentFormDataStr;
             const fundingChanged = prevIsNdisFundedRef.current !== isNdisFunded;
             const canProcess = timeSinceLastUpdate > PROCESSING_COOLDOWN;
 
             if ((dataChanged || fundingChanged) && canProcess) {
-                console.log('📊 Form data or NDIS funding status changed, processing...', {
+                console.log('📊 Form data or NDIS funding status changed, processing with completion lock...', {
                     dataChanged,
                     fundingChanged,
                     newFundingStatus: isNdisFunded,
@@ -4226,18 +4344,29 @@ const BookingRequestForm = () => {
                 prevIsNdisFundedRef.current = isNdisFunded;
 
                 if (analysis.needsProcessing || fundingChanged) {
-                    console.log('🔄 Using debounced NDIS processing with stable completion...');
+                    console.log('🔄 Using debounced NDIS processing with completion lock...');
                     processNdisWithDebounce(stableBookingRequestFormData, isNdisFunded);
                 } else {
                     const updatedData = forceRefreshAllDependencies(stableBookingRequestFormData, bookingFormRoomSelected);
-                    const withStableCompletion = updatedData.map(page => {
-                        if (page.id === 'ndis_packages_page') {
-                            return { ...page, completed: calculateNdisPageCompletion(page) };
+                    const withLockedCompletion = updatedData.map(page => {
+                        if (currentBookingType === BOOKING_TYPES.RETURNING_GUEST && prevBookingId) {
+                            return { ...page, completed: calculateReturningGuestPageCompletion(page, {
+                                visitedPages,
+                                pagesWithSavedData,
+                                equipmentPageCompleted,
+                                equipmentChangesState,
+                                prevBookingId,
+                                currentBookingType
+                            })};
+                        } else {
+                            if (page.id === 'ndis_packages_page') {
+                                return { ...page, completed: calculateNdisPageCompletion(page) };
+                            }
+                            return page;
                         }
-                        return page;
                     });
-                    setProcessedFormData(withStableCompletion);
-                    safeDispatchData(withStableCompletion, 'Dependency refresh with stable NDIS completion');
+                    setProcessedFormData(withLockedCompletion);
+                    safeDispatchData(withLockedCompletion, 'Dependency refresh with completion lock');
                     setIsUpdating(false);
                 }
             }
@@ -4248,9 +4377,12 @@ const BookingRequestForm = () => {
         isUpdating, 
         bookingFormRoomSelected,
         processNdisWithDebounce,
-        calculateNdisPageCompletion,
-        currentPage,
-        dispatch
+        currentBookingType,
+        prevBookingId,
+        visitedPages,
+        pagesWithSavedData,
+        equipmentPageCompleted,
+        equipmentChangesState
     ]);
 
     // Also add cleanup in useEffect cleanup
@@ -4360,25 +4492,53 @@ const BookingRequestForm = () => {
 
     useEffect(() => {
         if (equipmentPageCompleted && stableProcessedFormData && stableProcessedFormData.length > 0) {
-            // Check if Equipment page is already marked as completed to avoid unnecessary updates
             const equipmentPage = stableProcessedFormData.find(page => page.title === 'Equipment');
             
             if (equipmentPage && !equipmentPage.completed) {
-                console.log('✅ Basic Equipment page completion update');
+                console.log('✅ Equipment page completion update');
                 
-                const updatedPages = stableProcessedFormData.map(page => {
-                    if (page.title === 'Equipment') {
-                        // Use the main calculatePageCompletion function for consistency
-                        return { ...page, completed: calculatePageCompletion(page) };
+                // FOR RETURNING GUESTS: Use the helper
+                if (currentBookingType === BOOKING_TYPES.RETURNING_GUEST && prevBookingId) {
+                    const updatedPages = forceUpdateReturningGuestPageCompletion(
+                        stableProcessedFormData,
+                        equipmentPage.id,
+                        {
+                            visitedPages,
+                            pagesWithSavedData,
+                            equipmentPageCompleted,
+                            equipmentChangesState,
+                            prevBookingId,
+                            currentBookingType
+                        }
+                    );
+                    
+                    if (updatedPages !== stableProcessedFormData) {
+                        setProcessedFormData(updatedPages);
+                        safeDispatchData(updatedPages, 'Equipment page completion update');
                     }
-                    return page;
-                });
+                } else {
+                    // FOR FIRST-TIME GUESTS: Original logic
+                    const updatedPages = stableProcessedFormData.map(page => {
+                        if (page.title === 'Equipment') {
+                            return { ...page, completed: calculatePageCompletion(page) };
+                        }
+                        return page;
+                    });
 
-                setProcessedFormData(updatedPages);
-                safeDispatchData(updatedPages, 'Equipment page completion update');
+                    setProcessedFormData(updatedPages);
+                    safeDispatchData(updatedPages, 'Equipment page completion update');
+                }
             }
         }
-    }, [equipmentPageCompleted, calculatePageCompletion]);
+    }, [
+        equipmentPageCompleted, 
+        calculatePageCompletion,
+        currentBookingType,
+        prevBookingId,
+        visitedPages,
+        pagesWithSavedData,
+        equipmentChangesState
+    ]);
 
     useEffect(() => {
         if (!origin || origin !== 'admin') {
@@ -4702,6 +4862,39 @@ const BookingRequestForm = () => {
             console.log('📋 Booking without prevBookingId loaded, no page tracking needed');
         }
     }, [uuid, prevBookingId]);
+
+    // useEffect(() => {
+    //     // ✅ DISABLE this effect completely to stop the completion consistency warnings
+    //     // during the transition period to helper-based completion
+    //     if (currentBookingType === BOOKING_TYPES.RETURNING_GUEST && stableProcessedFormData?.length > 0) {
+    //         debugReturningGuestCompletion(stableProcessedFormData, {
+    //             visitedPages,
+    //             pagesWithSavedData,
+    //             equipmentPageCompleted,
+    //             equipmentChangesState,
+    //             prevBookingId,
+    //             currentBookingType
+    //         });
+            
+    //         const validation = validateReturningGuestCompletionConsistency(stableProcessedFormData, {
+    //             visitedPages,
+    //             pagesWithSavedData,
+    //             equipmentPageCompleted,
+    //             equipmentChangesState,
+    //             prevBookingId,
+    //             currentBookingType
+    //         });
+            
+    //         if (!validation.isValid) {
+    //             console.warn('⚠️ Completion consistency issues found:', validation.issues);
+    //         }
+    //     }
+        
+    //     // Replace with simple completion lock logging when needed
+    //     if (currentBookingType === BOOKING_TYPES.RETURNING_GUEST && stableProcessedFormData?.length > 0) {
+    //         console.log('🔒 Completion lock active for returning guest. Helper manages all completion.');
+    //     }
+    // }, [stableProcessedFormData, currentBookingType]);
 
     useEffect(() => {
         // Only run for returning guests when course offers are loaded

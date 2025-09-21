@@ -17,6 +17,43 @@ export default async function handler(req, res) {
     }
 
     try {
+        // Parse guest check-in date if provided
+        const guestCheckIn = checkInDate ? moment.utc(checkInDate, 'YYYY-MM-DD').startOf('day') : null;
+        const now = moment.utc().startOf('day');
+
+        console.log('Fetching course offers for guest:', uuid, {
+            checkInDate,
+            checkOutDate,
+            guestCheckInParsed: guestCheckIn?.format('YYYY-MM-DD'),
+            currentDate: now.format('YYYY-MM-DD')
+        });
+
+        // Build course filter conditions
+        const courseWhereConditions = {
+            status: 'active'
+        };
+
+        // FIXED: Filter out courses that have already ended relative to guest's check-in date
+        if (guestCheckIn) {
+            courseWhereConditions[Op.and] = [
+                {
+                    // Course must not have ended before guest's check-in date
+                    // This prevents showing offers for courses that are already completed
+                    [Op.or]: [
+                        // Course ends on or after guest check-in (guest can participate)
+                        { end_date: { [Op.gte]: guestCheckIn.toDate() } },
+                        // Or booking window is still open (min_end_date >= guest check-in)
+                        { min_end_date: { [Op.gte]: guestCheckIn.toDate() } }
+                    ]
+                }
+            ];
+        } else {
+            // If no check-in date provided, still filter out courses that have already ended
+            courseWhereConditions.end_date = {
+                [Op.gte]: now.toDate()
+            };
+        }
+
         const courseOffers = await CourseOffer.findAll({
             where: {
                 guest_id: uuid,
@@ -27,19 +64,19 @@ export default async function handler(req, res) {
             include: [{
                 model: Course,
                 as: 'course',
-                where: {
-                    status: 'active'
-                },
+                where: courseWhereConditions,
                 required: true
             }],
             order: [['offered_at', 'DESC']]
         });
 
+        console.log(`Found ${courseOffers.length} active course offers for guest ${uuid}`);
+
         // Transform offers with enhanced data including validation and PRICING
         const transformedOffers = await Promise.all(courseOffers.map(async offer => {
             const course = offer.course;
             
-            // Date validation logic
+            // Date validation logic - only run if both check-in and check-out dates provided
             let dateValid = true;
             let dateValidationMessage = null;
 
@@ -53,31 +90,56 @@ export default async function handler(req, res) {
                     const courseStartDate = moment.utc(course.start_date).startOf('day');
                     const courseEndDate = moment.utc(course.end_date).startOf('day');
                     
-                    // CORRECTED LOGIC:
-                    // 1. Guest can check in any time from min start date up to course start date
-                    // 2. Guest must stay until course ends or longer
-                    // 3. Guest must not check out before the minimum end date
+                    console.log(`Validating dates for course "${course.title}":`, {
+                        guestCheckIn: checkIn.format('YYYY-MM-DD'),
+                        guestCheckOut: checkOut.format('YYYY-MM-DD'),
+                        courseStart: courseStartDate.format('YYYY-MM-DD'),
+                        courseEnd: courseEndDate.format('YYYY-MM-DD'),
+                        minStart: minStartDate.format('YYYY-MM-DD'),
+                        minEnd: minEndDate.format('YYYY-MM-DD')
+                    });
                     
+                    // IMPROVED VALIDATION LOGIC:
+                    // 1. Guest must check in within the allowed window (min_start_date to course_start_date)
                     const canCheckIn = checkIn.isSameOrAfter(minStartDate) && checkIn.isSameOrBefore(courseStartDate);
+                    
+                    // 2. Guest must stay until course ends or longer
                     const staysUntilCourseEnds = checkOut.isSameOrAfter(courseEndDate);
+                    
+                    // 3. Guest must meet minimum stay requirement
                     const staysMinimumPeriod = checkOut.isSameOrAfter(minEndDate);
                     
                     dateValid = canCheckIn && staysUntilCourseEnds && staysMinimumPeriod;
                     
                     if (!dateValid) {
                         const minStartFormatted = minStartDate.format('D MMM YYYY');
-                        const minEndFormatted = minEndDate.format('D MMM YYYY');
                         const courseStartFormatted = courseStartDate.format('D MMM YYYY');
                         const courseEndFormatted = courseEndDate.format('D MMM YYYY');
+                        const minEndFormatted = minEndDate.format('D MMM YYYY');
                         
                         if (!canCheckIn) {
-                            dateValidationMessage = `Check-in must be between ${minStartFormatted} and ${courseStartFormatted} for ${course.title}.`;
+                            if (checkIn.isBefore(minStartDate)) {
+                                dateValidationMessage = `Check-in cannot be before ${minStartFormatted} for ${course.title}.`;
+                            } else if (checkIn.isAfter(courseStartDate)) {
+                                dateValidationMessage = `Check-in must be by ${courseStartFormatted} for ${course.title}.`;
+                            } else {
+                                dateValidationMessage = `Check-in must be between ${minStartFormatted} and ${courseStartFormatted} for ${course.title}.`;
+                            }
                         } else if (!staysUntilCourseEnds) {
                             dateValidationMessage = `You must stay until course ends on ${courseEndFormatted} for ${course.title}.`;
                         } else if (!staysMinimumPeriod) {
                             dateValidationMessage = `Minimum stay until ${minEndFormatted} required for ${course.title}.`;
                         }
                     }
+
+                    console.log(`Date validation result for "${course.title}":`, {
+                        dateValid,
+                        canCheckIn,
+                        staysUntilCourseEnds,
+                        staysMinimumPeriod,
+                        message: dateValidationMessage
+                    });
+                    
                 } catch (error) {
                     console.error('Error validating dates for course:', course.title, error);
                     dateValid = false;
@@ -96,10 +158,10 @@ export default async function handler(req, res) {
                     courseImageUrl = null; // Fallback if URL generation fails
                 }
 
-                console.log('Course image URL generated:', courseImageUrl);
+                console.log('Course image URL generated:', courseImageUrl ? 'Success' : 'Failed');
             }
             
-            // ✨ NEW: Course pricing information
+            // Course pricing information
             const pricing = {
                 holidayPrice: course.holiday_price ? parseFloat(course.holiday_price) : null,
                 staPrice: course.sta_price ? parseFloat(course.sta_price) : null,
@@ -126,7 +188,7 @@ export default async function handler(req, res) {
                 courseEndDate: course.end_date || null,
                 // Offer-specific data
                 offeredAt: offer.offered_at,
-                // ✨ NEW: Pricing information
+                // Pricing information
                 pricing: pricing
             };
         }));
