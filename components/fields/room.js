@@ -176,21 +176,41 @@ const RoomsField = (props) => {
     dispatch(bookingRequestFormActions.setRooms(selectedRoomData));
   }, [roomTypes, dispatch]);
 
-  // Transform room data for HorizontalCardSelection
+  // Transform room data for HorizontalCardSelection with UPDATED PRICING LOGIC
   const transformRoomData = useCallback((rooms, isAdditional = false) => {
     return rooms.map((room, index) => {
-      // Apply the correct pricing logic - first room is always included
-      let priceLabel = 'Included in your package price';
+      let priceLabel = '';
       
-      // Only show out-of-pocket fee for additional rooms or upgrades
-      if (isAdditional || room.type !== 'studio') {
+      // NEW PRICING LOGIC based on requirements
+      if (isAdditional) {
+        // Additional rooms logic
         if (isNdisFunded) {
-          priceLabel = `Out of pocket fee of ${room.price_per_night}/night (May be covered by some funders)`;
+          // NDIS funded: Additional rooms (studio only) - Out of pocket fee
+          priceLabel = `Out of pocket fee of AUD ${room.price_per_night}/night (May be covered by some funders)`;
         } else {
-          priceLabel = `Your package Price + Out of pocket fee of ${room.price_per_night}/night`;
-          
-          if (room.peak_rate && room.peak_rate > 0) {
-            priceLabel = `${priceLabel} (${room.peak_rate}/night Peak Period)`;
+          // Non-NDIS funded: Additional rooms (studio only) - Package price + fee
+          priceLabel = `Your package price + AUD ${room.price_per_night}/night`;
+        }
+      } else {
+        // Main room logic
+        if (isNdisFunded) {
+          // NDIS funded: Studio is included, Ocean view has additional cost
+          if (room.type === 'studio') {
+            priceLabel = 'Included in your package price';
+          } else if (room.type === 'ocean_view') {
+            priceLabel = `Your package price + AUD ${room.price_per_night}/night`;
+          }
+        } else {
+          // Non-NDIS funded: Studio is included, others have additional cost
+          if (room.type === 'studio') {
+            priceLabel = 'Included in your package price';
+          } else {
+            priceLabel = `Your package price + AUD ${room.price_per_night}/night`;
+            
+            // Add peak rate info for non-NDIS users if applicable
+            if (room.peak_rate && room.peak_rate > 0) {
+              priceLabel = `${priceLabel} (AUD ${room.peak_rate}/night Peak Period)`;
+            }
           }
         }
       }
@@ -300,12 +320,7 @@ const RoomsField = (props) => {
     
     const isValid = customValidateRooms(newRooms);
     notifyParent(newRooms, !isValid);
-    
-    // Hide upgrades if studio is selected (only relevant for NDIS users)
-    if (isNdisFunded && roomTypes.find(r => r.name === selectedRoomName)?.type === 'studio') {
-      setShowUpgrades(false);
-    }
-  }, [additionalRooms, roomTypes, customValidateRooms, notifyParent, updateReduxStore, isNdisFunded]);
+  }, [additionalRooms, customValidateRooms, notifyParent, updateReduxStore]);
 
   // Handle additional room changes
   const handleAdditionalRoomChange = useCallback((roomName, roomIndex) => {
@@ -370,15 +385,10 @@ const RoomsField = (props) => {
     notifyParent(newRooms, !isValid);
   }, [additionalRooms, selectedRooms, additionalRoomErrors, customValidateRooms, notifyParent, updateReduxStore]);
 
-  // Handle main room click (for NDIS users with upgrade logic)
+  // Handle main room click - simplified since we no longer separate rooms for NDIS users
   const handleMainRoomClick = useCallback((roomName) => {
-    const roomType = roomTypes.find(r => r.name === roomName)?.type;
-    if (roomType === 'upgrade') {
-      setShowUpgrades(true);
-    } else {
-      handleMainRoomChange(roomName);
-    }
-  }, [roomTypes, handleMainRoomChange]);
+    handleMainRoomChange(roomName);
+  }, [handleMainRoomChange]);
 
   if (loading) {
     return <div className="mb-2">Loading rooms...</div>;
@@ -387,12 +397,13 @@ const RoomsField = (props) => {
   const displayError = props.error || error;
   
   // NEW: Conditional room grouping based on NDIS funding status
-  const shouldSeparateRooms = isNdisFunded;
+  const shouldSeparateRooms = false; // We don't need to separate rooms for NDIS users anymore
   
-  // When NDIS funded: separate studio and upgrade rooms
-  // When not NDIS funded: show all rooms together
-  const studioRooms = roomTypes.filter(room => room.type === 'studio');
-  const upgradeRooms = roomTypes.filter(room => room.type !== 'studio');
+  // For NDIS funded: show studio and ocean_view together
+  // For non-NDIS funded: show all rooms together
+  const mainRoomsForNdis = roomTypes.filter(room => room.type === 'studio' || room.type === 'ocean_view');
+  const studioRooms = roomTypes.filter(room => room.type === 'studio'); // Only used for additional rooms
+  const upgradeRooms = roomTypes.filter(room => room.type !== 'studio' && room.type !== 'ocean_view');
   const allRooms = roomTypes; // All rooms for non-NDIS users
 
   // Get currently selected main room
@@ -409,45 +420,25 @@ const RoomsField = (props) => {
           </label>
         )}
         
-        {shouldSeparateRooms ? (
-          // NDIS funded: Show studio rooms first, then upgrades conditionally
-          <>
-            {/* Studio rooms */}
-            <div className={`mt-4 ${getRoomContainerClasses(displayError, selectedMainRoom)}`}>
-              <HorizontalCardSelection
-                items={transformRoomData(studioRooms)}
-                value={selectedMainRoom}
-                onChange={handleMainRoomClick}
-                required={props.required}
-                size="extra-large"
-                origin="room"
-              />
-            </div>
-            
-            {/* Upgrade rooms */}
-            {showUpgrades && (
-              <div className="mt-4">
-                <h3 className="font-semibold text-slate-700 mb-2">Upgrade Options</h3>
-                <div className={getRoomContainerClasses(displayError, selectedMainRoom)}>
-                  <HorizontalCardSelection
-                    items={transformRoomData(upgradeRooms)}
-                    value={selectedMainRoom}
-                    onChange={handleMainRoomClick}
-                    required={props.required}
-                    size="extra-large"
-                    origin="room"
-                  />
-                </div>
-              </div>
-            )}
-          </>
+        {isNdisFunded ? (
+          // NDIS funded: Show studio and ocean_view rooms together
+          <div className={`mt-4 ${getRoomContainerClasses(displayError, selectedMainRoom)}`}>
+            <HorizontalCardSelection
+              items={transformRoomData(mainRoomsForNdis)}
+              value={selectedMainRoom}
+              onChange={handleMainRoomChange}
+              required={props.required}
+              size="extra-large"
+              origin="room"
+            />
+          </div>
         ) : (
           // Non-NDIS funded: Show all rooms together
           <div className={`mt-4 ${getRoomContainerClasses(displayError, selectedMainRoom)}`}>
             <HorizontalCardSelection
               items={transformRoomData(allRooms)}
               value={selectedMainRoom}
-              onChange={handleMainRoomChange} // Use handleMainRoomChange directly for non-NDIS
+              onChange={handleMainRoomChange}
               required={props.required}
               size="extra-large"
               origin="room"
@@ -481,9 +472,9 @@ const RoomsField = (props) => {
       {/* Additional rooms */}
       <div className="mt-4">
         {additionalRooms.map((room, roomIndex) => {
-          // For additional rooms, always filter to studio rooms only regardless of NDIS status
+          // For additional rooms, always use studio rooms only regardless of NDIS status
           // This maintains the existing business logic for additional room selections
-          const additionalRoomTypes = roomTypes.filter(r => r.type === 'studio');
+          const additionalRoomTypes = studioRooms; // Use studioRooms array defined above
           const selectedAdditionalRoom = room.name || null;
 
           return (
@@ -508,7 +499,7 @@ const RoomsField = (props) => {
               {/* Additional room selection */}
               <div className={`mb-4 ${getRoomContainerClasses(additionalRoomErrors[roomIndex], selectedAdditionalRoom)}`}>
                 <HorizontalCardSelection
-                  items={transformRoomData(additionalRoomTypes, true)}
+                  items={transformRoomData(additionalRoomTypes, true)} // Pass true for isAdditional
                   value={selectedAdditionalRoom}
                   onChange={(roomName) => handleAdditionalRoomChange(roomName, roomIndex)}
                   required={true}

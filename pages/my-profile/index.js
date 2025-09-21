@@ -24,6 +24,10 @@ export default function GuestProfilePage() {
     const [imageUploading, setImageUploading] = useState(false);
     const [profileImageUrl, setProfileImageUrl] = useState('');
     
+    // Package options state
+    const [packageOptions, setPackageOptions] = useState([]);
+    const [loadingPackages, setLoadingPackages] = useState(false);
+    
     // Guest basic information state
     const [guestInfo, setGuestInfo] = useState({
         first_name: '',
@@ -63,11 +67,12 @@ export default function GuestProfilePage() {
         sci_inpatient: null,
     });
 
-    // Funding information state
+    // Funding information state - UPDATED to use package_id
     const [fundingInfo, setFundingInfo] = useState({
         approval_number: '',
         nights_approved: '',
-        package_approved: 'iCare',
+        package_id: null, // Changed from package_approved to package_id
+        package_approved: '', // Keep for display purposes
         approval_from: '',
         approval_to: ''
     });
@@ -97,14 +102,6 @@ export default function GuestProfilePage() {
         { value: "other", label: "Other" }
     ];
 
-    // Package options for funding
-    const packageOptions = [
-        { label: 'iCare', value: 'iCare' },
-        { label: 'NDIS', value: 'NDIS' },
-        { label: 'Private', value: 'Private' },
-        { label: 'Other', value: 'Other' }
-    ];
-
     const cervicalOptions = ['C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7', 'C8'];
     const thoracicOptions = ['T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10', 'T11', 'T12'];
     const lumbarOptions = ['L1', 'L2', 'L3', 'L4', 'L5'];
@@ -122,6 +119,77 @@ export default function GuestProfilePage() {
         const year = new Date().getFullYear() - i;
         return { value: year.toString(), label: year.toString() };
     });
+
+    // UPDATED: Load package options from API - same as FundingForm
+    const loadPackageOptions = async () => {
+        setLoadingPackages(true);
+        try {
+            // Fetch non-NDIS packages from the API
+            const response = await fetch('/api/packages/?funder=Non-NDIS&limit=100');
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
+            const result = await response.json();
+            
+            // Transform API response to dropdown format
+            const packageList = [];
+            const responseData = result.packages || result;
+            
+            if (Array.isArray(responseData)) {
+                responseData.forEach(pkg => {
+                    // Only include Non-NDIS packages
+                    if (pkg.funder === 'Non-NDIS') {
+                        const label = pkg.name + (pkg.package_code ? ` (${pkg.package_code})` : '');
+                        packageList.push({
+                            label: label,
+                            value: pkg.id, // Use package ID as value instead of label
+                            packageData: pkg // Store full package data for reference
+                        });
+                    }
+                });
+            }
+            
+            // Sort alphabetically by label
+            packageList.sort((a, b) => a.label.localeCompare(b.label));
+
+            setPackageOptions(packageList);
+
+        } catch (error) {
+            console.error('Error loading package options:', error);
+            toast.error('Failed to load package options. Using default options.');
+        } finally {
+            setLoadingPackages(false);
+        }
+    };
+
+    // ADDED: Find the selected package label based on package_id
+    const getSelectedPackageLabel = () => {
+        if (fundingInfo.package_id && packageOptions.length > 0) {
+            const selectedOption = packageOptions.find(option => option.value === fundingInfo.package_id);
+            return selectedOption ? selectedOption.label : '';
+        }
+        return '';
+    };
+
+    // UPDATED: Handle package selection
+    const handlePackageChange = (selected) => {
+        if (selected && selected.value) {
+            setFundingInfo(prev => ({ 
+                ...prev, 
+                package_id: selected.value,
+                package_approved: selected.label // Update display name for compatibility
+            }));
+        } else {
+            // Handle clearing the selection
+            setFundingInfo(prev => ({ 
+                ...prev, 
+                package_id: null,
+                package_approved: ''
+            }));
+        }
+    };
 
     // Helper Methods
     const getLevelOptions = (injuryType) => {
@@ -160,7 +228,7 @@ export default function GuestProfilePage() {
         }));
     };
 
-    // Funding info change handler
+    // UPDATED: Funding info change handler
     const handleFundingInfoChange = (field, value) => {
         setFundingInfo(prev => ({
             ...prev,
@@ -258,7 +326,7 @@ export default function GuestProfilePage() {
                 address_country: guestInfo.country
             };
 
-            // Single API call to save/update guest, health, and funding information
+            // UPDATED: Single API call to save/update guest, health, and funding information
             const response = await fetch('/api/my-profile/save-update', {
                 method: 'POST',
                 headers: {
@@ -270,8 +338,12 @@ export default function GuestProfilePage() {
                     ...mappedGuestInfo,
                     // Health information
                     ...healthInfo,
-                    // Funding information
-                    ...fundingInfo
+                    // UPDATED: Funding information with package_id
+                    approval_number: fundingInfo.approval_number,
+                    nights_approved: fundingInfo.nights_approved,
+                    package_id: fundingInfo.package_id, // Send package_id instead of package_approved
+                    approval_from: fundingInfo.approval_from,
+                    approval_to: fundingInfo.approval_to
                 }),
             });
 
@@ -304,9 +376,16 @@ export default function GuestProfilePage() {
                         setHealthInfo(result.data.HealthInfo);
                     }
 
-                    // Update funding info state
+                    // UPDATED: Update funding info state with package_id support
                     if (result.data.funding) {
-                        setFundingInfo(result.data.funding);
+                        setFundingInfo({
+                            approval_number: result.data.funding.approval_number || '',
+                            nights_approved: result.data.funding.nights_approved || '',
+                            package_id: result.data.funding.package_id || null,
+                            package_approved: result.data.funding.package_approved || '',
+                            approval_from: result.data.funding.approval_from || '',
+                            approval_to: result.data.funding.approval_to || ''
+                        });
                     }
                 }
             } else {
@@ -362,12 +441,13 @@ export default function GuestProfilePage() {
                     setHealthInfo(healthInfoData);
                 }
 
-                // Load funding information if available
+                // UPDATED: Load funding information with package_id support
                 if (data.funding) {
                     setFundingInfo({
                         approval_number: data.funding.approval_number || '',
                         nights_approved: data.funding.nights_approved || '',
-                        package_approved: data.funding.package_approved || 'iCare',
+                        package_id: data.funding.package_id || null,
+                        package_approved: data.funding.package_approved || '',
                         approval_from: data.funding.approval_from || '',
                         approval_to: data.funding.approval_to || ''
                     });
@@ -385,9 +465,27 @@ export default function GuestProfilePage() {
         }
     };
 
-    // Load Profile Data
+    // ADDED: Sync package_approved display name when package options are loaded
+    useEffect(() => {
+        if (fundingInfo.package_id && packageOptions.length > 0) {
+            const selectedOption = packageOptions.find(option => option.value === fundingInfo.package_id);
+            if (selectedOption) {
+                // Only update if the display name is different to avoid infinite loops
+                const expectedLabel = selectedOption.label;
+                if (fundingInfo.package_approved !== expectedLabel) {
+                    setFundingInfo(prev => ({
+                        ...prev,
+                        package_approved: expectedLabel
+                    }));
+                }
+            }
+        }
+    }, [fundingInfo.package_id, packageOptions]);
+
+    // Load Profile Data and Package Options
     useEffect(() => {
         loadProfileInfo();
+        loadPackageOptions();
     }, [user]);
 
     // Helper functions for conditional rendering
@@ -1014,7 +1112,7 @@ export default function GuestProfilePage() {
                                     </div>
                                 </div>
 
-                                {/* Funding Information Section */}
+                                {/* UPDATED: Funding Information Section */}
                                 <div className="border-t border-gray-200 pt-8">
                                     <h2 className="text-lg font-semibold mb-6 text-gray-700 uppercase">Funding Information</h2>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1036,13 +1134,20 @@ export default function GuestProfilePage() {
                                             size="medium"
                                         />
 
-                                        <SelectComponent
-                                            label="Package Approved"
-                                            options={packageOptions}
-                                            value={fundingInfo.package_approved}
-                                            onChange={(selected) => handleFundingInfoChange('package_approved', selected.value)}
-                                            placeholder="Select package type"
-                                        />
+                                        <div>
+                                            <label className="block text-sm font-medium mb-2 text-gray-700">
+                                                Package Approved
+                                                {loadingPackages && <span className="text-xs text-gray-500 ml-2">(Loading...)</span>}
+                                            </label>
+                                            <SelectComponent
+                                                options={packageOptions}
+                                                value={getSelectedPackageLabel()}
+                                                onChange={handlePackageChange}
+                                                placeholder={loadingPackages ? "Loading packages..." : "Select package type"}
+                                                disabled={loadingPackages}
+                                                isClearable={true}
+                                            />
+                                        </div>
 
                                         <div></div>
 

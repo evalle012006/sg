@@ -281,6 +281,15 @@ GuestFunding.belongsTo(Guest, {
   as: 'guest'
 });
 
+Package.hasMany(GuestFunding, {
+  foreignKey: 'package_id',
+  as: 'guestFundings'
+});
+GuestFunding.belongsTo(Package, {
+  foreignKey: 'package_id',
+  as: 'package'
+});
+
 
 module.exports = {
   sequelize,

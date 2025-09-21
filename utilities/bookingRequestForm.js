@@ -308,7 +308,7 @@ export const analyzeNdisProcessingNeeds = (formData, isNdisFunded) => {
  * @param {Function} applyQuestionDependenciesAcrossPages - Function to apply dependencies
  * @returns {Array} - Processed form data
  */
-export const processFormDataForNdisPackages = (formData, isNdisFunded, calculatePageCompletion, applyQuestionDependenciesAcrossPages) => {
+export const processFormDataForNdisPackages = (formData, isNdisFunded, calculatePageCompletion, applyQuestionDependenciesAcrossPages, bookingFormRoomSelected) => {
     // Find the funding page index
     let fundingPageIndex = -1;
     let fundingQuestionFound = false;
@@ -346,7 +346,7 @@ export const processFormDataForNdisPackages = (formData, isNdisFunded, calculate
         const updatedFormData = formData.map(page => {
             if (page.id === 'ndis_packages_page') {
                 // Apply dependencies to existing NDIS page but DON'T calculate completion yet
-                const pageWithDependencies = applyQuestionDependenciesAcrossPages(page, formData);
+                const pageWithDependencies = applyQuestionDependenciesAcrossPages(page, formData, bookingFormRoomSelected);
                 // ✅ FIXED: Don't calculate completion here - will be done later
                 return { ...pageWithDependencies, completed: false }; // Will be calculated properly later
             }
@@ -525,7 +525,7 @@ export const processFormDataForNdisPackages = (formData, isNdisFunded, calculate
 
         // ✅ FIXED: Apply dependencies to ALL pages but DON'T calculate completion yet
         const finalFormData = newFormData.map(page => {
-            const pageWithDependencies = applyQuestionDependenciesAcrossPages(page, newFormData);
+            const pageWithDependencies = applyQuestionDependenciesAcrossPages(page, newFormData, bookingFormRoomSelected);
             // ✅ Don't calculate completion here - it will be done later after all processing
             return { ...pageWithDependencies, completed: false };
         });
@@ -565,9 +565,10 @@ export const forceRefreshDependencies = (allPages, changedPageId, changedQuestio
  * Enhanced function to apply question dependencies across pages with better support for moved questions
  * @param {Object} targetPage - Page to apply dependencies to
  * @param {Array} allPages - All pages to search for dependencies
+ * @param {Array} bookingFormRoomSelected - Selected rooms for booking (optional)
  * @returns {Object} - Updated page with dependencies applied
  */
-export const applyQuestionDependenciesAcrossPages = (targetPage, allPages) => {
+export const applyQuestionDependenciesAcrossPages = (targetPage, allPages, bookingFormRoomSelected = []) => {
     if (!targetPage || !targetPage.Sections || !allPages) return targetPage;
 
     // Helper function to check if answers match
@@ -597,9 +598,62 @@ export const applyQuestionDependenciesAcrossPages = (targetPage, allPages) => {
         return false;
     };
 
+    // Calculate NDIS funding status from form data
+    const calculateNdisFundingStatus = (pages) => {
+        for (const page of pages) {
+            for (const section of page.Sections || []) {
+                for (const question of section.Questions || []) {
+                    if (questionHasKey(question, QUESTION_KEYS.FUNDING_SOURCE) &&
+                        question.answer &&
+                        (question.answer?.toLowerCase().includes('ndis') || question.answer?.toLowerCase().includes('ndia'))) {
+                        return true;
+                    }
+                }
+                // Also check QaPairs
+                for (const qaPair of section.QaPairs || []) {
+                    if (questionHasKey(qaPair.Question, QUESTION_KEYS.FUNDING_SOURCE) && qaPair.answer) {
+                        if (qaPair.answer?.toLowerCase().includes('ndis') || qaPair.answer?.toLowerCase().includes('ndia')) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    };
+
+    const currentIsNdisFunded = calculateNdisFundingStatus(allPages);
+
     const updatedPage = { ...targetPage };
     updatedPage.Sections = targetPage.Sections.map(section => {
         const updatedSection = { ...section };
+
+        // ADDED: Handle special case for "I acknowledge additional charges" question
+        if (updatedSection.Questions.length === 1) {
+            const question = updatedSection.Questions[0];
+            
+            // Check for "I acknowledge additional charges" question
+            if (question.ndis_only && question.question_key === 'i-acknowledge-additional-charges') {
+                const wasHidden = question.hidden;
+                
+                // Default to hidden
+                question.hidden = true;
+                updatedSection.hidden = true;
+
+                // Show if NDIS funded (simplified logic without room checking for consistency)
+                if (currentIsNdisFunded) {
+                    question.hidden = false;
+                    updatedSection.hidden = false;
+                }
+
+                // Only update if visibility actually changed to avoid infinite renders
+                if (wasHidden !== question.hidden) {
+                    updatedSection.Questions = [{ ...question }];
+                }
+
+                return updatedSection;
+            }
+        }
 
         updatedSection.Questions = section.Questions.map(question => {
             let q = { ...question };
@@ -685,7 +739,6 @@ export const applyQuestionDependenciesAcrossPages = (targetPage, allPages) => {
                 });
 
                 // Set question visibility based on dependencies
-                const wasHidden = q.hidden;
                 q.hidden = !shouldShow;
             } else {
                 // If no dependencies, show the question (unless explicitly hidden)
@@ -1095,13 +1148,40 @@ export const convertQAtoQuestionWithNdisFilter = (qa_pairs, sectionId, returnee,
 /**
  * Enhanced function to force refresh all dependencies with cascade support
  * @param {Array} allPages - All form pages
+ * @param {Array} bookingFormRoomSelected - Selected rooms for booking (optional)
  * @returns {Array} - Updated pages with refreshed dependencies
  */
-export const forceRefreshAllDependencies = (allPages) => {
+export const forceRefreshAllDependencies = (allPages, bookingFormRoomSelected = []) => {
     // console.log('🔄 Starting comprehensive dependency refresh with cascade support...');
     
     // Create a working copy of all pages
     let workingPages = structuredClone(allPages);
+    
+    // Calculate NDIS funding status from form data
+    const calculateNdisFundingStatus = (pages) => {
+        for (const page of pages) {
+            for (const section of page.Sections || []) {
+                for (const question of section.Questions || []) {
+                    if (questionHasKey(question, QUESTION_KEYS.FUNDING_SOURCE) &&
+                        question.answer &&
+                        (question.answer?.toLowerCase().includes('ndis') || question.answer?.toLowerCase().includes('ndia'))) {
+                        return true;
+                    }
+                }
+                // Also check QaPairs
+                for (const qaPair of section.QaPairs || []) {
+                    if (questionHasKey(qaPair.Question, QUESTION_KEYS.FUNDING_SOURCE) && qaPair.answer) {
+                        if (qaPair.answer?.toLowerCase().includes('ndis') || qaPair.answer?.toLowerCase().includes('ndia')) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    };
+
+    const currentIsNdisFunded = calculateNdisFundingStatus(workingPages);
     
     // Build the initial answer map from current question states
     const buildAnswerMap = (pages) => {
@@ -1189,11 +1269,7 @@ export const forceRefreshAllDependencies = (allPages) => {
                         if (questionKey) {
                             answerMap.set(questionKey, answerData);
                         }
-                        
-                    } 
-                    // else if (correspondingQuestion?.hidden) {
-                    //     console.log(`⏭️ Skipping QaPair for hidden question ID ${questionId}: "${question?.question || qaPair.question}"`);
-                    // }
+                    }
                 });
             });
         });
@@ -1221,6 +1297,38 @@ export const forceRefreshAllDependencies = (allPages) => {
             
             updatedPage.Sections = page.Sections.map(section => {
                 const updatedSection = { ...section };
+                
+                // ADDED: Handle special case for "I acknowledge additional charges" question
+                if (updatedSection.Questions.length === 1) {
+                    const question = updatedSection.Questions[0];
+                    
+                    // Check for "I acknowledge additional charges" question
+                    if (question.ndis_only && question.question_key === 'i-acknowledge-additional-charges') {
+                        const wasHidden = question.hidden;
+                        const wasSectionHidden = updatedSection.hidden;
+                        
+                        // Default to hidden
+                        question.hidden = true;
+                        updatedSection.hidden = true;
+
+                        // Show if NDIS funded AND rooms selected AND (first room not studio OR multiple rooms)
+                        if (currentIsNdisFunded && bookingFormRoomSelected.length > 0) {
+                            if (bookingFormRoomSelected[0]?.type != 'studio' || bookingFormRoomSelected.length > 1) {
+                                question.hidden = false;
+                                updatedSection.hidden = false;
+                            }
+                        }
+
+                        // Check if visibility actually changed to track changes
+                        if (wasHidden !== question.hidden || wasSectionHidden !== updatedSection.hidden) {
+                            hasChanges = true;
+                            // console.log(`  📋 Pass ${passCount}: "I acknowledge additional charges" visibility changed: ${wasHidden ? 'hidden' : 'visible'} → ${question.hidden ? 'hidden' : 'visible'}`);
+                        }
+
+                        updatedSection.Questions = [{ ...question }];
+                        return updatedSection;
+                    }
+                }
                 
                 updatedSection.Questions = section.Questions.map(question => {
                     let q = { ...question };

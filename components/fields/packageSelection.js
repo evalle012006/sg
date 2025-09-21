@@ -34,6 +34,7 @@ class ErrorBoundary extends React.Component {
 
 const PackageSelection = ({ 
   funder = null,
+  selectedFunder = null,
   ndis_package_type = null,
   additionalFilters = {},
   value = null, 
@@ -823,7 +824,11 @@ const PackageSelection = ({
               
               let fetchedPackages = data.packages.map(pkg => ({
                   ...pkg,
-                  formattedPrice: pkg.funder === 'NDIS' ? 'NDIS Funded' : `${parseFloat(pkg.price || 0).toFixed(2)}`,
+                  formattedPrice: pkg.funder === 'NDIS' 
+                    ? 'NDIS Funded' 
+                    : selectedFunder === 'icare' || selectedFunder === 'iCare'
+                      ? 'iCare Funded' 
+                      : `$${parseFloat(pkg.price || 0).toFixed(2)}`,
                   summary: pkg.description ? 
                       (pkg.description.length > 100 ? pkg.description.substring(0, 100) + '...' : pkg.description) :
                       'Package details available',
@@ -1142,10 +1147,12 @@ const PackageSelection = ({
                 {safeRender(pkg.package_code, 'N/A')}
               </span>
             </div>
-            
-            <div className="text-2xl font-bold text-gray-900">
-              {safeRender(pkg.formattedPrice, 'Price not available')}
-            </div>
+            {console.log("FUNDER: ", selectedFunder)}
+            {selectedFunder !== 'icare' && selectedFunder !== 'iCare' && (
+              <div className="text-2xl font-bold text-gray-900">
+                {safeRender(pkg.formattedPrice, 'Price not available')}
+              </div>
+            )}
           </div>
 
           {/* Package Details */}

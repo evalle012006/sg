@@ -1,7 +1,5 @@
 'use strict';
-const {
-  Model
-} = require('sequelize');
+const { Model } = require('sequelize');
 
 module.exports = (sequelize, DataTypes) => {
   class Package extends Model {
@@ -15,6 +13,12 @@ module.exports = (sequelize, DataTypes) => {
       Package.hasMany(models.PackageRequirement, {
         foreignKey: 'package_id',
         as: 'requirements'
+      });
+
+      // Add association with GuestFunding
+      Package.hasMany(models.GuestFunding, {
+        foreignKey: 'package_id',
+        as: 'guestFundings'
       });
     }
   }

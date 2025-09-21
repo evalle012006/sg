@@ -1,90 +1,47 @@
-import { Guest, HealthInfo, GuestFunding, sequelize } from '../../../models';
+import { Guest, HealthInfo, GuestFunding, Package, sequelize } from '../../../models';
 
 export default async function handler(req, res) {
-    if (req.method !== 'POST' && req.method !== 'PUT') {
+    if (req.method !== 'POST') {
         return res.status(405).json({ message: 'Method not allowed' });
     }
 
     try {
-        const { 
+        const {
             guest_id,
-            // Guest information
-            first_name,
-            last_name,
-            email,
-            phone_number,
-            gender,
-            dob,
-            address_street1,
-            address_street2,
-            address_city,
-            address_state_province,
-            address_postal,
-            address_country,
-            profile_filename,
-            flags,
-            // Health information
-            identify_aboriginal_torres,
-            language,
-            require_interpreter,
-            cultural_beliefs,
-            emergency_name,
-            emergency_mobile_number,
-            emergency_email,
-            emergency_relationship,
-            specialist_name,
-            specialist_mobile_number,
-            specialist_practice_name,
-            sci_year,
-            sci_level_asia,
-            sci_intial_spinal_rehab,
-            sci_type,
-            sci_type_level,
-            sci_inpatient,
-            sci_injury_type,
-            sci_other_details,
-            // Funding information
-            approval_number,
-            nights_approved,
-            package_approved,
-            approval_from,
-            approval_to
+            // Guest fields
+            first_name, last_name, email, phone_number, gender, dob, profile_filename, flags,
+            address_street1, address_street2, address_city, address_state_province, address_postal, address_country,
+            // Health fields
+            identify_aboriginal_torres, language, require_interpreter, cultural_beliefs,
+            emergency_name, emergency_mobile_number, emergency_email, emergency_relationship,
+            specialist_name, specialist_mobile_number, specialist_practice_name,
+            sci_year, sci_injury_type, sci_level_asia, sci_intial_spinal_rehab, sci_type, sci_type_level, sci_other_details, sci_inpatient,
+            // Funding fields
+            approval_number, nights_approved, package_id, package_approved, approval_from, approval_to
         } = req.body;
 
-        // Validate required guest_id
         if (!guest_id) {
-            return res.status(400).json({ message: 'guest_id is required' });
+            return res.status(400).json({ message: 'Guest ID is required' });
         }
 
-        // UPDATED: Only validate required guest fields IF they are being sent AND are empty
-        const requiredGuestFields = {};
-        if (first_name !== undefined) requiredGuestFields.first_name = first_name;
-        if (last_name !== undefined) requiredGuestFields.last_name = last_name;
-        if (email !== undefined) requiredGuestFields.email = email;
-
-        const missingFields = Object.keys(requiredGuestFields).filter(
-            field => !requiredGuestFields[field]?.trim()
-        );
-        
-        if (missingFields.length > 0) {
-            return res.status(400).json({ 
-                message: `Please fill in required fields: ${missingFields.join(', ')}` 
-            });
+        // Verify guest exists
+        const existingGuest = await Guest.findByPk(parseInt(guest_id));
+        if (!existingGuest) {
+            return res.status(404).json({ message: 'Guest not found' });
         }
 
-        // Helper function to properly handle sci_type_level conversion
+        // Helper function to safely process sci_type_level
         const processSciTypeLevel = (value) => {
             if (!value) return null;
             
-            // If it's already an array, return it
+            // If it's already an array, convert to comma-separated string for storage
             if (Array.isArray(value)) {
-                return value.length > 0 ? value : null;
+                return value.length > 0 ? value.join(',') : null;
             }
             
-            // If it's a string, convert to array
+            // If it's a string, keep as is
             if (typeof value === 'string') {
-                const levels = value.split(',').map(level => level.trim()).filter(level => level);
-                return levels.length > 0 ? levels : null;
+                return value.trim() || null;
             }
             
             return null;
@@ -92,6 +49,8 @@ export default async function handler(req, res) {
 
         // Start transaction for data consistency
         const result = await sequelize.transaction(async (transaction) => {
+            let responseData = {};
+
             // 1. UPDATE GUEST INFORMATION (only if provided)
             const guestUpdateData = {};
             if (first_name !== undefined) guestUpdateData.first_name = first_name;
@@ -137,21 +96,16 @@ export default async function handler(req, res) {
             if (specialist_mobile_number !== undefined) healthUpdateData.specialist_mobile_number = specialist_mobile_number || null;
             if (specialist_practice_name !== undefined) healthUpdateData.specialist_practice_name = specialist_practice_name || null;
             if (sci_year !== undefined) healthUpdateData.sci_year = sci_year || null;
+            if (sci_injury_type !== undefined) healthUpdateData.sci_injury_type = sci_injury_type || null;
             if (sci_level_asia !== undefined) healthUpdateData.sci_level_asia = sci_level_asia || null;
             if (sci_intial_spinal_rehab !== undefined) healthUpdateData.sci_intial_spinal_rehab = sci_intial_spinal_rehab || null;
             if (sci_type !== undefined) healthUpdateData.sci_type = sci_type || null;
-            
-            // UPDATED: Properly handle sci_type_level as array
-            if (sci_type_level !== undefined) {
-                healthUpdateData.sci_type_level = processSciTypeLevel(sci_type_level);
-            }
-            
+            if (sci_type_level !== undefined) healthUpdateData.sci_type_level = processSciTypeLevel(sci_type_level);
+            if (sci_other_details !== undefined) healthUpdateData.sci_other_details = sci_other_details || null;
             if (sci_inpatient !== undefined) {
                 healthUpdateData.sci_inpatient = sci_inpatient === true ? true : 
                                                sci_inpatient === false ? false : null;
             }
-            if (sci_injury_type !== undefined) healthUpdateData.sci_injury_type = sci_injury_type || null;
-            if (sci_other_details !== undefined) healthUpdateData.sci_other_details = sci_other_details || null;
 
             let healthResult = null;
             if (Object.keys(healthUpdateData).length > 0) {
@@ -181,11 +135,49 @@ export default async function handler(req, res) {
                 }
             }
 
-            // 3. HANDLE FUNDING INFORMATION (only if provided)
+            // 3. HANDLE FUNDING INFORMATION (UPDATED to handle both package_id and package_approved)
             const fundingUpdateData = {};
             if (approval_number !== undefined) fundingUpdateData.approval_number = approval_number || null;
             if (nights_approved !== undefined) fundingUpdateData.nights_approved = parseInt(nights_approved) || null;
-            if (package_approved !== undefined) fundingUpdateData.package_approved = package_approved || 'iCare';
+
+            // NEW: Handle package_id (foreign key) with validation
+            if (package_id !== undefined) {
+                if (package_id) {
+                    // Validate that the package exists
+                    const packageExists = await Package.findByPk(package_id);
+                    if (!packageExists) {
+                        return res.status(400).json({ 
+                            message: 'Invalid package selected. Package does not exist.' 
+                        });
+                    }
+                    fundingUpdateData.package_id = package_id;
+                } else {
+                    fundingUpdateData.package_id = null;
+                }
+            } 
+            // BACKWARD COMPATIBILITY: Handle old package_approved field
+            else if (package_approved !== undefined) {
+                // Try to find package by name/code for backward compatibility
+                let packageId = null;
+                
+                if (package_approved) {
+                    const packageByName = await Package.findOne({
+                        where: {
+                            [Package.sequelize.Sequelize.Op.or]: [
+                                { name: package_approved },
+                                Package.sequelize.Sequelize.literal(`CONCAT(name, ' (', package_code, ')') = '${package_approved.replace(/'/g, "''")}'`)
+                            ]
+                        }
+                    });
+                    
+                    if (packageByName) {
+                        packageId = packageByName.id;
+                    }
+                }
+                
+                fundingUpdateData.package_id = packageId;
+            }
+
             if (approval_from !== undefined) fundingUpdateData.approval_from = approval_from || null;
             if (approval_to !== undefined) fundingUpdateData.approval_to = approval_to || null;
 
@@ -194,7 +186,14 @@ export default async function handler(req, res) {
                 // Check if funding info already exists
                 const existingFundingInfo = await GuestFunding.findOne({ 
                     where: { guest_id: parseInt(guest_id) },
-                    transaction
+                    transaction,
+                    include: [
+                        {
+                            model: Package,
+                            as: 'package',
+                            attributes: ['id', 'name', 'package_code', 'funder']
+                        }
+                    ]
                 });
 
                 if (existingFundingInfo) {
@@ -204,9 +203,17 @@ export default async function handler(req, res) {
                         transaction
                     });
                     
+                    // Fetch updated record with package details
                     fundingResult = await GuestFunding.findOne({ 
                         where: { guest_id: parseInt(guest_id) },
-                        transaction
+                        transaction,
+                        include: [
+                            {
+                                model: Package,
+                                as: 'package',
+                                attributes: ['id', 'name', 'package_code', 'funder']
+                            }
+                        ]
                     });
                 } else {
                     // Create new funding info record
@@ -214,71 +221,70 @@ export default async function handler(req, res) {
                         guest_id: parseInt(guest_id),
                         ...fundingUpdateData
                     }, { transaction });
+                    
+                    // Fetch created record with package details
+                    if (fundingResult) {
+                        fundingResult = await GuestFunding.findOne({ 
+                            where: { id: fundingResult.id },
+                            transaction,
+                            include: [
+                                {
+                                    model: Package,
+                                    as: 'package',
+                                    attributes: ['id', 'name', 'package_code', 'funder']
+                                }
+                            ]
+                        });
+                    }
                 }
             }
 
-            // 4. FETCH UPDATED COMPLETE PROFILE
-            const updatedGuest = await Guest.findByPk(parseInt(guest_id), {
-                include: [
-                    {
-                        model: HealthInfo,
-                        required: false
-                    },
-                    {
-                        model: GuestFunding,
-                        as: 'funding',
-                        required: false
-                    }
-                ],
-                transaction
-            });
+            // 4. FETCH UPDATED GUEST DATA FOR RESPONSE
+            const updatedGuest = await Guest.findByPk(parseInt(guest_id), { transaction });
+            responseData = { ...updatedGuest.toJSON() };
 
-            if (!updatedGuest) {
-                throw new Error('Guest not found');
+            // Include health info in response
+            if (healthResult) {
+                responseData.HealthInfo = healthResult.toJSON();
             }
 
-            return {
-                guest: updatedGuest,
-                health: healthResult || updatedGuest.HealthInfo,
-                funding: fundingResult || updatedGuest.funding,
-                guestUpdated: guestUpdatedRows > 0 || Object.keys(healthUpdateData).length > 0 || Object.keys(fundingUpdateData).length > 0
-            };
+            // Include funding info in response with proper package details
+            if (fundingResult) {
+                const fundingData = fundingResult.toJSON();
+                
+                // Format package display name for backward compatibility
+                let packageDisplay = '';
+                if (fundingData.package) {
+                    packageDisplay = fundingData.package.package_code 
+                        ? `${fundingData.package.name} (${fundingData.package.package_code})`
+                        : fundingData.package.name;
+                }
+                
+                responseData.funding = {
+                    approval_number: fundingData.approval_number || '',
+                    nights_approved: fundingData.nights_approved || '',
+                    package_id: fundingData.package_id || null,
+                    package_approved: packageDisplay, // For display/backward compatibility
+                    approval_from: fundingData.approval_from || '',
+                    approval_to: fundingData.approval_to || ''
+                };
+            }
+
+            return responseData;
         });
 
-        // Map database fields back to frontend format for response
-        const responseData = {
-            id: result.guest.id,
-            uuid: result.guest.uuid,
-            first_name: result.guest.first_name,
-            last_name: result.guest.last_name,
-            email: result.guest.email,
-            phone_number: result.guest.phone_number,
-            gender: result.guest.gender,
-            dob: result.guest.dob,
-            profile_filename: result.guest.profile_filename,
-            flags: result.guest.flags || [],
-            address_street1: result.guest.address_street1,
-            address_street2: result.guest.address_street2,
-            address_city: result.guest.address_city,
-            address_state_province: result.guest.address_state_province,
-            address_postal: result.guest.address_postal,
-            address_country: result.guest.address_country,
-            // Include health info
-            HealthInfo: result.health,
-            // Include funding info
-            FundingInfo: result.funding
-        };
-
+        // Success response
+        const updateMessage = 'Profile information updated successfully';
+        
         return res.status(200).json({
-            message: 'Profile updated successfully',
-            data: responseData,
-            fieldsUpdated: result.guestUpdated
+            message: updateMessage,
+            data: result
         });
 
     } catch (error) {
-        console.error('Error saving/updating profile:', error);
+        console.error('Error in my-profile save-update:', error);
         
-        // Handle specific Sequelize validation errors
+        // Handle specific validation errors
         if (error.name === 'SequelizeValidationError') {
             return res.status(400).json({
                 message: 'Validation error',
@@ -288,11 +294,11 @@ export default async function handler(req, res) {
                 }))
             });
         }
-
+        
         // Handle foreign key constraint errors
         if (error.name === 'SequelizeForeignKeyConstraintError') {
             return res.status(400).json({
-                message: 'Invalid guest_id. Guest does not exist.'
+                message: 'Invalid reference: Guest does not exist.'
             });
         }
 

@@ -14,6 +14,12 @@ module.exports = (sequelize, DataTypes) => {
         foreignKey: 'guest_id',
         as: 'guest'
       });
+
+      // NEW: Add association to Package
+      GuestFunding.belongsTo(models.Package, {
+        foreignKey: 'package_id',
+        as: 'package'
+      });
     }
   }
   
@@ -34,10 +40,25 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.INTEGER,
       allowNull: true
     },
-    package_approved: {
-      type: DataTypes.STRING,
-      defaultValue: 'iCare',
-      allowNull: true
+    // UPDATED: Replace package_approved (STRING) with package_id (INTEGER)
+    package_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'packages',
+        key: 'id'
+      },
+      validate: {
+        isExistingPackage: async function(value) {
+          if (value) {
+            const { Package } = sequelize.models;
+            const packageExists = await Package.findByPk(value);
+            if (!packageExists) {
+              throw new Error('Selected package does not exist');
+            }
+          }
+        }
+      }
     },
     approval_from: {
       type: DataTypes.DATEONLY,
@@ -56,7 +77,18 @@ module.exports = (sequelize, DataTypes) => {
     sequelize,
     modelName: 'GuestFunding',
     tableName: 'guest_funding',
-    underscored: true
+    underscored: true,
+    indexes: [
+      {
+        fields: ['guest_id']
+      },
+      {
+        fields: ['package_id']
+      },
+      {
+        fields: ['approval_from', 'approval_to']
+      }
+    ]
   });
 
   return GuestFunding;

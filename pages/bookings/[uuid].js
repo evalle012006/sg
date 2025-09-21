@@ -2693,7 +2693,7 @@ export default function BookingDetail() {
     if (booking) {
       fetchHealthInfo();
       // Open first accordion item by default
-      setOpenAccordionItems({ 0: true });
+      setOpenAccordionItems({ 0: true, 1: true });
     }
   }, [booking, fetchHealthInfo]);
 

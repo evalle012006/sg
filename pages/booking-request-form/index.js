@@ -701,14 +701,15 @@ const BookingRequestForm = () => {
                     formData,
                     ndisFunded,
                     calculatePageCompletion,
-                    applyQuestionDependenciesAcrossPages
+                    (page, allPages) => applyQuestionDependenciesAcrossPages(page, allPages, bookingFormRoomSelected),
+                    bookingFormRoomSelected
                 );
                 
                 // STEP 2: Remove duplicates AND clean up empty sections
                 const deduplicated = removeDuplicateQuestions(processed, ndisFunded);
                 
                 // STEP 3: Apply dependencies
-                const withDependencies = forceRefreshAllDependencies(deduplicated);
+                const withDependencies = forceRefreshAllDependencies(deduplicated, bookingFormRoomSelected);
                 
                 // STEP 4: Calculate completion AFTER all dependencies are applied - FIXED
                 const withCompletion = withDependencies.map(page => {
@@ -740,7 +741,7 @@ const BookingRequestForm = () => {
             } catch (error) {
                 console.error('❌ NDIS processing error:', error);
                 // Fallback with proper completion calculation
-                const fallback = forceRefreshAllDependencies(formData);
+                const fallback = forceRefreshAllDependencies(formData, bookingFormRoomSelected);
                 const fallbackWithCompletion = fallback.map(page => {
                     if (page.id === 'ndis_packages_page') {
                         return { ...page, completed: calculateNdisPageCompletion(page) };
@@ -755,7 +756,7 @@ const BookingRequestForm = () => {
                 setTimeout(() => setIsUpdating(false), 300);
             }
         }, 150); // 150ms debounce
-    }, [isProcessingNdis, calculatePageCompletion, calculateNdisPageCompletion, applyQuestionDependenciesAcrossPages, removeDuplicateQuestions]);
+    }, [isProcessingNdis, bookingFormRoomSelected, calculatePageCompletion, calculateNdisPageCompletion, applyQuestionDependenciesAcrossPages, removeDuplicateQuestions]);
 
     const extractAllQAPairsFromForm = useCallback((formData = null) => {
         let dataToUse = formData;
@@ -2236,6 +2237,7 @@ const BookingRequestForm = () => {
                         updateEquipmentData={(data) => updateAndDispatchEquipmentData(data)}
                         equipmentChanges={equipmentChangesState}
                         funderType={ndisFormFilters.funderType}
+                        funder={funder}
                         ndisPackageType={ndisFormFilters.ndisPackageType}
                         additionalFilters={ndisFormFilters.additionalFilters}
                         profileDataLoaded={profileDataLoaded}
@@ -2564,10 +2566,10 @@ const BookingRequestForm = () => {
         } else {
             // Refresh dependencies first
             console.log('🔄 Refreshing dependencies...');
-            updatedPages = forceRefreshAllDependencies(updatedPages);
+            updatedPages = forceRefreshAllDependencies(updatedPages, bookingFormRoomSelected);
             updatedPages = clearHiddenQuestionAnswers(updatedPages);
-            updatedPages = forceRefreshAllDependencies(updatedPages);
-            
+            updatedPages = forceRefreshAllDependencies(updatedPages, bookingFormRoomSelected);
+
             // Then calculate completion with proper state
             updatedPages = updatePageCompletionStatus(updatedPages, 'after_dependencies');
         }
@@ -3608,7 +3610,7 @@ const BookingRequestForm = () => {
                     }
 
                     // UPDATED: Use question key for acknowledgement charges check
-                    if (s.Questions[0].ndis_only && questionMatches(s.Questions[0], 'I acknowledge additional charges')) {
+                    if (s.Questions[0].ndis_only && s.Questions[0].question_key === 'i-acknowledge-additional-charges') {
                         s.Questions[0].hidden = true;
                         s.hidden = true;
 
@@ -4151,7 +4153,7 @@ const BookingRequestForm = () => {
 
             // If template was already loaded with NDIS awareness, apply dependencies
             if (analysis.templateAlreadyNdisAware) {
-                const updatedData = forceRefreshAllDependencies(stableBookingRequestFormData);
+                const updatedData = forceRefreshAllDependencies(stableBookingRequestFormData, bookingFormRoomSelected);
                 
                 // Apply stable completion calculation for NDIS page
                 const withStableCompletion = updatedData.map(page => {
@@ -4227,7 +4229,7 @@ const BookingRequestForm = () => {
                     console.log('🔄 Using debounced NDIS processing with stable completion...');
                     processNdisWithDebounce(stableBookingRequestFormData, isNdisFunded);
                 } else {
-                    const updatedData = forceRefreshAllDependencies(stableBookingRequestFormData);
+                    const updatedData = forceRefreshAllDependencies(stableBookingRequestFormData, bookingFormRoomSelected);
                     const withStableCompletion = updatedData.map(page => {
                         if (page.id === 'ndis_packages_page') {
                             return { ...page, completed: calculateNdisPageCompletion(page) };
@@ -4244,6 +4246,7 @@ const BookingRequestForm = () => {
         stableBookingRequestFormData, 
         isNdisFunded, 
         isUpdating, 
+        bookingFormRoomSelected,
         processNdisWithDebounce,
         calculateNdisPageCompletion,
         currentPage,
@@ -4425,7 +4428,7 @@ const BookingRequestForm = () => {
             // Small delay to allow page to settle after navigation
             const refreshTimer = setTimeout(() => {
                 // Apply comprehensive dependency refresh
-                const refreshedData = forceRefreshAllDependencies(stableProcessedFormData);
+                const refreshedData = forceRefreshAllDependencies(stableProcessedFormData, bookingFormRoomSelected);
                 
                 // Only update if there are actual changes to avoid unnecessary re-renders
                 if (JSON.stringify(refreshedData) !== JSON.stringify(stableProcessedFormData)) {
@@ -4596,14 +4599,14 @@ const BookingRequestForm = () => {
                 });
                 
                 // Refresh dependencies and update form data
-                const finalPages = forceRefreshAllDependencies(pagesWithCorrectCompletion);
+                const finalPages = forceRefreshAllDependencies(pagesWithCorrectCompletion, bookingFormRoomSelected);
                 setProcessedFormData(finalPages);
                 safeDispatchData(finalPages, 'Package answers cleared due to funding change');
             }
         }
         
         prevIsNdisFundedRef.current = isNdisFunded;
-    }, [isNdisFunded, stableProcessedFormData, clearPackageQuestionAnswers, calculatePageCompletion, calculateNdisPageCompletion, forceRefreshAllDependencies, safeDispatchData]);
+    }, [isNdisFunded, stableProcessedFormData, bookingFormRoomSelected, clearPackageQuestionAnswers, calculatePageCompletion, calculateNdisPageCompletion, forceRefreshAllDependencies, safeDispatchData]);
 
 
     useEffect(() => {

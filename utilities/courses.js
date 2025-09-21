@@ -90,9 +90,12 @@ export const calculateCourseDaysBreakdown = async (startDate, endDate) => {
 };
 
 // Calculate course costs based on rates and dates
-export const calculateCourseCosts = async (startDate, endDate, courseRates, category = 'holiday') => {
+export const calculateCourseCosts = async (startDate, endDate, courseRates, category = 'holiday', courseHours = '6:00') => {
   try {
     const { breakdown, holidays } = await calculateCourseDaysBreakdown(startDate, endDate);
+    
+    // Convert course hours to numeric value
+    const numericHours = parseFloat(courseHours.replace(':', '.')) || 6;
     
     // Filter rates by category (holiday or sta)
     const relevantRates = courseRates.filter(rate => rate.category === category);
@@ -120,13 +123,30 @@ export const calculateCourseCosts = async (startDate, endDate, courseRates, cate
       
       if (dayCount > 0) {
         const rateValue = rate ? parseFloat(rate.rate) : 0;
-        const subtotal = dayCount * rateValue;
+        
+        // FIXED: Include course hours as multiplier
+        // If the rate is hourly-based, multiply by hours
+        // If the rate is daily-based, use as-is or apply partial multiplier
+        let hoursMultiplier = 1;
+        
+        if (rate?.rate_category === 'hour') {
+          // For hourly rates, use full hours multiplier
+          hoursMultiplier = numericHours;
+        } else {
+          // For daily rates, apply proportional multiplier based on standard 8-hour day
+          // This assumes daily rates are based on 8-hour standard
+          hoursMultiplier = numericHours / 8;
+        }
+        
+        const subtotal = dayCount * rateValue * hoursMultiplier;
         
         costDetails.push({
           dayType: label,
           packageName: rate?.package_name || `${label} Rate`,
           rate: rateValue,
           days: dayCount,
+          hours: numericHours,
+          hoursMultiplier: hoursMultiplier,
           subtotal: subtotal
         });
         
@@ -139,7 +159,8 @@ export const calculateCourseCosts = async (startDate, endDate, courseRates, cate
       holidays,
       costDetails,
       totalCost,
-      category
+      category,
+      courseHours: numericHours
     };
   } catch (error) {
     console.error('Error calculating course costs:', error);
@@ -159,8 +180,8 @@ export const getCourseCostSummary = async (course, courseRates) => {
 
   try {
     const [holidayCosts, staCosts] = await Promise.all([
-      calculateCourseCosts(course.start_date, course.end_date, courseRates, 'holiday'),
-      calculateCourseCosts(course.start_date, course.end_date, courseRates, 'sta')
+      calculateCourseCosts(course.start_date, course.end_date, courseRates, 'holiday', course.duration_hours),
+      calculateCourseCosts(course.start_date, course.end_date, courseRates, 'sta', course.duration_hours)
     ]);
 
     return {

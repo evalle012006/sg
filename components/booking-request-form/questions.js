@@ -14,6 +14,7 @@ const QuestionPage = ({
     updateEquipmentData, 
     equipmentChanges,
     funderType = null,
+    funder = null,
     ndisPackageType = null,
     additionalFilters = {},
     updateAndDispatchPageDataImmediate,
@@ -551,13 +552,6 @@ const QuestionPage = ({
                             
                             qTemp.dirty = true;
                             qTemp[field] = value;
-                            console.log('Package selection updated:', { 
-                                type: qTemp.type, 
-                                field, 
-                                value, 
-                                oldAnswer: qTemp.oldAnswer,
-                                previousAnswer: qTemp.answer 
-                            }); // Enhanced debug log
                         } else {
                             qTemp.dirty = true;
                             qTemp[field] = value;
@@ -1468,6 +1462,7 @@ const QuestionPage = ({
                                                                     width='100%' 
                                                                     error={q.error} 
                                                                     required={q.required ? true : false} 
+                                                                    ndis_package_type={localFilterState.ndisPackageType || (typeof q.details === 'string' ? JSON.parse(q.details) : q.details)?.ndis_package_type || 'sta'}
                                                                     onChange={(value, error) => handleRoomFieldChange(value, error, idx, index)} 
                                                                 />
                                                             </div>
@@ -1691,6 +1686,7 @@ const QuestionPage = ({
                                                                     value={q.answer} 
                                                                     width='100%' 
                                                                     funder={localFilterState.funderType || (typeof q.details === 'string' ? JSON.parse(q.details) : q.details)?.funder || 'NDIS'}
+                                                                    selectedFunder={funder}
                                                                     ndis_package_type={localFilterState.ndisPackageType || (typeof q.details === 'string' ? JSON.parse(q.details) : q.details)?.ndis_package_type || 'sta'}
                                                                     additionalFilters={localFilterState.additionalFilters}
                                                                     error={q.error} 

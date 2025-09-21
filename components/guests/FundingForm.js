@@ -13,22 +13,67 @@ const FundingForm = ({ uuid, initialData, onSave }) => {
   const [fundingData, setFundingData] = useState({
     approval_number: '',
     nights_approved: '',
-    package_approved: 'iCare',
+    package_id: null, // New: use package_id instead of package_approved
+    package_approved: '', // Keep for backward compatibility
     approval_from: '',
     approval_to: '',
     nights_used: 0
   });
   
   const [isSaving, setIsSaving] = useState(false);
+  
+  // Package options state
+  const [packageOptions, setPackageOptions] = useState([]);
+  const [loadingPackages, setLoadingPackages] = useState(false);
 
-  // Package options
-  const packageOptions = [
-    { label: 'iCare', value: 'iCare' },
-    { label: 'NDIS', value: 'NDIS' },
-    { label: 'Sargood Foundation', value: 'Sargood Foundation' },
-    { label: 'Private', value: 'Private' },
-    { label: 'Other', value: 'Other' }
-  ];
+  // Load package options from API
+  const loadPackageOptions = async () => {
+    setLoadingPackages(true);
+    try {
+      // Fetch non-NDIS packages from the API
+      const response = await fetch('/api/packages/?funder=Non-NDIS&limit=100');
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const result = await response.json();
+      
+      // Transform API response to dropdown format
+      const packageList = [];
+      const responseData = result.packages || result;
+      
+      if (Array.isArray(responseData)) {
+        responseData.forEach(pkg => {
+          // Only include Non-NDIS packages
+          if (pkg.funder === 'Non-NDIS') {
+            const label = pkg.name + (pkg.package_code ? ` (${pkg.package_code})` : '');
+            packageList.push({
+              label: label,
+              value: pkg.id, // Use package ID as value instead of label
+              packageData: pkg // Store full package data for reference
+            });
+          }
+        });
+      }
+      
+      // Sort alphabetically by label
+      packageList.sort((a, b) => a.label.localeCompare(b.label));
+
+      setPackageOptions(packageList);
+
+    } catch (error) {
+      console.error('Error loading package options:', error);
+      toast.error('Failed to load package options. Using default options.');
+    } finally {
+      setLoadingPackages(false);
+    }
+  };
+
+  // Load package options on component mount
+  useEffect(() => {
+    loadPackageOptions();
+  }, []);
 
   // Update state when initialData changes
   useEffect(() => {
@@ -37,13 +82,41 @@ const FundingForm = ({ uuid, initialData, onSave }) => {
         ...prev,
         approval_number: initialData.approval_number || '',
         nights_approved: initialData.nights_approved || '',
-        package_approved: initialData.package_approved || 'iCare',
+        package_id: initialData.package_id || null,
+        package_approved: initialData.package_approved || '', 
         approval_from: initialData.approval_from || '',
         approval_to: initialData.approval_to || '',
         nights_used: initialData.nights_used || 0
       }));
     }
   }, [initialData]);
+
+  // Find the selected package label based on package_id
+  const getSelectedPackageLabel = () => {
+    if (fundingData.package_id && packageOptions.length > 0) {
+      const selectedOption = packageOptions.find(option => option.value === fundingData.package_id);
+      return selectedOption ? selectedOption.label : '';
+    }
+    return '';
+  };
+
+  // Handle package selection
+  const handlePackageChange = (selected) => {
+    if (selected && selected.value) {
+      setFundingData(prev => ({ 
+        ...prev, 
+        package_id: selected.value,
+        package_approved: selected.label // Update display name for compatibility
+      }));
+    } else {
+      // Handle clearing the selection
+      setFundingData(prev => ({ 
+        ...prev, 
+        package_id: null,
+        package_approved: ''
+      }));
+    }
+  };
 
   // Handle save
   const handleSave = async () => {
@@ -62,7 +135,7 @@ const FundingForm = ({ uuid, initialData, onSave }) => {
         body: JSON.stringify({
           approval_number: fundingData.approval_number,
           nights_approved: fundingData.nights_approved,
-          package_approved: fundingData.package_approved,
+          package_id: fundingData.package_id, // Send package_id instead of package_approved
           approval_from: fundingData.approval_from,
           approval_to: fundingData.approval_to
         }),
@@ -114,14 +187,21 @@ const FundingForm = ({ uuid, initialData, onSave }) => {
               min="0"
             />
 
-            {/* Package Approved */}
-            <SelectComponent
-              label="Package Approved"
-              options={packageOptions}
-              value={fundingData.package_approved}
-              onChange={(selected) => setFundingData(prev => ({ ...prev, package_approved: selected.value }))}
-              placeholder="Select package type"
-            />
+            {/* Package Approved - Now uses package_id */}
+            <div>
+              <label className="block text-sm font-medium mb-2 text-gray-700">
+                Package Approved
+                {loadingPackages && <span className="text-xs text-gray-500 ml-2">(Loading...)</span>}
+              </label>
+              <SelectComponent
+                options={packageOptions}
+                value={getSelectedPackageLabel()}
+                onChange={handlePackageChange}
+                placeholder={loadingPackages ? "Loading packages..." : "Select package type"}
+                disabled={loadingPackages}
+                isClearable={true}
+              />
+            </div>
 
             {/* Approval From */}
             <DateComponent

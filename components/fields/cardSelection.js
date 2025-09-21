@@ -30,6 +30,9 @@ const CardSelection = ({
   const [dynamicItems, setDynamicItems] = useState(items);
   const [coursesLoading, setCoursesLoading] = useState(false);
   const [localInputValues, setLocalInputValues] = useState({});
+  const [showDateWarning, setShowDateWarning] = useState(false);
+  const [pendingSelection, setPendingSelection] = useState(null);
+  const [brokenImages, setBrokenImages] = useState(new Set()); // NEW: Track broken images
   const updateTimeoutRef = useRef({});
   
   // Track if this component instance has been initialized
@@ -103,6 +106,21 @@ const CardSelection = ({
     return label.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
   };
 
+  // NEW: Handle image load error
+  const handleImageError = (index) => {
+    setBrokenImages(prev => new Set([...prev, index]));
+  };
+
+  // NEW: Check if image should show placeholder
+  const shouldShowPlaceholder = (item, index) => {
+    return !item.imageUrl || brokenImages.has(index);
+  };
+
+  // NEW: Reset broken images when displayItems change
+  useEffect(() => {
+    setBrokenImages(new Set());
+  }, [displayItems]);
+
   const fetchActiveCourses = async () => {
       // Check if we have course offers passed from parent
       if (courseOffers && courseOffers.length > 0) {
@@ -121,9 +139,9 @@ const CardSelection = ({
               validationMessage: offer.dateValidationMessage,
               offerId: offer.id,
               courseId: offer.courseId,
-              disabled: offer.dateValid === false,
-              statusText: offer.dateValid === false ? 'Incompatible dates' : 'Compatible dates',
-              statusColor: offer.dateValid === false ? 'red' : 'green'
+              // REMOVED: disabled property - courses are never disabled now
+              statusText: offer.dateValid === false ? 'Outside minimum stay period' : 'Within minimum stay period',
+              statusColor: offer.dateValid === false ? 'amber' : 'green' // Changed to amber instead of red
           }));
           
           return courses;
@@ -228,10 +246,9 @@ const CardSelection = ({
                       validationMessage: offer.dateValidationMessage,
                       offerId: offer.id,
                       courseId: offer.courseId,
-                      // Add visual indicators for validation
-                      disabled: offer.dateValid === false, // Only disable if explicitly false
-                      statusText: offer.dateValid === false ? 'Incompatible dates' : 'Compatible dates',
-                      statusColor: offer.dateValid === false ? 'red' : 'green'
+                      // REMOVED: disabled property - courses are never disabled now
+                      statusText: offer.dateValid === false ? 'Outside minimum stay period' : 'Within minimum stay period',
+                      statusColor: offer.dateValid === false ? 'amber' : 'green' // Changed to amber
                   }));
                   
                   console.log('Enhanced course offers with validation:', courses);
@@ -279,9 +296,9 @@ const CardSelection = ({
                   minEndDate: offer.minEndDate,
                   dateValid: offer.dateValid !== undefined ? offer.dateValid : true,
                   validationMessage: offer.dateValidationMessage,
-                  disabled: offer.dateValid === false,
-                  statusText: offer.dateValid === false ? 'Incompatible dates' : 'Compatible dates',
-                  statusColor: offer.dateValid === false ? 'red' : 'green'
+                  // REMOVED: disabled property
+                  statusText: offer.dateValid === false ? 'Outside minimum stay period' : 'Within minimum stay period',
+                  statusColor: offer.dateValid === false ? 'amber' : 'green'
               }));
               setDynamicItems(courses);
           } 
@@ -366,13 +383,7 @@ const CardSelection = ({
       event.preventDefault();
       event.stopPropagation();
 
-      // Check if course is disabled due to date validation
-      if (item.disabled && !item.dateValid) {
-          // Show tooltip or message about why it's disabled
-          console.log('Course disabled due to date incompatibility:', item.validationMessage);
-          return; // Don't allow selection
-      }
-
+      // Allow selection of all courses regardless of date compatibility
       if (multi) {
           handleCheckboxChange(itemValue);
       } else {
@@ -515,32 +526,56 @@ const CardSelection = ({
     }
   };
 
-  // Handle image removal (just the image, not the entire option) with dynamic file path
+  // ENHANCED: Handle image removal (just the image, not the entire option) with enhanced error handling
   const handleImageRemove = async (index) => {
     const item = displayItems[index];
     
-    // If there's an imageFilename, delete it from storage first
+    // If there's an imageFilename, try to delete it from storage
     if (item.imageFilename) {
       try {
-        // Delete the image from storage using the dynamic option type
-        await fetch(`/api/storage/upload?filename=${item.imageFilename}&filepath=${optionType}/`, {
+        const response = await fetch(`/api/storage/upload?filename=${item.imageFilename}&filepath=${optionType}/`, {
           method: 'DELETE'
         });
+        
+        // Log the result but don't prevent removal based on API response
+        if (response.status === 404) {
+          console.log('Image file already deleted from storage:', item.imageFilename);
+        } else if (!response.ok) {
+          console.warn('Failed to delete image from storage:', response.status, response.statusText);
+        } else {
+          console.log('Image successfully deleted from storage:', item.imageFilename);
+        }
       } catch (error) {
-        console.warn('Failed to delete image from storage:', error);
+        console.warn('Error during image deletion:', error);
+        // Continue with UI cleanup regardless of API error
       }
     }
     
-    // Clean up blob URLs
+    // Clean up blob URLs to prevent memory leaks
     if (item.imageUrl && item.imageUrl.startsWith('blob:')) {
       URL.revokeObjectURL(item.imageUrl);
     }
     
-    // Update the option to remove both image references
+    // Remove from broken images set
+    setBrokenImages(prev => {
+      const newSet = new Set(prev);
+      newSet.delete(index);
+      return newSet;
+    });
+    
+    // Update the option to remove BOTH image references
     if (updateOptionLabel) {
+      // Clear imageFilename
       updateOptionLabel(
-        { target: { value: null }, stopPropagation: () => {} }, // Mock event object
+        { target: { value: null }, stopPropagation: () => {} },
         { index, field: 'imageFilename' },
+        'card-selection'
+      );
+      
+      // Also clear imageUrl to ensure the image disappears from the UI
+      updateOptionLabel(
+        { target: { value: null }, stopPropagation: () => {} },
+        { index, field: 'imageUrl' },
         'card-selection'
       );
     }
@@ -591,7 +626,7 @@ const CardSelection = ({
                 </div>
             )}
 
-            {/* Show validation summary for multiple courses */}
+            {/* Updated validation summary for multiple courses */}
             {!builderMode && optionType === 'course' && displayItems.length > 1 && (
                 <div className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-md">
                     <div className="flex items-center justify-between">
@@ -601,13 +636,16 @@ const CardSelection = ({
                         <div className="flex gap-4 text-xs">
                             <span className="flex items-center">
                                 <div className="w-2 h-2 bg-green-500 rounded-full mr-1"></div>
-                                {displayItems.filter(item => item.dateValid).length} Compatible
+                                {displayItems.filter(item => item.dateValid).length} Within period
                             </span>
                             <span className="flex items-center">
-                                <div className="w-2 h-2 bg-red-500 rounded-full mr-1"></div>
-                                {displayItems.filter(item => !item.dateValid).length} Incompatible
+                                <div className="w-2 h-2 bg-amber-500 rounded-full mr-1"></div>
+                                {displayItems.filter(item => !item.dateValid).length} Outside period
                             </span>
                         </div>
+                    </div>
+                    <div className="mt-2 text-xs text-gray-600">
+                        All courses can be selected. Courses outside the minimum stay period may require extending your stay.
                     </div>
                 </div>
             )}
@@ -616,18 +654,18 @@ const CardSelection = ({
                 <div
                     key={item.value || index}
                     onClick={(e) => handleCardClick(item.value, item, e)}
-                    className={`flex border-2 rounded-xl transition-all duration-200 relative ${
+                    className={`flex border-2 rounded-xl transition-all duration-200 relative cursor-pointer ${
                         !builderMode && isSelected(item.value) 
                             ? 'border-blue-600 bg-blue-50 shadow-md ring-2 ring-blue-200' 
-                            : item.disabled
-                                ? 'border-red-200 bg-red-50 opacity-75 cursor-not-allowed'
-                                : 'border-gray-200 hover:border-gray-300 hover:shadow-sm cursor-pointer'
+                            : item.dateValid === false
+                                ? 'border-amber-200 bg-amber-50 hover:border-amber-300 hover:shadow-sm' // Changed styling
+                                : 'border-gray-200 hover:border-gray-300 hover:shadow-sm'
                     } ${builderMode ? 'cursor-default' : ''} ${currentSize.card}`}
                 >
-                    {/* Validation indicator */}
+                    {/* Updated validation indicator */}
                     {!builderMode && optionType === 'course' && item.hasOwnProperty('dateValid') && (
                         <div className={`absolute -top-2 -right-2 w-6 h-6 rounded-full flex items-center justify-center ${
-                            item.dateValid ? 'bg-green-500' : 'bg-red-500'
+                            item.dateValid ? 'bg-green-500' : 'bg-amber-500' // Changed to amber
                         }`}>
                             {item.dateValid ? (
                                 <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
@@ -635,20 +673,67 @@ const CardSelection = ({
                                 </svg>
                             ) : (
                                 <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
-                                    <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                                    <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                                 </svg>
                             )}
                         </div>
                     )}
 
-                    {/* Image Section */}
+                    {/* ENHANCED Image Section with Error Handling */}
                     <div className="flex-shrink-0 mr-4">
-                        {item.imageUrl ? (
+                        {shouldShowPlaceholder(item, index) ? (
+                            // Show placeholder or upload area
+                            builderMode ? (
+                                <div className={`${currentSize.image} border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center bg-gray-50`}>
+                                    <label className="cursor-pointer text-center">
+                                        <input
+                                            type="file"
+                                            accept="image/*"
+                                            className="hidden"
+                                            onChange={(e) => {
+                                                if (e.target.files[0]) {
+                                                    // Remove from broken images set when new image is uploaded
+                                                    setBrokenImages(prev => {
+                                                        const newSet = new Set(prev);
+                                                        newSet.delete(index);
+                                                        return newSet;
+                                                    });
+                                                    handleImageUpload(index, e.target.files[0]);
+                                                }
+                                            }}
+                                        />
+                                        <div className="text-gray-400 text-xs text-center">
+                                            <svg className="w-6 h-6 mx-auto mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 002 2z" />
+                                            </svg>
+                                            {brokenImages.has(index) ? 'Replace Image' : getPlaceholderText().addLabel}
+                                        </div>
+                                    </label>
+                                </div>
+                            ) : (
+                                // Non-builder mode placeholder
+                                <div className={`${currentSize.image} bg-gray-100 rounded-lg flex items-center justify-center`}>
+                                    <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 002 2z" />
+                                    </svg>
+                                </div>
+                            )
+                        ) : (
+                            // Show actual image with error handling
                             <div className="relative">
                                 <img
                                     src={item.imageUrl}
-                                    alt={item.label || 'Course image'}
+                                    alt={item.label || 'Image'}
                                     className={`${currentSize.image} object-cover rounded-lg`}
+                                    onError={() => handleImageError(index)}
+                                    onLoad={() => {
+                                        // Remove from broken images set if image loads successfully
+                                        setBrokenImages(prev => {
+                                            const newSet = new Set(prev);
+                                            newSet.delete(index);
+                                            return newSet;
+                                        });
+                                    }}
                                 />
                                 {builderMode && (
                                     <button
@@ -656,33 +741,12 @@ const CardSelection = ({
                                             e.stopPropagation();
                                             handleImageRemove(index);
                                         }}
-                                        className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-red-600"
+                                        className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-red-600 transition-colors"
+                                        title="Remove image"
                                     >
                                         ×
                                     </button>
                                 )}
-                            </div>
-                        ) : builderMode ? (
-                            <div className={`${currentSize.image} border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center`}>
-                                <label className="cursor-pointer text-center">
-                                    <input
-                                        type="file"
-                                        accept="image/*"
-                                        className="hidden"
-                                        onChange={(e) => {
-                                            if (e.target.files[0]) {
-                                                handleImageUpload(index, e.target.files[0]);
-                                            }
-                                        }}
-                                    />
-                                    <div className="text-gray-400 text-xs">
-                                        {getPlaceholderText().addLabel}
-                                    </div>
-                                </label>
-                            </div>
-                        ) : (
-                            <div className={`${currentSize.image} bg-gray-100 rounded-lg flex items-center justify-center`}>
-                                <span className="text-gray-400 text-xs">No Image</span>
                             </div>
                         )}
                     </div>
@@ -728,7 +792,7 @@ const CardSelection = ({
                                     {item.label || 'Untitled'}
                                 </h3>
                                 
-                                {/* Course dates display - NEW */}
+                                {/* Course dates display */}
                                 {optionType === 'course' && (item.minStartDate || item.minEndDate) && (
                                     <div className="mb-2">
                                         <div className="flex items-center gap-2 text-sm text-gray-600">
@@ -736,25 +800,25 @@ const CardSelection = ({
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                                             </svg>
                                             <span>
-                                                {formatDate(item.minStartDate)} - {formatDate(item.minEndDate)}
+                                                Minimum stay: {formatDate(item.minStartDate)} - {formatDate(item.minEndDate)}
                                             </span>
                                         </div>
                                     </div>
                                 )}
                                 
-                                {/* Course-specific validation info */}
+                                {/* Updated course-specific validation info */}
                                 {!builderMode && optionType === 'course' && item.hasOwnProperty('dateValid') && (
                                     <div className="mt-2">
                                         <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
                                             item.dateValid 
                                                 ? 'bg-green-100 text-green-800' 
-                                                : 'bg-red-100 text-red-800'
+                                                : 'bg-amber-100 text-amber-800' // Changed to amber
                                         }`}>
                                             {item.statusText}
                                         </span>
-                                        {!item.dateValid && item.validationMessage && (
-                                            <p className="text-xs text-red-600 mt-1">
-                                                {item.validationMessage}
+                                        {!item.dateValid && (
+                                            <p className="text-xs text-amber-600 mt-1"> {/* Changed to amber */}
+                                                You can still select this course but may need to extend your stay dates to meet the minimum requirements.
                                             </p>
                                         )}
                                     </div>
@@ -763,7 +827,7 @@ const CardSelection = ({
                         )}
                     </div>
 
-                    {/* Control Section */}
+                    {/* Control Section - REMOVED disabled state logic */}
                     <div className="flex-shrink-0 ml-4 flex items-center justify-center">
                         {builderMode ? (
                             // Builder mode controls...
@@ -784,17 +848,15 @@ const CardSelection = ({
                                 )}
                             </>
                         ) : (
-                            // Selection controls
+                            // Selection controls - REMOVED disabled state
                             <>
                                 {multi ? (
                                     // Checkbox for multi-selection
-                                    <label className={`cursor-pointer ${item.disabled ? 'cursor-not-allowed' : ''}`} onClick={(e) => e.stopPropagation()}>
+                                    <label className="cursor-pointer" onClick={(e) => e.stopPropagation()}>
                                         <div className={`${currentSize.control} rounded-full border-2 flex items-center justify-center ${
                                             isSelected(item.value) 
                                                 ? 'border-blue-600 bg-blue-600' 
-                                                : item.disabled
-                                                    ? 'border-gray-300 bg-gray-100'
-                                                    : 'border-gray-300'
+                                                : 'border-gray-300'
                                         }`}>
                                             {isSelected(item.value) && (
                                                 <svg xmlns="http://www.w3.org/2000/svg" className={currentSize.controlIcon + " text-white"} viewBox="0 0 20 20" fill="currentColor">
@@ -806,7 +868,6 @@ const CardSelection = ({
                                                 className="sr-only" 
                                                 value={item.value}
                                                 checked={isSelected(item.value)}
-                                                disabled={item.disabled}
                                                 onChange={() => handleCheckboxChange(item.value)}
                                                 required={required && (!Array.isArray(value) || value.length === 0)}
                                             />
@@ -814,13 +875,11 @@ const CardSelection = ({
                                     </label>
                                 ) : (
                                     // Radio button for single selection
-                                    <label className={`cursor-pointer ${item.disabled ? 'cursor-not-allowed' : ''}`} onClick={(e) => e.stopPropagation()}>
+                                    <label className="cursor-pointer" onClick={(e) => e.stopPropagation()}>
                                         <div className={`${currentSize.control} rounded-full border-2 flex items-center justify-center ${
                                             isSelected(item.value) 
                                                 ? 'border-blue-600 bg-blue-600' 
-                                                : item.disabled
-                                                    ? 'border-gray-300 bg-gray-100'
-                                                    : 'border-gray-300'
+                                                : 'border-gray-300'
                                         }`}>
                                             {isSelected(item.value) && (
                                                 <svg xmlns="http://www.w3.org/2000/svg" className={currentSize.controlIcon + " text-white"} viewBox="0 0 20 20" fill="currentColor">
@@ -833,7 +892,6 @@ const CardSelection = ({
                                                 name={`card-selection-${Math.random()}`}
                                                 value={item.value}
                                                 checked={isSelected(item.value)}
-                                                disabled={item.disabled}
                                                 onChange={() => handleChange(item.value)}
                                                 required={required}
                                             />

@@ -1,4 +1,4 @@
-import { Guest, GuestFunding } from '../../../../models';
+import { Guest, GuestFunding, Package } from '../../../../models';
 
 export default async function handler(req, res) {
   const { uuid } = req.query;
@@ -16,23 +16,40 @@ export default async function handler(req, res) {
   if (req.method === 'GET') {
     try {
       const funding = await GuestFunding.findOne({
-        where: { guest_id: guest.id }
+        where: { guest_id: guest.id },
+        include: [
+          {
+            model: Package,
+            as: 'package',
+            attributes: ['id', 'name', 'package_code', 'funder']
+          }
+        ]
       });
       
       let response = {
         approval_number: '',
         nights_approved: '',
-        package_approved: 'iCare',
+        package_id: null,
+        package_approved: '', // Keep for backward compatibility
         approval_from: '',
         approval_to: '',
         nights_used: 0
       };
       
       if (funding) {
+        // Format package display name for backward compatibility
+        let packageDisplay = '';
+        if (funding.package) {
+          packageDisplay = funding.package.package_code 
+            ? `${funding.package.name} (${funding.package.package_code})`
+            : funding.package.name;
+        }
+
         response = {
           approval_number: funding.approval_number || '',
           nights_approved: funding.nights_approved || '',
-          package_approved: funding.package_approved || 'iCare',
+          package_id: funding.package_id || null,
+          package_approved: packageDisplay, // For backward compatibility
           approval_from: funding.approval_from || '',
           approval_to: funding.approval_to || '',
           nights_used: funding.nights_used || 0
@@ -51,7 +68,33 @@ export default async function handler(req, res) {
   
   else if (req.method === 'POST') {
     try {
-      const { approval_number, nights_approved, package_approved, approval_from, approval_to, nights_used } = req.body;
+      const { approval_number, nights_approved, package_id, package_approved, approval_from, approval_to, nights_used } = req.body;
+      
+      // Validate package_id if provided
+      let validatedPackageId = null;
+      if (package_id) {
+        const packageExists = await Package.findByPk(package_id);
+        if (!packageExists) {
+          return res.status(400).json({ 
+            message: 'Invalid package selected. Package does not exist.' 
+          });
+        }
+        validatedPackageId = package_id;
+      } else if (package_approved) {
+        // Backward compatibility: try to find package by name/code
+        const packageByName = await Package.findOne({
+          where: {
+            [Package.sequelize.Sequelize.Op.or]: [
+              { name: package_approved },
+              Package.sequelize.Sequelize.literal(`CONCAT(name, ' (', package_code, ')') = '${package_approved}'`)
+            ]
+          }
+        });
+        
+        if (packageByName) {
+          validatedPackageId = packageByName.id;
+        }
+      }
       
       // Check if funding record exists
       const existingFunding = await GuestFunding.findOne({
@@ -62,7 +105,7 @@ export default async function handler(req, res) {
         guest_id: guest.id,
         approval_number: approval_number || null,
         nights_approved: parseInt(nights_approved) || null,
-        package_approved: package_approved || 'iCare',
+        package_id: validatedPackageId,
         approval_from: approval_from || null,
         approval_to: approval_to || null,
         nights_used: parseInt(nights_used) || 0
@@ -70,66 +113,30 @@ export default async function handler(req, res) {
       
       if (existingFunding) {
         // Update existing record
-        await existingFunding.update(fundingData);
+        await GuestFunding.update(fundingData, {
+          where: { guest_id: guest.id }
+        });
       } else {
         // Create new record
         await GuestFunding.create(fundingData);
       }
       
       res.status(200).json({ 
-        success: true,
-        message: 'Funding information saved successfully' 
+        message: 'Funding information saved successfully!',
+        data: fundingData
       });
+      
     } catch (error) {
       console.error('Error saving funding information:', error);
-      
-      // Handle Sequelize validation errors
-      if (error.name === 'SequelizeValidationError') {
-        return res.status(400).json({
-          success: false,
-          error: 'Validation error',
-          message: error.errors.map(e => e.message).join(', ')
-        });
-      }
-
-      // Handle Sequelize database errors
-      if (error.name === 'SequelizeDatabaseError') {
-        return res.status(500).json({
-          success: false,
-          error: 'Database error',
-          message: process.env.NODE_ENV === 'development' ? error.message : 'Database operation failed'
-        });
-      }
-      
       res.status(500).json({ 
-        success: false,
         error: 'Internal server error',
-        message: 'An error occurred while saving funding information'
+        message: error.message || 'An error occurred while saving funding information'
       });
     }
   }
   
   else {
     res.setHeader('Allow', ['GET', 'POST']);
-    res.status(405).json({ message: `Method ${req.method} not allowed` });
+    res.status(405).json({ message: 'Method not allowed' });
   }
 }
-
-// Helper function to update nights used - can be called from booking triggers
-export const updateNightsUsed = async (guestId, nightsUsed) => {
-  try {
-    const funding = await GuestFunding.findOne({
-      where: { guest_id: guestId }
-    });
-    
-    if (funding) {
-      await funding.update({ nights_used: nightsUsed });
-      return true;
-    }
-    
-    return false;
-  } catch (error) {
-    console.error('Error updating nights used:', error);
-    throw error;
-  }
-};

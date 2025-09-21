@@ -28,6 +28,80 @@ const DURATION_OPTIONS = [
   '6 hours'
 ];
 
+// Helper function to convert time string to minutes since midnight
+const timeToMinutes = (timeStr) => {
+  if (!timeStr) return 0;
+  
+  const [time, period] = timeStr.split(' ');
+  const [hours, minutes] = time.split(':').map(Number);
+  
+  let totalMinutes = hours * 60 + (minutes || 0);
+  
+  if (period.toLowerCase() === 'pm' && hours !== 12) {
+    totalMinutes += 12 * 60; // Add 12 hours for PM (except 12 PM)
+  } else if (period.toLowerCase() === 'am' && hours === 12) {
+    totalMinutes -= 12 * 60; // Subtract 12 hours for 12 AM (midnight)
+  }
+  
+  return totalMinutes;
+};
+
+// Helper function to convert duration string to minutes
+const durationToMinutes = (durationStr) => {
+  if (!durationStr) return 0;
+  
+  const parts = durationStr.split(' ');
+  const value = parseFloat(parts[0]);
+  
+  if (durationStr.includes('hour')) {
+    return value * 60;
+  } else if (durationStr.includes('minute')) {
+    return value;
+  }
+  
+  return 0;
+};
+
+// Helper function to check if evening period extends beyond midnight
+const validateEveningTime = (timeStr, durationStr) => {
+  if (!timeStr || !durationStr) return true; // If either is empty, don't validate
+  
+  const startMinutes = timeToMinutes(timeStr);
+  const durationMinutes = durationToMinutes(durationStr);
+  const endMinutes = startMinutes + durationMinutes;
+  
+  // Midnight is 24 * 60 = 1440 minutes
+  const midnightMinutes = 24 * 60;
+  
+  return endMinutes <= midnightMinutes;
+};
+
+// Helper function to format end time for display
+const formatEndTime = (timeStr, durationStr) => {
+  if (!timeStr || !durationStr) return '';
+  
+  const startMinutes = timeToMinutes(timeStr);
+  const durationMinutes = durationToMinutes(durationStr);
+  const endMinutes = startMinutes + durationMinutes;
+  
+  const endHours = Math.floor(endMinutes / 60);
+  const endMins = endMinutes % 60;
+  
+  if (endHours >= 24) {
+    const nextDayHours = endHours - 24;
+    const period = nextDayHours === 0 ? '12:00 am' : nextDayHours < 12 ? `${nextDayHours}:${endMins.toString().padStart(2, '0')} am` : `${nextDayHours - 12}:${endMins.toString().padStart(2, '0')} pm`;
+    return `${period} (+1 day)`;
+  } else if (endHours === 0) {
+    return `12:${endMins.toString().padStart(2, '0')} am`;
+  } else if (endHours < 12) {
+    return `${endHours}:${endMins.toString().padStart(2, '0')} am`;
+  } else if (endHours === 12) {
+    return `12:${endMins.toString().padStart(2, '0')} pm`;
+  } else {
+    return `${endHours - 12}:${endMins.toString().padStart(2, '0')} pm`;
+  }
+};
+
 // Enhanced date parsing to handle different formats
 const parseDateString = (dateStr) => {
   if (!dateStr) return null;
@@ -171,18 +245,19 @@ const hasAnyValues = (tableData) => {
   return false;
 };
 
-// UPDATED: New validation logic - only validate periods that have carers selected
+// UPDATED: Enhanced validation logic with evening time validation
 const validateAllFieldsFilled = (tableData) => {
   const errors = {
     hasErrors: false,
-    dates: {}
+    dates: {},
+    eveningTimeErrors: [] // Store specific evening time extension errors for detailed messaging
   };
   
   for (const date in tableData) {
     const dateErrors = {
       morning: { carers: false, time: false, duration: false },
       afternoon: { carers: false, time: false, duration: false },
-      evening: { carers: false, time: false, duration: false }
+      evening: { carers: false, time: false, duration: false, eveningTimeExtension: false }
     };
     
     let hasDateErrors = false;
@@ -203,6 +278,24 @@ const validateAllFieldsFilled = (tableData) => {
           dateErrors[period].duration = true;
           hasDateErrors = true;
           errors.hasErrors = true;
+        }
+        
+        // Additional validation for evening period - check if time + duration extends beyond midnight
+        if (period === 'evening' && values.time && values.duration) {
+          if (!validateEveningTime(values.time, values.duration)) {
+            dateErrors[period].eveningTimeExtension = true;
+            hasDateErrors = true;
+            errors.hasErrors = true;
+            
+            // Store detailed error info for messaging
+            const endTime = formatEndTime(values.time, values.duration);
+            errors.eveningTimeErrors.push({
+              date,
+              startTime: values.time,
+              duration: values.duration,
+              endTime
+            });
+          }
         }
       }
       // If carers is empty, we don't validate time and duration (allowing empty periods)
@@ -388,7 +481,7 @@ export default function CareTable({
     }
   }, [startDate, endDate]);
 
-  // UPDATED: Enhanced handleChange to clear time and duration when carers is deselected
+  // UPDATED: Enhanced handleChange with smart clearing for evening conflicts
   const handleChange = useCallback((date, period, field, value) => {
     if (autoPopulate) {
       setTableData(prev => {
@@ -405,6 +498,7 @@ export default function CareTable({
               }
             };
           } else {
+            // Update the field
             newData[dateStr] = {
               ...newData[dateStr],
               [period]: {
@@ -412,6 +506,25 @@ export default function CareTable({
                 [field]: value
               }
             };
+            
+            // For evening period, check if the combination would be invalid and clear conflicting field
+            if (period === 'evening' && value && field !== 'carers') {
+              const currentValues = newData[dateStr][period];
+              const currentTime = field === 'time' ? value : currentValues.time;
+              const currentDuration = field === 'duration' ? value : currentValues.duration;
+              
+              // If both time and duration are set, check if they're valid together
+              if (currentTime && currentDuration) {
+                if (!validateEveningTime(currentTime, currentDuration)) {
+                  // Clear the OTHER field (not the one being set)
+                  if (field === 'time') {
+                    newData[dateStr][period].duration = '';
+                  } else if (field === 'duration') {
+                    newData[dateStr][period].time = '';
+                  }
+                }
+              }
+            }
           }
         });
         return newData;
@@ -431,6 +544,7 @@ export default function CareTable({
             }
           };
         } else {
+          // Update the field
           newData[date] = {
             ...newData[date],
             [period]: {
@@ -438,6 +552,25 @@ export default function CareTable({
               [field]: value
             }
           };
+          
+          // For evening period, check if the combination would be invalid and clear conflicting field
+          if (period === 'evening' && value && field !== 'carers') {
+            const currentValues = newData[date][period];
+            const currentTime = field === 'time' ? value : currentValues.time;
+            const currentDuration = field === 'duration' ? value : currentValues.duration;
+            
+            // If both time and duration are set, check if they're valid together
+            if (currentTime && currentDuration) {
+              if (!validateEveningTime(currentTime, currentDuration)) {
+                // Clear the OTHER field (not the one being set)
+                if (field === 'time') {
+                  newData[date][period].duration = '';
+                } else if (field === 'duration') {
+                  newData[date][period].time = '';
+                }
+              }
+            }
+          }
         }
         
         return newData;
@@ -445,14 +578,37 @@ export default function CareTable({
     }
   }, [autoPopulate]);
 
+  // UPDATED: Enhanced handleDefaultChange with smart clearing for evening conflicts
   const handleDefaultChange = useCallback((period, field, value) => {
-    setDefaultValues(prev => ({
-      ...prev,
-      [period]: {
-        ...prev[period],
+    setDefaultValues(prev => {
+      const newValues = { ...prev };
+      
+      // Update the changed field
+      newValues[period] = {
+        ...newValues[period],
         [field]: value
+      };
+      
+      // For evening period, check if the combination would be invalid and clear conflicting field
+      if (period === 'evening' && value) {
+        const currentTime = field === 'time' ? value : newValues[period].time;
+        const currentDuration = field === 'duration' ? value : newValues[period].duration;
+        
+        // If both time and duration are set, check if they're valid together
+        if (currentTime && currentDuration) {
+          if (!validateEveningTime(currentTime, currentDuration)) {
+            // Clear the OTHER field (not the one being set)
+            if (field === 'time') {
+              newValues[period].duration = '';
+            } else if (field === 'duration') {
+              newValues[period].time = '';
+            }
+          }
+        }
       }
-    }));
+      
+      return newValues;
+    });
   }, []);
 
   const applyDefaultsToAll = useCallback(() => {
@@ -519,7 +675,51 @@ export default function CareTable({
     }
   }, [tableData, onChange, required]);
 
+  // Helper function to get filtered time options for evening period
+  const getFilteredTimeOptions = (period, currentDuration, isDefault = false) => {
+    if (period !== 'evening' || !currentDuration) {
+      return TIME_OPTIONS[period];
+    }
+    
+    const durationMinutes = durationToMinutes(currentDuration);
+    const midnightMinutes = 24 * 60;
+    
+    return TIME_OPTIONS[period].filter(timeOption => {
+      const timeMinutes = timeToMinutes(timeOption);
+      return (timeMinutes + durationMinutes) <= midnightMinutes;
+    });
+  };
+
+  // Helper function to get filtered duration options for evening period
+  const getFilteredDurationOptions = (period, currentTime, isDefault = false) => {
+    if (period !== 'evening' || !currentTime) {
+      return DURATION_OPTIONS;
+    }
+    
+    const timeMinutes = timeToMinutes(currentTime);
+    const midnightMinutes = 24 * 60;
+    const availableMinutes = midnightMinutes - timeMinutes;
+    
+    return DURATION_OPTIONS.filter(durationOption => {
+      const durationMinutes = durationToMinutes(durationOption);
+      return durationMinutes <= availableMinutes;
+    });
+  };
+
   const renderDefaultSelect = (period, field, options) => {
+    // Get current values for this period to enable smart filtering
+    const currentValues = defaultValues[period];
+    let filteredOptions = options;
+    
+    // Apply smart filtering for evening period
+    if (period === 'evening') {
+      if (field === 'time') {
+        filteredOptions = getFilteredTimeOptions(period, currentValues.duration, true);
+      } else if (field === 'duration') {
+        filteredOptions = getFilteredDurationOptions(period, currentValues.time, true);
+      }
+    }
+    
     return (
       <select
         className="w-full p-1 text-sm border rounded"
@@ -527,7 +727,7 @@ export default function CareTable({
         onChange={(e) => handleDefaultChange(period, field, e.target.value)}
       >
         <option value="">Select</option>
-        {options.map((option) => (
+        {filteredOptions.map((option) => (
           <option key={option} value={option}>
             {option}
           </option>
@@ -536,23 +736,55 @@ export default function CareTable({
     );
   };
 
+  // UPDATED: Enhanced renderSelect with smart option filtering and evening time validation
   const renderSelect = (date, period, field, options) => {
     const dateStr = date.toISOString().split('T')[0];
     const hasError = validationErrors?.dates?.[dateStr]?.[period]?.[field];
+    const hasEveningTimeError = validationErrors?.dates?.[dateStr]?.[period]?.eveningTimeExtension;
+    
+    // Show error styling if there's a field error OR if it's evening period and there's a time extension error
+    const showError = hasError || (period === 'evening' && hasEveningTimeError && (field === 'time' || field === 'duration'));
+    
+    // Get current values for this cell
+    const currentValues = tableData[dateStr]?.[period];
+    const showEveningPreview = period === 'evening' && currentValues?.time && currentValues?.duration;
+    const endTime = showEveningPreview ? formatEndTime(currentValues.time, currentValues.duration) : '';
+    const isValidEveningTime = showEveningPreview ? validateEveningTime(currentValues.time, currentValues.duration) : true;
+    
+    // Apply smart filtering for evening period
+    let filteredOptions = options;
+    if (period === 'evening') {
+      if (field === 'time') {
+        filteredOptions = getFilteredTimeOptions(period, currentValues?.duration);
+      } else if (field === 'duration') {
+        filteredOptions = getFilteredDurationOptions(period, currentValues?.time);
+      }
+    }
     
     return (
-      <select
-        className={`w-full p-1 text-sm border rounded ${hasError ? 'border-red-500 bg-red-50' : ''}`}
-        value={tableData[dateStr]?.[period]?.[field] || ''}
-        onChange={(e) => handleChange(dateStr, period, field, e.target.value)}
-      >
-        <option value="">Select</option>
-        {options.map((option) => (
-          <option key={option} value={option}>
-            {option}
-          </option>
-        ))}
-      </select>
+      <div className="relative">
+        <select
+          className={`w-full p-1 text-sm border rounded ${showError ? 'border-red-500 bg-red-50' : ''}`}
+          value={tableData[dateStr]?.[period]?.[field] || ''}
+          onChange={(e) => handleChange(dateStr, period, field, e.target.value)}
+          title={showError && period === 'evening' && hasEveningTimeError ? 
+            `Care period extends beyond midnight. Ends at: ${endTime}` : ''}
+        >
+          <option value="">Select</option>
+          {filteredOptions.map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+        </select>
+        
+        {/* Evening time preview and validation indicator */}
+        {period === 'evening' && field === 'duration' && showEveningPreview && (
+          <div className={`text-xs mt-1 px-1 ${isValidEveningTime ? 'text-green-600' : 'text-red-600'}`}>
+            Ends: {endTime} {!isValidEveningTime && '⚠️'}
+          </div>
+        )}
+      </div>
     );
   };
 
@@ -634,11 +866,39 @@ export default function CareTable({
         </div>
       )}
       
-      {/* Validation error message */}
+      {/* UPDATED: Enhanced validation error messages with specific evening time errors */}
       {validationErrors && validationErrors.hasErrors && (
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative text-sm" role="alert">
-          <strong className="font-bold">Validation Error!</strong>
-          <span className="block sm:inline"> Please complete the Time and Duration for periods where you&apos;ve selected Carers.</span>
+        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative text-sm space-y-2" role="alert">
+          <div>
+            <strong className="font-bold">Validation Errors:</strong>
+          </div>
+          
+          {/* General validation errors */}
+          <div>
+            <span className="block sm:inline">Please complete the Time and Duration for periods where you&apos;ve selected Carers.</span>
+          </div>
+          
+          {/* Specific evening time validation errors (should be rare now with filtering) */}
+          {validationErrors.eveningTimeErrors && validationErrors.eveningTimeErrors.length > 0 && (
+            <div className="border-t pt-2 mt-2">
+              <strong className="font-bold text-red-800">Evening Care Conflicts:</strong>
+              <ul className="list-disc list-inside mt-1 space-y-1">
+                {validationErrors.eveningTimeErrors.map((error, index) => {
+                  const formattedDate = new Date(error.date).toLocaleDateString('en-AU', {
+                    weekday: 'short', day: 'numeric', month: 'short'
+                  });
+                  return (
+                    <li key={index} className="text-sm">
+                      <strong>{formattedDate}:</strong> Please adjust the evening care schedule - it extends past midnight.
+                    </li>
+                  );
+                })}
+              </ul>
+              <p className="text-xs mt-2 text-red-600">
+                💡 <em>Try selecting a different time or shorter duration. Available options are automatically filtered.</em>
+              </p>
+            </div>
+          )}
         </div>
       )}
 
@@ -677,7 +937,12 @@ export default function CareTable({
               <td className="border p-2">{renderDefaultSelect('afternoon', 'duration', DURATION_OPTIONS)}</td>
             </tr>
             <tr>
-              <td className="border p-2 text-sm">Evening</td>
+              <td className="border p-2 text-sm">
+                <div className="flex items-center justify-between">
+                  <span>Evening</span>
+                  <span className="text-xs text-gray-500 italic">ends by 12 AM</span>
+                </div>
+              </td>
               <td className="border p-2">{renderDefaultSelect('evening', 'carers', CARER_OPTIONS)}</td>
               <td className="border p-2">{renderDefaultSelect('evening', 'time', TIME_OPTIONS.evening)}</td>
               <td className="border p-2">{renderDefaultSelect('evening', 'duration', DURATION_OPTIONS)}</td>
@@ -763,7 +1028,12 @@ export default function CareTable({
             {/* Evening Section */}
             <tr>
               <td colSpan={dates.length + 1} className="border p-1 text-sm font-semibold bg-gray-50 sticky left-0">
-                Evening
+                <div className="flex items-center justify-between">
+                  <span>Evening</span>
+                  <span className="text-xs font-normal text-gray-600 italic">
+                    ⏰ Options filtered to end by 12:00 AM
+                  </span>
+                </div>
               </td>
             </tr>
             <tr>
