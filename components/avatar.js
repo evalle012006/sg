@@ -8,8 +8,6 @@ import { GetField } from "./fields";
 import { toast } from "react-toastify";
 
 import dynamic from 'next/dynamic';
-import { checkFileSize, omitAttribute } from "../utilities/common";
-const Modal = dynamic(() => import('./../components/ui/genericModal'));
 
 export default function Avatar() {
     const router = useRouter();
@@ -127,7 +125,7 @@ export default function Avatar() {
             )}
             {dropdownStatus && (
                 <div className="absolute z-50 top-full right-0 min-w-[120px] shadow-lg rounded border border-slate-300 bg-white">
-                    <p className="hover:bg-gray-100 px-4 py-2 cursor-pointer whitespace-nowrap" onClick={() => viewProfile()}>Profile</p>
+                    {user.type === 'guest' && <p className="hover:bg-gray-100 px-4 py-2 cursor-pointer whitespace-nowrap" onClick={() => viewProfile()}>Profile</p>}
                     <p className="hover:bg-gray-100 px-4 py-2 cursor-pointer whitespace-nowrap" onClick={() => logout()}>Sign out</p>
                 </div>
             )}

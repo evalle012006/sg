@@ -1327,11 +1327,11 @@ const BookingRequestForm = () => {
                             console.log('✅ Holiday type detected: Lives in SIL');
                         }
 
-                        if (questionHasKey(question, QUESTION_KEYS.ARE_YOU_STAYING_WITH_INFORMAL_SUPPORTS) &&
-                            question.answer === 'Yes') {
-                            isHolidayType = true;
-                            console.log('✅ Holiday type detected: Staying with informal supports');
-                        }
+                        // if (questionHasKey(question, QUESTION_KEYS.ARE_YOU_STAYING_WITH_INFORMAL_SUPPORTS) &&
+                        //     question.answer === 'Yes') {
+                        //     isHolidayType = true;
+                        //     console.log('✅ Holiday type detected: Staying with informal supports');
+                        // }
                         
                         // NEW: If holiday type, check care requirements to determine holiday vs holiday-plus
                         if (isHolidayType) {
@@ -1436,10 +1436,61 @@ const BookingRequestForm = () => {
         return [];
     };
 
+    const loadAndApplyProfileData = async (templatePages) => {
+        const guestId = getGuestId();
+
+        if (!guestId) {
+            console.log('❌ No guest ID available for profile loading');
+            setProfileDataLoaded(true);
+            return;
+        }
+
+        if (profileDataLoaded || profilePreloadInProgressRef.current) {
+            console.log('⏸️ Profile already loaded or in progress');
+            return;
+        }
+
+        profilePreloadInProgressRef.current = true;
+        // console.log(`🔄 Loading profile data for guest ${guestId} after template completion`);
+
+        try {
+            const profileData = await fetchProfileData(guestId);
+            if (profileData) {
+                // console.log('✅ Profile data fetched successfully:', {
+                //     guestId,
+                //     hasHealthInfo: !!profileData.HealthInfo,
+                //     firstName: profileData.first_name,
+                //     lastName: profileData.last_name,
+                //     email: profileData.email,
+                //     healthInfoFields: profileData.HealthInfo ? Object.keys(profileData.HealthInfo) : []
+                // });
+
+                // Apply profile data to the template pages
+                const updatedPages = mapProfileDataToQuestions(profileData, templatePages);
+                const finalPages = applyQuestionDependencies(updatedPages);
+
+                // Update both processed and Redux state
+                setProcessedFormData(finalPages);
+                safeDispatchData(finalPages, 'Profile data applied after template load');
+                setProfileDataLoaded(true);
+                
+                // console.log('✅ Profile data successfully applied to all form fields');
+            } else {
+                console.log('⚠️ No profile data found for guest:', guestId);
+                setProfileDataLoaded(true);
+            }
+        } catch (error) {
+            console.error('❌ Error loading profile data:', error);
+            setProfileDataLoaded(true);
+        } finally {
+            profilePreloadInProgressRef.current = false;
+        }
+    };
+
     const mapProfileDataToQuestions = (profileData, pages) => {
         if (!profileData || !pages || pages.length === 0) return pages;
 
-        console.log('🔄 Applying profile data - ALWAYS overriding existing answers regardless of booking type');
+        // console.log('🔄 Applying comprehensive profile data mapping');
 
         const updatedPages = pages.map(page => {
             const updatedSections = page.Sections.map(section => {
@@ -1453,11 +1504,10 @@ const BookingRequestForm = () => {
                         return updatedQuestion;
                     }
                     
-                    // Track if we found a mapping
                     let mapped = false;
                     let originalAnswer = question.answer;
 
-                    // PRIMARY MAPPING - ALWAYS OVERRIDE EXISTING ANSWERS
+                    // COMPREHENSIVE MAPPING - BASIC FIELDS
                     switch (questionKey) {
                         case 'first-name':
                             if (profileData.first_name) {
@@ -1504,7 +1554,8 @@ const BookingRequestForm = () => {
                                 mapped = true;
                             }
                             break;
-                        // Address fields
+
+                        // ADDRESS FIELDS
                         case 'street-address':
                         case 'street-address-line-1':
                             if (profileData.address_street1) {
@@ -1549,7 +1600,8 @@ const BookingRequestForm = () => {
                                 mapped = true;
                             }
                             break;
-                        // Emergency contact
+
+                        // HEALTH INFO - EMERGENCY CONTACT
                         case 'emergency-contact-name':
                             if (profileData.HealthInfo?.emergency_name) {
                                 updatedQuestion.answer = profileData.HealthInfo.emergency_name;
@@ -1578,14 +1630,202 @@ const BookingRequestForm = () => {
                                 mapped = true;
                             }
                             break;
-                        // Add all other profile mappings...
-                        // (I'll include the key ones for brevity, but you should include all existing mappings)
+
+                        // HEALTH INFO - GP/SPECIALIST
+                        case 'gp-or-specialist-name':
+                            if (profileData.HealthInfo?.specialist_name) {
+                                updatedQuestion.answer = profileData.HealthInfo.specialist_name;
+                                updatedQuestion.oldAnswer = profileData.HealthInfo.specialist_name;
+                                mapped = true;
+                            }
+                            break;
+                        case 'gp-or-specialist-phone':
+                            if (profileData.HealthInfo?.specialist_mobile_number) {
+                                updatedQuestion.answer = profileData.HealthInfo.specialist_mobile_number;
+                                updatedQuestion.oldAnswer = profileData.HealthInfo.specialist_mobile_number;
+                                mapped = true;
+                            }
+                            break;
+                        case 'gp-or-specialist-practice-name':
+                            if (profileData.HealthInfo?.specialist_practice_name) {
+                                updatedQuestion.answer = profileData.HealthInfo.specialist_practice_name;
+                                updatedQuestion.oldAnswer = profileData.HealthInfo.specialist_practice_name;
+                                mapped = true;
+                            }
+                            break;
+
+                        // HEALTH INFO - CULTURAL/LANGUAGE
+                        case 'do-you-identify-as-aboriginal-or-torres-strait-islander-person-with-sci':
+                            if (profileData.HealthInfo?.identify_aboriginal_torres !== null && profileData.HealthInfo?.identify_aboriginal_torres !== undefined) {
+                                updatedQuestion.answer = profileData.HealthInfo.identify_aboriginal_torres ? 'Yes' : 'No';
+                                updatedQuestion.oldAnswer = profileData.HealthInfo.identify_aboriginal_torres ? 'Yes' : 'No';
+                                mapped = true;
+                            }
+                            break;
+                        case 'do-you-speak-a-language-other-than-english-at-home-person-with-sci':
+                            // Always map this field - default to "No" if language is null/empty
+                            if (profileData.HealthInfo?.language === null || profileData.HealthInfo?.language === undefined || profileData.HealthInfo?.language === '') {
+                                updatedQuestion.answer = 'No';
+                                updatedQuestion.oldAnswer = 'No';
+                                mapped = true;
+                            } else if (profileData.HealthInfo.language === 'rather_not_say') {
+                                updatedQuestion.answer = 'Rather not to say';
+                                updatedQuestion.oldAnswer = 'Rather not to say';
+                                mapped = true;
+                            } else if (profileData.HealthInfo.language) {
+                                updatedQuestion.answer = 'Yes';
+                                updatedQuestion.oldAnswer = 'Yes';
+                                mapped = true;
+                            }
+                            break;
+                        case 'language-spoken-at-home':
+                            if (profileData.HealthInfo?.language && profileData.HealthInfo.language !== '' && profileData.HealthInfo.language !== 'rather_not_say') {
+                                updatedQuestion.answer = profileData.HealthInfo.language;
+                                updatedQuestion.oldAnswer = profileData.HealthInfo.language;
+                                mapped = true;
+                            }
+                            break;
+                        case 'do-you-require-an-interpreter':
+                            if (profileData.HealthInfo?.require_interpreter !== null && profileData.HealthInfo?.require_interpreter !== undefined) {
+                                updatedQuestion.answer = profileData.HealthInfo.require_interpreter ? 'Yes' : 'No';
+                                updatedQuestion.oldAnswer = profileData.HealthInfo.require_interpreter ? 'Yes' : 'No';
+                                mapped = true;
+                            }
+                            break;
+                        case 'do-you-have-any-cultural-beliefs-or-values-that-you-would-like-our-staff-to-be-aware-of':
+                            // Always map this field - default to "No" if cultural_beliefs is null/empty
+                            if (profileData.HealthInfo?.cultural_beliefs === null || profileData.HealthInfo?.cultural_beliefs === undefined || profileData.HealthInfo?.cultural_beliefs === '') {
+                                updatedQuestion.answer = 'No';
+                                updatedQuestion.oldAnswer = 'No';
+                                mapped = true;
+                            } else if (profileData.HealthInfo.cultural_beliefs) {
+                                updatedQuestion.answer = 'Yes';
+                                updatedQuestion.oldAnswer = 'Yes';
+                                mapped = true;
+                            }
+                            break;
+                        case 'please-give-details-on-cultural-beliefs-or-values-you-would-like-our-staff-to-be-aware-of':
+                            if (profileData.HealthInfo?.cultural_beliefs && profileData.HealthInfo.cultural_beliefs !== '') {
+                                updatedQuestion.answer = profileData.HealthInfo.cultural_beliefs;
+                                updatedQuestion.oldAnswer = profileData.HealthInfo.cultural_beliefs;
+                                mapped = true;
+                            }
+                            break;
+
+                        // HEALTH INFO - SCI DETAILS
+                        case 'what-year-did-you-begin-living-with-your-spinal-cord-injury':
+                            if (profileData.HealthInfo?.sci_year) {
+                                updatedQuestion.answer = profileData.HealthInfo.sci_year;
+                                updatedQuestion.oldAnswer = profileData.HealthInfo.sci_year;
+                                mapped = true;
+                            }
+                            break;
+                        case 'leveltype-of-spinal-cord-injury':
+                            if (profileData.HealthInfo?.sci_injury_type) {
+                                // Map internal values to display values
+                                const injuryTypeMap = {
+                                    'cervical': '(C) Cervical',
+                                    'thoracic': '(T) Thoracic',
+                                    'lumbar': '(L) Lumbar',
+                                    'sacral': '(S) Sacral',
+                                    'spina_bifida': 'Spina Bifida',
+                                    'cauda_equina': 'Cauda Equina',
+                                    'other': 'Other'
+                                };
+                                const displayValue = injuryTypeMap[profileData.HealthInfo.sci_injury_type] || profileData.HealthInfo.sci_injury_type;
+                                updatedQuestion.answer = displayValue;
+                                updatedQuestion.oldAnswer = displayValue;
+                                mapped = true;
+                            }
+                            break;
+                        case 'level-of-function-or-asia-scale-score-movementsensation':
+                            if (profileData.HealthInfo?.sci_type) {
+                                // Map single letter to exact form option text
+                                const asiaScaleMap = {
+                                    'A': 'A - Complete, no motor or sensory function below the level of injury',
+                                    'B': 'B - Some sensation, no motor function below the level of injury',
+                                    'C': 'C - Less than 50% motor function below level of injury but cannot move against gravity',
+                                    'D': 'D - More than 50% motor function below level of injury and can move against gravity',
+                                    'E': 'E - All muscle, motor and sensory functions have returned',
+                                };
+                                const displayValue = asiaScaleMap[profileData.HealthInfo.sci_type] || profileData.HealthInfo.sci_type;
+                                updatedQuestion.answer = displayValue;
+                                updatedQuestion.oldAnswer = displayValue;
+                                mapped = true;
+                            }
+                            break;
+                        case 'where-did-you-complete-your-initial-spinal-cord-injury-rehabilitation':
+                            if (profileData.HealthInfo?.sci_intial_spinal_rehab) {
+                                updatedQuestion.answer = profileData.HealthInfo.sci_intial_spinal_rehab;
+                                updatedQuestion.oldAnswer = profileData.HealthInfo.sci_intial_spinal_rehab;
+                                mapped = true;
+                            }
+                            break;
+                        case 'are-you-currently-an-inpatient-at-a-hospital-or-a-rehabilitation-facility':
+                            if (profileData.HealthInfo?.sci_inpatient !== null && profileData.HealthInfo?.sci_inpatient !== undefined) {
+                                updatedQuestion.answer = profileData.HealthInfo.sci_inpatient ? 'Yes' : 'No';
+                                updatedQuestion.oldAnswer = profileData.HealthInfo.sci_inpatient ? 'Yes' : 'No';
+                                mapped = true;
+                            }
+                            break;
+
+                        // HEALTH INFO - SCI LEVEL DETAILS (multiple levels)
+                        case 'c-cervical-level-select-all-that-apply':
+                            if (profileData.HealthInfo?.sci_type_level) {
+                                const levels = processSciTypeLevelData(profileData.HealthInfo.sci_type_level);
+                                const cervicalLevels = levels.filter(level => level && level.toString().toUpperCase().startsWith('C'));
+                                if (cervicalLevels.length > 0) {
+                                    updatedQuestion.answer = cervicalLevels;
+                                    updatedQuestion.oldAnswer = cervicalLevels;
+                                    mapped = true;
+                                }
+                            }
+                            break;
+                        case 't-thoracic-level-select-all-that-apply':
+                            if (profileData.HealthInfo?.sci_type_level) {
+                                const levels = processSciTypeLevelData(profileData.HealthInfo.sci_type_level);
+                                const thoracicLevels = levels.filter(level => level && level.toString().toUpperCase().startsWith('T'));
+                                if (thoracicLevels.length > 0) {
+                                    updatedQuestion.answer = thoracicLevels;
+                                    updatedQuestion.oldAnswer = thoracicLevels;
+                                    mapped = true;
+                                }
+                            }
+                            break;
+                        case 'l-lumbar-level-select-all-that-apply':
+                            if (profileData.HealthInfo?.sci_type_level) {
+                                const levels = processSciTypeLevelData(profileData.HealthInfo.sci_type_level);
+                                const lumbarLevels = levels.filter(level => level && level.toString().toUpperCase().startsWith('L'));
+                                if (lumbarLevels.length > 0) {
+                                    updatedQuestion.answer = lumbarLevels;
+                                    updatedQuestion.oldAnswer = lumbarLevels;
+                                    mapped = true;
+                                }
+                            }
+                            break;
+                        case 's-sacral-level-select-all-that-apply':
+                            if (profileData.HealthInfo?.sci_type_level) {
+                                const levels = processSciTypeLevelData(profileData.HealthInfo.sci_type_level);
+                                const sacralLevels = levels.filter(level => level && level.toString().toUpperCase().startsWith('S'));
+                                if (sacralLevels.length > 0) {
+                                    updatedQuestion.answer = sacralLevels;
+                                    updatedQuestion.oldAnswer = sacralLevels;
+                                    mapped = true;
+                                }
+                            }
+                            break;
+
+                        default:
+                            // No mapping found
+                            break;
                     }
 
                     // Log when we override existing data
-                    if (mapped && originalAnswer && originalAnswer !== updatedQuestion.answer) {
-                        console.log(`✅ Profile data override: "${questionKey}" changed from "${originalAnswer}" to "${updatedQuestion.answer}"`);
-                    }
+                    // if (mapped && originalAnswer && originalAnswer !== updatedQuestion.answer) {
+                    //     console.log(`✅ Profile data override: "${questionKey}" changed from "${originalAnswer}" to "${updatedQuestion.answer}"`);
+                    // } else if (mapped && !originalAnswer) {
+                    //     console.log(`✅ Profile data populated: "${questionKey}" = "${updatedQuestion.answer}"`);
+                    // }
 
                     return updatedQuestion;
                 });
@@ -1860,71 +2100,6 @@ const BookingRequestForm = () => {
         }
         return null;
     };
-
-    const preloadProfileData = useCallback(async () => {
-        const guestId = getGuestId();
-
-        if (!guestId) {
-            console.log('❌ No guest ID available for profile preload');
-            setProfileDataLoaded(true);
-            return;
-        }
-
-        // Skip if already loaded or in progress
-        if (profileDataLoaded || profilePreloadInProgressRef.current) {
-            return;
-        }
-
-        // DIRECT FIX: Check for actual questions, not just pages
-        if (stableBookingRequestFormData.length === 0) {
-            console.log('⏸️ No form data available yet for profile preload');
-            return;
-        }
-
-        const hasQuestions = stableBookingRequestFormData.some(page =>
-            page.Sections?.some(section =>
-                section.Questions?.length > 0
-            )
-        );
-
-        if (!hasQuestions) {
-            console.log('⏸️ Form questions not ready yet for profile preload');
-            return;
-        }
-
-        profilePreloadInProgressRef.current = true;
-        console.log(`🔄 Loading profile data for guest ${guestId} - Will override ANY existing answers`);
-
-        try {
-            const profileData = await fetchProfileData(guestId);
-            if (profileData) {
-                console.log('✅ Profile data fetched successfully:', {
-                    guestId,
-                    hasHealthInfo: !!profileData.HealthInfo,
-                    firstName: profileData.first_name,
-                    lastName: profileData.last_name,
-                    email: profileData.email
-                });
-
-                // FORCE OVERRIDE: Apply profile data regardless of existing answers
-                const updatedPages = mapProfileDataToQuestions(profileData, stableBookingRequestFormData);
-                const finalPages = applyQuestionDependencies(updatedPages);
-
-                safeDispatchData(finalPages, 'FORCED profile data override - takes precedence over all other data sources');
-                setProfileDataLoaded(true);
-                
-                console.log('✅ Profile data successfully applied and will override any prefilled booking data');
-            } else {
-                console.log('⚠️ No profile data found for guest:', guestId);
-                setProfileDataLoaded(true);
-            }
-        } catch (error) {
-            console.error('❌ Error preloading profile data:', error);
-            setProfileDataLoaded(true);
-        } finally {
-            profilePreloadInProgressRef.current = false;
-        }
-    }, [getGuestId, profileDataLoaded, stableBookingRequestFormData, mapProfileDataToQuestions, applyQuestionDependencies, safeDispatchData]);
 
     const calculateNdisPageCompletion = useCallback((page) => {
         if (!page || !page.Sections || page.id !== 'ndis_packages_page') {
@@ -2215,7 +2390,7 @@ const BookingRequestForm = () => {
         // Check if page has validation errors
         const hasErrors = page.Sections?.some(section =>
             section.Questions?.some(question =>
-                question.error && question.error.trim() !== ''
+                question.error && question.error !== ''
             )
         );
 
@@ -2257,7 +2432,7 @@ const BookingRequestForm = () => {
 
             return {
                 title: page.title,
-                description: page.description || 'Lorem ipsum dummy text for this section',
+                description: page.description,
                 status: getPageStatus(page),
                 customContent: (
                     <QuestionPage
@@ -2316,6 +2491,10 @@ const BookingRequestForm = () => {
             markPageAsVisited(targetPage.id);
         }
 
+        if (action == 'header-click' && !targetPage.completed) {
+            return; // Block navigation if target page not complete
+        }
+
         if (action === 'submit') {
             if (validateAllPages()) {
                 return false; // Block if validation fails
@@ -2325,7 +2504,7 @@ const BookingRequestForm = () => {
         }
 
         // Validate and save current page
-        if (currentPage && action !== 'back') {
+        if (currentPage && action === 'next') {
             const currentPageInProcessed = stableProcessedFormData.find(p => p.id === currentPage.id);
             const pageToValidate = currentPageInProcessed || currentPage;
 
@@ -4208,9 +4387,10 @@ const BookingRequestForm = () => {
             // Store the form data
             safeDispatchData(finalPages, 'template load with completion guard');
 
-            setTimeout(() => {
+            setTimeout(async () => {
+                await loadAndApplyProfileData(finalPages);
                 dispatch(globalActions.setLoading(false));
-            }, 500);
+            }, 100);
         }
     };
 
@@ -4437,45 +4617,6 @@ const BookingRequestForm = () => {
             mounted = false;
         });
     }, [uuid, prevBookingId, router.asPath]);
-
-   useEffect(() => {
-        // IMPORTANT: Run profile loading for ALL booking types
-        if (stableBookingRequestFormData?.length > 0 && 
-            currentPage && 
-            !profileDataLoaded && 
-            !profilePreloadInProgressRef.current) {
-
-            // DIRECT FIX: Ensure form has actual questions before proceeding
-            const hasQuestions = stableBookingRequestFormData.some(page =>
-                page.Sections?.some(section =>
-                    section.Questions?.length > 0
-                )
-            );
-
-            if (!hasQuestions) {
-                return; // Form structure not ready yet
-            }
-
-            const guestId = getGuestId();
-            if (guestId) {
-                const timeoutId = setTimeout(() => {
-                    console.log(`🚀 Starting profile data load for ${currentBookingType} booking`);
-                    preloadProfileData();
-                }, 200);
-
-                return () => clearTimeout(timeoutId);
-            } else {
-                console.log('❌ No guest ID available, marking profile as loaded');
-                setProfileDataLoaded(true);
-            }
-        }
-    }, [
-        stableBookingRequestFormData?.length,
-        currentPage?.id,
-        profileDataLoaded,
-        preloadProfileData,
-        currentBookingType
-    ]);
 
     useEffect(() => {
         if (stableProcessedFormData && stableProcessedFormData.length > 0) {

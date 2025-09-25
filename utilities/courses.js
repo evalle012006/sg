@@ -124,20 +124,9 @@ export const calculateCourseCosts = async (startDate, endDate, courseRates, cate
       if (dayCount > 0) {
         const rateValue = rate ? parseFloat(rate.rate) : 0;
         
-        // FIXED: Include course hours as multiplier
-        // If the rate is hourly-based, multiply by hours
-        // If the rate is daily-based, use as-is or apply partial multiplier
-        let hoursMultiplier = 1;
-        
-        if (rate?.rate_category === 'hour') {
-          // For hourly rates, use full hours multiplier
-          hoursMultiplier = numericHours;
-        } else {
-          // For daily rates, apply proportional multiplier based on standard 8-hour day
-          // This assumes daily rates are based on 8-hour standard
-          hoursMultiplier = numericHours / 8;
-        }
-        
+        // FIXED: Simply multiply by course hours (no complex daily/hourly logic)
+        // Since rate_category field doesn't exist in database, treat all rates consistently
+        const hoursMultiplier = numericHours;
         const subtotal = dayCount * rateValue * hoursMultiplier;
         
         costDetails.push({

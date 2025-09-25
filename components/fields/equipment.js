@@ -23,6 +23,9 @@ const EquipmentField = memo((props) => {
     const [categoryErrors, setCategoryErrors] = useState({});
     const [categoryTouched, setCategoryTouched] = useState({});
     const [dataLoaded, setDataLoaded] = useState(false);
+    
+    // State for special equipment metadata
+    const [equipmentMetaData, setEquipmentMetaData] = useState({});
 
     // Optimization refs
     const updateTimeoutRef = useRef({});
@@ -73,20 +76,19 @@ const EquipmentField = memo((props) => {
             const validationKey = JSON.stringify({
                 selections: categorySelections,
                 acknowledgement: acknowledgementChecked,
-                showTilt: showTiltQuestion
+                showTilt: showTiltQuestion,
+                metaData: equipmentMetaData
             });
 
             if (lastValidationRef.current !== validationKey) {
                 lastValidationRef.current = validationKey;
                 
                 if (props.hasOwnProperty('onChange')) {
-                    // ✅ ALWAYS pass equipment changes, regardless of validation status
-                    // This ensures optional categories are always saved
                     props.onChange(validationResult.allValid, equipmentChanges);
                 }
             }
         }, 150);
-    }, [categorySelections, acknowledgementChecked, showTiltQuestion, equipmentChanges, props]);
+    }, [categorySelections, acknowledgementChecked, showTiltQuestion, equipmentChanges, equipmentMetaData, props]);
 
     // Initialize when data is loaded
     useEffect(() => {
@@ -113,7 +115,7 @@ const EquipmentField = memo((props) => {
         if (Object.keys(groupedEquipments).length > 0) {
             debouncedValidation();
         }
-    }, [categorySelections, acknowledgementChecked, groupedEquipments, showTiltQuestion, debouncedValidation]);
+    }, [categorySelections, acknowledgementChecked, groupedEquipments, showTiltQuestion, equipmentMetaData, debouncedValidation]);
 
     const fetchEquipments = async () => {
         try {
@@ -133,6 +135,7 @@ const EquipmentField = memo((props) => {
             const res = await fetch(`/api/bookings/${bookingId}/equipments`);
             if (!res.ok) throw new Error('Failed to fetch booking equipments');
             const data = await res.json();
+            console.log('📋 Fetched current booking equipments:', data);
             setCurrentBookingEquipments(data);
             return data;
         } catch (error) {
@@ -141,11 +144,23 @@ const EquipmentField = memo((props) => {
         }
     };
 
+    // Check if a category has special handling
+    const hasSpecialHandling = (categoryName) => {
+        const specialCategories = ['cot']; // Add more special categories here
+        return specialCategories.includes(categoryName);
+    };
+
     const determineCategoryTypes = (grouped) => {
         const types = {};
         
         Object.entries(grouped).forEach(([categoryName, categoryEquipments]) => {
             if (!categoryName || categoryName === 'null') return;
+            
+            // Check for special handling first
+            if (hasSpecialHandling(categoryName)) {
+                types[categoryName] = 'special';
+                return;
+            }
             
             const hasGroupType = categoryEquipments.some(eq => eq.type === 'group');
             const equipmentCount = categoryEquipments.length;
@@ -197,55 +212,82 @@ const EquipmentField = memo((props) => {
 
     const initializeCategorySelections = (grouped, types) => {
         const selections = {};
+        const metaData = {};
 
         Object.entries(grouped).forEach(([categoryName, categoryEquipments]) => {
             if (!categoryName || categoryName === 'null') return;
             
             const categoryType = types[categoryName];
 
+            // Handle special categories
+            if (categoryType === 'special') {
+                if (categoryName === 'cot') {
+                    const hasEquipmentInCategory = currentBookingEquipments.some(ce => 
+                        ce.EquipmentCategory && ce.EquipmentCategory.name === categoryName
+                    );
+                    
+                    if (hasEquipmentInCategory) {
+                        selections[categoryName] = 'yes';
+                        // Try to get quantity from existing booking equipment meta_data
+                        const existingCotBooking = currentBookingEquipments.find(ce => 
+                            ce.EquipmentCategory && ce.EquipmentCategory.name === categoryName
+                        );
+                        console.log(`🛏️ Existing cot booking data:`, existingCotBooking);
+                        
+                        // ✅ FIXED: Check BookingEquipment.meta_data instead of direct meta_data
+                        if (existingCotBooking && 
+                            existingCotBooking.BookingEquipment && 
+                            existingCotBooking.BookingEquipment.meta_data && 
+                            existingCotBooking.BookingEquipment.meta_data.quantity) {
+                            console.log(`📊 Loading saved cot quantity: ${existingCotBooking.BookingEquipment.meta_data.quantity}`);
+                            metaData[categoryName] = { quantity: existingCotBooking.BookingEquipment.meta_data.quantity };
+                        } else {
+                            console.log(`📊 No saved quantity found, using default: 1`);
+                            metaData[categoryName] = { quantity: 1 };
+                        }
+                    } else if (currentBookingEquipments.length > 0) {
+                        selections[categoryName] = 'no';
+                        metaData[categoryName] = { quantity: 1 };
+                    } else {
+                        selections[categoryName] = null;
+                        metaData[categoryName] = { quantity: 1 };
+                    }
+                }
+                return;
+            }
+
             if (categoryType === 'binary') {
-                // Binary categories: Only set answer if equipment actually exists in current booking
                 const hasEquipmentInCategory = currentBookingEquipments.some(ce => 
                     ce.EquipmentCategory && ce.EquipmentCategory.name === categoryName
                 );
                 
-                // Only set answer if there's actual equipment data, otherwise leave null
                 if (hasEquipmentInCategory) {
                     selections[categoryName] = 'yes';
                 } else if (currentBookingEquipments.length > 0) {
-                    // Only set 'no' if we have booking data but this category isn't included
                     selections[categoryName] = 'no';
                 } else {
-                    // No booking data at all - leave unselected
                     selections[categoryName] = null;
                 }
                 
             } else if (categoryType === 'confirmation_multi' || categoryType === 'confirmation_single') {
-                // Confirmation categories: Same fix applies here
                 const hasEquipmentInCategory = currentBookingEquipments.some(ce => 
                     ce.EquipmentCategory && ce.EquipmentCategory.name === categoryName
                 );
                 
-                // Only set confirmation answer if there's actual booking data
                 if (hasEquipmentInCategory) {
                     selections[`confirm_${categoryName}`] = 'yes';
                 } else if (currentBookingEquipments.length > 0) {
-                    // Only set 'no' if we have booking data but this category isn't included
                     selections[`confirm_${categoryName}`] = 'no';
                 } else {
-                    // No booking data at all - leave unselected
                     selections[`confirm_${categoryName}`] = null;
                 }
                 
-                // Handle equipment selection based on type
                 if (currentBookingEquipments.length > 0) {
                     if (categoryType === 'confirmation_single') {
-                        // Single-select: get selected equipment ID
                         const selectedEquipment = categoryEquipments
                             .find(equipment => currentBookingEquipments.some(ce => ce.name === equipment.name));
                         selections[categoryName] = selectedEquipment ? selectedEquipment.id : null;
                     } else {
-                        // Multi-select: get all selected equipment IDs
                         selections[categoryName] = categoryEquipments
                             .filter(equipment => currentBookingEquipments.some(ce => ce.name === equipment.name))
                             .map(equipment => equipment.id);
@@ -254,7 +296,6 @@ const EquipmentField = memo((props) => {
                     selections[categoryName] = categoryType === 'confirmation_single' ? null : [];
                 }
             } else if (categoryType === 'multi_select') {
-                // Multi-select categories: only populate if we have booking data
                 if (currentBookingEquipments.length > 0) {
                     selections[categoryName] = categoryEquipments
                         .filter(equipment => currentBookingEquipments.some(ce => ce.name === equipment.name))
@@ -263,7 +304,6 @@ const EquipmentField = memo((props) => {
                     selections[categoryName] = [];
                 }
             } else if (categoryType === 'single_select') {
-                // Single-select categories: only populate if we have booking data
                 if (currentBookingEquipments.length > 0) {
                     const selectedEquipment = categoryEquipments
                         .find(equipment => currentBookingEquipments.some(ce => ce.name === equipment.name));
@@ -274,7 +314,7 @@ const EquipmentField = memo((props) => {
             }
         });
 
-        // Handle special ceiling hoist sling logic (only if we have booking data)
+        // Handle special ceiling hoist sling logic
         if (currentBookingEquipments.length > 0 && grouped['ceiling_hoist'] && grouped['sling'] && selections['ceiling_hoist'] === 'yes') {
             const selectedSling = grouped['sling']
                 .find(equipment => currentBookingEquipments.some(ce => ce.name === equipment.name));
@@ -283,7 +323,7 @@ const EquipmentField = memo((props) => {
             selections['sling'] = null;
         }
 
-        // Handle tilt question logic (only if we have booking data)
+        // Handle tilt question logic
         if (currentBookingEquipments.length > 0 && selections['shower_commodes']) {
             const selectedCommode = grouped['shower_commodes']?.find(eq => eq.id === selections['shower_commodes']);
             const hasHighBackTilt = selectedCommode?.name === 'Commode: High Back Tilt';
@@ -297,7 +337,7 @@ const EquipmentField = memo((props) => {
             }
         }
 
-        // Handle acknowledgement (only if we have booking data)
+        // Handle acknowledgement
         if (currentBookingEquipments.length > 0 && bookingType !== BOOKING_TYPES.FIRST_TIME_GUEST) {
             const hasAcknowledgement = currentBookingEquipments.some(ce => 
                 ce.type === 'acknowledgement' && ce.hidden
@@ -306,6 +346,7 @@ const EquipmentField = memo((props) => {
         }
 
         setCategorySelections(selections);
+        setEquipmentMetaData(metaData);
     };
 
     const validateSelections = () => {
@@ -319,7 +360,6 @@ const EquipmentField = memo((props) => {
             const categoryType = categoryTypes[categoryName];
             const isRequired = isRequiredCategory(categoryName, categoryType);
             
-            // Only validate if category is required OR if user made a selection
             const hasUserSelection = categorySelections[categoryName] !== null && 
                                     categorySelections[categoryName] !== undefined &&
                                     categorySelections[categoryName] !== '';
@@ -327,9 +367,24 @@ const EquipmentField = memo((props) => {
             const shouldValidate = isRequired || hasUserSelection;
             
             if (shouldValidate) {
-                if (categoryType === 'binary') {
+                if (categoryType === 'special') {
+                    // Handle special category validation
+                    if (categoryName === 'cot') {
+                        if (!categorySelections[categoryName]) {
+                            if (isRequired) {
+                                errors[categoryName] = 'Please select an option for cot requirement';
+                                allValid = false;
+                            }
+                        } else if (categorySelections[categoryName] === 'yes') {
+                            const quantity = equipmentMetaData[categoryName]?.quantity;
+                            if (!quantity || quantity < 1) {
+                                errors[`${categoryName}_quantity`] = 'Please specify how many cots you need (minimum 1)';
+                                allValid = false;
+                            }
+                        }
+                    }
+                } else if (categoryType === 'binary') {
                     if (!categorySelections[categoryName]) {
-                        // Only error if required
                         if (isRequired) {
                             errors[categoryName] = `Please select an option for ${getBinaryQuestionLabel(categoryName)}`;
                             allValid = false;
@@ -340,7 +395,6 @@ const EquipmentField = memo((props) => {
                     const confirmSelection = categorySelections[confirmationKey];
                     
                     if (!confirmSelection) {
-                        // Only error if required
                         if (isRequired) {
                             errors[confirmationKey] = `Please select an option for ${getConfirmationQuestionLabel(categoryName)}`;
                             allValid = false;
@@ -349,13 +403,11 @@ const EquipmentField = memo((props) => {
                     
                     if (confirmSelection === 'yes') {
                         if (categoryType === 'confirmation_single') {
-                            // Single select validation
                             if (!categorySelections[categoryName]) {
                                 errors[categoryName] = `Please select an option from ${formatCategoryName(categoryName)}`;
                                 allValid = false;
                             }
                         } else {
-                            // Multi select validation
                             if (!categorySelections[categoryName] || 
                                 (Array.isArray(categorySelections[categoryName]) && categorySelections[categoryName].length === 0)) {
                                 errors[categoryName] = `Please select at least one option from ${formatCategoryName(categoryName)}`;
@@ -365,7 +417,6 @@ const EquipmentField = memo((props) => {
                     }
                 } else if (categoryType === 'single_select') {
                     if (!categorySelections[categoryName]) {
-                        // Only error if required
                         if (isRequired) {
                             const fieldName = categoryName === 'mattress_options' ? 'Mattress Options' :
                                             categoryName === 'sling' ? 'Sling' :
@@ -374,17 +425,10 @@ const EquipmentField = memo((props) => {
                             allValid = false;
                         }
                     }
-                } else if (categoryType === 'multi_select') {
-                    // For multi-select, validate that if user started selecting, they selected at least one
-                    if (hasUserSelection && Array.isArray(categorySelections[categoryName]) && 
-                        categorySelections[categoryName].length === 0) {
-                        // This would be an edge case - user somehow triggered selection but selected nothing
-                        // In practice, this shouldn't happen with the UI
-                    }
                 }
             }
             
-            // Special validation for sling when ceiling hoist is yes (always required in this case)
+            // Special validation for sling when ceiling hoist is yes
             if (categoryName === 'sling' && categorySelections['ceiling_hoist'] === 'yes' && !categorySelections['sling']) {
                 errors['sling'] = 'Please select a sling option when using ceiling hoist';
                 allValid = false;
@@ -403,7 +447,7 @@ const EquipmentField = memo((props) => {
             allValid = false;
         }
 
-        // Only show errors for fields that have been touched (for UI)
+        // Only show errors for fields that have been touched
         const touchedErrors = {};
         Object.keys(errors).forEach(key => {
             if (categoryTouched[key]) {
@@ -417,20 +461,18 @@ const EquipmentField = memo((props) => {
     };
 
     const isRequiredCategory = (categoryName, categoryType) => {
-        // Define which categories are required
         const alwaysRequired = ['mattress_options', 'shower_commodes'];
         const requiredMultiSelect = ['adaptive_bathroom_options'];
         const conditionallyRequired = {
             'sling': () => categorySelections['ceiling_hoist'] === 'yes'
         };
-        const optionalCategories = ['transfer_aids', 'miscellaneous'];
+        const optionalCategories = ['transfer_aids', 'miscellaneous', 'cot']; // cot is optional
         
         if (alwaysRequired.includes(categoryName)) return true;
         if (conditionallyRequired[categoryName]) return conditionallyRequired[categoryName]();
         if (optionalCategories.includes(categoryName)) return false;
         if (requiredMultiSelect.includes(categoryName)) return true;
         
-        // Binary and single_select categories are required by default
         return categoryType === 'binary' || categoryType === 'single_select';
     };
 
@@ -451,6 +493,7 @@ const EquipmentField = memo((props) => {
             if (isConfirmation) {
                 delete newErrors[categoryName];
             }
+            delete newErrors[`${categoryName}_quantity`];
             return newErrors;
         });
         
@@ -459,7 +502,7 @@ const EquipmentField = memo((props) => {
             
             // Handle special logic for ceiling hoist
             if (categoryName === 'ceiling_hoist' && value === 'no') {
-                newSelections['sling'] = null; // Single value for single-select
+                newSelections['sling'] = null;
                 setCategoryErrors(prevErrors => {
                     const newErrors = { ...prevErrors };
                     delete newErrors['sling'];
@@ -477,9 +520,16 @@ const EquipmentField = memo((props) => {
                 });
             }
 
-            // Check if High Back Tilt commode is selected (if this category exists)
+            // Handle special categories
+            if (categoryType === 'special' && categoryName === 'cot' && value === 'no') {
+                setEquipmentMetaData(prev => ({
+                    ...prev,
+                    [categoryName]: { quantity: 1 }
+                }));
+            }
+
+            // Check if High Back Tilt commode is selected
             if (categoryName === 'shower_commodes' && !isConfirmation) {
-                // Since shower_commodes is now single-select, get the selected equipment
                 const selectedEquipment = groupedEquipments[categoryName]?.find(eq => eq.id === value);
                 const hasHighBackTilt = selectedEquipment?.name === 'Commode: High Back Tilt';
                 setShowTiltQuestion(hasHighBackTilt);
@@ -496,7 +546,7 @@ const EquipmentField = memo((props) => {
             return newSelections;
         });
 
-        // Call updateEquipmentChanges immediately, not in timeout
+        // Call updateEquipmentChanges immediately
         if (categoryName === 'ceiling_hoist' && value === 'no') {
             handleMultipleEquipmentChanges([
                 { category: 'ceiling_hoist', value: 'no' },
@@ -506,9 +556,43 @@ const EquipmentField = memo((props) => {
             const nestedValue = (categoryType === 'confirmation_multi') ? [] : null;
             updateEquipmentChanges(categoryName, nestedValue, false);
         } else {
-            updateEquipmentChanges(categoryName, value, isConfirmation);
+            // For special categories, use the updated metadata
+            if (categoryType === 'special') {
+                updateEquipmentChangesWithMetaData(categoryName, value, isConfirmation, null);
+            } else {
+                updateEquipmentChanges(categoryName, value, isConfirmation);
+            }
         }
-    }, [categoryTypes, groupedEquipments, validateSelections, props]);
+    }, [categoryTypes, groupedEquipments]);
+
+    // Handle quantity changes for special equipment
+    const handleQuantityChange = useCallback((categoryName, quantity) => {
+        const parsedQuantity = parseInt(quantity) || 1;
+        
+        setCategoryTouched(prev => ({
+            ...prev,
+            [`${categoryName}_quantity`]: true
+        }));
+
+        setCategoryErrors(prev => {
+            const newErrors = { ...prev };
+            delete newErrors[`${categoryName}_quantity`];
+            return newErrors;
+        });
+
+        setEquipmentMetaData(prev => ({
+            ...prev,
+            [categoryName]: { 
+                ...prev[categoryName],
+                quantity: parsedQuantity 
+            }
+        }));
+
+        // Update equipment changes if category is already selected as "yes"
+        if (categorySelections[categoryName] === 'yes') {
+            updateEquipmentChangesWithMetaData(categoryName, 'yes', false, { quantity: parsedQuantity });
+        }
+    }, [categorySelections]);
 
     // Optimized radio field change handler
     const handleRadioFieldChange = useCallback((categoryName, label, updatedOptions, isConfirmation = false) => {
@@ -518,7 +602,8 @@ const EquipmentField = memo((props) => {
         }
     }, [handleCategoryChange]);
 
-    const updateEquipmentChanges = (categoryName, value, isConfirmation = false) => {
+    // Function to handle equipment changes with explicit metadata
+    const updateEquipmentChangesWithMetaData = (categoryName, value, isConfirmation = false, metaDataOverride = null) => {
         if (isConfirmation) return;
         
         const categoryEquipments = groupedEquipments[categoryName] || [];
@@ -528,7 +613,27 @@ const EquipmentField = memo((props) => {
             equipment?.EquipmentCategory?.name === categoryName && !equipment?.hidden
         );
 
-        if (categoryType === 'binary') {
+        if (categoryType === 'special') {
+            // Handle special categories
+            if (categoryName === 'cot') {
+                const equipment = categoryEquipments[0];
+                if (equipment && value === 'yes') {
+                    const quantity = metaDataOverride?.quantity || equipmentMetaData[categoryName]?.quantity || 1;
+                    selectedEquipments = [{ 
+                        ...equipment, 
+                        label: equipment.name,
+                        value: true,
+                        meta_data: { quantity }
+                    }];
+                } else if (equipment) {
+                    selectedEquipments = [{ 
+                        ...equipment, 
+                        label: equipment.name,
+                        value: false
+                    }];
+                }
+            }
+        } else if (categoryType === 'binary') {
             const equipment = categoryEquipments[0];
             if (equipment) {
                 selectedEquipments = [{ 
@@ -539,7 +644,6 @@ const EquipmentField = memo((props) => {
             }
         } else if (categoryType === 'multi_select' || categoryType === 'confirmation_multi') {
             if (Array.isArray(value)) {
-                // Find selected equipment
                 const selectedItems = categoryEquipments.filter(eq => value.includes(eq.id));
                 selectedEquipments = selectedItems.map(eq => ({ 
                     ...eq, 
@@ -548,7 +652,6 @@ const EquipmentField = memo((props) => {
                     type: 'group' 
                 }));
                 
-                // Find previously selected equipment that should now be deselected
                 const prevEquipments = previousSelectedEquipments
                     .filter(eq => !value.includes(eq.id))
                     .map(eq => ({ 
@@ -595,22 +698,21 @@ const EquipmentField = memo((props) => {
             isDirty: true
         };
 
-        // Update state AND immediately notify parent
         setEquipmentChanges(prev => {
             const filtered = prev.filter(c => c.category !== categoryName);
             const newChanges = [...filtered, change];
             
-            // IMMEDIATELY notify parent with updated changes
             if (props.hasOwnProperty('onChange')) {
-                // Get current validation result
                 const validationResult = validateSelections();
-                
-                // Call parent with updated equipment changes immediately
                 props.onChange(validationResult.allValid, newChanges);
             }
             
             return newChanges;
         });
+    };
+
+    const updateEquipmentChanges = (categoryName, value, isConfirmation = false) => {
+        updateEquipmentChangesWithMetaData(categoryName, value, isConfirmation, null);
     };
 
     const handleMultipleEquipmentChanges = (changes) => {
@@ -691,8 +793,8 @@ const EquipmentField = memo((props) => {
 
     const getValidationStyling = (categoryName, isConfirmation = false) => {
         const key = isConfirmation ? `confirm_${categoryName}` : categoryName;
-        const hasError = categoryErrors[key];
-        const isTouched = categoryTouched[key];
+        const hasError = categoryErrors[key] || categoryErrors[`${categoryName}_quantity`];
+        const isTouched = categoryTouched[key] || categoryTouched[`${categoryName}_quantity`];
         const hasSelection = categorySelections[key];
         const categoryType = categoryTypes[categoryName];
         
@@ -733,8 +835,10 @@ const EquipmentField = memo((props) => {
         return 'border-2 border-gray-200 bg-white rounded-xl p-4 transition-all duration-200';
     };
 
-    const ValidationMessage = ({ categoryName, isConfirmation = false }) => {
-        const { shouldShowError, errorMessage } = getValidationStyling(categoryName, isConfirmation);
+    const ValidationMessage = ({ categoryName, isConfirmation = false, isQuantity = false }) => {
+        const errorKey = isQuantity ? `${categoryName}_quantity` : (isConfirmation ? `confirm_${categoryName}` : categoryName);
+        const shouldShowError = categoryErrors[errorKey] && categoryTouched[errorKey];
+        const errorMessage = categoryErrors[errorKey];
         
         if (shouldShowError) {
             return (
@@ -743,6 +847,56 @@ const EquipmentField = memo((props) => {
                         <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                     </svg>
                     <p className="text-red-600 text-sm font-medium">{errorMessage}</p>
+                </div>
+            );
+        }
+        
+        return null;
+    };
+
+    // Render special categories (like cot with quantity)
+    const renderSpecialCategory = (categoryName, equipments) => {
+        if (categoryName === 'cot') {
+            const selection = categorySelections[categoryName];
+            const quantity = equipmentMetaData[categoryName]?.quantity || 1;
+            const { isRequired } = getValidationStyling(categoryName);
+            
+            return (
+                <div key={categoryName} className="py-4">
+                    <div className={getContainerClasses(categoryName)}>
+                        <RadioField
+                            disabled={props?.disabled}
+                            options={[
+                                { label: 'Yes', value: selection === 'yes' },
+                                { label: 'No', value: selection === 'no' }
+                            ]}
+                            label="Do you need a cot, if so how many?"
+                            required={isRequired}
+                            error={getValidationStyling(categoryName).shouldShowError}
+                            onChange={(label, updatedOptions) => {
+                                handleRadioFieldChange(categoryName, label, updatedOptions);
+                            }}
+                        />
+                        
+                        {selection === 'yes' && (
+                            <div className="mt-4">
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    Number of cots needed:
+                                </label>
+                                <input
+                                    type="number"
+                                    min="1"
+                                    max="10"
+                                    value={quantity}
+                                    disabled={props?.disabled}
+                                    onChange={(e) => handleQuantityChange(categoryName, e.target.value)}
+                                    className="block w-32 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                                />
+                            </div>
+                        )}
+                    </div>
+                    {isRequired && <ValidationMessage categoryName={categoryName} />}
+                    <ValidationMessage categoryName={categoryName} isQuantity={true} />
                 </div>
             );
         }
@@ -762,7 +916,6 @@ const EquipmentField = memo((props) => {
                         (categoryName === 'sling' && categorySelections['ceiling_hoist'] === 'yes');
 
         if (hasImages) {
-            // Equipment is already sorted by order from the grouped data
             const cards = equipments.map(eq => ({
                 value: eq.id,
                 label: eq.name,
@@ -791,8 +944,6 @@ const EquipmentField = memo((props) => {
                 </div>
             );
         } else {
-            // Use existing radio/checkbox fields for equipment without images
-            // Equipment is already sorted by order from the grouped data
             const options = equipments.map(eq => ({
                 ...eq,
                 label: eq.name,
@@ -839,7 +990,6 @@ const EquipmentField = memo((props) => {
     };
 
     const getBinaryQuestionLabel = (categoryName) => {
-        // Generate question labels dynamically or use default patterns
         const specialLabels = {
             'ceiling_hoist': 'Will you be using our ceiling hoist?',
             'slide_transfer_boards': 'Would you like to use a slide transfer board?',
@@ -860,10 +1010,14 @@ const EquipmentField = memo((props) => {
 
     const renderCategorySection = (categoryName, equipments) => {
         const categoryType = categoryTypes[categoryName];
-        const categoryDisplayName = formatCategoryName(categoryName);
         const selection = categorySelections[categoryName];
         const confirmationKey = `confirm_${categoryName}`;
         const confirmSelection = categorySelections[confirmationKey];
+
+        // Handle special categories
+        if (categoryType === 'special') {
+            return renderSpecialCategory(categoryName, equipments);
+        }
 
         // Handle binary categories (yes/no questions)
         if (categoryType === 'binary') {
@@ -945,29 +1099,25 @@ const EquipmentField = memo((props) => {
     const buildOrderedSections = () => {
         const sections = [];
         
-        // Get sorted main categories (excluding sling as it's handled conditionally)
         const mainCategories = Object.entries(groupedEquipments)
             .filter(([categoryName, equipments]) => 
                 categoryName && categoryName !== 'null' && 
                 equipments.length > 0 && 
-                categoryName !== 'sling' // Sling is handled conditionally
+                categoryName !== 'sling'
             )
             .sort(([categoryNameA, equipmentsA], [categoryNameB, equipmentsB]) => {
-                // Sort categories by their order field
                 const orderA = equipmentsA[0]?.EquipmentCategory?.order || 0;
                 const orderB = equipmentsB[0]?.EquipmentCategory?.order || 0;
                 return orderA - orderB;
             });
 
         mainCategories.forEach(([categoryName, equipments]) => {
-            // Add the main category
             sections.push({
                 type: 'category',
                 categoryName,
                 equipments
             });
 
-            // Check for conditional categories that should appear after this one
             if (categoryName === 'ceiling_hoist' && categorySelections['ceiling_hoist'] === 'yes' && groupedEquipments['sling']) {
                 sections.push({
                     type: 'conditional_category',
@@ -1040,7 +1190,6 @@ const EquipmentField = memo((props) => {
             )}
             
             <div className="py-4">
-                {/* Render sections in order, including conditional ones inline */}
                 {buildOrderedSections().map((section, index) => {
                     if (section.type === 'category' || section.type === 'conditional_category') {
                         return renderCategorySection(section.categoryName, section.equipments);

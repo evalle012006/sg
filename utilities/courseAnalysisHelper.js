@@ -91,8 +91,8 @@ export function extractCourseInformation(allQAPairs = [], formData = {}) {
     // Process course offer answer
     if (courseOfferQA) {
       courseAnalysis.courseOfferAnswer = courseOfferQA.answer;
-      const answer = courseOfferQA.answer?.toLowerCase() || '';
-      courseAnalysis.courseOffered = answer.includes('yes') || answer.includes('true');
+      const answerStr = safeAnswerToLowerCase(courseOfferQA.answer);
+      courseAnalysis.courseOffered = answerStr.includes('yes') || answerStr.includes('true');
       // console.log('✅ Processed course offer answer:', courseOfferQA.answer, '→ offered:', courseAnalysis.courseOffered);
     }
 
@@ -100,16 +100,13 @@ export function extractCourseInformation(allQAPairs = [], formData = {}) {
     if (whichCourseQA) {
       courseAnalysis.whichCourseAnswer = whichCourseQA.answer;
       // Check if the answer indicates a real course selection
-      if (whichCourseQA.answer && 
-          whichCourseQA.answer !== '' && 
-          whichCourseQA.answer !== '0' &&
-          whichCourseQA.answer?.toLowerCase() !== 'no' &&
-          whichCourseQA.answer?.toLowerCase() !== 'none' &&
-          whichCourseQA.answer !== 'false') {
-        
-        courseAnalysis.courseId = whichCourseQA.answer;
-        courseAnalysis.hasCourse = true;
-        // console.log('✅ Valid course selection found:', whichCourseQA.answer);
+      if (hasAnswerContent(whichCourseQA.answer)) {
+        const answerStr = safeAnswerToLowerCase(whichCourseQA.answer);
+        if (answerStr !== 'no' && answerStr !== 'none' && answerStr !== 'false') {
+          courseAnalysis.courseId = safeAnswerToString(whichCourseQA.answer);
+          courseAnalysis.hasCourse = true;
+          // console.log('✅ Valid course selection found:', whichCourseQA.answer);
+        }
       }
     }
 
@@ -120,7 +117,7 @@ export function extractCourseInformation(allQAPairs = [], formData = {}) {
       
       const courseRelatedQA = allQAPairs.filter(qa => {
         const questionText = qa.question?.toLowerCase() || '';
-        const hasAnswer = qa.answer && qa.answer !== '' && qa.answer !== '0';
+        const hasAnswer = hasAnswerContent(qa.answer);
         const isCourseRelated = questionText.includes('course') || 
                                questionText.includes('training') ||
                                questionText.includes('program') ||
@@ -143,7 +140,7 @@ export function extractCourseInformation(allQAPairs = [], formData = {}) {
         const offerQA = courseRelatedQA.find(qa => {
           const questionText = qa.question?.toLowerCase() || '';
           const hasOfferPattern = offerPatterns.some(pattern => questionText.includes(pattern));
-          const hasPositiveAnswer = qa.answer?.toLowerCase().includes('yes');
+          const hasPositiveAnswer = isPositiveAnswer(qa.answer);
           return hasOfferPattern && hasPositiveAnswer;
         });
 
@@ -161,17 +158,13 @@ export function extractCourseInformation(allQAPairs = [], formData = {}) {
         const selectionQA = courseRelatedQA.find(qa => {
           const questionText = qa.question?.toLowerCase() || '';
           const hasSelectionPattern = selectionPatterns.some(pattern => questionText.includes(pattern));
-          const hasValidAnswer = qa.answer && 
-                                qa.answer !== '' && 
-                                qa.answer !== '0' &&
-                                qa.answer?.toLowerCase() !== 'no' &&
-                                qa.answer?.toLowerCase() !== 'none';
+          const hasValidAnswer = hasAnswerContent(qa.answer);
           return hasSelectionPattern && hasValidAnswer;
         });
 
         if (selectionQA) {
           courseAnalysis.whichCourseAnswer = selectionQA.answer;
-          courseAnalysis.courseId = selectionQA.answer;
+          courseAnalysis.courseId = safeAnswerToString(selectionQA.answer);
           courseAnalysis.hasCourse = true;
           courseAnalysis.rawData.foundBy = 'text-pattern: course selection';
           console.log('✅ Found course selection by text pattern:', selectionQA.question?.substring(0, 50), '→', selectionQA.answer);
@@ -186,7 +179,7 @@ export function extractCourseInformation(allQAPairs = [], formData = {}) {
       
       // Check for explicit course properties
       if (formData.courseId || formData.selectedCourse) {
-        courseAnalysis.courseId = formData.courseId || formData.selectedCourse;
+        courseAnalysis.courseId = safeAnswerToString(formData.courseId || formData.selectedCourse);
         courseAnalysis.hasCourse = true;
         courseAnalysis.rawData.foundBy = 'formData: courseId/selectedCourse';
         console.log('✅ Found course in formData:', courseAnalysis.courseId);
@@ -202,7 +195,7 @@ export function extractCourseInformation(allQAPairs = [], formData = {}) {
 
       // Check nested structures
       if (formData.booking && formData.booking.course) {
-        courseAnalysis.courseId = formData.booking.course;
+        courseAnalysis.courseId = safeAnswerToString(formData.booking.course);
         courseAnalysis.hasCourse = true;
         courseAnalysis.rawData.foundBy = 'formData: booking.course';
         console.log('✅ Found course in formData.booking');
@@ -221,13 +214,13 @@ export function extractCourseInformation(allQAPairs = [], formData = {}) {
       
       const expandedCourseSearch = allQAPairs.filter(qa => {
         const questionText = qa?.question?.toLowerCase() || '';
-        const answerText = qa?.answer?.toLowerCase() || '';
+        const answerText = safeAnswerToLowerCase(qa?.answer);
         
         const hasKeyword = expandedKeywords.some(keyword => 
           questionText.includes(keyword) || answerText.includes(keyword)
         );
         
-        return hasKeyword && qa.answer && qa.answer !== '';
+        return hasKeyword && hasAnswerContent(qa.answer);
       });
       
       // console.log('🔍 Expanded search found:', expandedCourseSearch.length, 'potential matches');
@@ -236,7 +229,7 @@ export function extractCourseInformation(allQAPairs = [], formData = {}) {
       const scoredMatches = expandedCourseSearch.map(qa => {
         let confidence = 0;
         const questionText = qa.question?.toLowerCase() || '';
-        const answerText = qa.answer?.toLowerCase() || '';
+        const answerText = safeAnswerToLowerCase(qa.answer);
         
         // High confidence indicators
         if (questionText.includes('course') && questionText.includes('offered')) confidence += 10;
@@ -249,7 +242,7 @@ export function extractCourseInformation(allQAPairs = [], formData = {}) {
         if (questionText.includes('training') || questionText.includes('program')) confidence += 2;
         
         // Answer validation
-        if (answerText !== 'no' && answerText !== 'none' && answerText !== '') confidence += 1;
+        if (!isNegativeAnswer(qa.answer) && hasAnswerContent(qa.answer)) confidence += 1;
         
         return { ...qa, confidence };
       });
@@ -281,10 +274,9 @@ export function extractCourseInformation(allQAPairs = [], formData = {}) {
       courseAnalysis.rawData.strategiesUsed.push('answer-mention-fallback');
       
       const courseMentions = allQAPairs.filter(qa => {
-        const answerText = qa.answer?.toLowerCase() || '';
+        const answerText = safeAnswerToLowerCase(qa.answer);
         return answerText.includes('course') && 
-               answerText !== 'no' && 
-               answerText !== 'none' &&
+               !isNegativeAnswer(qa.answer) &&
                answerText.length > 3; // Avoid false positives from short answers
       });
       
@@ -293,7 +285,7 @@ export function extractCourseInformation(allQAPairs = [], formData = {}) {
         
         // Look for substantial course mentions (not just the word "course")
         const substantialMentions = courseMentions.filter(qa => {
-          const answerText = qa.answer?.toLowerCase() || '';
+          const answerText = safeAnswerToLowerCase(qa.answer);
           return answerText.length > 10 && // Substantial answer
                  (answerText.includes('yes') || 
                   answerText.match(/course\s+\w+/) || // "course [something]"
@@ -317,8 +309,8 @@ export function extractCourseInformation(allQAPairs = [], formData = {}) {
 
     // Validate course ID if present
     if (courseAnalysis.courseId) {
-      const validCourseId = courseAnalysis.courseId.toString().trim();
-      if (validCourseId && validCourseId !== '0' && validCourseId?.toLowerCase() !== 'no') {
+      const validCourseId = safeAnswerToString(courseAnalysis.courseId).trim();
+      if (validCourseId && validCourseId !== '0' && !isNegativeAnswer(validCourseId)) {
         courseAnalysis.courseId = validCourseId;
         courseAnalysis.hasCourse = true;
       } else {
@@ -410,7 +402,7 @@ export function analyzeCourseFromBookingData({
       // Also check Questions array for current answers
       if (section.Questions && Array.isArray(section.Questions)) {
         const answeredQuestions = section.Questions.filter(q => 
-          q.answer !== null && q.answer !== undefined && q.answer !== ''
+          hasAnswerContent(q.answer)
         ).map(q => ({
           question: q.question,
           answer: q.answer,
@@ -439,7 +431,7 @@ export function analyzeCourseFromBookingData({
         // Also check Questions array
         if (section.Questions && Array.isArray(section.Questions)) {
           const answeredQuestions = section.Questions.filter(q => 
-            q.answer !== null && q.answer !== undefined && q.answer !== ''
+            hasAnswerContent(q.answer)
           ).map(q => ({
             question: q.question,
             answer: q.answer,
@@ -492,4 +484,97 @@ export function analyzeCourseFromBookingData({
   // })));
   
   return extractCourseInformation(uniqueQAPairs, formData);
+}
+
+/**
+ * Safely convert any answer value to a string for text processing
+ * @param {*} answer - The answer value (can be string, null, undefined, array, object, number, boolean)
+ * @returns {string} - Safe string representation
+ */
+function safeAnswerToString(answer) {
+  if (answer === null || answer === undefined) {
+    return '';
+  }
+  
+  if (typeof answer === 'string') {
+    return answer;
+  }
+  
+  if (typeof answer === 'number' || typeof answer === 'boolean') {
+    return String(answer);
+  }
+  
+  if (Array.isArray(answer)) {
+    // For arrays, join with commas or take first element if it's a single item
+    return answer.length === 1 ? String(answer[0] || '') : answer.join(', ');
+  }
+  
+  if (typeof answer === 'object') {
+    // For objects, try to extract a meaningful string representation
+    // Common patterns: { value: "something" }, { text: "something" }, { label: "something" }
+    if (answer.value !== undefined) return String(answer.value);
+    if (answer.text !== undefined) return String(answer.text);
+    if (answer.label !== undefined) return String(answer.label);
+    if (answer.name !== undefined) return String(answer.name);
+    
+    // If it's a simple object with one property, use that value
+    const keys = Object.keys(answer);
+    if (keys.length === 1) {
+      return String(answer[keys[0]] || '');
+    }
+    
+    // Last resort: JSON stringify (but clean it up)
+    try {
+      return JSON.stringify(answer).replace(/[{}"\[\]]/g, '').replace(/[:,]/g, ' ').trim();
+    } catch {
+      return '';
+    }
+  }
+  
+  // Fallback for any other type
+  return String(answer);
+}
+
+/**
+ * Safely get lowercase string from answer for comparison
+ * @param {*} answer - The answer value
+ * @returns {string} - Lowercase string
+ */
+function safeAnswerToLowerCase(answer) {
+  return safeAnswerToString(answer).toLowerCase();
+}
+
+/**
+ * Check if an answer represents a positive/yes response
+ * @param {*} answer - The answer value
+ * @returns {boolean} - True if answer indicates yes/positive
+ */
+function isPositiveAnswer(answer) {
+  const answerStr = safeAnswerToLowerCase(answer);
+  return answerStr.includes('yes') || 
+         answerStr.includes('true') || 
+         answerStr === '1' ||
+         (answerStr.length > 0 && !['no', 'false', '0', 'none', 'null'].includes(answerStr));
+}
+
+/**
+ * Check if an answer represents a negative/no response
+ * @param {*} answer - The answer value
+ * @returns {boolean} - True if answer indicates no/negative
+ */
+function isNegativeAnswer(answer) {
+  const answerStr = safeAnswerToLowerCase(answer);
+  return ['no', 'false', '0', 'none', 'null', ''].includes(answerStr);
+}
+
+/**
+ * Check if answer has meaningful content (not empty, null, or negative)
+ * @param {*} answer - The answer value
+ * @returns {boolean} - True if answer has content
+ */
+function hasAnswerContent(answer) {
+  const answerStr = safeAnswerToString(answer).trim();
+  return answerStr !== '' && 
+         answerStr !== '0' && 
+         !isNegativeAnswer(answer);
 }

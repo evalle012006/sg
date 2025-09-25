@@ -10,7 +10,7 @@ export default async function handler(req, res) {
     let isEquipmentsAmended = false;
 
     const manageBookingEquipment = async (booking, category, equipments) => {
-        // fetch all mattress_options for the given booking
+        // fetch all equipment for the given booking and category
         const existingEquipments = booking.Equipment.map((equipment) => {
             if (equipment.dataValues.EquipmentCategory.name == category) {
                 return equipment.dataValues;
@@ -20,13 +20,14 @@ export default async function handler(req, res) {
         for (let i = 0; i < equipments.length; i++) {
             const equipment = equipments[i];
 
-            const currentEquipment = existingEquipments.find((existingEquipment) => existingEquipment && existingEquipment.category_id == equipment.category_id);
+            const currentEquipment = existingEquipments.find((existingEquipment) => 
+                existingEquipment && existingEquipment.category_id == equipment.category_id
+            );
+            
             if (currentEquipment && currentEquipment.type == 'independent') {
                 // update the existing equipment
                 if (equipment.value) {
-
                     if (isDirty && booking.complete) {
-
                         await Log.create({
                             loggable_id: booking.id,
                             loggable_type: 'booking',
@@ -45,12 +46,17 @@ export default async function handler(req, res) {
                         });
                     }
                     isEquipmentsAmended = true;
-                    return await BookingEquipment.update({
-                        equipment_id
-                            : equipment.id
-                    }, { where: { booking_id: booking.id, equipment_id: currentEquipment.id } });
+                    
+                    // ✅ UPDATED: Include meta_data when updating
+                    const updateData = { equipment_id: equipment.id };
+                    if (equipment.meta_data) {
+                        updateData.meta_data = equipment.meta_data;
+                    }
+                    
+                    return await BookingEquipment.update(updateData, { 
+                        where: { booking_id: booking.id, equipment_id: currentEquipment.id } 
+                    });
                 } else {
-
                     if (isDirty && booking.complete) {
                         await Log.create({
                             loggable_id: booking.id,
@@ -71,12 +77,13 @@ export default async function handler(req, res) {
                     }
                     // remove the equipment
                     isEquipmentsAmended = true;
-                    return await BookingEquipment.destroy({ where: { booking_id: booking.id, equipment_id: currentEquipment.id } });
+                    return await BookingEquipment.destroy({ 
+                        where: { booking_id: booking.id, equipment_id: currentEquipment.id } 
+                    });
                 }
             }
 
             if (!currentEquipment && equipment.type == 'independent' && equipment.value) {
-
                 if (isDirty && booking.complete) {
                     await Log.create({
                         loggable_id: booking.id,
@@ -95,15 +102,27 @@ export default async function handler(req, res) {
                         }
                     });
                 }
+                
+                // ✅ UPDATED: Include meta_data when creating new equipment
+                const createData = { 
+                    booking_id: booking.id, 
+                    equipment_id: equipment.id 
+                };
+                if (equipment.meta_data) {
+                    createData.meta_data = equipment.meta_data;
+                }
+                
                 // add the new equipment
                 isEquipmentsAmended = true;
-                return await BookingEquipment.create({ booking_id: booking.id, equipment_id: equipment.id });
+                return await BookingEquipment.create(createData);
             }
 
             if (equipment.type == 'group') {
-                const equipmentExists = existingEquipments.find((existingEquipment) => existingEquipment && existingEquipment.id == equipment.id);
+                const equipmentExists = existingEquipments.find((existingEquipment) => 
+                    existingEquipment && existingEquipment.id == equipment.id
+                );
+                
                 if (equipmentExists && equipment.value == false) {
-
                     if (isDirty && booking.complete) {
                         await Log.create({
                             loggable_id: booking.id,
@@ -123,7 +142,9 @@ export default async function handler(req, res) {
                         });
                     }
                     // remove the equipment
-                    await BookingEquipment.destroy({ where: { booking_id: booking.id, equipment_id: equipmentExists.id } });
+                    await BookingEquipment.destroy({ 
+                        where: { booking_id: booking.id, equipment_id: equipmentExists.id } 
+                    });
                     isEquipmentsAmended = true;
                 } else {
                     // add the equipment
@@ -146,12 +167,21 @@ export default async function handler(req, res) {
                                 }
                             });
                         }
-                        await BookingEquipment.create({ booking_id: booking.id, equipment_id: equipment.id });
+                        
+                        // ✅ UPDATED: Include meta_data when creating group equipment
+                        const createData = { 
+                            booking_id: booking.id, 
+                            equipment_id: equipment.id 
+                        };
+                        if (equipment.meta_data) {
+                            createData.meta_data = equipment.meta_data;
+                        }
+                        
+                        await BookingEquipment.create(createData);
                         isEquipmentsAmended = true;
                     }
                 }
             }
-
         }
     }
 

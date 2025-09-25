@@ -309,6 +309,69 @@ const validateAllFieldsFilled = (tableData) => {
   return errors;
 };
 
+/**
+ * Detect if there's a date mismatch between existing care data and current stay dates
+ */
+const detectDateMismatch = (existingData, currentStartDate, currentEndDate) => {
+  if (!existingData || existingData.length === 0 || !currentStartDate || !currentEndDate) {
+    return { hasMismatch: false, details: null };
+  }
+
+  // Extract dates from existing care data
+  const existingDates = new Set();
+  existingData.forEach(item => {
+    if (item.date) {
+      // Convert DD/MM/YYYY to YYYY-MM-DD for comparison
+      let normalizedDate;
+      if (item.date.includes('/')) {
+        const [day, month, year] = item.date.split('/');
+        normalizedDate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+      } else {
+        normalizedDate = item.date;
+      }
+      existingDates.add(normalizedDate);
+    }
+  });
+
+  // Generate expected date range
+  const expectedDates = new Set();
+  const startDate = new Date(currentStartDate);
+  const endDate = new Date(currentEndDate);
+  const currentDate = new Date(startDate);
+  
+  while (currentDate <= endDate) {
+    expectedDates.add(currentDate.toISOString().split('T')[0]);
+    currentDate.setDate(currentDate.getDate() + 1);
+  }
+
+  // Check for overlap
+  const hasOverlap = [...existingDates].some(date => expectedDates.has(date));
+  
+  if (!hasOverlap && existingDates.size > 0) {
+    // Get date ranges for user-friendly messaging
+    const existingDatesArray = [...existingDates].sort();
+    const expectedDatesArray = [...expectedDates].sort();
+    
+    const formatDateRange = (dates) => {
+      if (dates.length === 0) return '';
+      if (dates.length === 1) return new Date(dates[0]).toLocaleDateString();
+      return `${new Date(dates[0]).toLocaleDateString()} - ${new Date(dates[dates.length - 1]).toLocaleDateString()}`;
+    };
+
+    return {
+      hasMismatch: true,
+      details: {
+        existingDateRange: formatDateRange(existingDatesArray),
+        newDateRange: formatDateRange(expectedDatesArray),
+        existingDatesCount: existingDates.size,
+        newDatesCount: expectedDates.size
+      }
+    };
+  }
+
+  return { hasMismatch: false, details: null };
+};
+
 export default function CareTable({ 
   value = [], 
   onChange, 
@@ -335,6 +398,10 @@ export default function CareTable({
   const valueRef = useRef(value);
   const savedDataRef = useRef({});
   const dateInitializedRef = useRef(false);
+  
+  // Date mismatch detection state
+  const [dateMismatch, setDateMismatch] = useState(null);
+  const notificationSentRef = useRef(false);
   
   // Main date initialization effect - will attempt to handle any date format
   useEffect(() => {
@@ -451,6 +518,47 @@ export default function CareTable({
       setHasUnsavedChanges(currentDataString !== savedDataString);
     }
   }, [tableData]);
+
+  // Date mismatch detection
+  useEffect(() => {
+    if (value && value.length > 0 && stayDates?.checkInDate && stayDates?.checkOutDate) {
+        const mismatchResult = detectDateMismatch(value, stayDates.checkInDate, stayDates.checkOutDate);
+        
+        // Only update state if the mismatch status actually changed
+        const newMismatch = mismatchResult.hasMismatch ? mismatchResult.details : null;
+        
+        if (JSON.stringify(newMismatch) !== JSON.stringify(dateMismatch)) {
+            setDateMismatch(newMismatch);
+            
+            // Auto-clear data when mismatch is detected
+            if (newMismatch && onChange) {
+                onChange([], true); // Clear data and mark as error
+            }
+        }
+    }
+  }, [value, stayDates?.checkInDate, stayDates?.checkOutDate, dateMismatch, onChange]);
+
+  useEffect(() => {
+    // Only clear dateMismatch when new valid data comes in that doesn't have a mismatch
+    if (value && value.length > 0 && stayDates?.checkInDate && stayDates?.checkOutDate && dateMismatch) {
+        const mismatchResult = detectDateMismatch(value, stayDates.checkInDate, stayDates.checkOutDate);
+        
+        if (!mismatchResult.hasMismatch) {
+            setDateMismatch(null);
+        }
+    }
+  }, [value?.length, stayDates?.checkInDate, stayDates?.checkOutDate]);
+
+  // Separate useEffect to handle notifying parent about mismatch
+  useEffect(() => {
+    if (dateMismatch && onChange && !notificationSentRef.current) {
+      onChange([], true); // Empty data + hasError = true
+      notificationSentRef.current = true;
+    } else if (!dateMismatch && notificationSentRef.current) {
+      // Reset notification flag when mismatch is resolved
+      notificationSentRef.current = false;
+    }
+  }, [dateMismatch]);
 
   // Fallback direct initialization for cases when dates are in different format
   useEffect(() => {
@@ -853,6 +961,27 @@ export default function CareTable({
             <p className="font-bold">Unsaved Changes!</p>
           </div>
           <p className="text-sm mt-1">Click the <span className="font-bold">Done</span> button to confirm your care schedule and continue with the form.</p>
+        </div>
+      )}
+
+      {/* Date Mismatch Warning */}
+      {dateMismatch && (
+        <div className="bg-amber-100 border-l-4 border-amber-500 text-amber-700 p-4 rounded shadow-md mb-4" role="alert">
+          <div className="flex items-start">
+            <svg className="h-6 w-6 text-amber-500 mr-3 mt-0.5 flex-shrink-0" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+            </svg>
+            <div className="flex-1">
+              <p className="font-bold text-amber-800">Stay Dates Have Changed</p>
+              <p className="text-sm mt-1 text-amber-700">
+                Your care schedule was previously set for <span className="font-semibold">{dateMismatch.existingDateRange}</span>, 
+                but your current stay is <span className="font-semibold">{dateMismatch.newDateRange}</span>.
+              </p>
+              <p className="text-sm mt-2 text-amber-700">
+                <strong>Please set up your care schedule for your new dates below.</strong> You can use the default settings to quickly apply the same care pattern to all days.
+              </p>
+            </div>
+          </div>
         </div>
       )}
       

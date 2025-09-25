@@ -20,7 +20,7 @@ export default function AssetEquipmentForm({
   equipmentId, 
   onCancel, 
   onSuccess, 
-  assetCategories, 
+  assetCategories: rawAssetCategories, 
   assetStatuses: initialAssetStatuses, 
   supplierList: initialSupplierList 
 }) {
@@ -66,6 +66,25 @@ export default function AssetEquipmentForm({
     'supplier_id'
   ];
 
+  // Transform raw asset categories to proper format for SelectComponent
+  const assetCategories = useMemo(() => {
+    if (!rawAssetCategories || !Array.isArray(rawAssetCategories)) return [];
+    
+    return rawAssetCategories.map(category => {
+      // Format the category name for display (convert underscore to space and capitalize)
+      const displayName = category.name
+        ? category.name.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+        : '';
+      
+      return {
+        id: category.id,
+        label: displayName,
+        value: displayName,
+        name: category.name // Keep original name for backend
+      };
+    });
+  }, [rawAssetCategories]);
+
   // Filter asset statuses to remove any "All" option
   const filteredAssetStatuses = useMemo(() => {
     return assetStatuses?.filter(status => 
@@ -78,36 +97,36 @@ export default function AssetEquipmentForm({
 
   // Helper functions to get display values for SelectComponents
   const getStatusDisplayValue = (status) => {
-    if (!status || !filteredAssetStatuses || filteredAssetStatuses.length === 0) return '';
+    if (!status || !filteredAssetStatuses || filteredAssetStatuses.length === 0) return null;
     const statusOption = filteredAssetStatuses.find(s => 
       s.value?.toLowerCase() === status.toLowerCase() || 
       s.label?.toLowerCase() === status.toLowerCase()
     );
-    return statusOption;
+    return statusOption || null;
   };
 
   const getCategoryDisplayValue = (categoryName) => {
-    if (!categoryName || !assetCategories || assetCategories.length === 0) return '';
+    if (!categoryName || !assetCategories || assetCategories.length === 0) return null;
     const categoryOption = assetCategories.find(c => 
       c.label === categoryName || c.value === categoryName
     );
-    return categoryOption;
+    return categoryOption || null;
   };
 
   const getSupplierDisplayValue = (supplierId) => {
-    if (!supplierId || !supplierList || supplierList.length === 0) return '';
+    if (!supplierId || !supplierList || supplierList.length === 0) return null;
     const supplierOption = supplierList.find(s => s.id === supplierId || s.id === parseInt(supplierId));
-    return supplierOption;
+    return supplierOption || null;
   };
 
   const getTypeDisplayValue = (type) => {
-    if (!type) return '';
+    if (!type) return null;
     const typeOptions = [
       { label: 'Independent', value: 'independent' }, 
       { label: 'Group', value: 'group' }
     ];
     const typeOption = typeOptions.find(t => t.value === type);
-    return typeOption;
+    return typeOption || null;
   };
 
   // Add state to track if all options are loaded
@@ -121,7 +140,6 @@ export default function AssetEquipmentForm({
       (supplierList && supplierList.length > 0);
     
     if (allLoaded && !optionsLoaded) {
-      console.log('All dropdown options are now loaded');
       setOptionsLoaded(true);
     }
   }, [filteredAssetStatuses, assetCategories, supplierList, optionsLoaded]);
@@ -137,7 +155,6 @@ export default function AssetEquipmentForm({
           label: s.name,
           value: s.name
         }));
-        console.log('Loaded suppliers:', suppliersData);
         setSupplierList(suppliersData);
       }
     } catch (error) {
@@ -155,7 +172,6 @@ export default function AssetEquipmentForm({
         data.assetStatus.map(status => {
           statuses.push(JSON.parse(status.value));
         });
-        console.log('Loaded asset statuses:', statuses);
         setAssetStatuses(statuses);
       }
     } catch (error) {
@@ -193,7 +209,6 @@ export default function AssetEquipmentForm({
           type: data.type || 'independent'
         };
         
-        console.log('Loading equipment data:', equipmentData);
         setEquipment(equipmentData);
       } else if (response.status === 404) {
         toast.error('Equipment not found.');
@@ -210,39 +225,6 @@ export default function AssetEquipmentForm({
   };
 
   useEffect(() => {
-    console.log('Current equipment state:', {
-      status: equipment.status,
-      category_name: equipment.category_name,
-      category_id: equipment.category_id,
-      supplier_name: equipment.supplier_name,
-      supplier_id: equipment.supplier_id,
-      type: equipment.type
-    });
-    
-    console.log('Available options and display values:', {
-      optionsLoaded,
-      assetStatuses: filteredAssetStatuses?.length || 0,
-      statusDisplayValue: getStatusDisplayValue(equipment.status),
-      assetCategories: assetCategories?.length || 0,
-      categoryDisplayValue: getCategoryDisplayValue(equipment.category_name),
-      supplierList: supplierList?.length || 0,
-      supplierDisplayValue: getSupplierDisplayValue(equipment.supplier_id),
-      typeOptions: 2,
-      typeDisplayValue: getTypeDisplayValue(equipment.type),
-      // Debug supplier matching
-      supplierOptions: supplierList?.map(s => ({ id: s.id, name: s.name, label: s.label })),
-      supplierIdToFind: equipment.supplier_id,
-      supplierIdType: typeof equipment.supplier_id
-    });
-  }, [equipment, filteredAssetStatuses, assetCategories, supplierList, optionsLoaded]);
-
-  useEffect(() => {
-    console.log('AssetEquipmentForm props:', {
-      assetCategories: assetCategories?.length,
-      initialAssetStatuses: initialAssetStatuses?.length,
-      initialSupplierList: initialSupplierList?.length
-    });
-    
     // Load suppliers if not provided as prop
     if (!initialSupplierList || initialSupplierList.length === 0) {
       loadSuppliers();
@@ -275,42 +257,42 @@ export default function AssetEquipmentForm({
   const handleStatusChange = (selected) => {
     setEquipment({ 
       ...equipment, 
-      status: selected.value
+      status: selected?.value || ''
     });
   };
 
-  // Category Change Handler
+  // Category Change Handler - FIXED
   const handleCategoryChange = (selected) => {
     setEquipment({ 
       ...equipment, 
-      category_name: selected.value, 
-      category_id: selected.id,
-      EquipmentCategory: {
+      category_name: selected?.value || '', 
+      category_id: selected?.id || '',
+      EquipmentCategory: selected ? {
         id: selected.id,
         name: selected.name || selected.value.toLowerCase().replaceAll(" ", "_")
-      }
+      } : null
     });
   };
 
-  // Supplier Change Handler
+  // Supplier Change Handler - FIXED
   const handleSupplierChange = (selected) => {
     setEquipment({ 
       ...equipment, 
-      supplier_name: selected.value, 
-      supplier_id: selected.id, 
-      supplier_contact_number: selected.phone_number || '',
-      Supplier: {
+      supplier_name: selected?.value || '', 
+      supplier_id: selected?.id || '', 
+      supplier_contact_number: selected?.phone_number || '',
+      Supplier: selected ? {
         id: selected.id,
         name: selected.value,
         phone_number: selected.phone_number || ''
-      }
+      } : null
     });
   };
 
   const handleTypeChange = (selected) => {
     setEquipment({ 
       ...equipment, 
-      type: selected.value
+      type: selected?.value || ''
     });
   };
 
@@ -716,7 +698,7 @@ export default function AssetEquipmentForm({
                       <SelectComponent 
                         key={`status-${equipment.status}-${optionsLoaded}`}
                         options={filteredAssetStatuses} 
-                        onChange={handleStatusChange} 
+                        onClick={handleStatusChange} 
                         value={getStatusDisplayValue(equipment.status)}
                         width="100%" 
                         placeholder="Select status"
@@ -736,7 +718,7 @@ export default function AssetEquipmentForm({
                       <SelectComponent 
                         key={`category-${equipment.category_id}-${equipment.category_name}-${optionsLoaded}`}
                         options={assetCategories} 
-                        onChange={handleCategoryChange} 
+                        onClick={handleCategoryChange} 
                         value={getCategoryDisplayValue(equipment.category_name)}
                         width="100%" 
                         placeholder="Select category"
@@ -758,7 +740,7 @@ export default function AssetEquipmentForm({
                         { label: 'Independent', value: 'independent' }, 
                         { label: 'Group', value: 'group' }
                       ]} 
-                      onChange={handleTypeChange} 
+                      onClick={handleTypeChange} 
                       value={getTypeDisplayValue(equipment.type)}
                       width="100%"
                       placeholder="Select type"
@@ -779,7 +761,7 @@ export default function AssetEquipmentForm({
                       <SelectComponent 
                         key={`supplier-${equipment.supplier_id}-${equipment.supplier_name}-${optionsLoaded}`}
                         options={supplierList} 
-                        onChange={handleSupplierChange} 
+                        onClick={handleSupplierChange} 
                         value={getSupplierDisplayValue(equipment.supplier_id)}
                         width="100%" 
                         placeholder="Select supplier"

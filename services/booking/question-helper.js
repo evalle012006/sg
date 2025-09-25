@@ -3,7 +3,7 @@
  * @param {string} questionText - The question text
  * @returns {string} - Generated question key
  */
-function generateQuestionKey(questionText) {
+export function generateQuestionKey(questionText) {
     if (!questionText || typeof questionText !== 'string') {
         return null;
     }
@@ -95,7 +95,7 @@ const QUESTION_KEYS = {
     IS_STA_STATED_SUPPORT: 'is-sta-a-stated-support-in-your-plan',
     DO_YOU_LIVE_ALONE: 'do-you-live-alone',
     DO_YOU_LIVE_IN_SIL: 'do-you-live-in-supported-independent-living-sil',
-    ARE_YOU_STAYING_WITH_INFORMAL_SUPPORTS: 'are-you-staying-with-any-informal-supports',
+    // ARE_YOU_STAYING_WITH_INFORMAL_SUPPORTS: 'are-you-staying-with-any-informal-supports',
     
     IS_STA_STATED_SUPPORT_IN_PLAN: 'is-short-term-accommodation-including-respite-a-stated-support-in-your-plan',
     ARE_YOU_TRAVELLING_WITH_INFORMAL_SUPPORTS: 'are-you-travelling-with-any-informal-supports',

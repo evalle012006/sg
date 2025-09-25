@@ -4,7 +4,8 @@ import { GetField } from "../fields/index";
 import { v4 as uuidv4 } from 'uuid';
 import { useDispatch } from "react-redux";
 import { bookingRequestFormActions } from '../../store/bookingRequestFormSlice';
-import { findByQuestionKey, QUESTION_KEYS, questionHasKey } from "../../services/booking/question-helper";
+import { findByQuestionKey, generateQuestionKey, QUESTION_KEYS, questionHasKey } from "../../services/booking/question-helper";
+import { getCrossValidationValue } from "../../utilities/dateUtils";
 
 const QuestionPage = ({ 
     currentPage, 
@@ -259,11 +260,11 @@ const QuestionPage = ({
                         console.log('✅ Holiday type detected: Lives in SIL');
                     }
 
-                    if (questionHasKey(question, QUESTION_KEYS.ARE_YOU_STAYING_WITH_INFORMAL_SUPPORTS) && 
-                        question.answer === 'Yes') {
-                        isHolidayType = true;
-                        console.log('✅ Holiday type detected: Staying with informal supports');
-                    }
+                    // if (questionHasKey(question, QUESTION_KEYS.ARE_YOU_STAYING_WITH_INFORMAL_SUPPORTS) && 
+                    //     question.answer === 'Yes') {
+                    //     isHolidayType = true;
+                    //     console.log('✅ Holiday type detected: Staying with informal supports');
+                    // }
                     
                     if (isHolidayType) {
                         // Get care analysis from the current page
@@ -975,7 +976,23 @@ const QuestionPage = ({
 
                                             const handleCareTableChange = (careData, error, secIdx, qIdx) => {
                                                 markQuestionAsInteracted(secIdx, qIdx);
-                                                updateSections(careData, 'answer', secIdx, qIdx, [], error);
+                                                
+                                                // Enhanced error handling for date mismatches and validation
+                                                let finalError = error;
+                                                
+                                                // If error is specifically about date mismatch, provide more context
+                                                if (error && typeof error === 'string' && error.includes('date')) {
+                                                    finalError = 'Please set up your care schedule for your current stay dates';
+                                                }
+                                                
+                                                // If there's no care data but it's required, show appropriate error
+                                                if ((!careData || careData.length === 0) && currentPage.Sections[secIdx]?.Questions[qIdx]?.required) {
+                                                    if (!finalError) {
+                                                        finalError = 'Please complete your care schedule';
+                                                    }
+                                                }
+                                                
+                                                updateSections(careData, 'answer', secIdx, qIdx, [], finalError);
                                             }
 
                                             const handlePhoneNumberFieldChange = (value, error, secIdx, qIdx) => {
@@ -1156,13 +1173,17 @@ const QuestionPage = ({
                                                                 )}
                                                                 <div className="flex align-middle mt-2">
                                                                     <GetField key={q.id} type='date' 
-                                                                        name={q.question == "Check In Date" ? "checkinDate" : q.question == "Check Out Date" ? "checkoutDate" : null}
+                                                                        name={QUESTION_KEYS.CHECK_IN_DATE === q.question_key ? "checkinDate" : QUESTION_KEYS.CHECK_OUT_DATE === q.question_key ? "checkoutDate" : q.question_key ? q.question_key : generateQuestionKey(q.question)}
                                                                         value={q.answer} 
+                                                                        crossValidationValue={getCrossValidationValue(
+                                                                            QUESTION_KEYS.CHECK_IN_DATE === q.question_key ? "checkinDate" : QUESTION_KEYS.CHECK_OUT_DATE === q.question_key ? "checkoutDate" : null, 
+                                                                            currentPage.Sections
+                                                                        )}
                                                                         width='100%' 
                                                                         placeholder={q.question} 
                                                                         required={q.required ? true : false} 
                                                                         error={q.error} 
-                                                                        allowPrevDate={q.question !== "Check In Date" && q.question !== "Check Out Date"}
+                                                                        allowPrevDate={QUESTION_KEYS.CHECK_IN_DATE === q.question_key || QUESTION_KEYS.CHECK_OUT_DATE === q.question_key ? false : true}
                                                                         onChange={(e, error) => handleDateFieldChange(e, idx, index, q.question == 'Check In Date', q.question == 'Check Out Date', error)} />
                                                                 </div>
                                                             </div>

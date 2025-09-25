@@ -1,8 +1,6 @@
 /**
  * SINGLE SOURCE OF TRUTH for Returning Guest Page Completion
- * 
- * This helper manages all completion logic for returning guests to avoid
- * the scattered and conflicting completion calculations throughout the codebase.
+ * Updated with special Packages page validation
  */
 
 import { QUESTION_KEYS, questionHasKey } from '../services/booking/question-helper';
@@ -52,6 +50,14 @@ export const calculateReturningGuestPageCompletion = (
         });
     }
 
+    // SPECIAL CASE 3: Packages Page (with auto-select functionality)
+    if (isPackagesPage(page)) {
+        return calculatePackagesPageCompletion(page, {
+            visitedPages,
+            pagesWithSavedData
+        });
+    }
+
     // STANDARD CASE: Regular Pages
     return calculateStandardPageCompletionForReturningGuest(page, {
         visitedPages,
@@ -60,7 +66,74 @@ export const calculateReturningGuestPageCompletion = (
 };
 
 /**
+ * Check if this is a packages page that has auto-select functionality
+ */
+const isPackagesPage = (page) => {
+    // Check if page contains package selection questions
+    return page.Sections?.some(section =>
+        section.Questions?.some(question =>
+            questionHasKey(question, QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL) ||
+            question.type === 'package-selection' ||
+            question.type === 'radio-ndis'
+        )
+    );
+};
+
+/**
+ * Packages page completion for returning guests
+ * Requires that user has visited the page to review auto-selected packages
+ */
+const calculatePackagesPageCompletion = (page, context) => {
+    const { visitedPages, pagesWithSavedData } = context;
+
+    // CRITICAL: User must have visited the page at least once
+    // This ensures they've seen and can review the auto-selected package
+    const hasBeenVisited = visitedPages.has(page.id);
+    
+    if (!hasBeenVisited) {
+        console.log(`📦 Packages page not complete - user hasn't visited yet:`, {
+            pageId: page.id,
+            pageTitle: page.title
+        });
+        return false;
+    }
+
+    // Check if page has real interaction indicators
+    const hasSavedData = pagesWithSavedData.has(page.id);
+    const hasRealQaPairs = hasRealUserInteractionQaPairs(page);
+    
+    // Since auto-select may have created QaPairs, we need to be more flexible
+    // User visited + (has saved data OR has QaPairs) = complete
+    if (hasSavedData || hasRealQaPairs) {
+        console.log(`📦 Packages page complete - user visited and has data:`, {
+            pageId: page.id,
+            pageTitle: page.title,
+            hasSavedData,
+            hasRealQaPairs
+        });
+        return true;
+    }
+
+    // If user visited but no data, check if all required questions are answered
+    // This handles cases where auto-select populated answers but didn't trigger save flags
+    const allRequiredAnswered = checkAllRequiredQuestionsAnswered(page);
+    
+    console.log(`📦 Packages page completion check:`, {
+        pageId: page.id,
+        pageTitle: page.title,
+        hasBeenVisited,
+        hasSavedData,
+        hasRealQaPairs,
+        allRequiredAnswered,
+        isComplete: allRequiredAnswered
+    });
+    
+    return allRequiredAnswered;
+};
+
+/**
  * Equipment page completion for returning guests
+ * Updated to handle the verification question for returning guests
  */
 const calculateEquipmentPageCompletion = (page, context) => {
     const { 
@@ -70,26 +143,74 @@ const calculateEquipmentPageCompletion = (page, context) => {
         pagesWithSavedData 
     } = context;
 
-    // If equipment was already completed in previous booking, consider it complete
-    if (equipmentPageCompleted) {
-        return true;
-    }
-
-    // Check if user has made equipment changes in current session
-    if (equipmentChangesState && equipmentChangesState.length > 0) {
-        return true;
-    }
-
     // Check if page has been visited and has saved data
     const hasBeenVisited = visitedPages.has(page.id);
     const hasSavedData = pagesWithSavedData.has(page.id);
     
-    if (!hasBeenVisited && !hasSavedData) {
+    // If no interaction at all, definitely not complete
+    if (!hasBeenVisited && !hasSavedData && (!equipmentChangesState || equipmentChangesState.length === 0)) {
         return false;
     }
 
-    // Check if all required questions are answered
-    return checkAllRequiredQuestionsAnswered(page);
+    // Check for the verification question that's added for returning guests
+    const hasVerificationQuestion = page.Sections?.some(section => 
+        section.Questions?.some(question => 
+            question.question_key === 'i-verify-all-the-information-above-is-true-and-updated' &&
+            question.type === 'simple-checkbox'
+        )
+    );
+
+    if (hasVerificationQuestion) {
+        // For returning guests with verification question, we need to check:
+        // 1. Equipment was completed from previous booking OR user made changes
+        // 2. Verification question is answered
+        
+        const equipmentBaseCompleted = equipmentPageCompleted || 
+            (equipmentChangesState && equipmentChangesState.length > 0);
+        
+        // Find and check the verification question
+        let verificationAnswered = false;
+        
+        for (const section of page.Sections) {
+            for (const question of section.Questions || []) {
+                if (question.question_key === 'i-verify-all-the-information-above-is-true-and-updated' &&
+                    question.type === 'simple-checkbox') {
+                    
+                    // Check if verification question is answered
+                    verificationAnswered = question.answer === true || question.answer === "1" || question.answer === 1;
+                    break;
+                }
+            }
+            if (verificationAnswered) break;
+        }
+
+        // Both conditions must be met
+        const isComplete = equipmentBaseCompleted && verificationAnswered;
+        
+        console.log(`🔧 Equipment completion for returning guest:`, {
+            equipmentBaseCompleted,
+            verificationAnswered,
+            isComplete,
+            pageId: page.id
+        });
+        
+        return isComplete;
+    } else {
+        // No verification question - use original logic
+        
+        // If equipment was already completed in previous booking, consider it complete
+        if (equipmentPageCompleted) {
+            return true;
+        }
+
+        // Check if user has made equipment changes in current session
+        if (equipmentChangesState && equipmentChangesState.length > 0) {
+            return true;
+        }
+
+        // If no verification question and no base completion, check if all questions answered
+        return checkAllRequiredQuestionsAnswered(page);
+    }
 };
 
 /**
@@ -227,7 +348,7 @@ const isQuestionAnswered = (question) => {
     }
     
     if (question.type === 'simple-checkbox') {
-        return question.answer === true || question.answer === "1";
+        return question.answer === true || question.answer === "1" || question.answer === 1;
     }
     
     if (question.type === 'equipment') {
@@ -327,6 +448,7 @@ export const debugReturningGuestCompletion = (pages, context) => {
         const hasVisited = context.visitedPages?.has(page.id);
         const hasSaved = context.pagesWithSavedData?.has(page.id);
         const hasRealQaPairs = hasRealUserInteractionQaPairs(page);
+        const isPackages = isPackagesPage(page);
         
         console.log(`📄 Page: ${page.title}`, {
             id: page.id,
@@ -334,6 +456,7 @@ export const debugReturningGuestCompletion = (pages, context) => {
             visited: hasVisited,
             savedData: hasSaved,
             realQaPairs: hasRealQaPairs,
+            isPackagesPage: isPackages,
             currentCompleted: page.completed
         });
     });

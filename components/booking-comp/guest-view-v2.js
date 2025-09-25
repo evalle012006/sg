@@ -137,7 +137,7 @@ export default function GuestBookingsV2() {
                         const currentCourseContext = courseContext || courseBookingContext;
                         console.log('🎓 Course booking context:', currentCourseContext);
                         
-                        if (currentCourseContext) {
+                        if (currentCourseContext && currentCourseContext?.courseName) {
                             // Course booking flow
                             const baseUrl = `/booking-request-form?uuid=${newBooking.uuid}`;
                             const courseParam = `&courseOfferId=${currentCourseContext.courseOfferId}`;
@@ -146,9 +146,9 @@ export default function GuestBookingsV2() {
                             
                             finalUrl = baseUrl + courseParam + prevBookingParam;
                             
-                            toast.success(`🎓 Booking created for "${currentCourseContext.courseName}"! Your course is pre-selected. Please complete your booking by selecting your stay dates.`, {
-                                autoClose: 5000
-                            });
+                            // toast.success(`🎓 Booking created for "${currentCourseContext.courseName}"! Your course is pre-selected. Please complete your booking by selecting your stay dates.`, {
+                            //     autoClose: 5000
+                            // });
                             
                             setCourseBookingContext(null);
                         } else {

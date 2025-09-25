@@ -133,15 +133,18 @@ function GuestList() {
           <div className="flex items-start">
             <div className="mr-3 flex-shrink-0">
               {row.profileUrl ? (
-                <Image 
+                <img
+                  key={`${row.uuid}-img`}
                   src={row.profileUrl}
                   alt={`${row.first_name} ${row.last_name}`}
-                  width={32}
-                  height={32}
                   className="w-8 h-8 rounded-full object-cover"
+                  onError={(e) => {
+                    e.target.src = ''; // Clear broken src
+                    e.target.style.display = 'none'; // Hide broken image
+                  }}
                 />
               ) : (
-                <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                <div className={`w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center ${row.profileUrl ? '' : 'block'}`}>
                   <User className="w-4 h-4 text-blue-600" />
                 </div>
               )}

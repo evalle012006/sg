@@ -116,12 +116,12 @@ export default function AdminGuestProfile() {
         country: ''
     });
     
-    // Health information state
+    // FIXED: Health information state - Initialize with proper defaults instead of null
     const [healthInfo, setHealthInfo] = useState({
-        identify_aboriginal_torres: null,
-        language: '',
-        require_interpreter: null,
-        cultural_beliefs: '',
+        identify_aboriginal_torres: false, // Default to false instead of null
+        language: '', // Default to empty string (represents "No") instead of null
+        require_interpreter: false,
+        cultural_beliefs: '', // Default to empty string (represents "No") instead of null
         emergency_name: '',
         emergency_mobile_number: '',
         emergency_email: '',
@@ -136,7 +136,7 @@ export default function AdminGuestProfile() {
         sci_type: '',
         sci_type_level: [], // Changed to array
         sci_other_details: '',
-        sci_inpatient: null,
+        sci_inpatient: false, // Default to false instead of null
     });
 
     // Dropdown Options
@@ -207,6 +207,47 @@ export default function AdminGuestProfile() {
         }
         
         return false;
+    };
+
+    // ADDED: Validation function to ensure no null values before submission
+    const validateAndCleanHealthInfo = (healthData) => {
+        const cleanedData = { ...healthData };
+        
+        // Ensure boolean fields are not null
+        if (cleanedData.identify_aboriginal_torres === null || cleanedData.identify_aboriginal_torres === undefined) {
+            cleanedData.identify_aboriginal_torres = false;
+        }
+        
+        if (cleanedData.sci_inpatient === null || cleanedData.sci_inpatient === undefined) {
+            cleanedData.sci_inpatient = false;
+        }
+        
+        if (cleanedData.require_interpreter === null || cleanedData.require_interpreter === undefined) {
+            cleanedData.require_interpreter = false;
+        }
+        
+        // Ensure string fields for yes/no questions are not null
+        if (cleanedData.language === null || cleanedData.language === undefined) {
+            cleanedData.language = ''; // Empty string represents "No"
+        }
+        
+        if (cleanedData.cultural_beliefs === null || cleanedData.cultural_beliefs === undefined) {
+            cleanedData.cultural_beliefs = ''; // Empty string represents "No"
+        }
+        
+        // Clean up other optional fields
+        const optionalStringFields = [
+            'specialist_name', 'specialist_mobile_number', 'specialist_practice_name',
+            'sci_other_details', 'sci_level_asia'
+        ];
+        
+        optionalStringFields.forEach(field => {
+            if (cleanedData[field] === null || cleanedData[field] === undefined) {
+                cleanedData[field] = '';
+            }
+        });
+        
+        return cleanedData;
     };
 
     // Event Handlers
@@ -339,6 +380,7 @@ export default function AdminGuestProfile() {
         }
     };
 
+    // UPDATED: Modified handleSubmit to use validation
     const handleSubmit = async (e) => {
         e.preventDefault();
         setSaving(true);
@@ -374,7 +416,9 @@ export default function AdminGuestProfile() {
             // Determine the correct API endpoint based on user type
             const apiEndpoint = '/api/my-profile/save-update';
 
-            const requestBody = { ...mappedGuestInfo, ...healthInfo }
+            // ADDED: Clean health info to ensure no null values
+            const cleanedHealthInfo = validateAndCleanHealthInfo(healthInfo);
+            const requestBody = { ...mappedGuestInfo, ...cleanedHealthInfo }
 
             // Single API call to save/update guest, health information, and flags
             const response = await fetch(apiEndpoint, {
@@ -409,14 +453,15 @@ export default function AdminGuestProfile() {
                         country: result.data.address_country || ''
                     });
                     
-                    // Update health info state - ensure sci_type_level is an array
+                    // Update health info state with cleaned data - ensure sci_type_level is an array
                     if (result.data.HealthInfo) {
                         const healthInfoData = { ...result.data.HealthInfo };
                         if (healthInfoData.sci_type_level && typeof healthInfoData.sci_type_level === 'string') {
                             // Convert legacy comma-separated string to array
                             healthInfoData.sci_type_level = healthInfoData.sci_type_level.split(',').filter(level => level.trim());
                         }
-                        setHealthInfo(healthInfoData);
+                        const cleanedReturnedHealthInfo = validateAndCleanHealthInfo(healthInfoData);
+                        setHealthInfo(cleanedReturnedHealthInfo);
                     }
 
                     // Update flags state
@@ -444,6 +489,7 @@ export default function AdminGuestProfile() {
         window.location.reload();
     };
 
+    // UPDATED: Fixed loadProfileInfo to convert null values to defaults
     const loadProfileInfo = async () => {
         try {
             // Use the appropriate user ID based on user type
@@ -483,6 +529,28 @@ export default function AdminGuestProfile() {
                         // Convert legacy comma-separated string to array
                         healthInfoData.sci_type_level = healthInfoData.sci_type_level.split(',').filter(level => level.trim());
                     }
+                    
+                    // ADDED: Convert null values to appropriate defaults for yes/no questions
+                    if (healthInfoData.identify_aboriginal_torres === null || healthInfoData.identify_aboriginal_torres === undefined) {
+                        healthInfoData.identify_aboriginal_torres = false;
+                    }
+                    
+                    if (healthInfoData.language === null || healthInfoData.language === undefined) {
+                        healthInfoData.language = ''; // Empty string represents "No"
+                    }
+                    
+                    if (healthInfoData.cultural_beliefs === null || healthInfoData.cultural_beliefs === undefined) {
+                        healthInfoData.cultural_beliefs = ''; // Empty string represents "No"
+                    }
+                    
+                    if (healthInfoData.sci_inpatient === null || healthInfoData.sci_inpatient === undefined) {
+                        healthInfoData.sci_inpatient = false;
+                    }
+                    
+                    if (healthInfoData.require_interpreter === null || healthInfoData.require_interpreter === undefined) {
+                        healthInfoData.require_interpreter = false;
+                    }
+                    
                     setHealthInfo(healthInfoData);
                 }
             } else if (response.status === 404) {
@@ -530,8 +598,12 @@ export default function AdminGuestProfile() {
         }
     }, [user?.flags]);
 
-    // Helper functions for conditional rendering
+    // UPDATED: Fixed helper functions to handle defaults properly
     const getLanguageSelectedValue = () => {
+        // If language is null/undefined, default to "no"
+        if (healthInfo.language === null || healthInfo.language === undefined) {
+            return "no";
+        }
         return healthInfo.language && healthInfo.language !== '' && healthInfo.language !== 'rather_not_say' 
             ? "yes" 
             : healthInfo.language === 'rather_not_say' 
@@ -540,19 +612,23 @@ export default function AdminGuestProfile() {
     };
 
     const getAboriginalSelectedValue = () => {
+        // Handle null/undefined values
+        if (healthInfo.identify_aboriginal_torres === null || healthInfo.identify_aboriginal_torres === undefined) {
+            return "false"; // Default to "No"
+        }
         return healthInfo.identify_aboriginal_torres === true 
             ? "true" 
-            : healthInfo.identify_aboriginal_torres === false 
-                ? "false" 
-                : "null";
+            : "false";
     };
 
     const getInpatientSelectedValue = () => {
+        // Handle null/undefined values
+        if (healthInfo.sci_inpatient === null || healthInfo.sci_inpatient === undefined) {
+            return "false"; // Default to "No"
+        }
         return healthInfo.sci_inpatient === true 
             ? "true" 
-            : healthInfo.sci_inpatient === false 
-                ? "false" 
-                : "null";
+            : "false";
     };
 
     const shouldShowLanguageFields = () => {
@@ -713,6 +789,7 @@ export default function AdminGuestProfile() {
                                 imageUploading={imageUploading}
                                 onImageUpload={updateProfilePhoto}
                                 disabled={!ability.can('Create/Edit', "Guest")}
+                                origin="admin"
                             />
                             
                             {/* Add Flag Section */}

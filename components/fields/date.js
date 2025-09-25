@@ -2,12 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import moment from 'moment';
 import { validateDate } from "../../utilities/common";
 import { toast } from "react-toastify";
-import { useSelector } from "react-redux";
 
 const DateField = (props) => {
-    const [allowPrevDate, setAllowPrevDate] = useState(props.hasOwnProperty('allowPrevDate') ? props.allowPrevDate : true);
-    const checkin = useSelector(state => state.bookingRequestForm.checkinDate);
-    const checkout = useSelector(state => state.bookingRequestForm.checkoutDate);
+    // Basic component state
     const [dateValue, setDateValue] = useState(new Date());
     const [showCalendar, setShowCalendar] = useState(false);
     const [dirty, setDirty] = useState(false);
@@ -16,19 +13,23 @@ const DateField = (props) => {
     const [day, setDay] = useState('');
     const [month, setMonth] = useState('');
     const [year, setYear] = useState('');
-    const [isUserEditing, setIsUserEditing] = useState(false);
-    const [isFocused, setIsFocused] = useState(false);
     const [isValid, setIsValid] = useState(false);
     
-    // New state for enhanced navigation
+    // Calendar navigation state
     const [showMonthSelector, setShowMonthSelector] = useState(false);
     const [showYearSelector, setShowYearSelector] = useState(false);
     
+    // Refs
     const container = useRef();
-    const validationTimeoutRef = useRef();
-    const editingTimeoutRef = useRef();
     const monthRef = useRef();
     const yearRef = useRef();
+
+    // Props with defaults
+    const allowPrevDate = props.hasOwnProperty('allowPrevDate') ? props.allowPrevDate : true;
+    
+    // Determine if this is a booking field that needs cross-validation
+    const isBookingField = props.name === 'checkinDate' || props.name === 'checkoutDate';
+    const crossValidationValue = props.crossValidationValue || null;
 
     // Month names for dropdown
     const monthNames = [
@@ -46,6 +47,7 @@ const DateField = (props) => {
         return years;
     };
 
+    // Open calendar handler
     const openCalendar = () => {
         if (day && month && year) {
             const currentDate = `${year}-${month}-${day}`;
@@ -57,7 +59,7 @@ const DateField = (props) => {
         setShowCalendar(true);
     };
 
-    // Enhanced navigation functions
+    // Calendar navigation functions
     const navigateMonth = (direction) => {
         const newDate = new Date(dateValue);
         newDate.setMonth(newDate.getMonth() + direction);
@@ -84,7 +86,6 @@ const DateField = (props) => {
         setShowYearSelector(false);
     };
 
-    // Toggle selectors
     const toggleMonthSelector = () => {
         setShowMonthSelector(!showMonthSelector);
         setShowYearSelector(false);
@@ -95,75 +96,7 @@ const DateField = (props) => {
         setShowMonthSelector(false);
     };
 
-    // Check if dates are in the past (separate from order validation)
-    const areDatesInPast = () => {
-        if (!checkin || !checkout || allowPrevDate) return false;
-        
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        
-        const checkinDate = new Date(normalizeDate(checkin));
-        const checkoutDate = new Date(normalizeDate(checkout));
-        checkinDate.setHours(0, 0, 0, 0);
-        checkoutDate.setHours(0, 0, 0, 0);
-        
-        return checkinDate < today || checkoutDate < today;
-    };
-
-    // Check if THIS SPECIFIC field's date is in the past
-    const isThisFieldDateInPast = () => {
-        if (allowPrevDate) return false;
-        
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        
-        let currentFieldDate;
-        if (props.name === 'checkinDate' && checkin) {
-            currentFieldDate = new Date(normalizeDate(checkin));
-        } else if (props.name === 'checkoutDate' && checkout) {
-            currentFieldDate = new Date(normalizeDate(checkout));
-        } else {
-            return false;
-        }
-        
-        currentFieldDate.setHours(0, 0, 0, 0);
-        return currentFieldDate < today;
-    };
-
-    // FIXED: Check if current dates are problematic (past dates or invalid range)
-    const areCurrentDatesProblematic = () => {
-        // If either date is missing, not problematic
-        if (!checkin || !checkout) return false;
-        
-        try {
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-            
-            const checkinDate = new Date(checkin);
-            const checkoutDate = new Date(checkout);
-            
-            // If either date is invalid, not problematic
-            if (isNaN(checkinDate.getTime()) || isNaN(checkoutDate.getTime())) {
-                return false;
-            }
-            
-            checkinDate.setHours(0, 0, 0, 0);
-            checkoutDate.setHours(0, 0, 0, 0);
-            
-            // Check if dates are in past (when past dates not allowed)
-            const datesInPast = !allowPrevDate && (checkinDate < today || checkoutDate < today);
-            
-            // Check if dates are in wrong order
-            const wrongOrder = checkinDate >= checkoutDate;
-            
-            return datesInPast || wrongOrder;
-        } catch (error) {
-            console.error('Error in areCurrentDatesProblematic:', error);
-            return false; // If there's an error, assume not problematic
-        }
-    };
-
-    // Function to check if a date is in the past
+    // Utility functions
     const isDateInPast = (selectedDate) => {
         if (!selectedDate) return false;
         const today = new Date();
@@ -175,13 +108,6 @@ const DateField = (props) => {
         return dateToCheck < today;
     };
 
-    // Function to validate if selected date is allowed
-    const isDateAllowed = (selectedDate) => {
-        if (allowPrevDate) return true;
-        return !isDateInPast(selectedDate);
-    };
-
-    // Normalize date format
     const normalizeDate = (dateStr) => {
         if (!dateStr) return null;
         
@@ -194,176 +120,50 @@ const DateField = (props) => {
         
         return dateStr;
     };
-    
-    // Validation function for checkout date
-    const validateCheckoutDate = (checkinDate, checkoutDate) => {
-        if (!checkinDate || !checkoutDate) return null;
-        
-        const normalizedCheckin = normalizeDate(checkinDate);
-        const normalizedCheckout = normalizeDate(checkoutDate);
-        
-        const checkinMoment = moment(normalizedCheckin, 'YYYY-MM-DD', true);
-        const checkoutMoment = moment(normalizedCheckout, 'YYYY-MM-DD', true);
-        
-        if (!checkinMoment.isValid() || !checkoutMoment.isValid()) return null;
-        
-        if (checkoutMoment.isSameOrBefore(checkinMoment)) {
-            return 'Check-out date must be after check-in date';
-        }
-        
-        return null;
-    };
-    
-    // Validation function for checkin date
-    const validateCheckinDate = (checkinDate, checkoutDate) => {
-        if (!checkinDate || !checkoutDate) return null;
-        
-        const normalizedCheckin = normalizeDate(checkinDate);
-        const normalizedCheckout = normalizeDate(checkoutDate);
-        
-        const checkinMoment = moment(normalizedCheckin, 'YYYY-MM-DD', true);
-        const checkoutMoment = moment(normalizedCheckout, 'YYYY-MM-DD', true);
-        
-        if (!checkinMoment.isValid() || !checkoutMoment.isValid()) return null;
-        
-        if (checkinMoment.isAfter(checkoutMoment)) {
-            return 'Check-in date cannot be after check-out date';
-        }
-        
-        return null;
-    };
 
-    // Check if we're in the process of fixing problematic dates
-    const isFixingProblematicDates = () => {
-        if (!checkin || !checkout) return false;
-        
-        // If dates were previously problematic (in past), we're more lenient during fixing
-        return areDatesInPast();
-    };
-
-    // Debounced validation function
-    const performDelayedValidation = useCallback(() => {
-        if (validationTimeoutRef.current) {
-            clearTimeout(validationTimeoutRef.current);
+    // Enhanced validation with cross-field validation for booking dates
+    const validateCurrentDate = (selectedDate) => {
+        // Basic date validation
+        const basicValidationError = validateDate(selectedDate);
+        if (basicValidationError) {
+            return { isValid: false, error: 'Invalid date entered!' };
         }
 
-        validationTimeoutRef.current = setTimeout(() => {
-            if (!isUserEditing && checkin && checkout) {
-                if (props.name === 'checkinDate') {
-                    const errorMsg = validateCheckinDate(checkin, checkout);
-                    if (errorMsg) {
-                        setError(true);
-                        setErrorMessage(errorMsg);
-                        setIsValid(false);
-                    } else {
-                        if (error && errorMessage === 'Check-in date cannot be after check-out date') {
-                            setError(false);
-                            setErrorMessage('');
-                            setIsValid(true);
-                        }
-                    }
-                } else if (props.name === 'checkoutDate') {
-                    const errorMsg = validateCheckoutDate(checkin, checkout);
-                    if (errorMsg) {
-                        setError(true);
-                        setErrorMessage(errorMsg);
-                        setIsValid(false);
-                    } else {
-                        if (error && errorMessage === 'Check-out date must be after check-in date') {
-                            setError(false);
-                            setErrorMessage('');
-                            setIsValid(true);
-                        }
-                    }
-                }
+        // Past date validation
+        if (!allowPrevDate && isDateInPast(selectedDate)) {
+            return { isValid: false, error: 'Past dates are not allowed!' };
+        }
+
+        // Special cross-validation for booking dates
+        if (isBookingField && props.name === 'checkinDate' && crossValidationValue) {
+            const selectedMoment = moment(selectedDate);
+            const checkoutMoment = moment(crossValidationValue);
+            
+            if (selectedMoment.isSameOrAfter(checkoutMoment, 'day')) {
+                return { 
+                    isValid: false, 
+                    error: 'Check-in date must be before the check-out date' 
+                };
             }
-        }, 1500);
-    }, [checkin, checkout, props.name, error, errorMessage, isUserEditing]);
-
-    // Track when user starts editing
-    const handleEditingStart = () => {
-        setIsUserEditing(true);
-        setIsFocused(true);
-        
-        if (editingTimeoutRef.current) {
-            clearTimeout(editingTimeoutRef.current);
         }
         
-        // Clear cross-validation errors while editing
-        if (error && (errorMessage === 'Check-out date must be after check-in date' || 
-                     errorMessage === 'Check-in date cannot be after check-out date')) {
-            setError(false);
-            setErrorMessage('');
+        if (isBookingField && props.name === 'checkoutDate' && crossValidationValue) {
+            const selectedMoment = moment(selectedDate);
+            const checkinMoment = moment(crossValidationValue);
+            
+            if (selectedMoment.isSameOrBefore(checkinMoment, 'day')) {
+                return { 
+                    isValid: false, 
+                    error: 'Check-out date must be after the check-in date' 
+                };
+            }
         }
+
+        return { isValid: true, error: null };
     };
 
-    // Track when user stops editing
-    const handleEditingStop = () => {
-        setIsFocused(false);
-        
-        if (editingTimeoutRef.current) {
-            clearTimeout(editingTimeoutRef.current);
-        }
-        
-        editingTimeoutRef.current = setTimeout(() => {
-            setIsUserEditing(false);
-        }, 800);
-    };
-
-    // Validation state helpers (similar to InputField)
-    const shouldShowError = props.error || (error && dirty);
-    const shouldShowValid = !shouldShowError && isValid && dirty && day && month && year;
-
-    // Get border and focus colors based on state (similar to InputField)
-    const getBorderClasses = () => {
-        if (shouldShowError) {
-            return 'border-red-400 focus-within:border-red-500 focus-within:ring-2 focus-within:ring-red-200';
-        }
-        if (shouldShowValid) {
-            return 'border-green-400 focus-within:border-green-500 focus-within:ring-2 focus-within:ring-green-200';
-        }
-        if (isFocused) {
-            return 'border-blue-400 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-200';
-        }
-        return 'border-gray-300 focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-200';
-    };
-
-    // Get background color based on state (similar to InputField)
-    const getBackgroundClasses = () => {
-        if (shouldShowError) {
-            return 'bg-red-50 focus-within:bg-white';
-        }
-        if (shouldShowValid) {
-            return 'bg-green-50 focus-within:bg-white';
-        }
-        return 'bg-white';
-    };
-
-    // Status icon component (similar to InputField) - positioned to avoid overlap
-    const StatusIcon = () => {
-        if (shouldShowError) {
-            return (
-                <div className="absolute inset-y-0 right-0 flex items-center pr-10 pointer-events-none">
-                    <svg className="h-5 w-5 text-red-500" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                    </svg>
-                </div>
-            );
-        }
-        if (shouldShowValid) {
-            return (
-                <div className="absolute inset-y-0 right-0 flex items-center pr-10 pointer-events-none">
-                    <svg className="h-5 w-5 text-green-500" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                    </svg>
-                </div>
-            );
-        }
-        return null;
-    };
-
-    // FIXED: Generate calendar days for current month
-    const generateCalendarDays = () => {
+    // Simplified calendar generation - only disable past dates, handle cross-validation on selection
+    const generateCalendarDays = useCallback(() => {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         
@@ -389,84 +189,38 @@ const DateField = (props) => {
             date.setHours(0, 0, 0, 0);
             
             const isToday = date.getTime() === today.getTime();
-            const isPast = !allowPrevDate && date.getTime() < today.getTime();
+            const isPastDate = date.getTime() < today.getTime();
             const isSelected = dayNum.toString() === day && 
                               (currentMonth + 1).toString() === month && 
                               currentYear.toString() === year;
             
-            // Apply calendar-specific disabled logic
-            let isDisabled = isPast;
-            
-            // SIMPLIFIED: Cross-field restrictions - only apply if we have BOTH dates
-            if (!isUserEditing && checkin && checkout && !areCurrentDatesProblematic()) {
-                if (props.name === 'checkoutDate') {
-                    // For checkout field: disable dates on or before checkin
-                    try {
-                        const checkinDate = new Date(checkin);
-                        if (!isNaN(checkinDate.getTime())) {
-                            checkinDate.setHours(0, 0, 0, 0);
-                            if (date.getTime() <= checkinDate.getTime()) {
-                                isDisabled = true;
-                            }
-                        }
-                    } catch (e) {
-                        // Ignore parsing errors
-                    }
-                } else if (props.name === 'checkinDate') {
-                    // For checkin field: disable dates on or after checkout
-                    try {
-                        const checkoutDate = new Date(checkout);
-                        if (!isNaN(checkoutDate.getTime())) {
-                            checkoutDate.setHours(0, 0, 0, 0);
-                            if (date.getTime() >= checkoutDate.getTime()) {
-                                isDisabled = true;
-                            }
-                        }
-                    } catch (e) {
-                        // Ignore parsing errors
-                    }
-                }
-            }
+            // SIMPLIFIED: Only disable past dates when allowPrevDate is false
+            // Cross-validation will be handled on selection with error messages
+            const isDisabled = !allowPrevDate && isPastDate;
             
             days.push({
                 day: dayNum,
                 date,
                 isToday,
-                isPast,
+                isPast: isPastDate,
                 isSelected,
                 isDisabled
             });
         }
         
         return days;
-    };
+    }, [dateValue, day, month, year, allowPrevDate]);
 
     // Handle calendar date selection
     const handleCalendarDateSelect = (selectedDate) => {
-        // Check past date restriction first
-        if (!allowPrevDate && isDateInPast(selectedDate)) {
-            toast.error('Past dates are not allowed!');
-            return; // Prevent selection entirely
-        }
-
-        // Check cross-field validation before allowing selection
-        const formattedDateForValidation = moment(selectedDate).format('YYYY-MM-DD');
+        const validation = validateCurrentDate(moment(selectedDate).format('YYYY-MM-DD'));
         
-        if (props.name === 'checkoutDate' && checkin) {
-            const checkoutValidationError = validateCheckoutDate(checkin, formattedDateForValidation);
-            if (checkoutValidationError) {
-                toast.error(checkoutValidationError);
-                return; // Prevent selection entirely
-            }
-        } else if (props.name === 'checkinDate' && checkout) {
-            const checkinValidationError = validateCheckinDate(formattedDateForValidation, checkout);
-            if (checkinValidationError) {
-                toast.error(checkinValidationError);
-                return; // Prevent selection entirely
-            }
+        if (!validation.isValid) {
+            toast.error(validation.error);
+            return;
         }
 
-        // Only proceed if validation passes
+        // Set the selected date
         const formattedDate = moment(selectedDate).format('DD-MM-YYYY');
         const dateArr = formattedDate.split('-');
         setDay(dateArr[0]);
@@ -479,168 +233,137 @@ const DateField = (props) => {
         setError(false);
         setErrorMessage('');
 
-        // Notify parent of the valid date
+        // Notify parent
         if (props.onChange) {
             const isoFormattedDate = moment(selectedDate).format('YYYY-MM-DD');
             props.onChange(isoFormattedDate, null);
         }
     };
 
-    // FIXED: Helper function to call onChange with proper formatting
+    // Helper function to notify parent
     const notifyParent = (dayVal, monthVal, yearVal, errorMsg = null) => {
-        if (props.onChange && dayVal && monthVal && yearVal && yearVal.length === 4) {
-            const formattedDate = `${yearVal}-${monthVal.padStart(2, '0')}-${dayVal.padStart(2, '0')}`;
-            props.onChange(formattedDate, errorMsg);
-        } else if (props.onChange && errorMsg) {
-            // Notify parent of error even if date is incomplete
-            const formattedDate = (dayVal && monthVal && yearVal) ? 
-                `${yearVal}-${monthVal.padStart(2, '0')}-${dayVal.padStart(2, '0')}` : '';
-            props.onChange(formattedDate, errorMsg);
+        if (props.onChange) {
+            if (dayVal && monthVal && yearVal && yearVal.length === 4) {
+                const formattedDate = `${yearVal}-${monthVal.padStart(2, '0')}-${dayVal.padStart(2, '0')}`;
+                props.onChange(formattedDate, errorMsg);
+            } else if (errorMsg) {
+                const formattedDate = (dayVal && monthVal && yearVal) ? 
+                    `${yearVal}-${monthVal.padStart(2, '0')}-${dayVal.padStart(2, '0')}` : '';
+                props.onChange(formattedDate, errorMsg);
+            }
         }
     };
 
-    // Modified validation effect with delayed validation for cross-validation
-    useEffect(() => {
-        if (!checkin || !checkout) {
-            if (error && (errorMessage === 'Check-out date must be after check-in date' || 
-                         errorMessage === 'Check-in date cannot be after check-out date')) {
-                setError(false);
-                setErrorMessage('');
-            }
-            return;
-        }
-        
-        performDelayedValidation();
-        
-        return () => {
-            if (validationTimeoutRef.current) {
-                clearTimeout(validationTimeoutRef.current);
-            }
-        };
-    }, [checkin, checkout, performDelayedValidation]);
+    // Validation state helpers
+    const shouldShowError = props.error || (error && dirty);
+    const shouldShowValid = !shouldShowError && isValid && dirty && day && month && year;
 
-    // Trigger validation when editing stops
-    useEffect(() => {
-        if (!isUserEditing) {
-            performDelayedValidation();
+    // Styling functions
+    const getBorderClasses = () => {
+        if (shouldShowError) {
+            return 'border-red-400 focus-within:border-red-500 focus-within:ring-2 focus-within:ring-red-200';
         }
-    }, [isUserEditing, performDelayedValidation]);
+        if (shouldShowValid) {
+            return 'border-green-400 focus-within:border-green-500 focus-within:ring-2 focus-within:ring-green-200';
+        }
+        return 'border-gray-300 focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-200';
+    };
 
+    const getBackgroundClasses = () => {
+        if (shouldShowError) {
+            return 'bg-red-50 focus-within:bg-white';
+        }
+        if (shouldShowValid) {
+            return 'bg-green-50 focus-within:bg-white';
+        }
+        return 'bg-white';
+    };
+
+    // Status icon component
+    const StatusIcon = () => {
+        if (shouldShowError) {
+            return (
+                <div className="absolute inset-y-0 right-0 flex items-center pr-10 pointer-events-none">
+                    <svg className="h-5 w-5 text-red-500" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                    </svg>
+                </div>
+            );
+        }
+        if (shouldShowValid) {
+            return (
+                <div className="absolute inset-y-0 right-0 flex items-center pr-10 pointer-events-none">
+                    <svg className="h-5 w-5 text-green-500" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                    </svg>
+                </div>
+            );
+        }
+        return null;
+    };
+
+    // EFFECTS
+
+    // Initialize from props.value
     useEffect(() => {
         if (props.value) {
             const valArr = props.value.split('-');
-            setYear(valArr[0]);
-            setMonth(valArr[1]);
-            setDay(valArr[2]);
-            setDateValue(new Date(props.value));
-            setDirty(true);
-            setIsValid(true);
+            if (valArr.length === 3) {
+                setYear(valArr[0]);
+                setMonth(valArr[1]);
+                setDay(valArr[2]);
+                setDateValue(new Date(props.value));
+                setDirty(true);
+                setIsValid(true);
+            }
         }
     }, [props.value]);
 
-    // FIXED: Main validation and onChange effect
+    // Handle external error prop
+    useEffect(() => {
+        if (props.error) {
+            setError(true);
+            setErrorMessage(props.error);
+            setIsValid(false);
+        } else if (!props.error && error && errorMessage === props.error) {
+            // Only clear if this was the external error
+            setError(false);
+            setErrorMessage('');
+        }
+    }, [props.error]);
+
+    // Main validation effect - SIMPLIFIED
     useEffect(() => {
         if (day !== '' && month !== '' && year !== '' && year.length === 4) {
             const selectedDate = `${year}-${month}-${day}`;
-            let hasError = false;
-            let errorMsg = '';
-            let blockOnChange = false;
-
-            // Check basic date validation first
-            const basicValidationError = validateDate(selectedDate);
+            const validation = validateCurrentDate(selectedDate);
             
-            if (basicValidationError) {
-                hasError = true;
-                errorMsg = 'Invalid date entered!';
-                toast.error('Invalid date entered!');
-            }
-
-            // Check past date validation if no basic error
-            if (!hasError && !allowPrevDate && isDateInPast(selectedDate)) {
-                hasError = true;
-                errorMsg = 'Past dates are not allowed!';
-                toast.error('Past dates are not allowed!');
-            }
-
-            // Check cross-validation only if no previous errors and not editing
-            if (!hasError && !isUserEditing) {
-                let crossValidationError = null;
-                
-                // Check if the OTHER field is in the past - if so, don't show cross-validation errors
-                const otherFieldInPast = (props.name === 'checkinDate' && checkout && isDateInPast(normalizeDate(checkout))) ||
-                                       (props.name === 'checkoutDate' && checkin && isDateInPast(normalizeDate(checkin)));
-                
-                if (!otherFieldInPast) {
-                    if (props.name === 'checkinDate' && checkout) {
-                        crossValidationError = validateCheckinDate(selectedDate, checkout);
-                    } else if (props.name === 'checkoutDate' && checkin) {
-                        crossValidationError = validateCheckoutDate(checkin, selectedDate);
-                    }
-                    
-                    if (crossValidationError) {
-                        hasError = true;
-                        errorMsg = crossValidationError;
-                        toast.error(crossValidationError);
-                    }
-                }
-            }
-
-            // MODIFIED: More lenient cross-validation blocking when fixing problematic dates
-            if (!hasError && !blockOnChange && !isUserEditing && checkin && checkout) {
-                let oppositeFieldError = null;
-                const fixingProblematic = isFixingProblematicDates();
-                
-                // Check if the OTHER field is in the past (more lenient when other field needs fixing)
-                const otherFieldInPast = (props.name === 'checkinDate' && checkout && isDateInPast(normalizeDate(checkout))) ||
-                                       (props.name === 'checkoutDate' && checkin && isDateInPast(normalizeDate(checkin)));
-                
-                // If we're fixing problematic dates OR the other field is in the past, be more lenient
-                if (!fixingProblematic && !otherFieldInPast) {
-                    if (props.name === 'checkinDate') {
-                        oppositeFieldError = validateCheckoutDate(selectedDate, checkout);
-                    } else if (props.name === 'checkoutDate') {
-                        oppositeFieldError = validateCheckinDate(checkin, selectedDate);
-                    }
-                    
-                    if (oppositeFieldError) {
-                        blockOnChange = true;
-                    }
-                }
-            }
-
-            // Set error state for THIS field only
-            if (hasError) {
+            if (!validation.isValid) {
                 setError(true);
-                setErrorMessage(errorMsg);
+                setErrorMessage(validation.error);
                 setIsValid(false);
-                // FIXED: Still notify parent of error
-                notifyParent(day, month, year, errorMsg);
+                toast.error(validation.error);
+                notifyParent(day, month, year, validation.error);
             } else {
-                setError(false);
-                setErrorMessage('');
-                setIsValid(true);
-                // FIXED: Notify parent of valid date if not blocked
-                if (!blockOnChange) {
-                    notifyParent(day, month, year, null);
+                // Only clear our own validation errors, not external ones
+                if (!props.error) {
+                    setError(false);
+                    setErrorMessage('');
                 }
+                setIsValid(true);
+                notifyParent(day, month, year, null);
             }
-
-            // Always mark as dirty when we have a complete date
-            if (!hasError && !blockOnChange) {
-                setDirty(true);
-            } else if (hasError) {
-                setDirty(true);
-            }
-
-        } else if (props.required && dirty && !isUserEditing) {
+            setDirty(true);
+        } else if (props.required && dirty) {
+            const requiredError = 'This field is required';
             setError(true);
-            setErrorMessage('This field is required');
+            setErrorMessage(requiredError);
             setIsValid(false);
-            // FIXED: Notify parent of required field error
-            notifyParent(day, month, year, 'This field is required');
+            notifyParent(day, month, year, requiredError);
         }
-    }, [day, month, year, allowPrevDate, checkin, checkout, props.name, dirty, isUserEditing, props.required]);
+    }, [day, month, year, allowPrevDate, props.required, props.error]);
 
+    // Keyboard and click outside handlers
     const escFunction = useCallback((event) => {
         if (event.key === "Escape") {
           setShowCalendar(false);
@@ -654,7 +377,7 @@ const DateField = (props) => {
         return () => {
             document.removeEventListener("keydown", escFunction, false);
         };
-    }, []);
+    }, [escFunction]);
 
     useEffect(() => {
         const handleClickOutside = (e) => {
@@ -669,42 +392,6 @@ const DateField = (props) => {
         return () => {
             document.removeEventListener('click', handleClickOutside, true);
         }
-    }, []);
-
-    useEffect(() => {
-        if (!allowPrevDate && dirty && day && month && year) {
-            const currentDate = `${year}-${month}-${day}`;
-            if (isDateInPast(currentDate)) {
-                const today = new Date();
-                setDay(String(today.getDate()).padStart(2, '0'));
-                setMonth(String(today.getMonth() + 1).padStart(2, '0'));
-                setYear(today.getFullYear().toString());
-                setDateValue(today);
-            }
-        }
-    }, [allowPrevDate]);
-
-    useEffect(() => {
-        if (props.error) {
-            setError(true);
-            setErrorMessage(props.error);
-            setIsValid(false);
-        } else {
-            setError(false);
-            setErrorMessage('');
-        }
-    }, [props.error]);
-
-    // Cleanup timeouts on unmount
-    useEffect(() => {
-        return () => {
-            if (validationTimeoutRef.current) {
-                clearTimeout(validationTimeoutRef.current);
-            }
-            if (editingTimeoutRef.current) {
-                clearTimeout(editingTimeoutRef.current);
-            }
-        };
     }, []);
 
     return (
@@ -730,14 +417,12 @@ const DateField = (props) => {
                                 value={day} 
                                 className="w-8 border-0 focus:outline-none bg-transparent placeholder:text-gray-400 text-center" 
                                 onChange={(e) => {
-                                    handleEditingStart();
                                     setDay(e.target.value);
                                     setDirty(true);
-                                    if (e.target.value.length == 2) {
+                                    if (e.target.value.length === 2) {
                                         monthRef.current.focus();
                                     }
                                 }}
-                                onBlur={handleEditingStop}
                                 placeholder="DD" 
                             />
                             <p className="mx-2 text-gray-300">/</p>
@@ -748,14 +433,12 @@ const DateField = (props) => {
                                 value={month} 
                                 className="w-8 border-0 focus:outline-none bg-transparent placeholder:text-gray-400 text-center" 
                                 onChange={(e) => {
-                                    handleEditingStart();
                                     setMonth(e.target.value);
                                     setDirty(true);
-                                    if (e.target.value.length == 2) {
+                                    if (e.target.value.length === 2) {
                                         yearRef.current.focus();
                                     }
                                 }}
-                                onBlur={handleEditingStop}
                                 placeholder="MM" 
                             />
                             <p className="mx-2 text-gray-300">/</p>
@@ -766,11 +449,9 @@ const DateField = (props) => {
                                 value={year} 
                                 className="w-12 border-0 focus:outline-none bg-transparent placeholder:text-gray-400 text-center mr-1" 
                                 onChange={(e) => { 
-                                    handleEditingStart();
                                     setYear(e.target.value); 
                                     setDirty(true);
                                 }}
-                                onBlur={handleEditingStop}
                                 placeholder="YYYY" 
                             />
                             <div className="flex items-center ml-auto">
@@ -788,10 +469,10 @@ const DateField = (props) => {
                                 <StatusIcon />
                             </div>
                             
-                            {/* Enhanced Calendar with Year/Month Navigation */}
+                            {/* Calendar */}
                             {!props?.disabled && showCalendar && (
                                 <div className={`mt-1 absolute top-8 ${props.bottom} left-0 ${props.left} bg-white p-4 rounded-lg border border-gray-200 shadow-lg z-50 w-[320px]`}>
-                                    {/* Enhanced Calendar Header */}
+                                    {/* Calendar Header */}
                                     <div className="flex items-center justify-between mb-4">
                                         {/* Year Navigation */}
                                         <div className="flex items-center space-x-1">
@@ -827,7 +508,6 @@ const DateField = (props) => {
                                                     {monthNames[dateValue.getMonth()]}
                                                 </button>
                                                 
-                                                {/* Month Selector Dropdown */}
                                                 {showMonthSelector && (
                                                     <div className="absolute top-8 left-0 bg-white border border-gray-200 rounded-lg shadow-lg z-60 w-32 max-h-48 overflow-y-auto">
                                                         {monthNames.map((monthName, index) => (
@@ -855,7 +535,6 @@ const DateField = (props) => {
                                                     {dateValue.getFullYear()}
                                                 </button>
                                                 
-                                                {/* Year Selector Dropdown */}
                                                 {showYearSelector && (
                                                     <div className="absolute top-8 left-0 bg-white border border-gray-200 rounded-lg shadow-lg z-60 w-20 max-h-48 overflow-y-auto">
                                                         {generateYearRange().map((yearOption) => (
@@ -906,7 +585,7 @@ const DateField = (props) => {
                                             </div>
                                         ))}
                                         
-                                        {/* Calendar days with unique keys */}
+                                        {/* Calendar days */}
                                         {generateCalendarDays().map((dayObj, index) => {
                                             if (!dayObj) {
                                                 return <div key={`empty-${index}`} className="p-2"></div>;
@@ -948,7 +627,7 @@ const DateField = (props) => {
                     </div>
                 </div>
                 
-                {/* Error messages with icons (similar to InputField) */}
+                {/* Error messages */}
                 {shouldShowError && (
                     <div className="mt-1.5 flex items-center">
                         <svg className="h-4 w-4 text-red-500 mr-1.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
@@ -956,26 +635,6 @@ const DateField = (props) => {
                         </svg>
                         <p className="text-red-600 text-sm font-medium">{props.error || errorMessage}</p>
                     </div>
-                )}
-                
-                {/* FIXED: Only show "Current dates need updating" when THIS field's date is in the past */}
-                {isThisFieldDateInPast() && !isUserEditing && (
-                    <p className="mt-1 text-amber-600 text-xs flex items-center">
-                        <svg className="h-4 w-4 mr-1 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                        </svg>
-                        Current dates need updating. Use the calendar or manually enter new dates.
-                    </p>
-                )}
-                
-                {/* Editing hints */}
-                {isUserEditing && checkin && checkout && (
-                    <p className="mt-1 text-blue-500 text-xs flex items-center">
-                        <svg className="h-4 w-4 mr-1 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                        </svg>
-                        Update both dates as needed - validation will check when you&apos;re done editing
-                    </p>
                 )}
             </div>
         </div>

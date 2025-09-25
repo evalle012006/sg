@@ -139,7 +139,7 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
         if (course.start_date && course.end_date && costSummary.isCalculated) {
             setDatesChangedSinceCalculation(true);
         }
-    }, [course.start_date, course.end_date]);
+    }, [course.start_date, course.end_date, course.duration_hours]); 
 
     // Load course rates
     useEffect(() => {

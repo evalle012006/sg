@@ -35,53 +35,70 @@ const URLField = (props) => {
         setBuilderMode(props.builderMode === true);
     }, [props.builderMode]);
 
+    const getContainerClasses = () => {
+        const baseClasses = "flex flex-col w-full flex-1";
+        if (props.error) {
+            return `${baseClasses} border-2 border-red-400 bg-red-50 rounded-lg p-3`;
+        }
+        return baseClasses;
+    };
+
     return (
         <div className="flex mb-2" style={{ width: props.width }}>
-            <div className="flex flex-col max-w-96 w-full">
-                {builderMode ? (
-                    <React.Fragment>
+            <div className={getContainerClasses()}>
+                {props.label && (
+                    <span className={`font-bold text-xl mb-2 ${props.error ? 'text-red-700' : 'text-sargood-blue'}`}>
+                        {props.label}
+                    </span>
+                )}
+                
+                {props.builderMode ? (
+                    <div className="flex flex-col gap-2">
+                        {/* Builder mode inputs */}
                         <input
-                            defaultValue={label}
                             type="text"
-                            placeholder="Input link label here"
-                            className={`block w-full px-3.5 py-2.5 text-base font-normal text-gray-700 bg-white bg-clip-padding border border-solid
-                                        rounded-lg shadow-sm transition ease-in-out m-0 focus:text-gray-700 focus:bg-white focus:outline-none disabled:opacity-80
-                                        ${props.className || 'border-gray-300 focus:border-slate-400'}`}
-                            onChange={(e) => setLabel(e.target.value)}
-                            onBlur={updateData} 
-                            disabled={props?.disabled}
+                            placeholder="Link Label"
+                            value={props.label || ''}
+                            onChange={(e) => props.onChange({ label: e.target.value, url: props.url })}
+                            className={`px-3 py-2 border rounded ${props.error ? 'border-red-400 bg-red-50' : 'border-gray-300'}`}
                         />
                         <input
-                            defaultValue={url}
-                            placeholder="Input url here"
-                            type="text"
-                            className={`block w-full px-3.5 py-2.5 text-base font-normal text-gray-700 bg-white bg-clip-padding border border-solid
-                                        rounded-lg shadow-sm transition ease-in-out m-0 focus:text-gray-700 focus:bg-white focus:outline-none disabled:opacity-80
-                                        ${props.className || 'border-gray-300 focus:border-slate-400'}`}
-                            onChange={(e) => setUrl(e.target.value)}
-                            onBlur={updateData} 
-                            disabled={props?.disabled}
+                            type="url"
+                            placeholder="https://example.com"
+                            value={props.url || ''}
+                            onChange={(e) => props.onChange({ label: props.label, url: e.target.value })}
+                            className={`px-3 py-2 border rounded ${props.error ? 'border-red-400 bg-red-50' : 'border-gray-300'}`}
                         />
-                    </React.Fragment>
+                    </div>
                 ) : (
-                    // Display mode - only show if we have both label and url
-                    (label && url) ? (
+                    // Display mode
+                    (props.url && props.label) ? (
                         <a 
-                            href={url} 
+                            href={props.url} 
                             target='_blank' 
                             rel="noreferrer" 
-                            className="text-sm underline text-sargood-blue mt-4 hover:text-blue-700 transition-colors duration-200"
+                            className={`text-sm underline mt-4 hover:text-blue-700 transition-colors duration-200 ${
+                                props.error ? 'text-red-600' : 'text-sargood-blue'
+                            }`}
                         >
-                            {label}
+                            {props.label}
                         </a>
                     ) : (
-                        // Show placeholder if no data is provided
                         <div className="text-gray-500 text-sm italic mt-4">
                             No link configured
                         </div>
                     )
                 )}
-                {props.error && <span className="text-red-500 text-xs mt-1">{props.error}</span>}
+                
+                {/* Enhanced error message */}
+                {props.error && (
+                    <div className="mt-1.5 flex items-center">
+                        <svg className="h-4 w-4 text-red-500 mr-1.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                        </svg>
+                        <p className="text-red-600 text-sm font-medium">{props.error}</p>
+                    </div>
+                )}
             </div>
         </div>
     );

@@ -46,10 +46,10 @@ export default function GuestProfilePage() {
     
     // Health information state
     const [healthInfo, setHealthInfo] = useState({
-        identify_aboriginal_torres: null,
-        language: '',
-        require_interpreter: null,
-        cultural_beliefs: '',
+        identify_aboriginal_torres: false, // Default to false instead of null
+        language: '', // Default to empty string (represents "No") instead of null
+        require_interpreter: false,
+        cultural_beliefs: '', // Default to empty string (represents "No") instead of null
         emergency_name: '',
         emergency_mobile_number: '',
         emergency_email: '',
@@ -64,7 +64,7 @@ export default function GuestProfilePage() {
         sci_type: '',
         sci_type_level: '',
         sci_other_details: '',
-        sci_inpatient: null,
+        sci_inpatient: false, // Default to false instead of null
     });
 
     // Funding information state - UPDATED to use package_id
@@ -326,7 +326,10 @@ export default function GuestProfilePage() {
                 address_country: guestInfo.country
             };
 
-            // UPDATED: Single API call to save/update guest, health, and funding information
+            // ADDED: Clean health info to ensure no null values
+            const cleanedHealthInfo = validateAndCleanHealthInfo(healthInfo);
+
+            // Single API call to save/update guest, health, and funding information
             const response = await fetch('/api/my-profile/save-update', {
                 method: 'POST',
                 headers: {
@@ -336,12 +339,12 @@ export default function GuestProfilePage() {
                     guest_id: guestId,
                     // Guest information with mapped field names
                     ...mappedGuestInfo,
-                    // Health information
-                    ...healthInfo,
-                    // UPDATED: Funding information with package_id
+                    // UPDATED: Use cleaned health information
+                    ...cleanedHealthInfo,
+                    // Funding information with package_id
                     approval_number: fundingInfo.approval_number,
                     nights_approved: fundingInfo.nights_approved,
-                    package_id: fundingInfo.package_id, // Send package_id instead of package_approved
+                    package_id: fundingInfo.package_id,
                     approval_from: fundingInfo.approval_from,
                     approval_to: fundingInfo.approval_to
                 }),
@@ -371,12 +374,13 @@ export default function GuestProfilePage() {
                         country: result.data.address_country || ''
                     });
                     
-                    // Update health info state
+                    // Update health info state with cleaned data
                     if (result.data.HealthInfo) {
-                        setHealthInfo(result.data.HealthInfo);
+                        const cleanedReturnedHealthInfo = validateAndCleanHealthInfo(result.data.HealthInfo);
+                        setHealthInfo(cleanedReturnedHealthInfo);
                     }
 
-                    // UPDATED: Update funding info state with package_id support
+                    // Update funding info state with package_id support
                     if (result.data.funding) {
                         setFundingInfo({
                             approval_number: result.data.funding.approval_number || '',
@@ -432,16 +436,39 @@ export default function GuestProfilePage() {
                 });
                 
                 if (data.HealthInfo) {
-                    // Ensure sci_type_level is an array
+                    // FIXED: Convert null values to appropriate defaults
                     const healthInfoData = { ...data.HealthInfo };
+                    
+                    // Ensure sci_type_level is an array
                     if (healthInfoData.sci_type_level && typeof healthInfoData.sci_type_level === 'string') {
-                        // Convert legacy comma-separated string to array
                         healthInfoData.sci_type_level = healthInfoData.sci_type_level.split(',').filter(level => level.trim());
                     }
+                    
+                    // ADDED: Convert null values to appropriate defaults for yes/no questions
+                    if (healthInfoData.identify_aboriginal_torres === null || healthInfoData.identify_aboriginal_torres === undefined) {
+                        healthInfoData.identify_aboriginal_torres = false;
+                    }
+                    
+                    if (healthInfoData.language === null || healthInfoData.language === undefined) {
+                        healthInfoData.language = ''; // Empty string represents "No"
+                    }
+                    
+                    if (healthInfoData.cultural_beliefs === null || healthInfoData.cultural_beliefs === undefined) {
+                        healthInfoData.cultural_beliefs = ''; // Empty string represents "No"
+                    }
+                    
+                    if (healthInfoData.sci_inpatient === null || healthInfoData.sci_inpatient === undefined) {
+                        healthInfoData.sci_inpatient = false;
+                    }
+                    
+                    if (healthInfoData.require_interpreter === null || healthInfoData.require_interpreter === undefined) {
+                        healthInfoData.require_interpreter = false;
+                    }
+                    
                     setHealthInfo(healthInfoData);
                 }
 
-                // UPDATED: Load funding information with package_id support
+                // Load funding information with package_id support
                 if (data.funding) {
                     setFundingInfo({
                         approval_number: data.funding.approval_number || '',
@@ -463,6 +490,46 @@ export default function GuestProfilePage() {
         } finally {
             setLoading(false);
         }
+    };
+
+    const validateAndCleanHealthInfo = (healthData) => {
+        const cleanedData = { ...healthData };
+        
+        // Ensure boolean fields are not null
+        if (cleanedData.identify_aboriginal_torres === null || cleanedData.identify_aboriginal_torres === undefined) {
+            cleanedData.identify_aboriginal_torres = false;
+        }
+        
+        if (cleanedData.sci_inpatient === null || cleanedData.sci_inpatient === undefined) {
+            cleanedData.sci_inpatient = false;
+        }
+        
+        if (cleanedData.require_interpreter === null || cleanedData.require_interpreter === undefined) {
+            cleanedData.require_interpreter = false;
+        }
+        
+        // Ensure string fields for yes/no questions are not null
+        if (cleanedData.language === null || cleanedData.language === undefined) {
+            cleanedData.language = ''; // Empty string represents "No"
+        }
+        
+        if (cleanedData.cultural_beliefs === null || cleanedData.cultural_beliefs === undefined) {
+            cleanedData.cultural_beliefs = ''; // Empty string represents "No"
+        }
+        
+        // Clean up other optional fields
+        const optionalStringFields = [
+            'specialist_name', 'specialist_mobile_number', 'specialist_practice_name',
+            'sci_other_details', 'sci_level_asia'
+        ];
+        
+        optionalStringFields.forEach(field => {
+            if (cleanedData[field] === null || cleanedData[field] === undefined) {
+                cleanedData[field] = '';
+            }
+        });
+        
+        return cleanedData;
     };
 
     // ADDED: Sync package_approved display name when package options are loaded
@@ -490,6 +557,10 @@ export default function GuestProfilePage() {
 
     // Helper functions for conditional rendering
     const getLanguageSelectedValue = () => {
+        // If language is null/undefined, default to "no"
+        if (healthInfo.language === null || healthInfo.language === undefined) {
+            return "no";
+        }
         return healthInfo.language && healthInfo.language !== '' && healthInfo.language !== 'rather_not_say' 
             ? "yes" 
             : healthInfo.language === 'rather_not_say' 
@@ -498,19 +569,23 @@ export default function GuestProfilePage() {
     };
 
     const getAboriginalSelectedValue = () => {
+        // Handle null/undefined values
+        if (healthInfo.identify_aboriginal_torres === null || healthInfo.identify_aboriginal_torres === undefined) {
+            return "false"; // Default to "No"
+        }
         return healthInfo.identify_aboriginal_torres === true 
             ? "true" 
-            : healthInfo.identify_aboriginal_torres === false 
-                ? "false" 
-                : "null";
+            : "false";
     };
 
     const getInpatientSelectedValue = () => {
+        // Handle null/undefined values
+        if (healthInfo.sci_inpatient === null || healthInfo.sci_inpatient === undefined) {
+            return "false"; // Default to "No"
+        }
         return healthInfo.sci_inpatient === true 
             ? "true" 
-            : healthInfo.sci_inpatient === false 
-                ? "false" 
-                : "null";
+            : "false";
     };
 
     const shouldShowLanguageFields = () => {
@@ -652,6 +727,7 @@ export default function GuestProfilePage() {
                                             profileImageUrl={profileImageUrl}
                                             imageUploading={imageUploading}
                                             onImageUpload={updateProfilePhoto}
+                                            origin="guest"
                                         />
                                         
                                         {/* First Row Fields */}
