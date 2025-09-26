@@ -5,23 +5,36 @@ import StorageService from "../../../services/storage/storage";
 import { QUESTION_KEYS } from "../../../services/booking/question-helper";
 
 export default async function handler(req, res) {
+    if (req.method !== "POST") {
+        return res.status(405).json({ success: false, error: "Method not allowed" });
+    }
+
     const storage = new StorageService({ bucketType: "restricted" });
+    const bookingService = new BookingService();
+
     const { qa_pairs, flags, equipmentChanges } = req.body;
+    const bookingUuid = flags?.bookingUuid || null;
+    const booking = await Booking.findOne({ 
+        where: { 
+            uuid: bookingUuid 
+        },
+        include: [
+            Guest,
+            {
+                model: Equipment,
+                include: [EquipmentCategory]
+            }
+        ]
+    });
 
     if (req.method === "POST") {
-        if (qa_pairs.length === 0) {
-            return res.status(201).json({ success: true });
-        }
-
         const transaction = await sequelize.transaction();
         const response = [];
-        let hasEquipment = false;
         let courseOfferUpdated = false;
-        
+
         try {
             for (const record of qa_pairs) {
                 if (record.question_type == 'equipment') {
-                    hasEquipment = true;
                     continue;
                 }
 
@@ -103,7 +116,7 @@ export default async function handler(req, res) {
                 }
             }
 
-            courseOfferUpdated = await handleCourseOfferLinking(qa_pairs, transaction);
+            courseOfferUpdated = await handleCourseOfferLinking(booking, qa_pairs, transaction);
 
             await transaction.commit();
         } catch (err) {
@@ -112,109 +125,39 @@ export default async function handler(req, res) {
             return res.status(500).json({ success: false, error: err });
         }
 
-        if (response) {
-            const bookingService = new BookingService();
+        if (booking) {
+            let bookingAmended = false;
+            if (equipmentChanges && equipmentChanges?.length > 0) {
+                bookingService.manageBookingEquipment(booking, equipmentChanges);
+                bookingAmended = true;
+            }
 
-            if (response.length > 0 && response[0]?.id) {
-                const tempQaPair = await QaPair.findOne({ where: { id: response[0].id }, include: [Section], plain: true });
-
-                if (tempQaPair.Section.model_type == 'booking') {
-                    const booking = await Booking.findOne({ 
-                        where: { 
-                            id: tempQaPair.Section.model_id 
-                        },
-                        include: [
-                            Guest,
-                            {
-                                model: Equipment,
-                                include: [EquipmentCategory]
-                            }
-                        ]
-                    });
-
-                    const response = await updateBooking(booking, qa_pairs, flags, bookingService);
-
-                    return res.status(201).json({ 
-                        success: true, 
-                        bookingAmended: response?.bookingAmended ? response.bookingAmended : false,
-                        courseOfferLinked: courseOfferUpdated
-                    });
-                }
-            } else if (hasEquipment && equipmentChanges?.length > 0) {
-                const tempSection = await Section.findOne({ where: { id: qa_pairs[0].section_id } });
-                if (tempSection.model_type == 'booking') {
-                    const booking = await Booking.findOne({ 
-                        where: { 
-                            id: tempSection.model_id 
-                        },
-                        include: [
-                            Guest,
-                            {
-                                model: Equipment,
-                                include: [EquipmentCategory]
-                            }
-                        ]
-                    });
-
-                    if (booking) {
-                        bookingService.manageBookingEquipment(booking, equipmentChanges);
-
-                        await updateBooking(booking, qa_pairs, flags, bookingService);
-
-                        return res.status(201).json({ 
-                            success: true, 
-                            bookingAmended: true,
-                            courseOfferLinked: courseOfferUpdated
-                        });
-                    }
-                }
+            const updatedBooking = await updateBooking(booking, qa_pairs, flags, bookingService);
+            if (bookingAmended == false) {
+                bookingAmended = updatedBooking?.bookingAmended ? updatedBooking.bookingAmended : false;
             }
 
             return res.status(201).json({ 
                 success: true, 
-                bookingAmended: false,
+                bookingAmended: bookingAmended,
                 courseOfferLinked: courseOfferUpdated
             });
         }
 
-        return res.status(400);
+        return res.status(400).json({ success: false, error: "No valid QA pairs processed or bookingId was not found or null" });
     }
 }
 
 /**
  * Handle linking course offers to bookings when course selections are made
  */
-async function handleCourseOfferLinking(qa_pairs, transaction) {
+async function handleCourseOfferLinking(booking, qa_pairs, transaction) {
     try {
         console.log('🎓 Checking for course selection answers to link with offers...');
         
         let courseOfferUpdated = false;
-        let bookingId = null;
-        let guestId = null;
-
-        // First, get the booking and guest information from the section
-        const firstQaPair = qa_pairs[0];
-        if (firstQaPair && firstQaPair.section_id) {
-            const section = await Section.findOne({
-                where: { id: firstQaPair.section_id },
-                transaction
-            });
-
-            if (section && section.model_type === 'booking') {
-                bookingId = section.model_id;
-                
-                const booking = await Booking.findOne({
-                    where: { id: bookingId },
-                    include: [Guest],
-                    transaction
-                });
-
-                if (booking && booking.Guest) {
-                    guestId = booking.Guest.id;
-                    console.log(`🎓 Found booking ${bookingId} for guest ${guestId}`);
-                }
-            }
-        }
+        let bookingId = booking.id || null;
+        let guestId = booking.Guest.id || null;
 
         if (!bookingId || !guestId) {
             console.log('⚠️ Could not determine booking or guest ID for course linking');
@@ -339,7 +282,7 @@ async function handleCourseOfferLinking(qa_pairs, transaction) {
     }
 }
 
-const updateBooking = async (booking, qa_pairs, flags, bookingService) => {
+const updateBooking = async (booking, qa_pairs = [], flags, bookingService) => {
     let response = { bookingAmended: false };
     if (booking) {
         const bookingStatuses = await Setting.findAll({ where: { attribute: 'booking_status' } });

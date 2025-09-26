@@ -624,13 +624,13 @@ export const applyQuestionDependenciesAcrossPages = (targetPage, allPages, booki
 
     const currentIsNdisFunded = calculateNdisFundingStatus(allPages);
 
-    const updatedPage = { ...targetPage };
+    let updatedPage = { ...targetPage };
     updatedPage.Sections = targetPage.Sections.map(section => {
-        const updatedSection = { ...section };
+        let updatedSection = { ...section };
 
         // ADDED: Handle special case for "I acknowledge additional charges" question
         if (updatedSection.Questions.length === 1) {
-            const question = updatedSection.Questions[0];
+            let question = {...updatedSection.Questions[0]};
             
             // Check for "I acknowledge additional charges" question
             if (question.ndis_only && question.question_key === 'i-acknowledge-additional-charges') {

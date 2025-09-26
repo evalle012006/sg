@@ -8,7 +8,6 @@ import moment from "moment";
 import StorageService from "./../storage/storage";
 import { unlink } from 'node:fs/promises';
 import { NotificationService } from "../notification/notification";
-import { relative } from "node:path";
 import { getCheckInOutAnswer, getFunder } from "../../utilities/common";
 import {
     QUESTION_KEYS, 
@@ -35,6 +34,9 @@ export class BookingService extends EntityBuilder {
 
     disseminateChanges = async (booking, qaPairs) => {
         console.log('Disseminating changes for booking:', booking.id);
+
+        if (!booking || !qaPairs || qaPairs.length === 0) return;
+
         let roomData = { booking_id: booking.id };
         let rooms = [];
         const roomExists = await Room.findOne({ where: { booking_id: booking.id } });
@@ -114,8 +116,7 @@ export class BookingService extends EntityBuilder {
         const totalGuests = parseInt(roomData.infants || 0) + parseInt(roomData.children || 0) + 
                            parseInt(roomData.adults || 0) + parseInt(roomData.pets || 0);
         roomData = { ...roomData, total_guests: totalGuests };
-        console.log('Room Data:', roomData);
-        console.log('Rooms:', rooms);
+
         // Update/create rooms
         for (let i = 0; i < rooms.length; i++) {
             const room = await Room.findOne({ where: { booking_id: booking.id, order: rooms[i].order } });
@@ -1188,6 +1189,7 @@ export class BookingService extends EntityBuilder {
     }
 
     manageBookingEquipment = async (booking, equipmentChanges = []) => {
+        console.log('managing booking equipment...');
         if (!booking || equipmentChanges.length == 0) {
             return;
         }

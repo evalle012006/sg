@@ -3475,12 +3475,6 @@ const BookingRequestForm = () => {
                         return false;
                     }
                     
-                    // CRITICAL FIX: Skip equipment questions entirely
-                    if (q.type === 'equipment') {
-                        console.log('🔧 Skipping equipment question from QA pairs:', q.question);
-                        return false;
-                    }
-                    
                     return true;
                 });
 
@@ -3686,7 +3680,7 @@ const BookingRequestForm = () => {
                 });
             }
 
-            let dataForm = { qa_pairs: qa_pairs, flags: { origin: origin, pageId: cPage.id, templateId: cPage.template_id }};
+            let dataForm = { qa_pairs: qa_pairs, flags: { origin: origin, bookingUuid: uuid, pageId: cPage.id, templateId: cPage.template_id }};
             if (equipmentChangesState.length > 0) {
                 dataForm.equipmentChanges = [...equipmentChangesState];
             }

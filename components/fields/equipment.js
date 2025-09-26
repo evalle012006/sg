@@ -27,12 +27,20 @@ const EquipmentField = memo((props) => {
     // State for special equipment metadata
     const [equipmentMetaData, setEquipmentMetaData] = useState({});
 
+    // NEW: User interaction and selection protection states
+    const [lastUserInteractionTime, setLastUserInteractionTime] = useState(0);
+    const [protectedSelections, setProtectedSelections] = useState(new Set());
+    const [propsLastSynced, setPropsLastSynced] = useState(null);
+
     // Optimization refs
     const updateTimeoutRef = useRef({});
     const mountedRef = useRef(true);
     const lastValidationRef = useRef(null);
     const prefilledNotifiedRef = useRef(false);
     const userModificationsRef = useRef(new Set());
+    const lastValidSelectionRef = useRef({});
+    const userInteractionTimeoutRef = useRef(null);
+    const initializationCompleteRef = useRef(false);
 
     const router = useRouter();
     const { uuid, prevBookingId } = router.query;
@@ -44,15 +52,29 @@ const EquipmentField = memo((props) => {
             Object.values(updateTimeoutRef.current).forEach(timeout => {
                 if (timeout) clearTimeout(timeout);
             });
+            if (userInteractionTimeoutRef.current) {
+                clearTimeout(userInteractionTimeoutRef.current);
+            }
         };
     }, []);
 
-    // Memoized props effect sync
+    // FIXED: Controlled props sync that doesn't override user selections
     useEffect(() => {
-        if (props.equipmentChanges && JSON.stringify(props.equipmentChanges) !== JSON.stringify(equipmentChanges)) {
+        // Only sync props if no recent user interaction and props have actually changed
+        const timeSinceLastInteraction = Date.now() - lastUserInteractionTime;
+        const propsString = JSON.stringify(props.equipmentChanges);
+        
+        if (props.equipmentChanges && 
+            propsString !== JSON.stringify(equipmentChanges) && 
+            propsString !== propsLastSynced &&
+            timeSinceLastInteraction > 2000) { // Only sync if user hasn't interacted recently
+            
             setEquipmentChanges(props.equipmentChanges);
+            setPropsLastSynced(propsString);
+        } else if (timeSinceLastInteraction <= 2000) {
+            console.log('⏸️ Skipping props sync - recent user interaction detected');
         }
-    }, [props.equipmentChanges]);
+    }, [props.equipmentChanges, lastUserInteractionTime, equipmentChanges]);
 
     // Load data on mount
     useEffect(() => {
@@ -66,6 +88,38 @@ const EquipmentField = memo((props) => {
         }
     }, [uuid]);
 
+    // Function to mark user interaction
+    const markUserInteraction = useCallback(() => {
+        setLastUserInteractionTime(Date.now());
+        
+        // Clear any pending automatic updates
+        if (userInteractionTimeoutRef.current) {
+            clearTimeout(userInteractionTimeoutRef.current);
+        }
+        
+        // Set a timeout to allow automatic updates again after user stops interacting
+        userInteractionTimeoutRef.current = setTimeout(() => {
+            console.log('✅ User interaction period ended, allowing automatic updates');
+        }, 2000);
+    }, []);
+
+    // Function to protect a user selection from being overridden
+    const protectUserSelection = useCallback((categoryName, value) => {
+        setProtectedSelections(prev => new Set([...prev, categoryName]));
+        lastValidSelectionRef.current[categoryName] = value;
+        
+        // Remove protection after a reasonable time (5 seconds) to allow legitimate updates
+        setTimeout(() => {
+            setProtectedSelections(prev => {
+                const newSet = new Set(prev);
+                newSet.delete(categoryName);
+                return newSet;
+            });
+            console.log(`🔓 Removed protection for: ${categoryName}`);
+        }, 5000);
+    }, []);
+
+    // FIXED: Modified debounced validation that respects user interactions
     const debouncedValidation = useCallback(() => {
         if (updateTimeoutRef.current.validation) {
             clearTimeout(updateTimeoutRef.current.validation);
@@ -73,6 +127,12 @@ const EquipmentField = memo((props) => {
 
         updateTimeoutRef.current.validation = setTimeout(() => {
             if (!mountedRef.current) return;
+            
+            // FIXED: Don't run validation if user just interacted (give them time to complete)
+            const timeSinceLastInteraction = Date.now() - lastUserInteractionTime;
+            if (timeSinceLastInteraction < 1000) { // 1 second grace period
+                return;
+            }
             
             const validationResult = validateSelections();
             const validationKey = JSON.stringify({
@@ -89,12 +149,12 @@ const EquipmentField = memo((props) => {
                     props.onChange(validationResult.allValid, equipmentChanges);
                 }
             }
-        }, 150);
-    }, [categorySelections, acknowledgementChecked, showTiltQuestion, equipmentChanges, equipmentMetaData, props]);
+        }, 300); // Increased debounce time
+    }, [categorySelections, acknowledgementChecked, showTiltQuestion, equipmentChanges, equipmentMetaData, props, lastUserInteractionTime]);
 
-    // Initialize when data is loaded
+    // FIXED: Prevent initialization from overriding user selections
     useEffect(() => {
-        if (equipments.length > 0 && dataLoaded) {
+        if (equipments.length > 0 && dataLoaded && !initializationCompleteRef.current) {
             const grouped = _.groupBy(equipments.filter(eq => !eq.hidden), 'EquipmentCategory.name');
             
             Object.keys(grouped).forEach(categoryName => {
@@ -109,15 +169,22 @@ const EquipmentField = memo((props) => {
             const types = determineCategoryTypes(grouped);
             setCategoryTypes(types);
             initializeCategorySelections(grouped, types);
+            
+            // Mark initialization as complete
+            initializationCompleteRef.current = true;
         }
     }, [equipments, currentBookingEquipments, dataLoaded, props.infantCareQuantities]);
 
-    // Debounced validation trigger
+    // FIXED: Controlled useEffect that doesn't interfere with user selections
     useEffect(() => {
-        if (Object.keys(groupedEquipments).length > 0) {
-            debouncedValidation();
+        if (Object.keys(groupedEquipments).length > 0 && Object.keys(categorySelections).length > 0) {
+            // Only run validation if no recent user interactions
+            const timeSinceLastInteraction = Date.now() - lastUserInteractionTime;
+            if (timeSinceLastInteraction > 500) {
+                debouncedValidation();
+            }
         }
-    }, [categorySelections, acknowledgementChecked, groupedEquipments, showTiltQuestion, equipmentMetaData, debouncedValidation]);
+    }, [groupedEquipments, showTiltQuestion, equipmentMetaData, debouncedValidation]);
 
     useEffect(() => {
         if (!prefilledNotifiedRef.current && 
@@ -131,7 +198,6 @@ const EquipmentField = memo((props) => {
             });
             
             if (hasAnyUserModifications) {
-                console.log('🛡️ User has modified equipment values, skipping prefill initialization');
                 prefilledNotifiedRef.current = true;
                 return;
             }
@@ -143,26 +209,71 @@ const EquipmentField = memo((props) => {
             });
 
             if (hasInfantCareData) {
-                console.log('🍼 Infant care data detected, applying prefill (no user modifications detected)');
                 prefilledNotifiedRef.current = true;
                 
-                setTimeout(() => {
-                    if (mountedRef.current) {
-                        const validationResult = validateSelections();
-                        if (props.hasOwnProperty('onChange')) {
-                            props.onChange(validationResult.allValid, equipmentChanges);
+                // Create equipment changes for prefilled infant care items with quantity > 0
+                const equipmentChangesToAdd = [];
+                
+                groupedEquipments['infant_care'].forEach(equipment => {
+                    const equipmentKey = getEquipmentKey(equipment.name);
+                    if (equipmentKey) {
+                        const questionKey = getQuestionKey(equipment.name);
+                        const formQuantity = getQuantityFromInfantCareData(questionKey);
+                        
+                        // Only add to equipment changes if quantity > 0
+                        if (formQuantity > 0) {
+                            equipmentChangesToAdd.push({
+                                ...equipment,
+                                label: equipment.name,
+                                value: true,
+                                meta_data: { 
+                                    quantity: formQuantity,
+                                    source: 'prefilled',
+                                    lastModified: Date.now()
+                                }
+                            });
                         }
                     }
-                }, 100);
+                });
+                
+                if (equipmentChangesToAdd.length > 0) {
+                    const infantCareChange = {
+                        category: 'infant_care',
+                        equipments: equipmentChangesToAdd,
+                        isDirty: true,
+                        lastUpdated: Date.now()
+                    };
+                    
+                    setEquipmentChanges(prev => {
+                        const filtered = prev.filter(c => c.category !== 'infant_care');
+                        const newChanges = [...filtered, infantCareChange];
+                        
+                        // Call onChange with the new equipment changes
+                        setTimeout(() => {
+                            if (mountedRef.current && props.hasOwnProperty('onChange')) {
+                                const validationResult = validateSelections();
+                                props.onChange(validationResult.allValid, newChanges);
+                            }
+                        }, 100);
+                        
+                        return newChanges;
+                    });
+                } else {
+                    // No items with quantity > 0, just trigger validation
+                    setTimeout(() => {
+                        if (mountedRef.current && props.hasOwnProperty('onChange')) {
+                            const validationResult = validateSelections();
+                            props.onChange(validationResult.allValid, equipmentChanges);
+                        }
+                    }, 100);
+                }
             }
         }
-    }, [groupedEquipments, props.infantCareQuantities]);
+    }, [groupedEquipments, props.infantCareQuantities, createInitialInfantCareEquipmentChanges, validateSelections, equipmentChanges, props]);
 
     useEffect(() => {
         // Restore user modifications from persistent ref
         if (userModificationsRef.current.size > 0) {
-            console.log('🔄 Restoring user modifications after re-render:', Array.from(userModificationsRef.current));
-            
             setEquipmentMetaData(prev => {
                 const updated = { ...prev };
                 userModificationsRef.current.forEach(equipmentKey => {
@@ -178,6 +289,28 @@ const EquipmentField = memo((props) => {
             });
         }
     }, [groupedEquipments]);
+
+    // Add debugging to catch what's overriding selections
+    useEffect(() => {
+        const currentSelectionsString = JSON.stringify(categorySelections);
+        const lastSelectionsString = JSON.stringify(lastValidSelectionRef.current);
+        
+        if (currentSelectionsString !== lastSelectionsString && Object.keys(categorySelections).length > 0) {
+            // Check if any protected selections were overridden
+            protectedSelections.forEach(protectedCategory => {
+                const currentValue = categorySelections[protectedCategory];
+                const lastValue = lastValidSelectionRef.current[protectedCategory];
+                
+                if (currentValue !== lastValue && lastValue !== undefined) {
+                    // Restore the protected value
+                    setCategorySelections(prev => ({
+                        ...prev,
+                        [protectedCategory]: lastValue
+                    }));
+                }
+            });
+        }
+    }, [categorySelections, protectedSelections]);
 
     const fetchEquipments = async () => {
         try {
@@ -300,7 +433,6 @@ const EquipmentField = memo((props) => {
                             const isUserModified = userModificationsRef.current.has(equipmentKey);
                             
                             if (isUserModified) {
-                                console.log(`🛡️ User has modified ${equipment.name}, preserving existing value`);
                                 // Keep existing metadata if user modified
                                 const existing = equipmentMetaData[equipmentKey];
                                 if (existing) {
@@ -338,6 +470,14 @@ const EquipmentField = memo((props) => {
                             }
                         }
                     });
+                    
+                    // Create initial equipment changes for prefilled items with quantity > 0
+                    // This should be called after metadata is set but before the function returns
+                    setTimeout(() => {
+                        if (mountedRef.current && Object.keys(metaData).length > 0) {
+                            createInitialInfantCareEquipmentChanges(categoryEquipments, metaData);
+                        }
+                    }, 50);
                 }
                 return;
             }
@@ -456,6 +596,7 @@ const EquipmentField = memo((props) => {
         return null;
     };
 
+    // FIXED: Validation with user interaction awareness
     const validateSelections = () => {
         const categories = Object.keys(groupedEquipments);
         let allValid = true;
@@ -467,6 +608,14 @@ const EquipmentField = memo((props) => {
             const categoryType = categoryTypes[categoryName];
             const isRequired = isRequiredCategory(categoryName, categoryType);
             
+            // FIXED: Only validate if user has interacted with the category OR if it's marked as touched
+            const hasUserInteraction = categoryTouched[categoryName] || categoryTouched[`confirm_${categoryName}`];
+            
+            // Skip validation if user hasn't interacted with this category yet
+            if (!hasUserInteraction && !isRequired) {
+                return;
+            }
+            
             if (categoryType === 'special') {
                 // Handle special category validation
                 if (categoryName === 'infant_care') {
@@ -475,7 +624,13 @@ const EquipmentField = memo((props) => {
                     categoryEquipments.forEach(equipment => {
                         const equipmentKey = getEquipmentKey(equipment.name);
                         if (equipmentKey) {
+                            const hasInteracted = categoryTouched[`${equipmentKey}_quantity`];
                             const quantity = equipmentMetaData[equipmentKey]?.quantity;
+                            
+                            // Only validate if user has interacted or if there's an actual value
+                            if (!hasInteracted && (quantity === undefined || quantity === 0)) {
+                                return; // Skip validation for untouched fields
+                            }
                             
                             // Validate quantity is within acceptable range (0-2)
                             if (quantity !== undefined && (quantity < 0 || quantity > 2)) {
@@ -483,8 +638,8 @@ const EquipmentField = memo((props) => {
                                 allValid = false;
                             }
                             
-                            // Only validate if required and no quantity specified
-                            if (isRequired && (quantity === undefined || quantity === null)) {
+                            // Only validate if required and no quantity specified AND user has interacted
+                            if (isRequired && hasInteracted && (quantity === undefined || quantity === null)) {
                                 errors[`${equipmentKey}_quantity`] = `Please specify quantity for ${equipment.name.toLowerCase()}`;
                                 allValid = false;
                             }
@@ -492,17 +647,18 @@ const EquipmentField = memo((props) => {
                     });
                 }
             } else {
-                // Handle other category types (existing logic)
+                // Handle other category types
                 const hasUserSelection = categorySelections[categoryName] !== null && 
                                         categorySelections[categoryName] !== undefined &&
                                         categorySelections[categoryName] !== '';
                 
-                const shouldValidate = isRequired || hasUserSelection;
+                // FIXED: Only validate required fields that have been interacted with
+                const shouldValidate = (isRequired && hasUserInteraction) || hasUserSelection;
                 
                 if (shouldValidate) {
                     if (categoryType === 'binary') {
                         if (!categorySelections[categoryName]) {
-                            if (isRequired) {
+                            if (isRequired && hasUserInteraction) {
                                 errors[categoryName] = `Please select an option for ${getBinaryQuestionLabel(categoryName)}`;
                                 allValid = false;
                             }
@@ -510,8 +666,9 @@ const EquipmentField = memo((props) => {
                     } else if (categoryType === 'confirmation_multi' || categoryType === 'confirmation_single') {
                         const confirmationKey = `confirm_${categoryName}`;
                         const confirmSelection = categorySelections[confirmationKey];
+                        const confirmInteracted = categoryTouched[confirmationKey];
                         
-                        if (!confirmSelection) {
+                        if (!confirmSelection && confirmInteracted) {
                             if (isRequired) {
                                 errors[confirmationKey] = `Please select an option for ${getConfirmationQuestionLabel(categoryName)}`;
                                 allValid = false;
@@ -533,7 +690,7 @@ const EquipmentField = memo((props) => {
                             }
                         }
                     } else if (categoryType === 'single_select') {
-                        if (!categorySelections[categoryName]) {
+                        if (!categorySelections[categoryName] && hasUserInteraction) {
                             if (isRequired) {
                                 const fieldName = categoryName === 'mattress_options' ? 'Mattress Options' :
                                                 categoryName === 'sling' ? 'Sling' :
@@ -544,23 +701,24 @@ const EquipmentField = memo((props) => {
                         }
                     }
                 }
-            }
-            
-            // Special validation for sling when ceiling hoist is yes
-            if (categoryName === 'sling' && categorySelections['ceiling_hoist'] === 'yes' && !categorySelections['sling']) {
-                errors['sling'] = 'Please select a sling option when using ceiling hoist';
-                allValid = false;
+                
+                // Special validation for sling when ceiling hoist is yes
+                if (categoryName === 'sling' && categorySelections['ceiling_hoist'] === 'yes' && !categorySelections['sling']) {
+                    errors['sling'] = 'Please select a sling option when using ceiling hoist';
+                    allValid = false;
+                }
             }
         });
 
-        // Special validation for tilt question
-        if (showTiltQuestion && !categorySelections['need_tilt_over_toilet']) {
+        // Special validation for tilt question - only if user has interacted
+        if (showTiltQuestion && categoryTouched['need_tilt_over_toilet'] && !categorySelections['need_tilt_over_toilet']) {
             errors['need_tilt_over_toilet'] = 'Please select an option for tilt commode question';
             allValid = false;
         }
 
-        // Check acknowledgement for non-first-time guests
-        if (bookingType !== BOOKING_TYPES.FIRST_TIME_GUEST && !acknowledgementChecked) {
+        // Check acknowledgement for non-first-time guests - only if form has been interacted with
+        const hasAnyInteraction = Object.keys(categoryTouched).length > 0;
+        if (bookingType !== BOOKING_TYPES.FIRST_TIME_GUEST && !acknowledgementChecked && hasAnyInteraction) {
             errors['acknowledgement'] = 'Please acknowledge that the information is true and updated';
             allValid = false;
         }
@@ -575,9 +733,9 @@ const EquipmentField = memo((props) => {
         
         setCategoryErrors(touchedErrors);
 
-        console.log(allValid ? '✅ All selections valid' : '❌ Validation errors:', errors);
+        console.log(allValid ? '✅ All selections valid' : '❌ Validation errors:', touchedErrors);
         
-        return { allValid, errors };
+        return { allValid, errors: touchedErrors };
     };
 
     const isRequiredCategory = (categoryName, categoryType) => {
@@ -596,9 +754,14 @@ const EquipmentField = memo((props) => {
         return categoryType === 'binary' || categoryType === 'single_select';
     };
 
+    // ENHANCED: Modified handleCategoryChange with protection and user interaction tracking
     const handleCategoryChange = useCallback((categoryName, value, isConfirmation = false) => {
         const key = isConfirmation ? `confirm_${categoryName}` : categoryName;
         const categoryType = categoryTypes[categoryName];
+        
+        // Mark user interaction and protect this selection
+        markUserInteraction();
+        protectUserSelection(categoryName, value);
         
         // Mark as touched
         setCategoryTouched(prev => ({
@@ -670,27 +833,33 @@ const EquipmentField = memo((props) => {
             return newSelections;
         });
 
-        // Call updateEquipmentChanges immediately
-        if (categoryName === 'ceiling_hoist' && value === 'no') {
-            handleMultipleEquipmentChanges([
-                { category: 'ceiling_hoist', value: 'no' },
-                { category: 'sling', value: null }
-            ]);
-        } else if (isConfirmation && value === 'no') {
-            const nestedValue = (categoryType === 'confirmation_multi') ? [] : null;
-            updateEquipmentChanges(categoryName, nestedValue, false);
-        } else {
-            // For special categories, use the updated metadata
-            if (categoryType === 'special') {
-                updateEquipmentChangesWithMetaData(categoryName, value, isConfirmation, null);
+        // Defer equipment changes to avoid conflicts
+        setTimeout(() => {
+            if (categoryName === 'ceiling_hoist' && value === 'no') {
+                handleMultipleEquipmentChanges([
+                    { category: 'ceiling_hoist', value: 'no' },
+                    { category: 'sling', value: null }
+                ]);
+            } else if (isConfirmation && value === 'no') {
+                const nestedValue = (categoryType === 'confirmation_multi') ? [] : null;
+                updateEquipmentChanges(categoryName, nestedValue, false);
             } else {
-                updateEquipmentChanges(categoryName, value, isConfirmation);
+                if (categoryType === 'special') {
+                    updateEquipmentChangesWithMetaData(categoryName, value, isConfirmation, null);
+                } else {
+                    updateEquipmentChanges(categoryName, value, isConfirmation);
+                }
             }
-        }
-    }, [categoryTypes, groupedEquipments]);
+        }, 100);
 
+    }, [categoryTypes, groupedEquipments, markUserInteraction, protectUserSelection]);
+
+    // FIXED: handleDirectQuantityChange with deferred onChange
     const handleDirectQuantityChange = useCallback((equipmentKey, equipmentName, value) => {
         const parsedQuantity = parseInt(value) || 0;
+        
+        // Mark user interaction and protect this change
+        markUserInteraction();
         
         // CRITICAL: Mark this equipment as user-modified persistently
         userModificationsRef.current.add(equipmentKey);
@@ -716,7 +885,7 @@ const EquipmentField = memo((props) => {
             }
         }));
 
-        // Create and dispatch equipment changes immediately
+        // Create equipment changes immediately but defer onChange call
         const equipment = groupedEquipments['infant_care']?.find(eq => eq.name === equipmentName);
         if (equipment && props.hasOwnProperty('onChange')) {
             const equipmentChange = {
@@ -754,14 +923,18 @@ const EquipmentField = memo((props) => {
                     newChanges = [...prev, equipmentChange];
                 }
 
-                // Call onChange immediately
-                const validationResult = validateSelections();
-                props.onChange(validationResult.allValid, newChanges);
+                // FIXED: Defer the onChange call to avoid state update during render
+                setTimeout(() => {
+                    if (mountedRef.current && props.hasOwnProperty('onChange')) {
+                        const validationResult = validateSelections();
+                        props.onChange(validationResult.allValid, newChanges);
+                    }
+                }, 0);
                 
                 return newChanges;
             });
         }
-    }, [groupedEquipments, validateSelections, props]);
+    }, [groupedEquipments, validateSelections, props, markUserInteraction]);
 
     // Optimized radio field change handler
     const handleRadioFieldChange = useCallback((categoryName, label, updatedOptions, isConfirmation = false) => {
@@ -923,9 +1096,56 @@ const EquipmentField = memo((props) => {
         });
     };
 
-    const updateEquipmentChanges = (categoryName, value, isConfirmation = false) => {
+    // ENHANCED: Modified updateEquipmentChanges to respect protected selections
+    const updateEquipmentChanges = useCallback((categoryName, value, isConfirmation = false) => {
+        // Check if this selection is protected
+        if (protectedSelections.has(categoryName) && !isConfirmation) {
+            return;
+        }
+        
+        // Proceed with original update logic
         updateEquipmentChangesWithMetaData(categoryName, value, isConfirmation, null);
-    };
+    }, [protectedSelections, updateEquipmentChangesWithMetaData]);
+
+    const createInitialInfantCareEquipmentChanges = useCallback((categoryEquipments, metaData) => {
+        const equipmentChangesToAdd = [];
+        
+        categoryEquipments.forEach(equipment => {
+            const equipmentKey = getEquipmentKey(equipment.name);
+            if (equipmentKey && metaData[equipmentKey]) {
+                const quantity = metaData[equipmentKey].quantity || 0;
+                
+                // Only create equipment changes for items with quantity > 0
+                if (quantity > 0) {
+                    equipmentChangesToAdd.push({
+                        ...equipment,
+                        label: equipment.name,
+                        value: true, // quantity > 0 means it's selected
+                        meta_data: { 
+                            quantity,
+                            source: metaData[equipmentKey].source || 'prefilled',
+                            lastModified: Date.now()
+                        }
+                    });
+                }
+            }
+        });
+        
+        if (equipmentChangesToAdd.length > 0) {
+            const infantCareChange = {
+                category: 'infant_care',
+                equipments: equipmentChangesToAdd,
+                isDirty: true,
+                lastUpdated: Date.now()
+            };
+            
+            setEquipmentChanges(prev => {
+                // Remove any existing infant_care changes first
+                const filtered = prev.filter(c => c.category !== 'infant_care');
+                return [...filtered, infantCareChange];
+            });
+        }
+    }, []);
 
     const handleMultipleEquipmentChanges = (changes) => {
         const equipmentChangesToAdd = [];

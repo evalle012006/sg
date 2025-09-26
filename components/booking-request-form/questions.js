@@ -966,8 +966,11 @@ const QuestionPage = ({
                                                 console.log('🔧 Equipment field change:', { label, changes });
 
                                                 if (changes && changes.length > 0) {
-                                                    // Update Redux equipment state
-                                                    updateEquipmentData(changes);
+                                                    // FIXED: Defer Redux update to avoid state update during render
+                                                    setTimeout(() => {
+                                                        // Update Redux equipment state
+                                                        updateEquipmentData(changes);
+                                                    }, 0);
                                                     
                                                     // Process equipment changes into QA pair updates
                                                     const qaPairUpdates = [];
@@ -996,49 +999,51 @@ const QuestionPage = ({
                                                     if (qaPairUpdates.length > 0) {
                                                         console.log('📝 Processing QA pair updates from equipment changes:', qaPairUpdates);
                                                         
-                                                        const updatedSections = [...currentPage.Sections];
-                                                        
-                                                        qaPairUpdates.forEach(qaPairUpdate => {
-                                                            // Find the section and question for this QA pair update
-                                                            for (let sectionIndex = 0; sectionIndex < updatedSections.length; sectionIndex++) {
-                                                                const section = updatedSections[sectionIndex];
-                                                                
-                                                                for (let questionIndex = 0; questionIndex < section.Questions.length; questionIndex++) {
-                                                                    const question = section.Questions[questionIndex];
+                                                        // FIXED: Defer page updates as well
+                                                        setTimeout(() => {
+                                                            const updatedSections = [...currentPage.Sections];
+                                                            
+                                                            qaPairUpdates.forEach(qaPairUpdate => {
+                                                                // Find the section and question for this QA pair update
+                                                                for (let sectionIndex = 0; sectionIndex < updatedSections.length; sectionIndex++) {
+                                                                    const section = updatedSections[sectionIndex];
                                                                     
-                                                                    if (question.question_key === qaPairUpdate.question_key) {
-                                                                        // Update the question's answer
-                                                                        updatedSections[sectionIndex].Questions[questionIndex] = {
-                                                                            ...question,
-                                                                            answer: qaPairUpdate.answer,
-                                                                            dirty: true,
-                                                                            oldAnswer: question.answer || null,
-                                                                            equipment_related: true
-                                                                        };
+                                                                    for (let questionIndex = 0; questionIndex < section.Questions.length; questionIndex++) {
+                                                                        const question = section.Questions[questionIndex];
                                                                         
-                                                                        console.log(`📝 Updated QA pair: ${qaPairUpdate.equipment_name} (${qaPairUpdate.question_key}) = ${qaPairUpdate.answer}`);
-                                                                        break;
+                                                                        if (question.question_key === qaPairUpdate.question_key) {
+                                                                            // Update the question's answer
+                                                                            updatedSections[sectionIndex].Questions[questionIndex] = {
+                                                                                ...question,
+                                                                                answer: qaPairUpdate.answer,
+                                                                                dirty: true,
+                                                                                oldAnswer: question.answer || null,
+                                                                                equipment_related: true
+                                                                            };
+                                                                            
+                                                                            console.log(`📝 Updated QA pair: ${qaPairUpdate.equipment_name} (${qaPairUpdate.question_key}) = ${qaPairUpdate.answer}`);
+                                                                            break;
+                                                                        }
                                                                     }
                                                                 }
-                                                            }
-                                                        });
-                                                        
-                                                        // Update the page with the modified sections
-                                                        const updatedPageData = { ...currentPage, Sections: updatedSections, dirty: true };
-                                                        setUpdatedCurrentPage(updatedPageData);
-                                                        
-                                                        // Also trigger immediate update
-                                                        if (typeof updateAndDispatchPageDataImmediate === 'function') {
-                                                            setTimeout(() => {
+                                                            });
+                                                            
+                                                            // Update the page with the modified sections
+                                                            const updatedPageData = { ...currentPage, Sections: updatedSections, dirty: true };
+                                                            setUpdatedCurrentPage(updatedPageData);
+                                                            
+                                                            // Also trigger immediate update
+                                                            if (typeof updateAndDispatchPageDataImmediate === 'function') {
                                                                 updateAndDispatchPageDataImmediate(updatedSections, currentPage.id);
-                                                            }, 50);
-                                                        }
+                                                            }
+                                                        }, 10);
                                                     }
                                                 }
                                                 
                                                 // DON'T update the equipment field answer as a regular question
                                                 // This prevents the empty "Select/Review Equipment Options" from being saved
                                                 console.log('🔧 Equipment field updated, skipping regular question update');
+                                                // updateSections(label, 'answer', secIdx, qIdx, changes);
                                             };
 
                                             const handleGoalTableChange = (goalSelected, error, secIdx, qIdx) => {
