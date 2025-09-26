@@ -1731,3 +1731,42 @@ export const extractCurrentFundingAnswer = (formData) => {
     }
     return null;
 };
+
+// 🆕 NEW: Dynamic helper functions for infant care equipment
+export const generateInfantCareQuestionKey = (equipmentName) => {
+    // Convert equipment name to question key format
+    const normalizedName = equipmentName.toLowerCase().replace(/\s+/g, '-');
+    return `do-you-need-a-${normalizedName}-if-so-how-many`;
+};
+
+export const generateInfantCareQuestionText = (equipmentName) => {
+    // Convert equipment name to question text format
+    const lowerName = equipmentName.toLowerCase();
+    return `Do you need a ${lowerName}? If so, how many?`;
+};
+
+// 🆕 NEW: Alternative approach - use a mapping function for custom question keys
+export const getInfantCareQuestionMapping = (equipmentName) => {
+    // Define mappings for equipment names that don't follow the standard pattern
+    const customMappings = {
+        'High Chair': {
+            questionKey: 'do-you-need-a-high-chair-if-so-how-many',
+            questionText: 'Do you need a high chair? If so, how many?'
+        },
+        'Portable Cot': {
+            questionKey: 'do-you-need-a-cot-if-so-how-many',
+            questionText: 'Do you need a cot? If so, how many?'
+        }
+    };
+    
+    // Check if there's a custom mapping first
+    if (customMappings[equipmentName]) {
+        return customMappings[equipmentName];
+    }
+    
+    // Otherwise, generate dynamically
+    return {
+        questionKey: generateInfantCareQuestionKey(equipmentName),
+        questionText: generateInfantCareQuestionText(equipmentName)
+    };
+};

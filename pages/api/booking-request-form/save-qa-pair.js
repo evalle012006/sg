@@ -52,20 +52,54 @@ export default async function handler(req, res) {
                     }
                     continue;
                 } else {
-                    const [instance, created] = await QaPair.findOrCreate({
-                        where: {
-                            question: record.question,
-                            section_id: record.section_id
-                        },
-                        defaults: record,
-                        transaction,
-                    });
-    
-                    if (!created) {
-                        // Update the existing record if needed
-                        await instance.update(record, { transaction });
+                    if (record.id) {
+                        // UPDATE existing record by ID
+                        console.log(`Updating existing qa_pair with ID: ${record.id}`);
+                        
+                        // First try to find the existing record
+                        const existingRecord = await QaPair.findByPk(record.id, { transaction });
+                        
+                        if (existingRecord) {
+                            // Update the existing record
+                            await existingRecord.update({
+                                answer: record.answer,
+                                updated_at: new Date(),
+                            }, { transaction });
+                            
+                            response.push(existingRecord);
+                            console.log(`Successfully updated qa_pair ID: ${record.id}`);
+                        } else {
+                            // Record doesn't exist with this ID, create new one without the ID
+                            console.warn(`No record found with ID: ${record.id}, creating new record`);
+                            const newRecord = { ...record };
+                            delete newRecord.id; // Remove ID to let database auto-generate
+                            
+                            const instance = await QaPair.create(newRecord, { transaction });
+                            response.push(instance);
+                        }
+                    } else {
+                        // CREATE new record using findOrCreate (no ID provided)
+                        console.log(`Creating/finding qa_pair: ${record.question}`);
+                        
+                        // Create defaults object without the id field
+                        const defaults = { ...record };
+                        delete defaults.id; // Ensure no ID is passed to defaults
+                        
+                        const [instance, created] = await QaPair.findOrCreate({
+                            where: {
+                                question: record.question,
+                                section_id: record.section_id
+                            },
+                            defaults: defaults,
+                            transaction,
+                        });
+        
+                        if (!created) {
+                            // Update the existing record if needed
+                            await instance.update(defaults, { transaction });
+                        }
+                        response.push(instance);
                     }
-                    response.push(instance);
                 }
             }
 

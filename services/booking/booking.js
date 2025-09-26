@@ -1196,6 +1196,11 @@ export class BookingService extends EntityBuilder {
             const response = await Promise.all(equipmentChanges.map(async (equipmentChange) => {
                 const { category, equipments, isDirty } = equipmentChange;
 
+                // Handle infant_care category specially
+                if (category === 'infant_care') {
+                    return await this.manageInfantCareEquipment(booking, equipments, isDirty);
+                }
+
                 if (category != 'acknowledgement') {
                     const existingEquipments = booking.Equipment
                         .filter(equipment => equipment?.dataValues?.EquipmentCategory?.name === category)
@@ -1389,6 +1394,117 @@ export class BookingService extends EntityBuilder {
         });
 
         return promise;
+    };
+
+    manageInfantCareEquipment = async (booking, equipments, isDirty) => {
+        // Get existing infant_care equipment for this booking
+        const existingEquipments = booking.Equipment
+            .filter(equipment => equipment?.dataValues?.EquipmentCategory?.name === 'infant_care')
+            .map(equipment => equipment.dataValues);
+
+        for (let i = 0; i < equipments.length; i++) {
+            const equipment = equipments[i];
+
+            // Find existing booking equipment for this specific equipment
+            const currentEquipment = existingEquipments.find((existingEquipment) => 
+                existingEquipment && existingEquipment.id === equipment.id
+            );
+
+            if (currentEquipment) {
+                // Equipment exists - update or remove based on value
+                if (equipment.value) {
+                    // Update existing equipment with new meta_data
+                    if (isDirty && booking.complete) {
+                        await Log.create({
+                            loggable_id: booking.id,
+                            loggable_type: 'booking',
+                            type: 'equipment',
+                            data: {
+                                id: equipment.id,
+                                approved: false,
+                                approved_by: null,
+                                approval_date: null,
+                                qa_pair: {
+                                    question: 'Equipment Updated',
+                                    answer: `${equipment.name} (Quantity: ${equipment.meta_data?.quantity || 1})`,
+                                    question_type: 'equipment',
+                                    oldAnswer: equipment.name,
+                                }
+                            }
+                        });
+                    }
+
+                    // Update with meta_data including quantity
+                    const updateData = { equipment_id: equipment.id };
+                    if (equipment.meta_data) {
+                        updateData.meta_data = equipment.meta_data;
+                    }
+                    
+                    await BookingEquipment.update(updateData, { 
+                        where: { booking_id: booking.id, equipment_id: equipment.id } 
+                    });
+                } else {
+                    // Remove equipment
+                    if (isDirty && booking.complete) {
+                        await Log.create({
+                            loggable_id: booking.id,
+                            loggable_type: 'booking',
+                            type: 'equipment',
+                            data: {
+                                oldAnswerId: currentEquipment.id,
+                                approved: false,
+                                approved_by: null,
+                                approval_date: null,
+                                qa_pair: {
+                                    question: 'Equipment Removed',
+                                    answer: '',
+                                    question_type: 'equipment',
+                                    oldAnswer: equipment.name,
+                                }
+                            }
+                        });
+                    }
+
+                    await BookingEquipment.destroy({ 
+                        where: { booking_id: booking.id, equipment_id: equipment.id } 
+                    });
+                }
+            } else {
+                // Equipment doesn't exist - create if value is true
+                if (equipment.value) {
+                    if (isDirty && booking.complete) {
+                        await Log.create({
+                            loggable_id: booking.id,
+                            loggable_type: 'booking',
+                            type: 'equipment',
+                            data: {
+                                id: equipment.id,
+                                approved: false,
+                                approved_by: null,
+                                approval_date: null,
+                                qa_pair: {
+                                    question: 'Equipment Added',
+                                    answer: `${equipment.name} (Quantity: ${equipment.meta_data?.quantity || 1})`,
+                                    question_type: 'equipment',
+                                    oldAnswer: '',
+                                }
+                            }
+                        });
+                    }
+
+                    // Create new equipment with meta_data
+                    const createData = { 
+                        booking_id: booking.id, 
+                        equipment_id: equipment.id 
+                    };
+                    if (equipment.meta_data) {
+                        createData.meta_data = equipment.meta_data;
+                    }
+                    
+                    await BookingEquipment.create(createData);
+                }
+            }
+        }
     };
 
     sendEmailDateOfStay = async (booking) => {

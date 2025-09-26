@@ -6,6 +6,7 @@ import { useDispatch } from "react-redux";
 import { bookingRequestFormActions } from '../../store/bookingRequestFormSlice';
 import { findByQuestionKey, generateQuestionKey, QUESTION_KEYS, questionHasKey } from "../../services/booking/question-helper";
 import { getCrossValidationValue } from "../../utilities/dateUtils";
+import { getInfantCareQuestionMapping } from "../../utilities/bookingRequestForm";
 
 const QuestionPage = ({ 
     currentPage, 
@@ -30,6 +31,7 @@ const QuestionPage = ({
     isCareRelatedQuestion = null,
     selectedCourseOfferId = null,
     validateDatesWithExistingAPI = null,
+    infantCareQuantities = {},
 }) => {
     const dispatch = useDispatch();
     const [updatedCurrentPage, setUpdatedCurrentPage] = useState();
@@ -961,12 +963,82 @@ const QuestionPage = ({
                                             const handleEquipmentFieldChange = (label, secIdx, qIdx, changes) => {
                                                 markQuestionAsInteracted(secIdx, qIdx);
 
+                                                console.log('🔧 Equipment field change:', { label, changes });
+
                                                 if (changes && changes.length > 0) {
+                                                    // Update Redux equipment state
                                                     updateEquipmentData(changes);
+                                                    
+                                                    // Process equipment changes into QA pair updates
+                                                    const qaPairUpdates = [];
+                                                    
+                                                    changes.forEach(change => {
+                                                        if (change.category === 'infant_care' && change.equipments) {
+                                                            change.equipments.forEach(equipment => {
+                                                                // Generate QA pair updates dynamically for ALL infant care equipment
+                                                                const questionMapping = getInfantCareQuestionMapping(equipment.name);
+                                                                
+                                                                if (questionMapping && equipment.meta_data?.quantity !== undefined) {
+                                                                    qaPairUpdates.push({
+                                                                        question_key: questionMapping.questionKey,
+                                                                        question_text: questionMapping.questionText,
+                                                                        answer: equipment.meta_data.quantity.toString(),
+                                                                        equipment_related: true,
+                                                                        equipment_name: equipment.name,
+                                                                        equipment_id: equipment.id
+                                                                    });
+                                                                }
+                                                            });
+                                                        }
+                                                    });
+                                                    
+                                                    // Apply QA pair updates to current page sections if any
+                                                    if (qaPairUpdates.length > 0) {
+                                                        console.log('📝 Processing QA pair updates from equipment changes:', qaPairUpdates);
+                                                        
+                                                        const updatedSections = [...currentPage.Sections];
+                                                        
+                                                        qaPairUpdates.forEach(qaPairUpdate => {
+                                                            // Find the section and question for this QA pair update
+                                                            for (let sectionIndex = 0; sectionIndex < updatedSections.length; sectionIndex++) {
+                                                                const section = updatedSections[sectionIndex];
+                                                                
+                                                                for (let questionIndex = 0; questionIndex < section.Questions.length; questionIndex++) {
+                                                                    const question = section.Questions[questionIndex];
+                                                                    
+                                                                    if (question.question_key === qaPairUpdate.question_key) {
+                                                                        // Update the question's answer
+                                                                        updatedSections[sectionIndex].Questions[questionIndex] = {
+                                                                            ...question,
+                                                                            answer: qaPairUpdate.answer,
+                                                                            dirty: true,
+                                                                            oldAnswer: question.answer || null,
+                                                                            equipment_related: true
+                                                                        };
+                                                                        
+                                                                        console.log(`📝 Updated QA pair: ${qaPairUpdate.equipment_name} (${qaPairUpdate.question_key}) = ${qaPairUpdate.answer}`);
+                                                                        break;
+                                                                    }
+                                                                }
+                                                            }
+                                                        });
+                                                        
+                                                        // Update the page with the modified sections
+                                                        const updatedPageData = { ...currentPage, Sections: updatedSections, dirty: true };
+                                                        setUpdatedCurrentPage(updatedPageData);
+                                                        
+                                                        // Also trigger immediate update
+                                                        if (typeof updateAndDispatchPageDataImmediate === 'function') {
+                                                            setTimeout(() => {
+                                                                updateAndDispatchPageDataImmediate(updatedSections, currentPage.id);
+                                                            }, 50);
+                                                        }
+                                                    }
                                                 }
                                                 
-                                                // Then update the form sections
-                                                updateSections(label, 'answer', secIdx, qIdx, changes);
+                                                // DON'T update the equipment field answer as a regular question
+                                                // This prevents the empty "Select/Review Equipment Options" from being saved
+                                                console.log('🔧 Equipment field updated, skipping regular question update');
                                             };
 
                                             const handleGoalTableChange = (goalSelected, error, secIdx, qIdx) => {
@@ -1490,12 +1562,19 @@ const QuestionPage = ({
                                                         </React.Fragment>
                                                     )}
                                                     {q.type === 'equipment' && (
-                                                        <React.Fragment>
-                                                            <div className="flex flex-col">
-                                                                {q.label && <span className="font-bold text-sargood-blue text-xl mb-2">{q.label}</span>}
-                                                                <GetField key={q.id} type='equipment' label={q.question} value={q.answer} width='100%' error="Required field" required={q.required ? true : false} equipmentChanges={equipmentChanges} onChange={(value, changes) => handleEquipmentFieldChange(value, idx, index, changes)} />
-                                                            </div>
-                                                        </React.Fragment>
+                                                        <GetField 
+                                                            key={q.id} 
+                                                            type='equipment' 
+                                                            label={q.question} 
+                                                            value={q.answer} 
+                                                            width='100%' 
+                                                            error="Required field" 
+                                                            required={q.required ? true : false}
+                                                            infantCareQuantities={infantCareQuantities}
+                                                            onChange={(isValid, equipmentChanges) => {
+                                                                handleEquipmentFieldChange('', idx, index, equipmentChanges);
+                                                            }} 
+                                                        />
                                                     )}
                                                     {(q.type === 'radio-ndis' && !q.hidden) && (
                                                         <React.Fragment>

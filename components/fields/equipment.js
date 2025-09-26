@@ -31,6 +31,8 @@ const EquipmentField = memo((props) => {
     const updateTimeoutRef = useRef({});
     const mountedRef = useRef(true);
     const lastValidationRef = useRef(null);
+    const prefilledNotifiedRef = useRef(false);
+    const userModificationsRef = useRef(new Set());
 
     const router = useRouter();
     const { uuid, prevBookingId } = router.query;
@@ -108,7 +110,7 @@ const EquipmentField = memo((props) => {
             setCategoryTypes(types);
             initializeCategorySelections(grouped, types);
         }
-    }, [equipments, currentBookingEquipments, dataLoaded]);
+    }, [equipments, currentBookingEquipments, dataLoaded, props.infantCareQuantities]);
 
     // Debounced validation trigger
     useEffect(() => {
@@ -116,6 +118,66 @@ const EquipmentField = memo((props) => {
             debouncedValidation();
         }
     }, [categorySelections, acknowledgementChecked, groupedEquipments, showTiltQuestion, equipmentMetaData, debouncedValidation]);
+
+    useEffect(() => {
+        if (!prefilledNotifiedRef.current && 
+            Object.keys(groupedEquipments).length > 0 && 
+            groupedEquipments['infant_care']) {
+            
+            // Check if ANY equipment has been user-modified
+            const hasAnyUserModifications = groupedEquipments['infant_care'].some(equipment => {
+                const equipmentKey = getEquipmentKey(equipment.name);
+                return equipmentKey && userModificationsRef.current.has(equipmentKey);
+            });
+            
+            if (hasAnyUserModifications) {
+                console.log('🛡️ User has modified equipment values, skipping prefill initialization');
+                prefilledNotifiedRef.current = true;
+                return;
+            }
+            
+            // Only proceed with prefill if no user modifications exist
+            const hasInfantCareData = groupedEquipments['infant_care'].some(equipment => {
+                const equipmentKey = getEquipmentKey(equipment.name);
+                return equipmentKey && props.infantCareQuantities?.[getQuestionKey(equipment.name)] !== undefined;
+            });
+
+            if (hasInfantCareData) {
+                console.log('🍼 Infant care data detected, applying prefill (no user modifications detected)');
+                prefilledNotifiedRef.current = true;
+                
+                setTimeout(() => {
+                    if (mountedRef.current) {
+                        const validationResult = validateSelections();
+                        if (props.hasOwnProperty('onChange')) {
+                            props.onChange(validationResult.allValid, equipmentChanges);
+                        }
+                    }
+                }, 100);
+            }
+        }
+    }, [groupedEquipments, props.infantCareQuantities]);
+
+    useEffect(() => {
+        // Restore user modifications from persistent ref
+        if (userModificationsRef.current.size > 0) {
+            console.log('🔄 Restoring user modifications after re-render:', Array.from(userModificationsRef.current));
+            
+            setEquipmentMetaData(prev => {
+                const updated = { ...prev };
+                userModificationsRef.current.forEach(equipmentKey => {
+                    if (updated[equipmentKey] && !updated[equipmentKey].userModified) {
+                        updated[equipmentKey] = {
+                            ...updated[equipmentKey],
+                            userModified: true,
+                            source: 'user_input'
+                        };
+                    }
+                });
+                return updated;
+            });
+        }
+    }, [groupedEquipments]);
 
     const fetchEquipments = async () => {
         try {
@@ -135,7 +197,6 @@ const EquipmentField = memo((props) => {
             const res = await fetch(`/api/bookings/${bookingId}/equipments`);
             if (!res.ok) throw new Error('Failed to fetch booking equipments');
             const data = await res.json();
-            console.log('📋 Fetched current booking equipments:', data);
             setCurrentBookingEquipments(data);
             return data;
         } catch (error) {
@@ -144,9 +205,18 @@ const EquipmentField = memo((props) => {
         }
     };
 
+    // NEW: Extract quantity from passed infant care quantities
+    const getQuantityFromInfantCareData = (questionKey) => {
+        if (!props.infantCareQuantities || typeof props.infantCareQuantities !== 'object') return 0;
+        
+        // Get the quantity for the specific question key
+        const quantity = props.infantCareQuantities[questionKey];
+        return parseInt(quantity) || 0;
+    };
+
     // Check if a category has special handling
     const hasSpecialHandling = (categoryName) => {
-        const specialCategories = ['cot']; // Add more special categories here
+        const specialCategories = ['infant_care']; // Updated: removed 'cot', added 'infant_care'
         return specialCategories.includes(categoryName);
     };
 
@@ -221,37 +291,53 @@ const EquipmentField = memo((props) => {
 
             // Handle special categories
             if (categoryType === 'special') {
-                if (categoryName === 'cot') {
-                    const hasEquipmentInCategory = currentBookingEquipments.some(ce => 
-                        ce.EquipmentCategory && ce.EquipmentCategory.name === categoryName
-                    );
-                    
-                    if (hasEquipmentInCategory) {
-                        selections[categoryName] = 'yes';
-                        // Try to get quantity from existing booking equipment meta_data
-                        const existingCotBooking = currentBookingEquipments.find(ce => 
-                            ce.EquipmentCategory && ce.EquipmentCategory.name === categoryName
-                        );
-                        console.log(`🛏️ Existing cot booking data:`, existingCotBooking);
+                if (categoryName === 'infant_care') {
+                    categoryEquipments.forEach(equipment => {
+                        const equipmentKey = getEquipmentKey(equipment.name);
                         
-                        // ✅ FIXED: Check BookingEquipment.meta_data instead of direct meta_data
-                        if (existingCotBooking && 
-                            existingCotBooking.BookingEquipment && 
-                            existingCotBooking.BookingEquipment.meta_data && 
-                            existingCotBooking.BookingEquipment.meta_data.quantity) {
-                            console.log(`📊 Loading saved cot quantity: ${existingCotBooking.BookingEquipment.meta_data.quantity}`);
-                            metaData[categoryName] = { quantity: existingCotBooking.BookingEquipment.meta_data.quantity };
-                        } else {
-                            console.log(`📊 No saved quantity found, using default: 1`);
-                            metaData[categoryName] = { quantity: 1 };
+                        if (equipmentKey) {
+                            // CRITICAL: Check if user has modified this equipment persistently
+                            const isUserModified = userModificationsRef.current.has(equipmentKey);
+                            
+                            if (isUserModified) {
+                                console.log(`🛡️ User has modified ${equipment.name}, preserving existing value`);
+                                // Keep existing metadata if user modified
+                                const existing = equipmentMetaData[equipmentKey];
+                                if (existing) {
+                                    metaData[equipmentKey] = existing;
+                                }
+                                return; // Skip initialization for user-modified equipment
+                            }
+                            
+                            // Only initialize if user hasn't modified
+                            const hasEquipmentInCategory = currentBookingEquipments.some(ce => 
+                                ce.id === equipment.id
+                            );
+                            
+                            if (hasEquipmentInCategory) {
+                                const existingBooking = currentBookingEquipments.find(ce => 
+                                    ce.id === equipment.id
+                                );
+                                
+                                if (existingBooking?.BookingEquipment?.meta_data?.quantity) {
+                                    metaData[equipmentKey] = { 
+                                        quantity: existingBooking.BookingEquipment.meta_data.quantity,
+                                        source: 'saved'
+                                    };
+                                } else {
+                                    metaData[equipmentKey] = { quantity: 0, source: 'default' };
+                                }
+                            } else {
+                                const questionKey = getQuestionKey(equipment.name);
+                                const formQuantity = getQuantityFromInfantCareData(questionKey);
+                                
+                                metaData[equipmentKey] = { 
+                                    quantity: formQuantity,
+                                    source: 'prefilled'
+                                };
+                            }
                         }
-                    } else if (currentBookingEquipments.length > 0) {
-                        selections[categoryName] = 'no';
-                        metaData[categoryName] = { quantity: 1 };
-                    } else {
-                        selections[categoryName] = null;
-                        metaData[categoryName] = { quantity: 1 };
-                    }
+                    });
                 }
                 return;
             }
@@ -346,7 +432,28 @@ const EquipmentField = memo((props) => {
         }
 
         setCategorySelections(selections);
-        setEquipmentMetaData(metaData);
+        setEquipmentMetaData(prev => {
+            const updated = { ...prev };
+            Object.entries(metaData).forEach(([key, value]) => {
+                if (!userModificationsRef.current.has(key)) {
+                    updated[key] = value;
+                }
+            });
+            return updated;
+        });
+    };
+
+    // NEW: Helper functions for infant_care category
+    const getEquipmentKey = (equipmentName) => {
+        if (equipmentName === 'High Chair') return 'high_chair';
+        if (equipmentName === 'Portable Cot') return 'cot';
+        return null;
+    };
+
+    const getQuestionKey = (equipmentName) => {
+        if (equipmentName === 'High Chair') return 'do-you-need-a-high-chair-if-so-how-many';
+        if (equipmentName === 'Portable Cot') return 'do-you-need-a-cot-if-so-how-many';
+        return null;
     };
 
     const validateSelections = () => {
@@ -360,69 +467,80 @@ const EquipmentField = memo((props) => {
             const categoryType = categoryTypes[categoryName];
             const isRequired = isRequiredCategory(categoryName, categoryType);
             
-            const hasUserSelection = categorySelections[categoryName] !== null && 
-                                    categorySelections[categoryName] !== undefined &&
-                                    categorySelections[categoryName] !== '';
-            
-            const shouldValidate = isRequired || hasUserSelection;
-            
-            if (shouldValidate) {
-                if (categoryType === 'special') {
-                    // Handle special category validation
-                    if (categoryName === 'cot') {
+            if (categoryType === 'special') {
+                // Handle special category validation
+                if (categoryName === 'infant_care') {
+                    // NEW: Validate infant_care equipment with direct quantities
+                    const categoryEquipments = groupedEquipments[categoryName] || [];
+                    categoryEquipments.forEach(equipment => {
+                        const equipmentKey = getEquipmentKey(equipment.name);
+                        if (equipmentKey) {
+                            const quantity = equipmentMetaData[equipmentKey]?.quantity;
+                            
+                            // Validate quantity is within acceptable range (0-2)
+                            if (quantity !== undefined && (quantity < 0 || quantity > 2)) {
+                                errors[`${equipmentKey}_quantity`] = `${equipment.name} quantity must be between 0 and 2`;
+                                allValid = false;
+                            }
+                            
+                            // Only validate if required and no quantity specified
+                            if (isRequired && (quantity === undefined || quantity === null)) {
+                                errors[`${equipmentKey}_quantity`] = `Please specify quantity for ${equipment.name.toLowerCase()}`;
+                                allValid = false;
+                            }
+                        }
+                    });
+                }
+            } else {
+                // Handle other category types (existing logic)
+                const hasUserSelection = categorySelections[categoryName] !== null && 
+                                        categorySelections[categoryName] !== undefined &&
+                                        categorySelections[categoryName] !== '';
+                
+                const shouldValidate = isRequired || hasUserSelection;
+                
+                if (shouldValidate) {
+                    if (categoryType === 'binary') {
                         if (!categorySelections[categoryName]) {
                             if (isRequired) {
-                                errors[categoryName] = 'Please select an option for cot requirement';
-                                allValid = false;
-                            }
-                        } else if (categorySelections[categoryName] === 'yes') {
-                            const quantity = equipmentMetaData[categoryName]?.quantity;
-                            if (!quantity || quantity < 1) {
-                                errors[`${categoryName}_quantity`] = 'Please specify how many cots you need (minimum 1)';
+                                errors[categoryName] = `Please select an option for ${getBinaryQuestionLabel(categoryName)}`;
                                 allValid = false;
                             }
                         }
-                    }
-                } else if (categoryType === 'binary') {
-                    if (!categorySelections[categoryName]) {
-                        if (isRequired) {
-                            errors[categoryName] = `Please select an option for ${getBinaryQuestionLabel(categoryName)}`;
-                            allValid = false;
-                        }
-                    }
-                } else if (categoryType === 'confirmation_multi' || categoryType === 'confirmation_single') {
-                    const confirmationKey = `confirm_${categoryName}`;
-                    const confirmSelection = categorySelections[confirmationKey];
-                    
-                    if (!confirmSelection) {
-                        if (isRequired) {
-                            errors[confirmationKey] = `Please select an option for ${getConfirmationQuestionLabel(categoryName)}`;
-                            allValid = false;
-                        }
-                    }
-                    
-                    if (confirmSelection === 'yes') {
-                        if (categoryType === 'confirmation_single') {
-                            if (!categorySelections[categoryName]) {
-                                errors[categoryName] = `Please select an option from ${formatCategoryName(categoryName)}`;
-                                allValid = false;
-                            }
-                        } else {
-                            if (!categorySelections[categoryName] || 
-                                (Array.isArray(categorySelections[categoryName]) && categorySelections[categoryName].length === 0)) {
-                                errors[categoryName] = `Please select at least one option from ${formatCategoryName(categoryName)}`;
+                    } else if (categoryType === 'confirmation_multi' || categoryType === 'confirmation_single') {
+                        const confirmationKey = `confirm_${categoryName}`;
+                        const confirmSelection = categorySelections[confirmationKey];
+                        
+                        if (!confirmSelection) {
+                            if (isRequired) {
+                                errors[confirmationKey] = `Please select an option for ${getConfirmationQuestionLabel(categoryName)}`;
                                 allValid = false;
                             }
                         }
-                    }
-                } else if (categoryType === 'single_select') {
-                    if (!categorySelections[categoryName]) {
-                        if (isRequired) {
-                            const fieldName = categoryName === 'mattress_options' ? 'Mattress Options' :
-                                            categoryName === 'sling' ? 'Sling' :
-                                            formatCategoryName(categoryName);
-                            errors[categoryName] = `Please select a ${fieldName}`;
-                            allValid = false;
+                        
+                        if (confirmSelection === 'yes') {
+                            if (categoryType === 'confirmation_single') {
+                                if (!categorySelections[categoryName]) {
+                                    errors[categoryName] = `Please select an option from ${formatCategoryName(categoryName)}`;
+                                    allValid = false;
+                                }
+                            } else {
+                                if (!categorySelections[categoryName] || 
+                                    (Array.isArray(categorySelections[categoryName]) && categorySelections[categoryName].length === 0)) {
+                                    errors[categoryName] = `Please select at least one option from ${formatCategoryName(categoryName)}`;
+                                    allValid = false;
+                                }
+                            }
+                        }
+                    } else if (categoryType === 'single_select') {
+                        if (!categorySelections[categoryName]) {
+                            if (isRequired) {
+                                const fieldName = categoryName === 'mattress_options' ? 'Mattress Options' :
+                                                categoryName === 'sling' ? 'Sling' :
+                                                formatCategoryName(categoryName);
+                                errors[categoryName] = `Please select a ${fieldName}`;
+                                allValid = false;
+                            }
                         }
                     }
                 }
@@ -456,6 +574,8 @@ const EquipmentField = memo((props) => {
         });
         
         setCategoryErrors(touchedErrors);
+
+        console.log(allValid ? '✅ All selections valid' : '❌ Validation errors:', errors);
         
         return { allValid, errors };
     };
@@ -466,7 +586,7 @@ const EquipmentField = memo((props) => {
         const conditionallyRequired = {
             'sling': () => categorySelections['ceiling_hoist'] === 'yes'
         };
-        const optionalCategories = ['transfer_aids', 'miscellaneous', 'cot']; // cot is optional
+        const optionalCategories = ['transfer_aids', 'miscellaneous', 'infant_care']; // NEW: infant_care is optional
         
         if (alwaysRequired.includes(categoryName)) return true;
         if (conditionallyRequired[categoryName]) return conditionallyRequired[categoryName]();
@@ -521,11 +641,15 @@ const EquipmentField = memo((props) => {
             }
 
             // Handle special categories
-            if (categoryType === 'special' && categoryName === 'cot' && value === 'no') {
-                setEquipmentMetaData(prev => ({
-                    ...prev,
-                    [categoryName]: { quantity: 1 }
-                }));
+            if (categoryType === 'special' && categoryName === 'infant_care') {
+                // NEW: Handle infant_care equipment changes
+                const equipmentKey = key; // For infant_care, the key is the equipment key
+                if (value === 'no') {
+                    setEquipmentMetaData(prev => ({
+                        ...prev,
+                        [equipmentKey]: { quantity: 1 }
+                    }));
+                }
             }
 
             // Check if High Back Tilt commode is selected
@@ -565,34 +689,79 @@ const EquipmentField = memo((props) => {
         }
     }, [categoryTypes, groupedEquipments]);
 
-    // Handle quantity changes for special equipment
-    const handleQuantityChange = useCallback((categoryName, quantity) => {
-        const parsedQuantity = parseInt(quantity) || 1;
+    const handleDirectQuantityChange = useCallback((equipmentKey, equipmentName, value) => {
+        const parsedQuantity = parseInt(value) || 0;
+        
+        // CRITICAL: Mark this equipment as user-modified persistently
+        userModificationsRef.current.add(equipmentKey);
         
         setCategoryTouched(prev => ({
             ...prev,
-            [`${categoryName}_quantity`]: true
+            [`${equipmentKey}_quantity`]: true
         }));
 
         setCategoryErrors(prev => {
             const newErrors = { ...prev };
-            delete newErrors[`${categoryName}_quantity`];
+            delete newErrors[`${equipmentKey}_quantity`];
             return newErrors;
         });
 
         setEquipmentMetaData(prev => ({
             ...prev,
-            [categoryName]: { 
-                ...prev[categoryName],
-                quantity: parsedQuantity 
+            [equipmentKey]: { 
+                quantity: parsedQuantity,
+                userModified: true,
+                lastModified: Date.now(),
+                source: 'user_input'
             }
         }));
 
-        // Update equipment changes if category is already selected as "yes"
-        if (categorySelections[categoryName] === 'yes') {
-            updateEquipmentChangesWithMetaData(categoryName, 'yes', false, { quantity: parsedQuantity });
+        // Create and dispatch equipment changes immediately
+        const equipment = groupedEquipments['infant_care']?.find(eq => eq.name === equipmentName);
+        if (equipment && props.hasOwnProperty('onChange')) {
+            const equipmentChange = {
+                category: 'infant_care',
+                equipments: [{
+                    ...equipment,
+                    label: equipment.name,
+                    value: parsedQuantity > 0,
+                    meta_data: { 
+                        quantity: parsedQuantity,
+                        userModified: true,
+                        lastModified: Date.now()
+                    }
+                }],
+                isDirty: true,
+                lastUpdated: Date.now()
+            };
+
+            setEquipmentChanges(prev => {
+                const existingIndex = prev.findIndex(c => c.category === 'infant_care');
+                let newChanges;
+                
+                if (existingIndex !== -1) {
+                    const existing = prev[existingIndex];
+                    const updatedEquipments = existing.equipments.filter(eq => eq.id !== equipment.id);
+                    updatedEquipments.push(equipmentChange.equipments[0]);
+                    
+                    newChanges = [...prev];
+                    newChanges[existingIndex] = {
+                        ...existing,
+                        equipments: updatedEquipments,
+                        isDirty: true
+                    };
+                } else {
+                    newChanges = [...prev, equipmentChange];
+                }
+
+                // Call onChange immediately
+                const validationResult = validateSelections();
+                props.onChange(validationResult.allValid, newChanges);
+                
+                return newChanges;
+            });
         }
-    }, [categorySelections]);
+    }, [groupedEquipments, validateSelections, props]);
 
     // Optimized radio field change handler
     const handleRadioFieldChange = useCallback((categoryName, label, updatedOptions, isConfirmation = false) => {
@@ -601,6 +770,63 @@ const EquipmentField = memo((props) => {
             handleCategoryChange(categoryName, selectedOption.label.toLowerCase(), isConfirmation);
         }
     }, [handleCategoryChange]);
+
+    const updateInfantCareEquipmentChangesWithQuantity = (equipmentName, hasQuantity, quantity, isUserModified = false) => {
+        const equipment = groupedEquipments['infant_care']?.find(eq => eq.name === equipmentName);
+        if (!equipment) return;
+
+        setEquipmentChanges(prev => {
+            // Find existing infant_care change or create new one
+            const existingInfantCareChangeIndex = prev.findIndex(c => c.category === 'infant_care');
+            
+            if (existingInfantCareChangeIndex !== -1) {
+                // Update existing infant_care change
+                const existingChange = prev[existingInfantCareChangeIndex];
+                const updatedEquipments = existingChange.equipments.filter(eq => eq.id !== equipment.id);
+                
+                // Add the updated equipment with user modification flag
+                updatedEquipments.push({
+                    ...equipment,
+                    label: equipment.name,
+                    value: hasQuantity,
+                    meta_data: { 
+                        quantity,
+                        userModified: isUserModified,
+                        lastModified: Date.now()
+                    }
+                });
+                
+                const updatedChanges = [...prev];
+                updatedChanges[existingInfantCareChangeIndex] = {
+                    ...existingChange,
+                    equipments: updatedEquipments,
+                    isDirty: true,
+                    lastUpdated: Date.now()
+                };
+                
+                return updatedChanges;
+            } else {
+                // Create new infant_care change
+                const newChange = {
+                    category: 'infant_care',
+                    equipments: [{
+                        ...equipment,
+                        label: equipment.name,
+                        value: hasQuantity,
+                        meta_data: { 
+                            quantity,
+                            userModified: isUserModified,
+                            lastModified: Date.now()
+                        }
+                    }],
+                    isDirty: true,
+                    lastUpdated: Date.now()
+                };
+                
+                return [...prev, newChange];
+            }
+        });
+    };
 
     // Function to handle equipment changes with explicit metadata
     const updateEquipmentChangesWithMetaData = (categoryName, value, isConfirmation = false, metaDataOverride = null) => {
@@ -615,23 +841,9 @@ const EquipmentField = memo((props) => {
 
         if (categoryType === 'special') {
             // Handle special categories
-            if (categoryName === 'cot') {
-                const equipment = categoryEquipments[0];
-                if (equipment && value === 'yes') {
-                    const quantity = metaDataOverride?.quantity || equipmentMetaData[categoryName]?.quantity || 1;
-                    selectedEquipments = [{ 
-                        ...equipment, 
-                        label: equipment.name,
-                        value: true,
-                        meta_data: { quantity }
-                    }];
-                } else if (equipment) {
-                    selectedEquipments = [{ 
-                        ...equipment, 
-                        label: equipment.name,
-                        value: false
-                    }];
-                }
+            if (categoryName === 'infant_care') {
+                // NEW: Handle infant_care - this is now handled by individual equipment functions
+                return;
             }
         } else if (categoryType === 'binary') {
             const equipment = categoryEquipments[0];
@@ -854,51 +1066,120 @@ const EquipmentField = memo((props) => {
         return null;
     };
 
-    // Render special categories (like cot with quantity)
-    const renderSpecialCategory = (categoryName, equipments) => {
-        if (categoryName === 'cot') {
-            const selection = categorySelections[categoryName];
-            const quantity = equipmentMetaData[categoryName]?.quantity || 1;
-            const { isRequired } = getValidationStyling(categoryName);
-            
-            return (
-                <div key={categoryName} className="py-4">
-                    <div className={getContainerClasses(categoryName)}>
-                        <RadioField
-                            disabled={props?.disabled}
-                            options={[
-                                { label: 'Yes', value: selection === 'yes' },
-                                { label: 'No', value: selection === 'no' }
-                            ]}
-                            label="Do you need a cot, if so how many?"
-                            required={isRequired}
-                            error={getValidationStyling(categoryName).shouldShowError}
-                            onChange={(label, updatedOptions) => {
-                                handleRadioFieldChange(categoryName, label, updatedOptions);
-                            }}
-                        />
+    const renderInfantCareCategory = (categoryName, equipments) => {
+        return (
+            <div key={categoryName} className="py-4">
+                <div className="space-y-4">
+                    {equipments.map((equipment) => {
+                        const equipmentKey = getEquipmentKey(equipment.name);
+                        if (!equipmentKey) return null;
+
+                        const metaData = equipmentMetaData[equipmentKey] || {};
+                        const quantity = metaData.quantity || 0;
                         
-                        {selection === 'yes' && (
-                            <div className="mt-4">
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                    Number of cots needed:
-                                </label>
-                                <input
-                                    type="number"
-                                    min="1"
-                                    max="10"
-                                    value={quantity}
-                                    disabled={props?.disabled}
-                                    onChange={(e) => handleQuantityChange(categoryName, e.target.value)}
-                                    className="block w-32 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                                />
+                        // Check if user has modified this equipment
+                        const isUserModified = userModificationsRef.current.has(equipmentKey) || metaData.userModified === true;
+                        
+                        const { isRequired } = getValidationStyling(equipmentKey);
+                        
+                        return (
+                            <div key={equipment.id}>
+                                <div className={getContainerClasses(equipmentKey)}>
+                                    <div className="flex items-start space-x-4">
+                                        <div className="flex-shrink-0">
+                                            {equipment.image_url && (
+                                                <img
+                                                    src={equipment.image_url}
+                                                    alt={equipment.name}
+                                                    className="w-20 h-20 object-cover rounded-lg border border-gray-200"
+                                                    onError={(e) => {
+                                                        e.target.style.display = 'none';
+                                                    }}
+                                                />
+                                            )}
+                                        </div>
+                                        
+                                        <div className="flex-grow">
+                                            <div className="flex items-center justify-between mb-2">
+                                                <div>
+                                                    <h3 className="font-medium text-gray-900">
+                                                        {equipment.name}
+                                                        {isRequired && <span className="text-red-500 ml-1">*</span>}
+                                                    </h3>
+                                                    {equipment.serial_number && (
+                                                        <p className="text-sm text-gray-500">
+                                                            {equipment.serial_number}
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            
+                                            <div className="flex items-center space-x-3">
+                                                <label className="text-sm font-medium text-gray-700">
+                                                    Quantity needed:
+                                                </label>
+                                                <div className="flex items-center space-x-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            const newQuantity = Math.max(0, quantity - 1);
+                                                            handleDirectQuantityChange(equipmentKey, equipment.name, newQuantity.toString());
+                                                        }}
+                                                        disabled={props?.disabled || quantity <= 0}
+                                                        className="w-8 h-8 flex items-center justify-center rounded-full border border-gray-300 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                    >
+                                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
+                                                        </svg>
+                                                    </button>
+                                                    
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        max="2"
+                                                        value={quantity} // Always use the current quantity value
+                                                        disabled={props?.disabled}
+                                                        onChange={(e) => handleDirectQuantityChange(equipmentKey, equipment.name, e.target.value)}
+                                                        className="w-16 text-center px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                                                    />
+                                                    
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            const newQuantity = Math.min(2, quantity + 1);
+                                                            handleDirectQuantityChange(equipmentKey, equipment.name, newQuantity.toString());
+                                                        }}
+                                                        disabled={props?.disabled || quantity >= 2}
+                                                        className="w-8 h-8 flex items-center justify-center rounded-full border border-gray-300 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                    >
+                                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                                                        </svg>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            
+                                            {quantity > 0 && (
+                                                <div className="mt-2 text-sm text-green-600 font-medium">
+                                                    ✓ {quantity} {equipment.name.toLowerCase()}{quantity > 1 ? 's' : ''} selected
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                                <ValidationMessage categoryName={equipmentKey} isQuantity={true} />
                             </div>
-                        )}
-                    </div>
-                    {isRequired && <ValidationMessage categoryName={categoryName} />}
-                    <ValidationMessage categoryName={categoryName} isQuantity={true} />
+                        );
+                    })}
                 </div>
-            );
+            </div>
+        );
+    };
+
+    // Render special categories 
+    const renderSpecialCategory = (categoryName, equipments) => {
+        if (categoryName === 'infant_care') {
+            return renderInfantCareCategory(categoryName, equipments);
         }
         
         return null;

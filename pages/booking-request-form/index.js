@@ -31,14 +31,15 @@ import {
     clearHiddenQuestionAnswers,
     shouldMoveQuestionToNdisPage,
     extractCurrentFundingAnswer,
+    generateInfantCareQuestionKey,
+    generateInfantCareQuestionText,
+    getInfantCareQuestionMapping,
 } from "../../utilities/bookingRequestForm";
 
 import { 
     calculateReturningGuestPageCompletion, 
     batchUpdateReturningGuestCompletions,
     forceUpdateReturningGuestPageCompletion, 
-    debugReturningGuestCompletion,
-    validateReturningGuestCompletionConsistency
 } from "../../utilities/returningGuestCompletionHelper";
 
 import dynamic from 'next/dynamic';
@@ -2382,6 +2383,72 @@ const BookingRequestForm = () => {
         equipmentChangesState
     ]);
 
+    const extractInfantCareQuantities = useCallback(() => {
+        let formDataToUse = null;
+        
+        if (processedFormData && processedFormData.length > 0) {
+            formDataToUse = processedFormData;
+        } else if (bookingRequestFormData && bookingRequestFormData.length > 0) {
+            formDataToUse = bookingRequestFormData;
+        }
+
+        if (!formDataToUse) {
+            return {
+                'do-you-need-a-high-chair-if-so-how-many': 0,
+                'do-you-need-a-cot-if-so-how-many': 0
+            };
+        }
+
+        const infantCareQuantities = {
+            'do-you-need-a-high-chair-if-so-how-many': 0,
+            'do-you-need-a-cot-if-so-how-many': 0
+        };
+
+        // Search across all pages and sections for infant care questions
+        formDataToUse.forEach((page) => {
+            if (!page.Sections) return;
+            
+            page.Sections.forEach((section) => {
+                // PRIORITY 1: Check current Questions (immediate answers)
+                if (section.Questions && section.Questions.length > 0) {
+                    section.Questions.forEach(question => {
+                        if (question.question_key === 'do-you-need-a-high-chair-if-so-how-many' && 
+                            question.answer !== null && question.answer !== undefined && question.answer !== '') {
+                            infantCareQuantities['do-you-need-a-high-chair-if-so-how-many'] = parseInt(question.answer) || 0;
+                        }
+                        if (question.question_key === 'do-you-need-a-cot-if-so-how-many' && 
+                            question.answer !== null && question.answer !== undefined && question.answer !== '') {
+                            infantCareQuantities['do-you-need-a-cot-if-so-how-many'] = parseInt(question.answer) || 0;
+                        }
+                    });
+                }
+                
+                // PRIORITY 2: Check QaPairs (saved answers) - only if not found in Questions
+                if (section.QaPairs && section.QaPairs.length > 0) {
+                    section.QaPairs.forEach(qaPair => {
+                        const questionKey = qaPair.Question?.question_key || qaPair.question_key;
+                        
+                        if (questionKey === 'do-you-need-a-high-chair-if-so-how-many' && 
+                            qaPair.answer !== null && qaPair.answer !== undefined && qaPair.answer !== '') {
+                            // Only use if we haven't found it in Questions already
+                            if (infantCareQuantities['do-you-need-a-high-chair-if-so-how-many'] === 0) {
+                                infantCareQuantities['do-you-need-a-high-chair-if-so-how-many'] = parseInt(qaPair.answer) || 0;
+                            }
+                        }
+                        if (questionKey === 'do-you-need-a-cot-if-so-how-many' && 
+                            qaPair.answer !== null && qaPair.answer !== undefined && qaPair.answer !== '') {
+                            // Only use if we haven't found it in Questions already
+                            if (infantCareQuantities['do-you-need-a-cot-if-so-how-many'] === 0) {
+                                infantCareQuantities['do-you-need-a-cot-if-so-how-many'] = parseInt(qaPair.answer) || 0;
+                            }
+                        }
+                    });
+                }
+            });
+        });
+
+        return infantCareQuantities;
+    }, [processedFormData, bookingRequestFormData]);
 
     // Get the status of a page for accordion display
     const getPageStatus = (page) => {
@@ -2463,6 +2530,7 @@ const BookingRequestForm = () => {
                         isCareRelatedQuestion={isCareRelatedQuestion}
                         selectedCourseOfferId={selectedCourseOfferId}
                         validateDatesWithExistingAPI={validateDatesWithExistingAPI}
+                        infantCareQuantities={extractInfantCareQuantities()}
                     />
                 )
             };
@@ -2880,6 +2948,10 @@ const BookingRequestForm = () => {
         pages.map(page => {
             console.log(`📋 Validating page: "${page.title}"`);
 
+            if (page.title === 'Equipment') {
+                return; // Skip equipment page
+            }
+
             page?.Sections?.map(section => {
                 if (section.hidden) {
                     return;
@@ -2905,7 +2977,6 @@ const BookingRequestForm = () => {
                                 type: question.type
                             });
                         }
-                        // ... existing validation logic for email, phone, rooms, etc. ...
                         else if (question.type === "email" && answer) {
                             if (answer && !validateEmail(answer)) {
                                 console.log(`❌ Email validation failed for: "${answer}"`);
@@ -3398,10 +3469,20 @@ const BookingRequestForm = () => {
                     })
 
                 // UPDATED: Use question key to filter package questions
-                const updatedQuestions = questions.filter(q =>
-                    !q.hidden ||
-                    questionHasKey(q, QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL)
-                );
+                const updatedQuestions = questions.filter(q => {
+                    // Skip hidden questions unless they're package questions
+                    if (q.hidden && !questionHasKey(q, QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL)) {
+                        return false;
+                    }
+                    
+                    // CRITICAL FIX: Skip equipment questions entirely
+                    if (q.type === 'equipment') {
+                        console.log('🔧 Skipping equipment question from QA pairs:', q.question);
+                        return false;
+                    }
+                    
+                    return true;
+                });
 
                 if (updatedQuestions.length == qaPairs.length) {
                     updatedQuestions.map((question, questionIndex) => {
@@ -3495,45 +3576,115 @@ const BookingRequestForm = () => {
             });
         });
 
+        if (equipmentChangesState && equipmentChangesState.length > 0) {
+            console.log('📝 Processing equipment changes for QA pair updates...', equipmentChangesState);
+            
+            equipmentChangesState.forEach(equipmentChange => {
+                if (equipmentChange.category === 'infant_care' && equipmentChange.equipments) {
+                    console.log('🍼 Processing infant care equipment changes:', equipmentChange.equipments);
+                    
+                    equipmentChange.equipments.forEach(equipment => {
+                        const questionMapping = getInfantCareQuestionMapping(equipment.name);
+                        
+                        if (questionMapping && equipment.meta_data?.quantity !== undefined) {
+                            // Find the section ID for this question
+                            let sectionId = null;
+                            let existingQaPairId = null;
+                            let oldAnswer = null;
+                            
+                            // Look through all pages to find the question
+                            stableProcessedFormData?.forEach(page => {
+                                page.Sections?.forEach(section => {
+                                    // Check Questions array
+                                    section.Questions?.forEach(question => {
+                                        if (question.question_key === questionMapping.questionKey) {
+                                            sectionId = section.id;
+                                            oldAnswer = question.answer;
+                                        }
+                                    });
+                                    
+                                    // Check QaPairs array for existing entries
+                                    section.QaPairs?.forEach(qaPair => {
+                                        if (qaPair.Question?.question_key === questionMapping.questionKey) {
+                                            sectionId = section.id;
+                                            existingQaPairId = qaPair.id;
+                                            oldAnswer = qaPair.answer;
+                                        }
+                                    });
+                                });
+                            });
+                            
+                            if (sectionId) {
+                                const newAnswer = equipment.meta_data.quantity.toString();
+                                const isDirty = oldAnswer !== newAnswer;
+                                
+                                if (isDirty || submit) {
+                                    const equipmentQaPair = {
+                                        answer: newAnswer,
+                                        updatedAt: new Date(),
+                                        dirty: isDirty,
+                                        oldAnswer: oldAnswer,
+                                        equipment_related: true,
+                                        equipment_name: equipment.name,
+                                        equipment_category: 'infant_care'
+                                    };
+                                    
+                                    if (existingQaPairId) {
+                                        equipmentQaPair.id = existingQaPairId;
+                                    } else {
+                                        equipmentQaPair.createdAt = new Date();
+                                    }
+                                    
+                                    qa_pairs.push(equipmentQaPair);
+                                }
+                            } else {
+                                console.warn(`⚠️ Could not find section for equipment question: ${questionMapping.questionKey} (${equipment.name})`);
+                            }
+                        }
+                    });
+                }
+            });
+        }
+
         setSummaryData(summaryOfStay);
 
         let data = {};
         const qaPairDirty = qa_pairs.some(qp => qp.dirty);
         if (qaPairDirty || qa_pairs.length > 0 || currentPage.Sections.every(s => s.QaPairs && s.QaPairs.length == 0)) {
             if (summaryOfStay.data.funder && (summaryOfStay.data.funder?.toLowerCase().includes('ndis') || summaryOfStay.data.funder?.toLowerCase().includes('ndia'))) {
-            const packageQuestions = qa_pairs.filter(qp => questionMatches({ question: qp.question }, 'Please select your accommodation and assistance package below', QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL));
+                const packageQuestions = qa_pairs.filter(qp => questionMatches({ question: qp.question }, 'Please select your accommodation and assistance package below', QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL));
 
-            // Find regular radio type package questions to delete (but keep package-selection and radio-ndis)
-            const regularRadioPackageQuestion = packageQuestions.find(qp => qp.question_type === 'radio');
-            if (regularRadioPackageQuestion) {
-                qa_pairs = qa_pairs.map(qp => {
-                    let temp_qp = { ...qp };
-                    if (qp.id === regularRadioPackageQuestion.id) {
-                        temp_qp.delete = true;
-                        temp_qp.dirty = true;
-                    }
-                    return temp_qp;
+                // Find regular radio type package questions to delete (but keep package-selection and radio-ndis)
+                const regularRadioPackageQuestion = packageQuestions.find(qp => qp.question_type === 'radio');
+                if (regularRadioPackageQuestion) {
+                    qa_pairs = qa_pairs.map(qp => {
+                        let temp_qp = { ...qp };
+                        if (qp.id === regularRadioPackageQuestion.id) {
+                            temp_qp.delete = true;
+                            temp_qp.dirty = true;
+                        }
+                        return temp_qp;
+                    });
+                }
+            } else {
+                const packageQuestions = qa_pairs.filter(qp => questionMatches({ question: qp.question }, 'Please select your accommodation and assistance package below', QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL));
+
+                // Find NDIS-specific package questions to delete
+                const ndisPackageQuestions = packageQuestions.filter(qp =>
+                    qp.question_type === 'radio-ndis' || qp.question_type === 'package-selection'
+                );
+
+                ndisPackageQuestions.forEach(ndisQuestion => {
+                    qa_pairs = qa_pairs.map(qp => {
+                        let temp_qp = { ...qp };
+                        if (qp.id === ndisQuestion.id) {
+                            temp_qp.delete = true;
+                            temp_qp.dirty = true;
+                        }
+                        return temp_qp;
+                    });
                 });
             }
-        } else {
-            const packageQuestions = qa_pairs.filter(qp => questionMatches({ question: qp.question }, 'Please select your accommodation and assistance package below', QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL));
-
-            // Find NDIS-specific package questions to delete
-            const ndisPackageQuestions = packageQuestions.filter(qp =>
-                qp.question_type === 'radio-ndis' || qp.question_type === 'package-selection'
-            );
-
-            ndisPackageQuestions.forEach(ndisQuestion => {
-                qa_pairs = qa_pairs.map(qp => {
-                    let temp_qp = { ...qp };
-                    if (qp.id === ndisQuestion.id) {
-                        temp_qp.delete = true;
-                        temp_qp.dirty = true;
-                    }
-                    return temp_qp;
-                });
-            });
-        }
 
             let dataForm = { qa_pairs: qa_pairs, flags: { origin: origin, pageId: cPage.id, templateId: cPage.template_id }};
             if (equipmentChangesState.length > 0) {
