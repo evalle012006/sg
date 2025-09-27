@@ -77,10 +77,52 @@ export const getBestMatchPackageId = async (formData, careAnalysisData, courseAn
       return true;
     });
 
-    // Sort packages same as PackageSelection
+    // Sort packages with boundary prioritization logic
     packages.sort((a, b) => {
       const careHours = criteria.care_hours || 0;
       
+      // NEW: Boundary prioritization logic for care hours
+      if (careHours > 0 && a.requirement && b.requirement) {
+        const aReq = a.requirement;
+        const bReq = b.requirement;
+        
+        // Check if guest is at the boundary between packages
+        const aAtUpperLimit = aReq.care_hours_max !== null && careHours === aReq.care_hours_max;
+        const bAtUpperLimit = bReq.care_hours_max !== null && careHours === bReq.care_hours_max;
+        const aAtLowerLimit = aReq.care_hours_min !== null && careHours === aReq.care_hours_min;
+        const bAtLowerLimit = bReq.care_hours_min !== null && careHours === bReq.care_hours_min;
+        
+        // If one package has guest at upper limit and another at lower limit,
+        // prioritize the one with higher capacity (lower limit)
+        if (aAtUpperLimit && bAtLowerLimit) {
+          console.log(`🎯 Best match boundary priority: ${b.package_code} (higher capacity) over ${a.package_code} (at max)`);
+          return 1; // b wins (HCSP over CSP)
+        }
+        if (bAtUpperLimit && aAtLowerLimit) {
+          console.log(`🎯 Best match boundary priority: ${a.package_code} (higher capacity) over ${b.package_code} (at max)`);
+          return -1; // a wins
+        }
+        
+        // If both packages are suitable, prioritize the one with higher maximum capacity
+        if (aReq.care_hours_max !== null && bReq.care_hours_max !== null) {
+          if (aReq.care_hours_max !== bReq.care_hours_max) {
+            console.log(`🎯 Best match capacity priority: Higher max capacity wins`);
+            return bReq.care_hours_max - aReq.care_hours_max; // Higher max wins
+          }
+        }
+        
+        // If one has unlimited capacity (null max) and other has limited, prioritize unlimited
+        if (aReq.care_hours_max === null && bReq.care_hours_max !== null) {
+          console.log(`🎯 Best match unlimited capacity priority: ${a.package_code} over ${b.package_code}`);
+          return -1; // a wins (unlimited capacity)
+        }
+        if (bReq.care_hours_max === null && aReq.care_hours_max !== null) {
+          console.log(`🎯 Best match unlimited capacity priority: ${b.package_code} over ${a.package_code}`);
+          return 1; // b wins (unlimited capacity)
+        }
+      }
+      
+      // Existing no-care prioritization logic
       if (careHours === 0) {
         const aIsNoCarePerfect = a.requirement?.requires_no_care === true;
         const bIsNoCarePerfect = b.requirement?.requires_no_care === true;
@@ -89,6 +131,7 @@ export const getBestMatchPackageId = async (formData, careAnalysisData, courseAn
         if (!aIsNoCarePerfect && bIsNoCarePerfect) return 1;
       }
       
+      // Funder compatibility
       const guestFunder = criteria.funder_type;
       if (guestFunder) {
         const aFunderMatch = (guestFunder === 'NDIS' && a.funder === 'NDIS') || 
@@ -100,6 +143,7 @@ export const getBestMatchPackageId = async (formData, careAnalysisData, courseAn
         if (!aFunderMatch && bFunderMatch) return 1;
       }
       
+      // Alphabetical fallback
       return (a.name || '').localeCompare(b.name || '');
     });
 
@@ -109,7 +153,8 @@ export const getBestMatchPackageId = async (formData, careAnalysisData, courseAn
       console.log('🏆 Best match package found:', {
         id: bestMatch.id,
         name: bestMatch.name,
-        package_code: bestMatch.package_code
+        package_code: bestMatch.package_code,
+        careRange: bestMatch.requirement ? `${bestMatch.requirement.care_hours_min || 0}-${bestMatch.requirement.care_hours_max || '∞'}h` : 'No req'
       });
       return bestMatch.id;
     }

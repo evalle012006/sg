@@ -115,9 +115,6 @@ export default async function handler(req, res) {
                     }
                 }
             }
-
-            courseOfferUpdated = await handleCourseOfferLinking(booking, qa_pairs, transaction);
-
             await transaction.commit();
         } catch (err) {
             await transaction.rollback();
@@ -126,6 +123,8 @@ export default async function handler(req, res) {
         }
 
         if (booking) {
+            courseOfferUpdated = await handleCourseOfferLinking(booking, qa_pairs, transaction);
+
             let bookingAmended = false;
             if (equipmentChanges && equipmentChanges?.length > 0) {
                 bookingService.manageBookingEquipment(booking, equipmentChanges);
@@ -154,10 +153,10 @@ export default async function handler(req, res) {
 async function handleCourseOfferLinking(booking, qa_pairs, transaction) {
     try {
         console.log('🎓 Checking for course selection answers to link with offers...');
-        
+
         let courseOfferUpdated = false;
         let bookingId = booking.id || null;
-        let guestId = booking.Guest.id || null;
+        let guestId = booking && booking.Guest ? booking.Guest.id : null;
 
         if (!bookingId || !guestId) {
             console.log('⚠️ Could not determine booking or guest ID for course linking');

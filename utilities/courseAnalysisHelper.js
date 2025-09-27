@@ -132,7 +132,7 @@ export function extractCourseInformation(allQAPairs = [], formData = {}) {
         source: 'text-pattern'
       }));
 
-      console.log('🎓 Found course-related Q&A pairs by text:', courseAnalysis.rawData.courseRelatedQA.length);
+      // console.log('🎓 Found course-related Q&A pairs by text:', courseAnalysis.rawData.courseRelatedQA.length);
 
       // Look for course offer in text patterns if not found by key
       if (!courseAnalysis.courseOffered && !courseOfferQA) {

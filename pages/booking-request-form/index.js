@@ -386,6 +386,7 @@ const BookingRequestForm = () => {
                 qa_pairs: [qa_pair],
                 flags: { 
                     origin: origin, 
+                    bookingUuid: uuid || null,
                     pageId: packagePage.id, 
                     templateId: packagePage.template_id,
                     autoUpdate: true // Flag to indicate this is an auto-update
@@ -473,7 +474,7 @@ const BookingRequestForm = () => {
             );
 
             // If bestMatch is different from current answer, update it
-            if (bestMatchId && String(bestMatchId) !== String(currentAnswer)) {
+            if (bestMatchId && currentAnswer !== bestMatchId) {
                 console.log('🔄 Auto-updating package selection:', {
                     from: currentAnswer,
                     to: bestMatchId,
@@ -638,13 +639,13 @@ const BookingRequestForm = () => {
             const originalCompleted = originalCompletions.get(page.id);
             
             // CRITICAL FIX: Preserve specific page completion during cleaning
-            if (page.title === 'Equipment' && originalCompleted !== undefined) {
-                page.completed = originalCompleted;
-                console.log(`🛡️ Preserved Equipment page completion during cleaning: ${originalCompleted}`);
+            if (currentBookingType === BOOKING_TYPES.FIRST_TIME_GUEST) {
+                page.completed = equipmentPageCompleted || originalCompleted;
+                // console.log(`🛡️ Equipment page completion for First Time Guest: ${equipmentPageCompleted}`);
             } else if (page.id === 'ndis_packages_page' && originalCompleted !== undefined) {
                 // FIXED: Preserve NDIS page completion during cleaning operations
                 page.completed = originalCompleted;
-                console.log(`🛡️ Preserved NDIS Requirements page completion during cleaning: ${originalCompleted}`);
+                // console.log(`🛡️ Preserved NDIS Requirements page completion during cleaning: ${originalCompleted}`);
             } else {
                 // For all other pages, recalculate normally
                 page.completed = calculatePageCompletion(page);
@@ -652,7 +653,7 @@ const BookingRequestForm = () => {
         });
         
         return cleanedPages;
-    }, [calculatePageCompletion]);
+    }, [calculatePageCompletion, equipmentPageCompleted]);
 
     const removeDuplicateQuestions = useCallback((pages, isNdisFunded) => {
         const seenQuestions = new Set();
@@ -1174,51 +1175,48 @@ const BookingRequestForm = () => {
         _.debounce(async () => {
             const guestId = getGuestId();
             if (!guestId) {
-            setCourseOffers([]);
-            setCourseOffersLoaded(true);
-            return;
+                setCourseOffers([]);
+                setCourseOffersLoaded(true);
+                return;
             }
 
-            // Prevent duplicate calls with same parameters
+            // CRITICAL FIX: Only fetch if both dates are available
+            if (!stayDates?.checkInDate || !stayDates?.checkOutDate) {
+                setCourseOffers([]);
+                setCourseOffersLoaded(false); // Keep as loading until dates are available
+                return;
+            }
+
             const apiParams = {
-            guestId,
-            checkInDate: stayDates?.checkInDate,
-            checkOutDate: stayDates?.checkOutDate
+                guestId,
+                checkInDate: stayDates.checkInDate,
+                checkOutDate: stayDates.checkOutDate
             };
             
             const paramString = JSON.stringify(apiParams);
             if (lastFetchParamsRef.current === paramString) {
-            return; // Skip if same parameters as last call
+                return;
             }
             lastFetchParamsRef.current = paramString;
 
             try {
-            let apiUrl = `/api/guests/${guestId}/course-offers`;
-            const queryParams = [];
-            
-            if (stayDates?.checkInDate && stayDates?.checkOutDate) {
-                queryParams.push(`checkInDate=${encodeURIComponent(stayDates.checkInDate)}`);
-                queryParams.push(`checkOutDate=${encodeURIComponent(stayDates.checkOutDate)}`);
-            }
-            
-            if (queryParams.length > 0) {
-                apiUrl += `?${queryParams.join('&')}`;
-            }
-            
-            const response = await fetch(apiUrl);
-            if (response.ok) {
-                const data = await response.json();
-                setCourseOffers(data.courseOffers || []);
-            } else {
-                setCourseOffers([]);
-            }
+                // Always include date parameters now
+                const apiUrl = `/api/guests/${guestId}/course-offers?checkInDate=${encodeURIComponent(stayDates.checkInDate)}&checkOutDate=${encodeURIComponent(stayDates.checkOutDate)}`;
+                
+                const response = await fetch(apiUrl);
+                if (response.ok) {
+                    const data = await response.json();
+                    setCourseOffers(data.courseOffers || []);
+                } else {
+                    setCourseOffers([]);
+                }
             } catch (error) {
-            console.error('Error fetching course offers:', error);
-            setCourseOffers([]);
+                console.error('Error fetching course offers:', error);
+                setCourseOffers([]);
             }
             
             setCourseOffersLoaded(true);
-        }, 500), // 500ms debounce
+        }, 500),
         [getGuestId, stayDates?.checkInDate, stayDates?.checkOutDate]
     );
 
@@ -1226,7 +1224,7 @@ const BookingRequestForm = () => {
 
     const safeDispatchData = useCallback((data, context) => {
         try {
-            // ✅ CRITICAL FIX: For returning guests, preserve completion from helper
+            // For returning guests, preserve completion from helper
             if (currentBookingType === BOOKING_TYPES.RETURNING_GUEST && prevBookingId) {
                 // console.log(`🔒 Completion lock active - preserving helper completion during dispatch: ${context}`);
                 
@@ -1239,7 +1237,7 @@ const BookingRequestForm = () => {
                 // Clean the data before dispatching to Redux
                 const cleanedData = cleanReduxStateBeforeDispatch(data, isNdisFunded);
                 
-                // ✅ CRITICAL FIX: Restore completion from helper after cleaning
+                // Restore completion from helper after cleaning
                 cleanedData.forEach(page => {
                     if (completionMap.has(page.id)) {
                         page.completed = completionMap.get(page.id);
@@ -1256,8 +1254,18 @@ const BookingRequestForm = () => {
                     lastDispatchedDataRef.current = structuredClone(cleanedData);
                 }
             } else {
+                // Find Equipment page and ensure it uses the equipmentPageCompleted flag
+                const updatedData = data.map(page => {
+                    if (page.title === 'Equipment') {
+                        return {
+                            ...page,
+                            completed: equipmentPageCompleted
+                        };
+                    }
+                    return page;
+                });
                 // Original logic for first-time guests
-                const cleanedData = cleanReduxStateBeforeDispatch(data, isNdisFunded);
+                const cleanedData = cleanReduxStateBeforeDispatch(updatedData, isNdisFunded);
                 
                 const dataStr = JSON.stringify(cleanedData);
                 const lastDataStr = JSON.stringify(lastDispatchedDataRef.current);
@@ -1273,7 +1281,7 @@ const BookingRequestForm = () => {
             // Fallback to original dispatch if cleaning fails
             dispatch(bookingRequestFormActions.setData(data));
         }
-    }, [dispatch, cleanReduxStateBeforeDispatch, isNdisFunded, currentBookingType, prevBookingId]);
+    }, [dispatch, cleanReduxStateBeforeDispatch, isNdisFunded, currentBookingType, prevBookingId, equipmentPageCompleted]);
 
     const stableBookingRequestFormData = useMemo(() => {
         return bookingRequestFormData;
