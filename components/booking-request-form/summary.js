@@ -14,7 +14,8 @@ const SummaryOfStay = ({
   bookingAmended, 
   submitBooking,
   careAnalysisData = null,
-  courseAnalysisData = null 
+  courseAnalysisData = null,
+  ndisFormFilters = null // ADDED: NDIS filters parameter
 }) => {
   const currentUser = useSelector(state => state.user.user);
   const selectedRooms = useSelector(state => state.bookingRequestForm.rooms);
@@ -73,15 +74,15 @@ const SummaryOfStay = ({
       }
     }
     
-    console.log('Extracted analysis data:', {
-      careData: extractedCareData,
-      courseData: extractedCourseData,
-      fromProps: { care: !!careAnalysisData, course: !!courseAnalysisData },
-      fromSummary: { 
-        care: !!summary?.data?.careAnalysis, 
-        course: !!summary?.data?.courseAnalysis 
-      }
-    });
+    // console.log('Extracted analysis data:', {
+    //   careData: extractedCareData,
+    //   courseData: extractedCourseData,
+    //   fromProps: { care: !!careAnalysisData, course: !!courseAnalysisData },
+    //   fromSummary: { 
+    //     care: !!summary?.data?.careAnalysis, 
+    //     course: !!summary?.data?.courseAnalysis 
+    //   }
+    // });
     
     return { careData: extractedCareData, courseData: extractedCourseData };
   };
@@ -378,6 +379,18 @@ const SummaryOfStay = ({
   }, [bookingData, selectedRooms, resolvedPackageData, packageResolved]);
 
   const getTotalOutOfPocketExpenses = () => {
+    // SPECIAL CASE: NDIS STA with Ocean View main room - show ocean view cost instead of room upgrade
+    if (summary?.data?.isNDISFunder && 
+        ndisFormFilters?.ndisPackageType === 'sta' && 
+        summary?.rooms?.length > 0 && 
+        summary.rooms[0]?.type === 'ocean_view') {
+      
+      const oceanViewCost = summary.rooms[0].price * (summary?.data?.nights || 0);
+      const additionalRoomCost = totalRoomCosts.additionalRoom;
+      return oceanViewCost + additionalRoomCost;
+    }
+    
+    // Standard calculation
     return totalRoomCosts.roomUpgrade + totalRoomCosts.additionalRoom;
   };
 
@@ -466,18 +479,41 @@ const SummaryOfStay = ({
           <div>
             <h3 className="font-semibold text-slate-700 mb-1">Room Upgrade</h3>
             <p className="text-gray-900 p-2">
-              {summary?.roomUpgrade ? 
-                `AUD ${formatPrice(summary.roomUpgrade)} per night (AUD ${formatPrice(totalRoomCosts.roomUpgrade)} total)` : 
-                'N/A'}
+              {/* SPECIAL CASE: NDIS STA with Ocean View main room - show as N/A */}
+              {summary?.data?.isNDISFunder && 
+               ndisFormFilters?.ndisPackageType === 'sta' && 
+               summary?.rooms?.length > 0 && 
+               summary.rooms[0]?.type === 'ocean_view' ? 
+                'N/A' :
+                (summary?.roomUpgrade ? 
+                  `AUD ${formatPrice(summary.roomUpgrade)} per night (AUD ${formatPrice(totalRoomCosts.roomUpgrade)} total)` : 
+                  'N/A')
+              }
             </p>
           </div>
           <div>
             <h3 className="font-semibold text-slate-700 mb-1">Additional Room</h3>
             <p className="text-gray-900 p-2">
-              {summary?.additionalRoom ? 
-                `AUD ${formatPrice(summary.additionalRoom)} per night (AUD ${formatPrice(totalRoomCosts.additionalRoom)} total)` : 
-                'N/A'}
+              {/* SPECIAL CASE: NDIS STA with Ocean View main room - show ocean view cost here */}
+              {summary?.data?.isNDISFunder && 
+               ndisFormFilters?.ndisPackageType === 'sta' && 
+               summary?.rooms?.length > 0 && 
+               summary.rooms[0]?.type === 'ocean_view' ? 
+                `AUD ${formatPrice(summary.rooms[0].price)} per night (AUD ${formatPrice(summary.rooms[0].price * (summary?.data?.nights || 0))} total)` :
+                (summary?.additionalRoom ? 
+                  `AUD ${formatPrice(summary.additionalRoom)} per night (AUD ${formatPrice(totalRoomCosts.additionalRoom)} total)` : 
+                  'N/A')
+              }
             </p>
+            {/* Show explanation for NDIS STA ocean view special case */}
+            {/* {summary?.data?.isNDISFunder && 
+             ndisFormFilters?.ndisPackageType === 'sta' && 
+             summary?.rooms?.length > 0 && 
+             summary.rooms[0]?.type === 'ocean_view' && (
+              <p className="text-xs text-blue-600 italic mt-1">
+                * Ocean View Room is shown as additional room for NDIS STA packages
+              </p>
+            )} */}
           </div>
         </div>
         <div className="text-right">
@@ -777,7 +813,7 @@ const PricingTable = ({ option, datesOfStay, nights = 0, setTotalPackageCost, pa
   // NEW API LOGIC (for packages with ndis_line_items)
   // Process API package data with new complex logic
   const processApiPackageData = () => {
-    console.log('Using API pricing logic with line items:', packageData.ndis_line_items);
+    // console.log('Using API pricing logic with line items:', packageData.ndis_line_items);
     
     const processedRows = packageData.ndis_line_items.map(lineItem => {
       const quantity = calculateApiQuantity(lineItem, daysBreakdown, careAnalysisData, courseAnalysisData);
@@ -787,13 +823,13 @@ const PricingTable = ({ option, datesOfStay, nights = 0, setTotalPackageCost, pa
 
       // Log details for blank rate_type items
       if (!lineItem.rate_type || lineItem.rate_type === '') {
-        console.log(`Processing item with blank rate_type:`, {
-          description: lineItem.sta_package,
-          lineItemType: lineItem.line_item_type,
-          rateCategory: lineItem.rate_category,
-          calculatedQuantity: quantity,
-          daysBreakdown: daysBreakdown
-        });
+        // console.log(`Processing item with blank rate_type:`, {
+        //   description: lineItem.sta_package,
+        //   lineItemType: lineItem.line_item_type,
+        //   rateCategory: lineItem.rate_category,
+        //   calculatedQuantity: quantity,
+        //   daysBreakdown: daysBreakdown
+        // });
       }
 
       return {
@@ -812,14 +848,14 @@ const PricingTable = ({ option, datesOfStay, nights = 0, setTotalPackageCost, pa
     // Filter out rows with 0 quantity (no applicable hours/days)
     const filteredRows = processedRows.filter(row => row.quantity > 0);
     
-    console.log(`API Logic: Showing ${filteredRows.length} of ${processedRows.length} line items`, {
-      filtered: processedRows.filter(row => row.quantity === 0).map(row => ({
-        description: row.description,
-        lineItemType: row.lineItemType,
-        rateType: row.rateType,
-        reason: 'Zero quantity'
-      }))
-    });
+    // console.log(`API Logic: Showing ${filteredRows.length} of ${processedRows.length} line items`, {
+    //   filtered: processedRows.filter(row => row.quantity === 0).map(row => ({
+    //     description: row.description,
+    //     lineItemType: row.lineItemType,
+    //     rateType: row.rateType,
+    //     reason: 'Zero quantity'
+    //   }))
+    // });
 
     setTableData(filteredRows);
 
@@ -871,13 +907,13 @@ const PricingTable = ({ option, datesOfStay, nights = 0, setTotalPackageCost, pa
         // For line items without specific type, use day-based calculation
         if (rate_category === 'day') {
           const dayQty = getDaysForRateType(rate_type, daysBreakdown);
-          console.log(`Day calculation for rate_type "${rate_type || 'BLANK'}":`, dayQty);
+          // console.log(`Day calculation for rate_type "${rate_type || 'BLANK'}":`, dayQty);
           return dayQty;
         } else if (rate_category === 'hour') {
           // UPDATED: Default to 12 hours per day instead of 24 for hourly rate category
           const daysForType = getDaysForRateType(rate_type, daysBreakdown);
           const hourQty = daysForType * 12; // 12 hours per day default
-          console.log(`Hour calculation for rate_type "${rate_type || 'BLANK'}": ${daysForType} days × 12 hours = ${hourQty}`);
+          // console.log(`Hour calculation for rate_type "${rate_type || 'BLANK'}": ${daysForType} days × 12 hours = ${hourQty}`);
           return hourQty;
         }
         return 0;
@@ -1184,39 +1220,13 @@ const PricingTable = ({ option, datesOfStay, nights = 0, setTotalPackageCost, pa
           * Care fees reflect requested care at the time of booking submission and may vary based on actual care hours used.
         </div>
       )}
-
-      {/* Debug information (remove in production)
-      {process.env.NODE_ENV === 'development' && (
-        <div className="mt-4 p-2 bg-gray-100 text-xs">
-          <div>Logic used: {shouldUseApiLogic ? 'API (complex)' : 'Static (original)'}</div>
-          <div>Days breakdown: {JSON.stringify(daysBreakdown)}</div>
-          {shouldUseApiLogic && (
-            <>
-              <div>Care analysis: Total hours/day: {careAnalysisData?.totalHoursPerDay || 0}</div>
-              <div>Course analysis: Has course: {courseAnalysisData?.hasCourse || false}</div>
-              <div>Package type: {packageData?.ndis_package_type}</div>
-              <div>Line items with blank rate_type: {
-                packageData?.ndis_line_items?.filter(item => !item.rate_type || item.rate_type === '').length || 0
-              }</div>
-              <div>Rate categories: {
-                JSON.stringify(packageData?.ndis_line_items?.map(item => ({
-                  lineItem: item.line_item,
-                  rateType: item.rate_type || 'BLANK',
-                  rateCategory: item.rate_category,
-                  lineItemType: item.line_item_type
-                })) || [])
-              }</div>
-            </>
-          )}
-        </div>
-      )} */}
     </div>
   );
 };
 
 // Helper function to calculate days breakdown (existing function from create-summary-data.js)
 const calculateDaysBreakdown = async (startDateStr, numberOfNights) => {
-  console.log('calculateDaysBreakdown called with:', { startDateStr, numberOfNights });
+  // console.log('calculateDaysBreakdown called with:', { startDateStr, numberOfNights });
   
   // Parse the date range - handle both formats: "DD/MM/YYYY - DD/MM/YYYY" and other formats
   let startDateParsed;
@@ -1233,7 +1243,7 @@ const calculateDaysBreakdown = async (startDateStr, numberOfNights) => {
     startDateParsed = new Date(startDateStr);
   }
 
-  console.log('Parsed start date:', startDateParsed);
+  // console.log('Parsed start date:', startDateParsed);
 
   if (isNaN(startDateParsed.getTime())) {
     console.error('Invalid start date:', startDateStr);
@@ -1278,7 +1288,7 @@ const calculateDaysBreakdown = async (startDateStr, numberOfNights) => {
     }
   }
 
-  console.log('Final breakdown:', breakdown);
+  // console.log('Final breakdown:', breakdown);
   return breakdown;
 };
 

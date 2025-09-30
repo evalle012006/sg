@@ -1,4 +1,4 @@
-import { Guest, GuestFunding, Package } from '../../../../models';
+import { Guest, GuestFunding, Package, RoomType } from '../../../../models';
 
 export default async function handler(req, res) {
   const { uuid } = req.query;
@@ -22,6 +22,11 @@ export default async function handler(req, res) {
             model: Package,
             as: 'package',
             attributes: ['id', 'name', 'package_code', 'funder']
+          },
+          {
+            model: RoomType,
+            as: 'additionalRoomType',
+            attributes: ['id', 'name', 'type']
           }
         ]
       });
@@ -33,7 +38,11 @@ export default async function handler(req, res) {
         package_approved: '', // Keep for backward compatibility
         approval_from: '',
         approval_to: '',
-        nights_used: 0
+        nights_used: 0,
+        // New additional room fields
+        additional_room_approved: null,
+        additional_room_nights_approved: 0,
+        additional_room_nights_used: 0
       };
       
       if (funding) {
@@ -52,7 +61,11 @@ export default async function handler(req, res) {
           package_approved: packageDisplay, // For backward compatibility
           approval_from: funding.approval_from || '',
           approval_to: funding.approval_to || '',
-          nights_used: funding.nights_used || 0
+          nights_used: funding.nights_used || 0,
+          // New additional room fields
+          additional_room_approved: funding.additional_room_approved || null,
+          additional_room_nights_approved: funding.additional_room_nights_approved || 0,
+          additional_room_nights_used: funding.additional_room_nights_used || 0
         };
       }
       
@@ -68,7 +81,19 @@ export default async function handler(req, res) {
   
   else if (req.method === 'POST') {
     try {
-      const { approval_number, nights_approved, package_id, package_approved, approval_from, approval_to, nights_used } = req.body;
+      const { 
+        approval_number, 
+        nights_approved, 
+        package_id, 
+        package_approved, 
+        approval_from, 
+        approval_to, 
+        nights_used,
+        // New additional room fields
+        additional_room_approved,
+        additional_room_nights_approved,
+        additional_room_nights_used
+      } = req.body;
       
       // Validate package_id if provided
       let validatedPackageId = null;
@@ -76,7 +101,7 @@ export default async function handler(req, res) {
         const packageExists = await Package.findByPk(package_id);
         if (!packageExists) {
           return res.status(400).json({ 
-            message: 'Invalid package selected. Package does not exist.' 
+            message: 'Invalid package selected. Package does not exist.'
           });
         }
         validatedPackageId = package_id;
@@ -95,6 +120,16 @@ export default async function handler(req, res) {
           validatedPackageId = packageByName.id;
         }
       }
+
+      // Validate additional_room_approved if provided
+      if (additional_room_approved) {
+        const roomTypeExists = await RoomType.findByPk(additional_room_approved);
+        if (!roomTypeExists) {
+          return res.status(400).json({ 
+            message: 'Invalid room type selected. Room type does not exist.'
+          });
+        }
+      }
       
       // Check if funding record exists
       const existingFunding = await GuestFunding.findOne({
@@ -108,7 +143,11 @@ export default async function handler(req, res) {
         package_id: validatedPackageId,
         approval_from: approval_from || null,
         approval_to: approval_to || null,
-        nights_used: parseInt(nights_used) || 0
+        nights_used: parseInt(nights_used) || 0,
+        // New additional room fields
+        additional_room_approved: additional_room_approved || null,
+        additional_room_nights_approved: parseInt(additional_room_nights_approved) || 0,
+        additional_room_nights_used: parseInt(additional_room_nights_used) || 0
       };
       
       if (existingFunding) {

@@ -1,4 +1,4 @@
-import { Guest, HealthInfo, GuestFunding, Package, sequelize } from '../../../models';
+import { Guest, HealthInfo, GuestFunding, Package, RoomType, sequelize } from '../../../models';
 
 export default async function handler(req, res) {
     if (req.method !== 'POST') {
@@ -16,8 +16,12 @@ export default async function handler(req, res) {
             emergency_name, emergency_mobile_number, emergency_email, emergency_relationship,
             specialist_name, specialist_mobile_number, specialist_practice_name,
             sci_year, sci_injury_type, sci_level_asia, sci_intial_spinal_rehab, sci_type, sci_type_level, sci_other_details, sci_inpatient,
-            // Funding fields
-            approval_number, nights_approved, package_id, package_approved, approval_from, approval_to
+            // Funding fields (existing)
+            approval_number, nights_approved, package_id, package_approved, approval_from, approval_to,
+            // NEW: Additional room funding fields
+            additional_room_approved,
+            additional_room_nights_approved,
+            additional_room_nights_used
         } = req.body;
 
         if (!guest_id) {
@@ -135,20 +139,18 @@ export default async function handler(req, res) {
                 }
             }
 
-            // 3. HANDLE FUNDING INFORMATION (UPDATED to handle both package_id and package_approved)
+            // 3. HANDLE FUNDING INFORMATION (UPDATED to handle additional room fields)
             const fundingUpdateData = {};
             if (approval_number !== undefined) fundingUpdateData.approval_number = approval_number || null;
             if (nights_approved !== undefined) fundingUpdateData.nights_approved = parseInt(nights_approved) || null;
 
-            // NEW: Handle package_id (foreign key) with validation
+            // Handle package_id (foreign key) with validation
             if (package_id !== undefined) {
                 if (package_id) {
                     // Validate that the package exists
                     const packageExists = await Package.findByPk(package_id);
                     if (!packageExists) {
-                        return res.status(400).json({ 
-                            message: 'Invalid package selected. Package does not exist.' 
-                        });
+                        throw new Error('Invalid package selected. Package does not exist.');
                     }
                     fundingUpdateData.package_id = package_id;
                 } else {
@@ -178,6 +180,29 @@ export default async function handler(req, res) {
                 fundingUpdateData.package_id = packageId;
             }
 
+            // NEW: Handle additional room type with validation
+            if (additional_room_approved !== undefined) {
+                if (additional_room_approved) {
+                    // Validate that the room type exists
+                    const roomTypeExists = await RoomType.findByPk(additional_room_approved);
+                    if (!roomTypeExists) {
+                        throw new Error('Invalid room type selected. Room type does not exist.');
+                    }
+                    fundingUpdateData.additional_room_approved = additional_room_approved;
+                } else {
+                    fundingUpdateData.additional_room_approved = null;
+                }
+            }
+
+            // NEW: Additional room nights approved and used
+            if (additional_room_nights_approved !== undefined) {
+                fundingUpdateData.additional_room_nights_approved = parseInt(additional_room_nights_approved) || 0;
+            }
+
+            if (additional_room_nights_used !== undefined) {
+                fundingUpdateData.additional_room_nights_used = parseInt(additional_room_nights_used) || 0;
+            }
+
             if (approval_from !== undefined) fundingUpdateData.approval_from = approval_from || null;
             if (approval_to !== undefined) fundingUpdateData.approval_to = approval_to || null;
 
@@ -192,6 +217,11 @@ export default async function handler(req, res) {
                             model: Package,
                             as: 'package',
                             attributes: ['id', 'name', 'package_code', 'funder']
+                        },
+                        {
+                            model: RoomType,
+                            as: 'additionalRoomType',
+                            attributes: ['id', 'name', 'type']
                         }
                     ]
                 });
@@ -203,7 +233,7 @@ export default async function handler(req, res) {
                         transaction
                     });
                     
-                    // Fetch updated record with package details
+                    // Fetch updated record with package and room type details
                     fundingResult = await GuestFunding.findOne({ 
                         where: { guest_id: parseInt(guest_id) },
                         transaction,
@@ -212,6 +242,11 @@ export default async function handler(req, res) {
                                 model: Package,
                                 as: 'package',
                                 attributes: ['id', 'name', 'package_code', 'funder']
+                            },
+                            {
+                                model: RoomType,
+                                as: 'additionalRoomType',
+                                attributes: ['id', 'name', 'type']
                             }
                         ]
                     });
@@ -222,7 +257,7 @@ export default async function handler(req, res) {
                         ...fundingUpdateData
                     }, { transaction });
                     
-                    // Fetch created record with package details
+                    // Fetch created record with package and room type details
                     if (fundingResult) {
                         fundingResult = await GuestFunding.findOne({ 
                             where: { id: fundingResult.id },
@@ -232,6 +267,11 @@ export default async function handler(req, res) {
                                     model: Package,
                                     as: 'package',
                                     attributes: ['id', 'name', 'package_code', 'funder']
+                                },
+                                {
+                                    model: RoomType,
+                                    as: 'additionalRoomType',
+                                    attributes: ['id', 'name', 'type']
                                 }
                             ]
                         });
@@ -248,7 +288,7 @@ export default async function handler(req, res) {
                 responseData.HealthInfo = healthResult.toJSON();
             }
 
-            // Include funding info in response with proper package details
+            // Include funding info in response with proper package and room type details
             if (fundingResult) {
                 const fundingData = fundingResult.toJSON();
                 
@@ -266,7 +306,11 @@ export default async function handler(req, res) {
                     package_id: fundingData.package_id || null,
                     package_approved: packageDisplay, // For display/backward compatibility
                     approval_from: fundingData.approval_from || '',
-                    approval_to: fundingData.approval_to || ''
+                    approval_to: fundingData.approval_to || '',
+                    // NEW: Additional room fields
+                    additional_room_approved: fundingData.additional_room_approved || null,
+                    additional_room_nights_approved: fundingData.additional_room_nights_approved || 0,
+                    additional_room_nights_used: fundingData.additional_room_nights_used || 0
                 };
             }
 
@@ -305,6 +349,10 @@ export default async function handler(req, res) {
         // Handle custom errors
         if (error.message.includes('Guest not found')) {
             return res.status(404).json({ message: error.message });
+        }
+
+        if (error.message.includes('Invalid package') || error.message.includes('Invalid room type')) {
+            return res.status(400).json({ message: error.message });
         }
 
         return res.status(500).json({ 

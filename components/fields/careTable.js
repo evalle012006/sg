@@ -393,7 +393,7 @@ export default function CareTable({
   const [hasValues, setHasValues] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [debug, setDebug] = useState({ attempted: false, error: null });
-  const [isSaving, setIsSaving] = useState(false); // NEW: Track saving state
+  const [isSaving, setIsSaving] = useState(false);
   const isInitialMount = useRef(true);
   const valueRef = useRef(value);
   const savedDataRef = useRef({});
@@ -1035,14 +1035,7 @@ export default function CareTable({
       <div className="flex flex-col border rounded-lg p-4 bg-gray-50">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-semibold">Set Default Care Schedule</h3>
-          <button
-            onClick={applyDefaultsToAll}
-            className="bg-green-500 hover:bg-green-600 text-white text-sm py-2 px-4 rounded"
-          >
-            Copy for the duration of my stay
-          </button>
         </div>
-
         <table className="w-full border-collapse">
           <thead>
             <tr>
@@ -1078,6 +1071,14 @@ export default function CareTable({
             </tr>
           </tbody>
         </table>
+        <div className="flex items-center justify-end mt-4">
+          <button
+            onClick={applyDefaultsToAll}
+            className="bg-green-500 hover:bg-green-600 text-white text-sm py-2 px-4 rounded"
+          >
+            Copy for the duration of my stay
+          </button>
+        </div>
       </div>
       <div className="w-full overflow-x-auto">
         <table className="w-full border-collapse min-w-max">

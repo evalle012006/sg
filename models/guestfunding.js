@@ -15,10 +15,16 @@ module.exports = (sequelize, DataTypes) => {
         as: 'guest'
       });
 
-      // NEW: Add association to Package
+      // Association to Package (iCare package)
       GuestFunding.belongsTo(models.Package, {
         foreignKey: 'package_id',
         as: 'package'
+      });
+
+      // NEW: Association to RoomType (additional room type)
+      GuestFunding.belongsTo(models.RoomType, {
+        foreignKey: 'additional_room_approved',
+        as: 'additionalRoomType'
       });
     }
   }
@@ -40,7 +46,6 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.INTEGER,
       allowNull: true
     },
-    // UPDATED: Replace package_approved (STRING) with package_id (INTEGER)
     package_id: {
       type: DataTypes.INTEGER,
       allowNull: true,
@@ -72,6 +77,35 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.INTEGER,
       defaultValue: 0,
       allowNull: false
+    },
+    additional_room_approved: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'room_types',
+        key: 'id'
+      },
+      validate: {
+        isExistingRoomType: async function(value) {
+          if (value) {
+            const { RoomType } = sequelize.models;
+            const roomTypeExists = await RoomType.findByPk(value);
+            if (!roomTypeExists) {
+              throw new Error('Selected room type does not exist');
+            }
+          }
+        }
+      }
+    },
+    additional_room_nights_approved: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+      allowNull: true
+    },
+    additional_room_nights_used: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+      allowNull: false
     }
   }, {
     sequelize,
@@ -84,6 +118,9 @@ module.exports = (sequelize, DataTypes) => {
       },
       {
         fields: ['package_id']
+      },
+      {
+        fields: ['additional_room_approved']
       },
       {
         fields: ['approval_from', 'approval_to']

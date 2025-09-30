@@ -152,37 +152,86 @@ const InputField = (props) => {
 
     // Autofill detection
     useEffect(() => {
-        const detectAutofill = () => {
-            if (
-                inputRef.current && 
-                window.getComputedStyle(inputRef.current, null).getPropertyValue('background-image') !== 'none' &&
-                inputRef.current.value !== value
-            ) {
-                const newValue = inputRef.current.value;
+        if (!inputRef.current) return;
+
+        // Function to process autofilled value
+        const processAutofillValue = (newValue) => {
+            if (newValue !== value) {
                 setValue(newValue);
                 setDirty(true);
                 onChange && onChange(newValue);
                 validateInput(newValue, true);
             }
         };
-        
+
+        // Method 1: CSS background-image detection (Chrome/Safari)
+        const detectAutofill = () => {
+            if (
+                inputRef.current && 
+                window.getComputedStyle(inputRef.current, null).getPropertyValue('background-image') !== 'none' &&
+                inputRef.current.value !== value
+            ) {
+                processAutofillValue(inputRef.current.value);
+            }
+        };
+
+        // Method 2: Input event listener (Edge compatibility)
+        const handleInput = (e) => {
+            processAutofillValue(e.target.value);
+        };
+
+        // Method 3: Focus event listener (catches when user clicks autofilled field in Edge)
+        const handleFocus = (e) => {
+            // Small delay to ensure autofill has completed
+            setTimeout(() => {
+                if (e.target.value && e.target.value !== value) {
+                    processAutofillValue(e.target.value);
+                }
+            }, 50);
+        };
+
+        // Method 4: Change event listener (backup detection)
+        const handleChange = (e) => {
+            processAutofillValue(e.target.value);
+        };
+
+        // Run initial detection
         detectAutofill();
-        const timeout = setTimeout(detectAutofill, 100);
         
-        if (inputRef.current) {
-            inputRef.current.classList.add('autofill-monitor');
-        }
+        // Run detection with delays for slower autofill
+        const timeout1 = setTimeout(detectAutofill, 100);
+        const timeout2 = setTimeout(detectAutofill, 500);
+        const timeout3 = setTimeout(detectAutofill, 1500); // Extra delay for Edge
         
-        return () => clearTimeout(timeout);
+        // Add event listeners
+        const inputElement = inputRef.current;
+        inputElement.addEventListener('input', handleInput);
+        inputElement.addEventListener('focus', handleFocus);
+        inputElement.addEventListener('change', handleChange);
+        inputElement.classList.add('autofill-monitor');
+        
+        // Cleanup
+        return () => {
+            clearTimeout(timeout1);
+            clearTimeout(timeout2);
+            clearTimeout(timeout3);
+            if (inputElement) {
+                inputElement.removeEventListener('input', handleInput);
+                inputElement.removeEventListener('focus', handleFocus);
+                inputElement.removeEventListener('change', handleChange);
+            }
+        };
     }, [onChange, value]);
-    
+
     const handleOnAnimationStart = (e) => {
         if (e.animationName === 'onAutoFillStart') {
             const newValue = inputRef.current.value;
-            setValue(newValue);
-            setDirty(true);
-            onChange && onChange(newValue);
-            validateInput(newValue, true);
+            if (newValue !== value) {
+                setValue(newValue);
+                setDirty(true);
+                onChange && onChange(newValue);
+                validateInput(newValue, true);
+            }
         }
     };
     

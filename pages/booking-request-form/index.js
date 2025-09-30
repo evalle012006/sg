@@ -31,10 +31,15 @@ import {
     clearHiddenQuestionAnswers,
     shouldMoveQuestionToNdisPage,
     extractCurrentFundingAnswer,
-    generateInfantCareQuestionKey,
-    generateInfantCareQuestionText,
     getInfantCareQuestionMapping,
 } from "../../utilities/bookingRequestForm";
+
+import { 
+    batchUpdateFirstTimeGuestCompletions,
+    forceUpdateFirstTimeGuestPageCompletion,
+    calculateFirstTimeGuestPageCompletion,
+    validateFirstTimeGuestCompletionConsistency 
+} from '../../utilities/firstTimeGuestCompletionHelper';
 
 import { 
     calculateReturningGuestPageCompletion, 
@@ -144,6 +149,93 @@ const BookingRequestForm = () => {
     const [selectedCourseOfferId, setSelectedCourseOfferId] = useState(null);
     const [courseOfferPreselected, setCourseOfferPreselected] = useState(false);
 
+    const [completedEquipments, setCompletedEquipments] = useState(false);
+    const [hasFutureCourseOffers, setHasFutureCourseOffers] = useState(null); // null = not checked yet, true/false = has/doesn't have offers
+    const [futureCourseOffersChecked, setFutureCourseOffersChecked] = useState(false);
+
+    const fetchAllFutureCourseOffers = useCallback(async () => {
+        const guestId = getGuestId();
+        if (!guestId) {
+            console.log('❌ No guest ID available for fetching future course offers');
+            setHasFutureCourseOffers(false);
+            setFutureCourseOffersChecked(true);
+            return { hasOffers: false, offers: [] };
+        }
+
+        try {
+            console.log('📚 Fetching all future course offers for guest:', guestId);
+            
+            // API endpoint to get all future offers without date restrictions
+            const apiUrl = `/api/guests/${guestId}/course-offers-future`;
+            
+            const response = await fetch(apiUrl);
+            if (response.ok) {
+                const data = await response.json();
+                const futureOffers = data.courseOffers || [];
+                
+                const hasOffers = data.hasFutureOffers === true && futureOffers.length > 0;
+                
+                console.log(`📚 Future course offers check complete:`, {
+                    total: futureOffers.length,
+                    hasOffers: hasOffers,
+                    summary: data.summary
+                });
+                
+                setHasFutureCourseOffers(hasOffers);
+                setFutureCourseOffersChecked(true);
+                
+                return {
+                    hasOffers: hasOffers,
+                    offers: futureOffers,
+                    summary: data.summary
+                };
+            } else {
+                const errorData = await response.json().catch(() => ({}));
+                console.error('❌ Failed to fetch future course offers:', {
+                    status: response.status,
+                    statusText: response.statusText,
+                    error: errorData.message
+                });
+                setHasFutureCourseOffers(false);
+                setFutureCourseOffersChecked(true);
+                return { hasOffers: false, offers: [], error: errorData.message };
+            }
+        } catch (error) {
+            console.error('❌ Error fetching future course offers:', error);
+            setHasFutureCourseOffers(false);
+            setFutureCourseOffersChecked(true);
+            return { hasOffers: false, offers: [], error: error.message };
+        }
+    }, [getGuestId]);
+
+    const filterCoursesPageIfNoOffers = useCallback((pages, hasOffers) => {
+        // If we haven't checked yet or if offers exist, don't filter anything
+        if (hasOffers === null || hasOffers === true) {
+            return pages;
+        }
+
+        console.log('🚫 No future course offers available - filtering out courses page');
+
+        // Filter out pages that contain course-related questions
+        const filteredPages = pages.filter(page => {
+            const hasCourseQuestions = page.Sections?.some(section =>
+                section.Questions?.some(question =>
+                    questionHasKey(question, QUESTION_KEYS.COURSE_OFFER_QUESTION) ||
+                    questionHasKey(question, QUESTION_KEYS.WHICH_COURSE)
+                )
+            );
+
+            if (hasCourseQuestions) {
+                console.log(`🚫 Hiding page: "${page.title}" (no future course offers available)`);
+                return false; // Exclude this page
+            }
+
+            return true; // Keep this page
+        });
+
+        return filteredPages;
+    }, []);
+
     const useCompletionLock = () => {
         const completionLockRef = useRef(new Set());
         
@@ -192,50 +284,6 @@ const BookingRequestForm = () => {
             lockAllPagesForReturningGuest();
         }
     }, [currentBookingType, prevBookingId, stableProcessedFormData?.length, lockAllPagesForReturningGuest]);
-
-
-    const prePopulateCourseSelection = useCallback((pages, courseOfferId) => {
-        if (!courseOfferId || courseOfferPreselected) return pages;
-
-        console.log('🎓 Pre-populating course selection with offer ID:', courseOfferId);
-
-        const updatedPages = pages.map(page => {
-            const updatedSections = page.Sections.map(section => {
-                const updatedQuestions = section.Questions.map(question => {
-                    if (questionHasKey(question, QUESTION_KEYS.COURSE_OFFER_QUESTION)) {
-                        return {
-                            ...question,
-                            answer: 'Yes',
-                            dirty: true,
-                            oldAnswer: question.answer,
-                            prePopulated: true, // Mark as pre-populated
-                            protected: true     // Protect from override
-                        };
-                    }
-                    
-                    if (questionHasKey(question, QUESTION_KEYS.WHICH_COURSE)) {
-                        return {
-                            ...question,
-                            answer: courseOfferId,
-                            dirty: true,
-                            oldAnswer: question.answer,
-                            prePopulated: true, // Mark as pre-populated
-                            protected: true     // Protect from override
-                        };
-                    }
-                    
-                    return question;
-                });
-                
-                return { ...section, Questions: updatedQuestions };
-            });
-            
-            return { ...page, Sections: updatedSections };
-        });
-
-        setCourseOfferPreselected(true);
-        return updatedPages;
-    }, [courseOfferPreselected]);
 
     const validateDatesWithExistingAPI = useCallback(async (checkInDate, checkOutDate, courseOfferId) => {
         if (!courseOfferId || !checkInDate || !checkOutDate) {
@@ -421,7 +469,7 @@ const BookingRequestForm = () => {
         } catch (error) {
             console.error('❌ Error saving auto-updated package selection:', error);
         }
-    }, [origin, bookingAmended, setBookingAmended]);
+    }, [uuid, origin, bookingAmended, setBookingAmended]);
 
     const autoUpdatePackageSelection = useCallback(async () => {
         // Only check if we have stable data and not processing
@@ -474,7 +522,7 @@ const BookingRequestForm = () => {
             );
 
             // If bestMatch is different from current answer, update it
-            if (bestMatchId && currentAnswer !== bestMatchId) {
+            if (bestMatchId && Number(currentAnswer) !== bestMatchId) {
                 console.log('🔄 Auto-updating package selection:', {
                     from: currentAnswer,
                     to: bestMatchId,
@@ -2115,7 +2163,7 @@ const BookingRequestForm = () => {
             return false;
         }
 
-        // FOR RETURNING GUESTS: Use dedicated helper
+        // FOR RETURNING GUESTS: Use dedicated helper (unchanged)
         if (currentBookingType === BOOKING_TYPES.RETURNING_GUEST && prevBookingId) {
             return calculateReturningGuestPageCompletion(page, {
                 visitedPages,
@@ -2127,56 +2175,29 @@ const BookingRequestForm = () => {
             });
         }
         
-        // FOR FIRST-TIME GUESTS: Original NDIS completion logic
-        let totalRequiredQuestions = 0;
-        let answeredRequiredQuestions = 0;
-        
-        for (const section of page.Sections) {
-            if (section.hidden) continue;
-            
-            for (const question of section.Questions || []) {
-                if (question.hidden || !question.required) continue;
-                
-                totalRequiredQuestions++;
-                
-                let isAnswered = false;
-                
-                if (question.type === 'checkbox' || question.type === 'checkbox-button') {
-                    let answerArray = question.answer;
-                    if (typeof answerArray === 'string' && answerArray.startsWith('[')) {
-                        try {
-                            answerArray = JSON.parse(answerArray);
-                        } catch (e) {
-                            answerArray = [];
-                        }
-                    }
-                    isAnswered = Array.isArray(answerArray) && answerArray.length > 0;
-                } else if (question.type === 'multi-select') {
-                    isAnswered = Array.isArray(question.answer) && question.answer.length > 0;
-                } else if (question.type === 'simple-checkbox') {
-                    isAnswered = question.answer === true || question.answer === "1";
-                } else {
-                    isAnswered = question.answer !== null &&
-                                question.answer !== undefined &&
-                                question.answer !== '';
-                }
-                
-                if (isAnswered) {
-                    answeredRequiredQuestions++;
-                }
-            }
-        }
-        
-        const isComplete = totalRequiredQuestions > 0 && answeredRequiredQuestions === totalRequiredQuestions;
-        return isComplete;
-    }, [currentBookingType, prevBookingId, visitedPages, pagesWithSavedData, equipmentPageCompleted, equipmentChangesState]);
+        // FOR FIRST-TIME GUESTS: Use new helper
+        return calculateFirstTimeGuestPageCompletion(page, {
+            visitedPages,
+            pagesWithSavedData,
+            completedEquipments, // NEW: Pass the API flag
+            currentBookingType
+        });
+    }, [
+        currentBookingType, 
+        prevBookingId, 
+        visitedPages, 
+        pagesWithSavedData, 
+        equipmentPageCompleted, 
+        equipmentChangesState,
+        completedEquipments
+    ]);
 
     const calculatePageCompletion = useCallback((page, currentVisitedPages = visitedPages, currentSavedPages = pagesWithSavedData) => {
         if (!page || !page.Sections) {
             return false;
         }
 
-        // FOR RETURNING GUESTS: Use dedicated helper (SINGLE SOURCE OF TRUTH)
+        // FOR RETURNING GUESTS: Use dedicated helper (unchanged)
         if (currentBookingType === BOOKING_TYPES.RETURNING_GUEST && prevBookingId) {
             return calculateReturningGuestPageCompletion(page, {
                 visitedPages: currentVisitedPages,
@@ -2188,105 +2209,107 @@ const BookingRequestForm = () => {
             });
         }
         
-        // FOR FIRST-TIME GUESTS: Keep existing logic
-        if (page.title === 'Equipment') {
-            return equipmentPageCompleted;
-        }
-
-        // Standard completion calculation for first-time guests
-        let totalRequiredQuestions = 0;
-        let answeredRequiredQuestions = 0;
-
-        for (const section of page.Sections) {
-            if (section.hidden) continue;
-
-            for (const question of section.Questions || []) {
-                if (question.hidden || !question.required) continue;
-
-                totalRequiredQuestions++;
-
-                // Check if question is answered based on type
-                let isAnswered = false;
-
-                if (question.type === 'checkbox' || question.type === 'checkbox-button') {
-                    let answerArray = question.answer;
-                    if (typeof answerArray === 'string' && answerArray.startsWith('[')) {
-                        try {
-                            answerArray = JSON.parse(answerArray);
-                        } catch (e) {
-                            answerArray = [];
-                        }
-                    }
-                    isAnswered = Array.isArray(answerArray) && answerArray.length > 0;
-                } else if (question.type === 'multi-select') {
-                    isAnswered = Array.isArray(question.answer) && question.answer.length > 0;
-                } else if (question.type === 'simple-checkbox') {
-                    isAnswered = question.answer === true || question.answer === "1";
-                } else if (question.type === 'equipment') {
-                    isAnswered = (question.answer !== null && question.answer !== undefined && question.answer !== '');
-                } else {
-                    isAnswered = question.answer !== null &&
-                                question.answer !== undefined &&
-                                question.answer !== '';
-                }
-
-                if (isAnswered) {
-                    answeredRequiredQuestions++;
-                }
-            }
-        }
-
-        return totalRequiredQuestions > 0 && answeredRequiredQuestions === totalRequiredQuestions;
+        // FOR FIRST-TIME GUESTS: Use new helper
+        return calculateFirstTimeGuestPageCompletion(page, {
+            visitedPages: currentVisitedPages,
+            pagesWithSavedData: currentSavedPages,
+            completedEquipments, // NEW: Pass the API flag
+            currentBookingType
+        });
     }, [
-        equipmentPageCompleted, 
-        equipmentChangesState, 
         currentBookingType, 
         prevBookingId, 
         visitedPages, 
-        pagesWithSavedData
+        pagesWithSavedData, 
+        equipmentPageCompleted, 
+        equipmentChangesState,
+        completedEquipments
     ]);
 
     const updatePageCompletionStatus = useCallback((pages, context = 'general') => {
         console.log(`🔄 Updating page completion status: ${context}`);
         
-        // FOR RETURNING GUESTS: Use batch update helper
+        // FOR RETURNING GUESTS: Use batch update helper (unchanged)
         if (currentBookingType === BOOKING_TYPES.RETURNING_GUEST && prevBookingId) {
-            return batchUpdateReturningGuestCompletions(pages, {
-                visitedPages,
-                pagesWithSavedData,
-                equipmentPageCompleted,
-                equipmentChangesState,
-                prevBookingId,
-                currentBookingType
-            });
-        }
-        
-        // FOR FIRST-TIME GUESTS: Original logic
-        return pages.map(page => {
-            const wasCompleted = page.completed;
-            let newCompleted;
+            console.log('🔒 Using completion lock for returning guest - only helper determines completion');
             
-            if (page.id === 'ndis_packages_page') {
-                newCompleted = calculateNdisPageCompletion(page);
+            let updatedPages = [...pages];
+            
+            if (context === 'submit') {
+                // For submit, use batch helper update
+                updatedPages = batchUpdateReturningGuestCompletions(updatedPages, {
+                    visitedPages,
+                    pagesWithSavedData,
+                    equipmentPageCompleted,
+                    equipmentChangesState,
+                    prevBookingId,
+                    currentBookingType
+                });
             } else {
-                newCompleted = calculatePageCompletion(page, visitedPages, pagesWithSavedData);
+                // For regular updates, refresh dependencies first but don't calculate completion
+                console.log('🔄 Refreshing dependencies for returning guest...');
+                updatedPages = forceRefreshAllDependencies(updatedPages, bookingFormRoomSelected);
+                updatedPages = clearHiddenQuestionAnswers(updatedPages);
+                updatedPages = forceRefreshAllDependencies(updatedPages, bookingFormRoomSelected);
+
+                // Then use batch helper update for completion
+                updatedPages = batchUpdateReturningGuestCompletions(updatedPages, {
+                    visitedPages,
+                    pagesWithSavedData,
+                    equipmentPageCompleted,
+                    equipmentChangesState,
+                    prevBookingId,
+                    currentBookingType
+                });
             }
             
-            if (wasCompleted !== newCompleted) {
-                console.log(`📊 Page "${page.title}" completion changed: ${wasCompleted} → ${newCompleted} (${context})`);
+            return updatedPages;
+        } else {
+            // NEW: FOR FIRST-TIME GUESTS: Use new helper instead of original logic
+            console.log('🔄 Using first-time guest completion helper');
+            
+            let updatedPages = [...pages];
+            
+            if (context === 'submit') {
+                // For submit, refresh dependencies first
+                updatedPages = forceRefreshAllDependencies(updatedPages, bookingFormRoomSelected);
+                updatedPages = clearHiddenQuestionAnswers(updatedPages);
+                updatedPages = forceRefreshAllDependencies(updatedPages, bookingFormRoomSelected);
+                
+                // Use batch helper update for completion
+                updatedPages = batchUpdateFirstTimeGuestCompletions(updatedPages, {
+                    visitedPages,
+                    pagesWithSavedData,
+                    completedEquipments, // NEW: Pass the API flag
+                    currentBookingType
+                });
+            } else {
+                // For regular updates, refresh dependencies first
+                console.log('🔄 Refreshing dependencies for first-time guest...');
+                updatedPages = forceRefreshAllDependencies(updatedPages, bookingFormRoomSelected);
+                updatedPages = clearHiddenQuestionAnswers(updatedPages);
+                updatedPages = forceRefreshAllDependencies(updatedPages, bookingFormRoomSelected);
+
+                // Then use batch helper update for completion
+                updatedPages = batchUpdateFirstTimeGuestCompletions(updatedPages, {
+                    visitedPages,
+                    pagesWithSavedData,
+                    completedEquipments,
+                    currentBookingType
+                });
             }
             
-            return { ...page, completed: newCompleted };
-        });
+            return updatedPages;
+        }
     }, [
-        calculatePageCompletion, 
-        calculateNdisPageCompletion, 
         visitedPages, 
         pagesWithSavedData,
         currentBookingType,
         prevBookingId,
         equipmentPageCompleted,
-        equipmentChangesState
+        equipmentChangesState,
+        completedEquipments,
+        bookingFormRoomSelected
     ]);
 
     const markPageAsVisited = useCallback((pageId) => {
@@ -2338,7 +2361,7 @@ const BookingRequestForm = () => {
         const visitedSet = newVisitedSet || visitedPages;
         const savedSet = newSavedSet || pagesWithSavedData;
         
-        // FOR RETURNING GUESTS: Use dedicated helper
+        // FOR RETURNING GUESTS: Use dedicated helper (unchanged)
         if (currentBookingType === BOOKING_TYPES.RETURNING_GUEST && prevBookingId) {
             const updatedPages = forceUpdateReturningGuestPageCompletion(
                 stableProcessedFormData, 
@@ -2362,16 +2385,20 @@ const BookingRequestForm = () => {
             return false;
         }
         
-        // FOR FIRST-TIME GUESTS: Original logic
-        const updatedPages = [...stableProcessedFormData];
-        const page = updatedPages[pageIndex];
-        const wasCompleted = page.completed;
-        const newCompleted = calculatePageCompletion(page, visitedSet, savedSet);
+        // NEW: FOR FIRST-TIME GUESTS: Use new helper
+        const updatedPages = forceUpdateFirstTimeGuestPageCompletion(
+            stableProcessedFormData, 
+            pageId, 
+            {
+                visitedPages: visitedSet,
+                pagesWithSavedData: savedSet,
+                completedEquipments, // NEW: Pass the API flag
+                currentBookingType
+            }
+        );
         
-        if (wasCompleted !== newCompleted) {
-            console.log(`🎯 FORCED completion update for "${page.title}": ${wasCompleted} → ${newCompleted}`);
-            updatedPages[pageIndex] = { ...page, completed: newCompleted };
-            
+        // Only update if there were actual changes
+        if (updatedPages !== stableProcessedFormData) {
             setProcessedFormData(updatedPages);
             safeDispatchData(updatedPages, `forced completion for ${pageId}`);
             return true;
@@ -2380,15 +2407,13 @@ const BookingRequestForm = () => {
         return false;
     }, [
         stableProcessedFormData, 
-        calculatePageCompletion, 
         visitedPages, 
-        pagesWithSavedData, 
-        setProcessedFormData, 
-        safeDispatchData,
+        pagesWithSavedData,
         currentBookingType,
         prevBookingId,
         equipmentPageCompleted,
-        equipmentChangesState
+        equipmentChangesState,
+        completedEquipments // NEW: Add to dependencies
     ]);
 
     const extractInfantCareQuantities = useCallback(() => {
@@ -4165,6 +4190,12 @@ const BookingRequestForm = () => {
                 return;
             }
 
+            // NEW: Extract completedEquipments flag from API response
+            if (data.completedEquipments !== undefined) {
+                setCompletedEquipments(data.completedEquipments);
+                console.log('🔧 Equipment completion flag from API:', data.completedEquipments);
+            }
+
             let summaryOfStay = { ...summaryData };
             setEquipmentPageCompleted(data.completedEquipments);
 
@@ -4609,10 +4640,12 @@ const BookingRequestForm = () => {
                             currentBookingType
                         })};
                     } else {
-                        if (page.id === 'ndis_packages_page') {
-                            return { ...page, completed: calculateNdisPageCompletion(page) };
-                        }
-                        return page;
+                        return { ...page, completed: calculateFirstTimeGuestPageCompletion(page, {
+                            visitedPages,
+                            pagesWithSavedData,
+                            completedEquipments,
+                            currentBookingType
+                        })};
                     }
                 });
                 
@@ -4715,7 +4748,8 @@ const BookingRequestForm = () => {
         visitedPages,
         pagesWithSavedData,
         equipmentPageCompleted,
-        equipmentChangesState
+        equipmentChangesState,
+        completedEquipments
     ]);
 
     // Also add cleanup in useEffect cleanup
@@ -5062,7 +5096,6 @@ const BookingRequestForm = () => {
         prevIsNdisFundedRef.current = isNdisFunded;
     }, [isNdisFunded, stableProcessedFormData, bookingFormRoomSelected, clearPackageQuestionAnswers, calculatePageCompletion, calculateNdisPageCompletion, forceRefreshAllDependencies, safeDispatchData]);
 
-
     useEffect(() => {
         // Clear any existing timeout
         if (autoUpdateTimeoutRef.current) {
@@ -5116,6 +5149,38 @@ const BookingRequestForm = () => {
         };
     }, []);
 
+    // useEffect to check for future course offers on component mount
+    useEffect(() => {
+        if (!futureCourseOffersChecked && (guest || booking || currentUser)) {
+            console.log('🔍 Checking for future course offers...');
+            fetchAllFutureCourseOffers();
+        }
+    }, [guest, booking, currentUser, futureCourseOffersChecked, fetchAllFutureCourseOffers]);
+
+    // useEffect to filter courses page when offers check is complete
+    useEffect(() => {
+        if (futureCourseOffersChecked && hasFutureCourseOffers === false) {
+            if (stableProcessedFormData && stableProcessedFormData.length > 0) {
+                console.log('🔄 Filtering courses page from form data (no future offers)');
+                
+                // Filter the processed form data
+                const filteredPages = filterCoursesPageIfNoOffers(stableProcessedFormData, hasFutureCourseOffers);
+                
+                // Only update if the filtering actually removed pages
+                if (filteredPages.length !== stableProcessedFormData.length) {
+                    setProcessedFormData(filteredPages);
+                    safeDispatchData(filteredPages, 'Courses page filtered (no future offers)');
+                }
+            }
+        }
+    }, [
+        futureCourseOffersChecked, 
+        hasFutureCourseOffers, 
+        stableProcessedFormData, 
+        filterCoursesPageIfNoOffers,
+        safeDispatchData
+    ]);
+
     useEffect(() => {
         return () => {
             // Cancel any pending profile operations
@@ -5157,38 +5222,37 @@ const BookingRequestForm = () => {
         }
     }, [uuid, prevBookingId]);
 
-    // useEffect(() => {
-    //     // ✅ DISABLE this effect completely to stop the completion consistency warnings
-    //     // during the transition period to helper-based completion
-    //     if (currentBookingType === BOOKING_TYPES.RETURNING_GUEST && stableProcessedFormData?.length > 0) {
-    //         debugReturningGuestCompletion(stableProcessedFormData, {
-    //             visitedPages,
-    //             pagesWithSavedData,
-    //             equipmentPageCompleted,
-    //             equipmentChangesState,
-    //             prevBookingId,
-    //             currentBookingType
-    //         });
+    useEffect(() => {
+        // Debug completion for first-time guests when needed
+        if (currentBookingType !== BOOKING_TYPES.RETURNING_GUEST && 
+            stableProcessedFormData?.length > 0 && 
+            process.env.NODE_ENV === 'development') {
             
-    //         const validation = validateReturningGuestCompletionConsistency(stableProcessedFormData, {
-    //             visitedPages,
-    //             pagesWithSavedData,
-    //             equipmentPageCompleted,
-    //             equipmentChangesState,
-    //             prevBookingId,
-    //             currentBookingType
-    //         });
+            // debugFirstTimeGuestCompletion(stableProcessedFormData, {
+            //     visitedPages,
+            //     pagesWithSavedData,
+            //     completedEquipments,
+            //     currentBookingType
+            // });
             
-    //         if (!validation.isValid) {
-    //             console.warn('⚠️ Completion consistency issues found:', validation.issues);
-    //         }
-    //     }
-        
-    //     // Replace with simple completion lock logging when needed
-    //     if (currentBookingType === BOOKING_TYPES.RETURNING_GUEST && stableProcessedFormData?.length > 0) {
-    //         console.log('🔒 Completion lock active for returning guest. Helper manages all completion.');
-    //     }
-    // }, [stableProcessedFormData, currentBookingType]);
+            const validation = validateFirstTimeGuestCompletionConsistency(stableProcessedFormData, {
+                visitedPages,
+                pagesWithSavedData,
+                completedEquipments,
+                currentBookingType
+            });
+            
+            if (!validation.isValid) {
+                console.warn('⚠️ First-time guest completion consistency issues found:', validation.issues);
+            }
+        }
+    }, [
+        stableProcessedFormData,
+        visitedPages,
+        pagesWithSavedData,
+        completedEquipments,
+        currentBookingType
+    ]);
 
     useEffect(() => {
         // Only run for returning guests when course offers are loaded
@@ -5300,6 +5364,7 @@ const BookingRequestForm = () => {
                         submitBooking={submitBooking}
                         careAnalysisData={careAnalysisData}
                         courseAnalysisData={courseAnalysisData}
+                        ndisFormFilters={ndisFormFilters}
                     />
                 ) : (
                     <div className="flex flex-col">

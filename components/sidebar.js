@@ -486,6 +486,32 @@ export default function Sidebar({ isCollapsed }) {
                         </Can>
                     )}
 
+                    {/* Promotions */}
+                    {user && user.type == 'user' && (
+                        <li>
+                            <Link href="/promotions">
+                                <a 
+                                    className={getMenuItemClasses("/promotions")}
+                                    title={isCollapsed ? "Promotions" : ""}
+                                >
+                                    {isMenuItemActive("/promotions") && (
+                                        <div className="absolute inset-0 bg-[#FFCE00]"></div>
+                                    )}
+                                    <div className="relative flex items-center w-full px-4">
+                                        <div className="w-6 h-6 flex-shrink-0">
+                                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                                <g opacity={isMenuItemActive("/promotions") ? "1" : "0.5"}>
+                                                    <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z" stroke={getIconColor("/promotions")} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                                </g>
+                                            </svg>
+                                        </div>
+                                        {!isCollapsed && <span className="ml-3 font-medium">Promotions</span>}
+                                    </div>
+                                </a>
+                            </Link>
+                        </li>
+                    )}
+
                     {/* Reports */}
                     {user && user.type == 'user' && (
                         <li>

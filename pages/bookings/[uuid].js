@@ -1847,57 +1847,110 @@ export default function BookingDetail() {
   const [loadingPackageOptions, setLoadingPackageOptions] = useState(false);
   const [selectedPackageValue, setSelectedPackageValue] = useState(null);
 
-  const loadPackageOptions = useCallback(async () => {
-    console.log('Loading package options for:', packageQaPairInfo);
-    if (!packageQaPairInfo) return;
-    console.log('Package QA Pair Info:' , !packageQaPairInfo);
-    setLoadingPackageOptions(true);
-    
-    try {
-      const { question } = packageQaPairInfo;
-
-      if (question.type === 'package-selection') {
-        // Use your existing packages API
-        const response = await fetch('/api/packages');
-        if (response.ok) {
-          const data = await response.json();
-          if (data.success && data.packages) {
-            const formattedOptions = data.packages.map(pkg => ({
-              label: pkg.name,
-              value: pkg.id.toString(),
-              packageData: pkg
-            }));
-            setPackageOptions(formattedOptions);
-          }
-        }
-      } else {
-        // Load options from Question.options
-        if (question?.options) {
-          try {
-            const options = typeof question.options === 'string' 
-              ? JSON.parse(question.options) 
-              : question.options;
-            
-            const formattedOptions = Array.isArray(options) ? options.map(option => ({
-              label: option.label || option.name || option.value,
-              value: option.value || option.id || option.label,
-              optionData: option
-            })) : [];
-            
-            setPackageOptions(formattedOptions);
-          } catch (e) {
-            console.error('Failed to parse package options:', e);
-            setPackageOptions([]);
-          }
-        }
+  useEffect(() => {
+    const loadOptions = async () => {
+      if (!editingPackage || !packageQaPairInfo) {
+        return;
       }
-    } catch (error) {
-      console.error('Error loading package options:', error);
-      toast.error('Failed to load package options');
-    } finally {
-      setLoadingPackageOptions(false);
-    }
-  }, [packageQaPairInfo]);
+      
+      setLoadingPackageOptions(true);
+      
+      try {
+        const { question, questionType, currentAnswer } = packageQaPairInfo;
+
+        // Check if this is a package-selection type question
+        if (questionType === 'package-selection' || 
+            question?.type === 'package-selection') {
+          
+          const funderDisplay = getFunderTypeDisplay();
+          const funderValue = funderDisplay?.value || funderInfo?.answer;
+          
+          // Build the API URL with funder parameter
+          let apiUrl = '/api/packages';
+          const params = new URLSearchParams();
+          
+          if (funderValue) {
+            params.append('funder', funderValue);
+          }
+          
+          // Add other useful params
+          params.append('limit', '100');
+          params.append('sort', 'name');
+          
+          const queryString = params.toString();
+          if (queryString) {
+            apiUrl += `?${queryString}`;
+          }
+          
+          const response = await fetch(apiUrl);
+          
+          if (response.ok) {
+            const data = await response.json();
+            
+            if (data.success && data.packages) {
+              const formattedOptions = data.packages.map(pkg => ({
+                label: pkg.name,
+                value: pkg.id.toString(),
+                packageData: pkg
+              }));
+              
+              setPackageOptions(formattedOptions);
+              
+              // Set the current package as selected
+              if (currentAnswer) {
+                setSelectedPackageValue(currentAnswer.toString());
+              }
+            } else {
+              console.error('Invalid API response structure:', data);
+              toast.error('Invalid package data received');
+            }
+          } else {
+            console.error('API request failed:', response.status);
+            toast.error('Failed to fetch packages from server');
+          }
+        } else {
+          // Load options from Question.options (existing code)
+          if (question?.options) {
+            try {
+              const options = typeof question.options === 'string' 
+                ? JSON.parse(question.options) 
+                : question.options;
+              
+              console.log('Parsed options:', options);
+              
+              const formattedOptions = Array.isArray(options) ? options.map(option => ({
+                label: option.label || option.name || option.value,
+                value: option.value || option.id || option.label,
+                optionData: option
+              })) : [];
+              
+              console.log('Formatted options:', formattedOptions);
+              setPackageOptions(formattedOptions);
+              
+              if (currentAnswer) {
+                console.log('Setting current answer:', currentAnswer);
+                setSelectedPackageValue(currentAnswer.toString());
+              }
+            } catch (e) {
+              console.error('Failed to parse package options:', e);
+              toast.error('Failed to parse package options');
+              setPackageOptions([]);
+            }
+          } else {
+            console.warn('No options available in question object');
+            toast.error('No package options available');
+          }
+        }
+      } catch (error) {
+        console.error('Error loading package options:', error);
+        toast.error('Failed to load package options');
+      } finally {
+        setLoadingPackageOptions(false);
+      }
+    };
+
+    loadOptions();
+  }, [editingPackage, packageQaPairInfo, funderInfo]); 
 
   const handleUpdatePackage = useCallback(async (selectedOption) => {
     if (!packageQaPairInfo || !selectedOption) return;
@@ -1907,7 +1960,6 @@ export default function BookingDetail() {
     try {
       const { qaPairId, currentAnswer } = packageQaPairInfo;
       
-      // Use the new direct qa_pair update API
       const response = await fetch(`/api/qa-pairs/${qaPairId}/update`, {
         method: 'PUT',
         headers: {
@@ -1948,8 +2000,7 @@ export default function BookingDetail() {
   const handleEditPackage = useCallback(() => {
     setEditingPackage(true);
     setSelectedPackageValue(packageQaPairInfo?.currentAnswer || null);
-    loadPackageOptions();
-  }, [packageQaPairInfo, loadPackageOptions]);
+  }, [packageQaPairInfo]);
 
   const handleCancelPackageEdit = useCallback(() => {
     setEditingPackage(false);
@@ -2276,8 +2327,8 @@ export default function BookingDetail() {
     booking.Sections.forEach(section => {
       section.QaPairs?.forEach(qaPair => {
         const question = qaPair.Question;
-        const questionType = question?.question_type || '';
-        const questionKey = qaPair.question_key || '';
+        const questionType = question?.type || ''; // FIXED: use 'type' not 'question_type'
+        const questionKey = question?.question_key || ''; // FIXED: access from Question, not qaPair
         
         // Check for package-related questions
         if (questionKey === QUESTION_KEYS.ACCOMMODATION_PACKAGE_COURSES ||
@@ -2298,7 +2349,7 @@ export default function BookingDetail() {
         }
       });
     });
-    
+  
     return qaPairData;
   }, [booking]);
 

@@ -39,6 +39,7 @@ const courseOfferModel = require('./courseoffer');
 const courseRateModel = require('./courserate');
 const packageRequirementModel = require('./packagerequirement');
 const guestFundingModel = require('./guestfunding');
+const promotionModel = require('./promotion');
 
 const env = process.env.NODE_ENV || 'development';
 const config = require(__dirname + '/../config/config.js')[env];
@@ -88,6 +89,7 @@ const CourseOffer = courseOfferModel(sequelize, Sequelize.DataTypes);
 const CourseRate = courseRateModel(sequelize, Sequelize.DataTypes);
 const PackageRequirement = packageRequirementModel(sequelize, Sequelize.DataTypes);
 const GuestFunding = guestFundingModel(sequelize, Sequelize.DataTypes);
+const Promotion = promotionModel(sequelize, Sequelize.DataTypes);
 
 //ASSOCIATIONS
 Role.belongsToMany(Permission, { through: RoleHasPermission, foreignKey: 'role_id' });
@@ -289,6 +291,15 @@ GuestFunding.belongsTo(Package, {
   foreignKey: 'package_id',
   as: 'package'
 });
+// Association between GuestFunding and RoomType for additional room tracking
+RoomType.hasMany(GuestFunding, {
+  foreignKey: 'additional_room_approved',
+  as: 'guestFundings'
+});
+GuestFunding.belongsTo(RoomType, {
+  foreignKey: 'additional_room_approved',
+  as: 'additionalRoomType'
+});
 
 
 module.exports = {
@@ -332,4 +343,5 @@ module.exports = {
   CourseRate,
   PackageRequirement,
   GuestFunding,
+  Promotion,
 };

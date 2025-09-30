@@ -18,7 +18,6 @@ const ThumbnailCard = dynamic(() => import('../ui-v2/ThumbnailCard'));
 const CalendarView = dynamic(() => import('../ui-v2/CalendarView'), {
     loading: () => <div className="flex justify-center items-center py-12"><span>Loading calendar...</span></div>
 });
-const Card = dynamic(() => import('../ui-v2/Card')); // Import Card component
 
 export default function GuestBookingsV2() {
     const dispatch = useDispatch();
@@ -40,6 +39,8 @@ export default function GuestBookingsV2() {
     const [showAllCourseOffers, setShowAllCourseOffers] = useState(false);
 
     const [courseBookingContext, setCourseBookingContext] = useState(null);
+    const [promotions, setPromotions] = useState([]);
+    const [loadingPromotions, setLoadingPromotions] = useState(true);
 
     // Updated tabs to include Course Calendar
     const tabs = [
@@ -58,30 +59,17 @@ export default function GuestBookingsV2() {
         });
     }
 
-    const handleCompletePrevBooking = async (courseContext = null) => {
+    const handleCompletePrevBooking = async () => {
         const brf = await createBookingRequestForm(latestBooking.id);
         const incompletePreviousBookingUuid = upcomingBookings.filter(booking => !booking.complete && !booking.status.includes('cancelled'))[0].uuid;
-        
+
         if (brf.ok) {
             setTimeout(() => {
                 if (incompletePreviousBookingUuid && prevBookingUuid) {
-                    let finalUrl;
-                    
-                    // Use parameter instead of state
-                    const currentCourseContext = courseContext || courseBookingContext;
-                    
-                    if (currentCourseContext) {
-                        const baseUrl = `/booking-request-form?uuid=${incompletePreviousBookingUuid}&prevBookingId=${prevBookingUuid}`;
-                        const courseParam = `&courseOfferId=${currentCourseContext.courseOfferId}`;
-                        finalUrl = baseUrl + courseParam;
-                        
-                        toast.info(`Completing previous booking with course "${currentCourseContext.courseName}" pre-selected.`);
-                        setCourseBookingContext(null);
-                    } else {
-                        finalUrl = `/booking-request-form?uuid=${incompletePreviousBookingUuid}&prevBookingId=${prevBookingUuid}`;
-                    }
-                    
-                    window.open(finalUrl, '_self');
+                    window.open(`/booking-request-form?uuid=${incompletePreviousBookingUuid}&prevBookingId=${prevBookingUuid}`, '_self');
+                } else {
+                    console.log('missing incompletePrevBookingUuid and prevBookingUuid');
+                    // window.open(`/booking-request-form?uuid=${incompletePreviousBookingUuid}`, '_self');
                 }
             }, 800);
         }
@@ -340,6 +328,41 @@ export default function GuestBookingsV2() {
             router.push('/auth/login')
         }
     }, [router, user]);
+
+    useEffect(() => {
+        loadPromotions();
+    }, []);
+
+    const loadPromotions = async () => {
+        setLoadingPromotions(true);
+        try {
+            const response = await fetch('/api/promotions?status=published');
+            if (response.ok) {
+                const result = await response.json();
+                // Filter by date range - only show current promotions
+                const today = new Date();
+                const filteredPromotions = (result.promotions || []).filter(promo => {
+                    if (!promo.start_date && !promo.end_date) return true;
+                    
+                    const startDate = promo.start_date ? new Date(promo.start_date) : null;
+                    const endDate = promo.end_date ? new Date(promo.end_date) : null;
+                    
+                    if (startDate && endDate) {
+                        return today >= startDate && today <= endDate;
+                    } else if (startDate) {
+                        return today >= startDate;
+                    } else if (endDate) {
+                        return today <= endDate;
+                    }
+                    return true;
+                });
+                setPromotions(filteredPromotions);
+            }
+        } catch (error) {
+            console.error('Error loading promotions:', error);
+        }
+        setLoadingPromotions(false);
+    };
 
     const getBookingTitle = (booking) => {
         if (!booking.Rooms.length) return;
@@ -686,38 +709,26 @@ export default function GuestBookingsV2() {
     };
 
     const renderPromotionCards = () => {
-        // Sample promotion data matching the screenshot
-        const promotions = [
-            {
-                title: "Complimentary Gym Session",
-                description: "Enjoy a complimentary gym session with our adaptive fitness equipment and personal trainer support.",
-                availability: "Available all year",
-                terms: "Book 3+ nights stay",
-                id: "gym-promo",
-                image: "/images/gym-session.jpg"
-            },
-            {
-                title: "Confidence Sculpting", 
-                description: "Build confidence through our specialized sculpting and pottery classes designed for all skill levels.",
-                availability: "Available all year",
-                terms: "Book 2+ nights stay",
-                id: "sculpting-promo",
-                image: "/images/confidence-sculpting.jpg"
-            },
-            {
-                title: "Receive $100 meal voucher",
-                description: "Enjoy dining at our restaurant with a complimentary $100 meal voucher for extended stays.",
-                availability: "01 Apr, 2025 - 30 Apr, 2025",
-                terms: "Book 5+ nights stay",
-                id: "meal-voucher",
-                image: "/images/meal-voucher.jpg"
-            }
-        ];
+        if (loadingPromotions) {
+            return (
+                <div className="flex justify-center items-center py-12">
+                    <Spinner />
+                </div>
+            );
+        }
+
+        if (!promotions || promotions.length === 0) {
+            return (
+                <div className="text-center py-12">
+                    <p className="text-gray-600">No promotions available at this time.</p>
+                </div>
+            );
+        }
 
         return (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {promotions.map((promotion, index) => (
-                    <div key={index} className="bg-white rounded-lg shadow-sm overflow-hidden border border-gray-200">
+                    <div key={promotion.id || index} className="bg-white rounded-lg shadow-sm overflow-hidden border border-gray-200">
                         {/* Special Offer Badge */}
                         <div className="relative">
                             <div className="absolute top-3 left-3 z-10">
@@ -727,17 +738,19 @@ export default function GuestBookingsV2() {
                                     size="small"
                                 />
                             </div>
-                            <img 
-                                src={promotion.image} 
-                                alt={promotion.title}
-                                className="w-full h-48 object-cover"
-                                onError={(e) => {
-                                    e.target.style.display = 'none';
-                                    e.target.nextSibling.style.display = 'flex';
-                                }}
-                            />
+                            {promotion.imageUrl ? (
+                                <img 
+                                    src={promotion.imageUrl} 
+                                    alt={promotion.title}
+                                    className="w-full h-48 object-cover"
+                                    onError={(e) => {
+                                        e.target.style.display = 'none';
+                                        e.target.nextSibling.style.display = 'flex'
+                                    }}
+                                />
+                            ) : null}
                             {/* Placeholder for missing images */}
-                            <div className="w-full h-48 bg-gray-200 flex items-center justify-center text-gray-500 hidden">
+                            <div className={`w-full h-48 bg-gray-200 flex items-center justify-center text-gray-500 ${promotion.imageUrl ? 'hidden' : ''}`}>
                                 <svg className="w-12 h-12" fill="currentColor" viewBox="0 0 20 20">
                                     <path fillRule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clipRule="evenodd" />
                                 </svg>
@@ -751,25 +764,18 @@ export default function GuestBookingsV2() {
                             
                             {/* Promotion Information */}
                             <div className="space-y-1 mb-4">
-                                <div className="flex justify-between text-sm">
-                                    <span className="text-gray-500">Availability:</span>
-                                    <span className="text-gray-900">{promotion.availability}</span>
-                                </div>
-                                <div className="flex justify-between text-sm">
-                                    <span className="text-gray-500">Terms:</span>
-                                    <span className="text-gray-900">{promotion.terms}</span>
-                                </div>
-                            </div>
-                            
-                            {/* Action Buttons */}
-                            <div className="flex gap-2">
-                                <span 
-                                    className="flex-1 text-sm cursor-pointer hover:text-blue-800 transition-colors underline py-2"
-                                    style={{ color: '#00467F' }}
-                                    onClick={() => console.log(`View details for: ${promotion.id}`)}
-                                >
-                                    View Details
-                                </span>
+                                {promotion.availability && (
+                                    <div className="flex justify-between text-sm">
+                                        <span className="text-gray-500">Availability:</span>
+                                        <span className="text-gray-900">{promotion.availability}</span>
+                                    </div>
+                                )}
+                                {promotion.terms && (
+                                    <div className="flex justify-between text-sm">
+                                        <span className="text-gray-500">Terms:</span>
+                                        <span className="text-gray-900">{promotion.terms}</span>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -870,8 +876,9 @@ export default function GuestBookingsV2() {
                                 setCourseBookingContext(null);
                             }}
                             onClose={() => {
+                                console.log('Modal closed');
                                 setShowWarningNewBooking(false);
-                                handleCompletePrevBooking(courseBookingContext);
+                                handleCompletePrevBooking();
                             }}
                             cancelLabel="Complete Booking"
                             cancelColor="text-sargood-blue"
