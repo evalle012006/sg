@@ -220,21 +220,114 @@ export default async function handler(req, res) {
                 generateNotifications(booking, 'confirmed');
                 dispatchHttpTaskHandler('booking', { type: 'triggerEmailsOnBookingConfirmed', payload: { booking_id: booking.id } });
                 break;
+            case 'guest_cancelled':
             case 'booking_cancelled':
-                await Booking.update({ status_logs: JSON.stringify(updateStatusLogs(statusLogs, 'canceled')) }, { where: { id: booking.id } });
-                sendMail(booking.Guest.email, 'Sargood On Collaroy - Booking Enquiry', 'booking-cancelled',
-                    {
-                        guest_name: booking.Guest.first_name,
-                        arrivalDate: booking.preferred_arrival_date ? moment(booking.preferred_arrival_date).format("DD-MM-YYYY") : '-',
-                        departureDate: booking.preferred_departure_date ? moment(booking.preferred_departure_date).format("DD-MM-YYYY") : '-'
-                    });
-                sendMail("info@sargoodoncollaroy.com.au", 'Sargood On Collaroy - Booking Enquiry', 'booking-cancelled-admin',
-                    {
-                        guest_name: booking.Guest.first_name + ' ' + booking.Guest.last_name,
-                        arrivalDate: booking.preferred_arrival_date ? moment(booking.preferred_arrival_date).format("DD-MM-YYYY") : '-',
-                        departureDate: booking.preferred_departure_date ? moment(booking.preferred_departure_date).format("DD-MM-YYYY") : '-'
-                    });
-                generateNotifications(booking, 'cancelled');
+                // Handle guest funding reversal for full charge cancellations
+                const isFullChargeCancellation = req.body.isFullChargeCancellation;
+                
+                if (isFullChargeCancellation) {
+                    // Get all Q&A pairs from all sections
+                    const allQaPairs = booking.Sections.map(section => section.QaPairs).flat();
+                    
+                    // Check if funding source is icare
+                    const fundingSource = getAnswerByQuestionKey(allQaPairs, QUESTION_KEYS.FUNDING_SOURCE);
+                    
+                    if (fundingSource && fundingSource.toLowerCase().includes('icare')) {
+                        // Get check-in and check-out dates
+                        let checkInDate = null;
+                        let checkOutDate = null;
+                        
+                        // Try combined date range first
+                        const dateRange = getAnswerByQuestionKey(allQaPairs, QUESTION_KEYS.CHECK_IN_OUT_DATE);
+                        if (dateRange) {
+                            let dates = [];
+                            if (dateRange.includes(' to ')) {
+                                dates = dateRange.split(' to ');
+                            } else if (dateRange.includes(' - ')) {
+                                dates = dateRange.split(' - ');
+                            }
+                            
+                            if (dates.length === 2) {
+                                checkInDate = moment(dates[0].trim());
+                                checkOutDate = moment(dates[1].trim());
+                            }
+                        } else {
+                            // Try individual date fields
+                            const checkInAnswer = getAnswerByQuestionKey(allQaPairs, QUESTION_KEYS.CHECK_IN_DATE);
+                            const checkOutAnswer = getAnswerByQuestionKey(allQaPairs, QUESTION_KEYS.CHECK_OUT_DATE);
+                            
+                            if (checkInAnswer) checkInDate = moment(checkInAnswer);
+                            if (checkOutAnswer) checkOutDate = moment(checkOutAnswer);
+                        }
+                        
+                        // Calculate nights if both dates are available and valid
+                        if (checkInDate && checkOutDate && checkInDate.isValid() && checkOutDate.isValid()) {
+                            const nightsToReturn = checkOutDate.diff(checkInDate, 'days');
+                            
+                            if (nightsToReturn > 0) {
+                                try {
+                                    // Find the GuestFunding record for this guest
+                                    const guestFunding = await GuestFunding.findOne({
+                                        where: { guest_id: booking.Guest.id }
+                                    });
+                                    
+                                    if (guestFunding) {
+                                        const currentNightsUsed = guestFunding.nights_used || 0;
+                                        const newNightsUsed = Math.max(0, currentNightsUsed - nightsToReturn);
+                                        
+                                        await GuestFunding.update(
+                                            { nights_used: newNightsUsed },
+                                            { where: { id: guestFunding.id } }
+                                        );
+                                        
+                                        console.log(`Reversed nights_used for guest ${booking.Guest.id}: ${currentNightsUsed} - ${nightsToReturn} = ${newNightsUsed}`);
+                                        
+                                        // Send email notification about nights reversal
+                                        try {
+                                            await sendIcareCancellationEmail(booking.Guest, guestFunding, {
+                                                nightsReturned: nightsToReturn,
+                                                newNightsUsed,
+                                                remainingNights: guestFunding.nights_approved - newNightsUsed
+                                            });
+                                        } catch (emailError) {
+                                            console.error('Error sending iCare cancellation email:', emailError);
+                                            // Don't fail the cancellation if email fails
+                                        }
+                                    } else {
+                                        console.log(`No GuestFunding record found for guest ${booking.Guest.id}`);
+                                    }
+                                } catch (fundingError) {
+                                    console.error('Error reversing nights_used:', fundingError);
+                                    // Continue with cancellation even if funding update fails
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                if (currentStatus && currentStatus.name === 'booking_cancelled') {
+                    // Update status logs
+                    await Booking.update({ 
+                        status_logs: JSON.stringify(updateStatusLogs(statusLogs, 'canceled')) 
+                    }, { where: { id: booking.id } });
+                    
+                    // Send cancellation emails
+                    sendMail(booking.Guest.email, 'Sargood On Collaroy - Booking Enquiry', 'booking-cancelled',
+                        {
+                            guest_name: booking.Guest.first_name,
+                            arrivalDate: booking.preferred_arrival_date ? moment(booking.preferred_arrival_date).format("DD-MM-YYYY") : '-',
+                            departureDate: booking.preferred_departure_date ? moment(booking.preferred_departure_date).format("DD-MM-YYYY") : '-'
+                        });
+                    
+                    sendMail("info@sargoodoncollaroy.com.au", 'Sargood On Collaroy - Booking Enquiry', 'booking-cancelled-admin',
+                        {
+                            guest_name: booking.Guest.first_name + ' ' + booking.Guest.last_name,
+                            arrivalDate: booking.preferred_arrival_date ? moment(booking.preferred_arrival_date).format("DD-MM-YYYY") : '-',
+                            departureDate: booking.preferred_departure_date ? moment(booking.preferred_departure_date).format("DD-MM-YYYY") : '-'
+                        });
+                }
+                
+                generateNotifications(booking, status.name === 'guest_cancelled' ? 'guest cancelled' : 'cancelled', true);
                 break;
             case 'on_hold':
                 await Booking.update({ status_logs: JSON.stringify(updateStatusLogs(statusLogs, 'on_hold')) }, { where: { id: booking.id } });
@@ -246,9 +339,6 @@ export default async function handler(req, res) {
                 break;
             case 'ready_to_process':
                 generateNotifications(booking, 'ready to process');
-                break;
-            case 'guest_cancelled':
-                generateNotifications(booking, 'guest cancelled', true);
                 break;
             default:
                 break;
@@ -406,6 +496,26 @@ const sendIcareNightsUpdateEmail = async (guest, guestFunding, bookingDetails) =
     await sendMail(
         guest.email,
         'Sargood on Collaroy - iCare Update',
+        'icare-nights-update',
+        templateData
+    );
+};
+
+const sendIcareCancellationEmail = async (guest, guestFunding, cancellationDetails) => {
+    const { nightsReturned, newNightsUsed, remainingNights } = cancellationDetails;
+    
+    const templateData = {
+        guest_name: `${guest.first_name} ${guest.last_name}`,
+        approval_number: guestFunding.approval_number || 'Not specified',
+        nights_returned: nightsReturned,
+        nights_used: newNightsUsed,
+        nights_remaining: remainingNights,
+        nights_approved: guestFunding.nights_approved || 0
+    };
+    
+    await sendMail(
+        guest.email,
+        'Sargood on Collaroy - iCare Nights Update (Cancellation)',
         'icare-nights-update',
         templateData
     );

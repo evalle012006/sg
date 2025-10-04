@@ -41,6 +41,8 @@ export default function GuestBookingsV2() {
     const [courseBookingContext, setCourseBookingContext] = useState(null);
     const [promotions, setPromotions] = useState([]);
     const [loadingPromotions, setLoadingPromotions] = useState(true);
+    const [openCancelDropdown, setOpenCancelDropdown] = useState(null);
+    const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
 
     // Updated tabs to include Course Calendar
     const tabs = [
@@ -69,7 +71,6 @@ export default function GuestBookingsV2() {
                     window.open(`/booking-request-form?uuid=${incompletePreviousBookingUuid}&prevBookingId=${prevBookingUuid}`, '_self');
                 } else {
                     console.log('missing incompletePrevBookingUuid and prevBookingUuid');
-                    // window.open(`/booking-request-form?uuid=${incompletePreviousBookingUuid}`, '_self');
                 }
             }, 800);
         }
@@ -121,26 +122,18 @@ export default function GuestBookingsV2() {
                     setLoading(false);
                     setTimeout(() => {
                         let finalUrl;
-                        // Use the parameter instead of state
                         const currentCourseContext = courseContext || courseBookingContext;
                         console.log('🎓 Course booking context:', currentCourseContext);
                         
                         if (currentCourseContext && currentCourseContext?.courseName) {
-                            // Course booking flow
                             const baseUrl = `/booking-request-form?uuid=${newBooking.uuid}`;
                             const courseParam = `&courseOfferId=${currentCourseContext.courseOfferId}`;
                             const prevBookingParam = (bookings.length > 0 && newBooking.prevBookingId) 
                                 ? `&prevBookingId=${newBooking.prevBookingId}` : '';
                             
                             finalUrl = baseUrl + courseParam + prevBookingParam;
-                            
-                            // toast.success(`🎓 Booking created for "${currentCourseContext.courseName}"! Your course is pre-selected. Please complete your booking by selecting your stay dates.`, {
-                            //     autoClose: 5000
-                            // });
-                            
                             setCourseBookingContext(null);
                         } else {
-                            // Regular booking flow
                             if (bookings.length > 0 && newBooking.prevBookingId) {
                                 finalUrl = `/booking-request-form?uuid=${newBooking.uuid}&prevBookingId=${newBooking.prevBookingId}`;
                             } else {
@@ -176,19 +169,25 @@ export default function GuestBookingsV2() {
         handleCheckPrevBookingStatus(courseContext);
     };
 
-    const handleCancelBooking = async (booking) => {
-        if (booking) {
-            await fetch(`/api/bookings/${booking}/update-status`, {
+    const handleCancelBooking = async (bookingId, isFullCharge = false) => {
+        if (bookingId) {
+            await fetch(`/api/bookings/${bookingId}/update-status`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    status: { "name": "guest_cancelled", "label": "Cancellation Requested", "color": "orange" }
+                    status: { 
+                        "name": "guest_cancelled", 
+                        "label": "Cancellation Requested", 
+                        "color": "orange" 
+                    },
+                    isFullChargeCancellation: isFullCharge
                 })
             }).then(() => {
                 fetchBookings();
-                toast.success('Booking Cancellation has been requested.');
+                const chargeType = isFullCharge ? 'Full Charge' : 'No Charge';
+                toast.success(`${chargeType} Booking Cancellation has been requested.`);
             }).catch(err => console.log(err))
         }
     }
@@ -228,13 +227,11 @@ export default function GuestBookingsV2() {
             const bookingList = data.Bookings;
             
             if (bookingList) {
-                // Room images are now included directly in the API response
                 setBookings(bookingList);
                 
                 const sortedBookings = [...bookingList].sort((a, b) => b.id - a.id);
                 setLatestBooking(sortedBookings[0]);
 
-                // picking the latest booking that is complete
                 const filteredBookingsList = sortedBookings.filter(booking => booking.complete);
 
                 if (filteredBookingsList.length) {
@@ -261,9 +258,9 @@ export default function GuestBookingsV2() {
         try {
             const params = new URLSearchParams({
                 guest_id: user.id.toString(),
-                status: 'offered', // Show offered courses
-                include_invalid: 'false', // Only show valid offers
-                include_booked: 'true', // IMPORTANT: Include courses already linked to bookings
+                status: 'offered',
+                include_invalid: 'false',
+                include_booked: 'true',
                 limit: '20'
             });
             
@@ -274,12 +271,9 @@ export default function GuestBookingsV2() {
             
             const result = await response.json();
             if (result.success) {
-                // Show ALL course offers - don't filter by booking_id
-                // The UI will handle displaying them differently based on booking status
                 const allOffers = result.data || [];
                 setCourseOffers(allOffers);
                 
-                // Log for debugging
                 const linkedOffers = allOffers.filter(offer => offer.booking_id !== null);
                 const availableOffers = allOffers.filter(offer => offer.booking_id === null);
                 
@@ -321,7 +315,7 @@ export default function GuestBookingsV2() {
     useEffect(() => {
         if (user) {
             fetchBookings();
-            loadCourseOffers(); // Load course offers when user is available
+            loadCourseOffers();
         }
 
         if (user == null) {
@@ -339,7 +333,6 @@ export default function GuestBookingsV2() {
             const response = await fetch('/api/promotions?status=published');
             if (response.ok) {
                 const result = await response.json();
-                // Filter by date range - only show current promotions
                 const today = new Date();
                 const filteredPromotions = (result.promotions || []).filter(promo => {
                     if (!promo.start_date && !promo.end_date) return true;
@@ -392,11 +385,9 @@ export default function GuestBookingsV2() {
         }
     }
 
-    // Transform course offers data for calendar view
     const getCalendarCourses = () => {
         return courseOffers.map(offer => ({
             ...offer.course,
-            // Add additional properties for calendar display
             booking_id: offer.booking_id,
             offer_status: offer.status,
             isLinkedToBooking: offer.isLinkedToBooking,
@@ -413,7 +404,6 @@ export default function GuestBookingsV2() {
                         const bookingStatus = JSON.parse(booking.status);
                         let imageUrl = null;
                         
-                        // Get image URL from the API response - room images are now included directly
                         if (booking.Rooms.length > 0 && booking.Rooms[0].RoomType?.imageUrl) {
                             imageUrl = booking.Rooms[0].RoomType.imageUrl;
                         }
@@ -435,18 +425,19 @@ export default function GuestBookingsV2() {
     
                         const bookingDate = moment(booking.createdAt).format('D MMM, YYYY');
                         
-                        // Create custom buttons array for past bookings
+                        const isCancelled = bookingStatus.name === 'booking_cancelled' || bookingStatus.name === 'guest_cancelled';
+                        const editButtonLabel = booking.complete ? "REQUEST TO AMEND" : "EDIT BOOKING";
+                        
                         const customButtons = [];
                         
-                        // Add buttons for past bookings (simplified with just icons in outline style)
                         if (activeTab === 1) {
-                            // View Details Button - Eye icon
                             customButtons.push(
                                 <button 
                                     key="view-details"
                                     className="inline-flex items-center justify-center p-2 border border-blue-700 text-blue-700 rounded hover:bg-blue-50 transition-colors"
                                     onClick={() => viewBooking(booking.uuid)}
                                     aria-label="View Details"
+                                    title="View Details"
                                 >
                                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
                                         <path d="M12 15a3 3 0 100-6 3 3 0 000 6z" />
@@ -456,13 +447,13 @@ export default function GuestBookingsV2() {
                             );
                             
                             if (booking.complete === true) {
-                                // Download PDF Button - Download icon
                                 customButtons.push(
                                     <button 
                                         key="download-pdf"
                                         className="inline-flex items-center justify-center p-2 border border-blue-700 text-blue-700 rounded hover:bg-blue-50 transition-colors"
                                         onClick={() => handleDownloadPDF(booking.uuid)}
                                         aria-label="Download PDF"
+                                        title="Download PDF"
                                     >
                                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
                                             <path fillRule="evenodd" d="M12 2.25a.75.75 0 01.75.75v11.69l3.22-3.22a.75.75 0 111.06 1.06l-4.5 4.5a.75.75 0 01-1.06 0l-4.5-4.5a.75.75 0 111.06-1.06l3.22 3.22V3a.75.75 0 01.75-.75zm-9 13.5a.75.75 0 01.75.75v2.25a1.5 1.5 0 001.5 1.5h13.5a1.5 1.5 0 001.5-1.5V16.5a.75.75 0 011.5 0v2.25a3 3 0 01-3 3H5.25a3 3 0 01-3-3V16.5a.75.75 0 01.75-.75z" clipRule="evenodd" />
@@ -470,6 +461,106 @@ export default function GuestBookingsV2() {
                                     </button>
                                 );
                             }
+                        }
+                        
+                        if (activeTab === 0 && !isCancelled && booking.complete === true) {
+                            customButtons.push(
+                                <button 
+                                    key="download-pdf"
+                                    className="inline-flex items-center justify-center p-2 border border-blue-700 text-blue-700 rounded hover:bg-blue-50 transition-colors"
+                                    onClick={() => handleDownloadPDF(booking.uuid)}
+                                    aria-label="Download PDF"
+                                    title="Download PDF"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
+                                        <path fillRule="evenodd" d="M12 2.25a.75.75 0 01.75.75v11.69l3.22-3.22a.75.75 0 111.06 1.06l-4.5 4.5a.75.75 0 01-1.06 0l-4.5-4.5a.75.75 0 111.06-1.06l3.22 3.22V3a.75.75 0 01.75-.75zm-9 13.5a.75.75 0 01.75.75v2.25a1.5 1.5 0 001.5 1.5h13.5a1.5 1.5 0 001.5-1.5V16.5a.75.75 0 011.5 0v2.25a3 3 0 01-3 3H5.25a3 3 0 01-3-3V16.5a.75.75 0 01.75-.75z" clipRule="evenodd" />
+                                    </svg>
+                                </button>
+                            );
+                            
+                            customButtons.push(
+                                <div key="cancel-booking" className="relative">
+                                    <button 
+                                        className="inline-flex items-center justify-center p-2 border border-red-600 text-red-600 rounded hover:bg-red-50 transition-colors"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            const rect = e.currentTarget.getBoundingClientRect();
+                                            const dropdownWidth = 240;
+                                            const viewportWidth = window.innerWidth;
+                                            const spaceOnRight = viewportWidth - rect.right;
+                                            
+                                            // Calculate left position - align to right of button, but adjust if it would overflow
+                                            let leftPosition = rect.right - dropdownWidth + window.scrollX;
+                                            
+                                            // If dropdown would overflow on the left, align it to the left edge with padding
+                                            if (leftPosition < 16) {
+                                                leftPosition = 16;
+                                            }
+                                            
+                                            // If dropdown would overflow on the right, align to right edge with padding
+                                            if (rect.right - dropdownWidth + window.scrollX + dropdownWidth > viewportWidth - 16) {
+                                                leftPosition = viewportWidth - dropdownWidth - 16 + window.scrollX;
+                                            }
+                                            
+                                            setDropdownPosition({
+                                                top: rect.bottom + window.scrollY + 8,
+                                                left: leftPosition
+                                            });
+                                            setOpenCancelDropdown(openCancelDropdown === booking.id ? null : booking.id);
+                                        }}
+                                        aria-label="Cancel Booking"
+                                        title="Cancel Booking"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
+                                            <path fillRule="evenodd" d="M12 2.25c-5.385 0-9.75 4.365-9.75 9.75s4.365 9.75 9.75 9.75 9.75-4.365 9.75-9.75S17.385 2.25 12 2.25zm-1.72 6.97a.75.75 0 10-1.06 1.06L10.94 12l-1.72 1.72a.75.75 0 101.06 1.06L12 13.06l1.72 1.72a.75.75 0 101.06-1.06L13.06 12l1.72-1.72a.75.75 0 10-1.06-1.06L12 10.94l-1.72-1.72z" clipRule="evenodd" />
+                                        </svg>
+                                    </button>
+                                    
+                                    {openCancelDropdown === booking.id && (
+                                        <>
+                                            <div 
+                                                className="fixed inset-0 z-[9998]" 
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setOpenCancelDropdown(null);
+                                                }} 
+                                            />
+                                            <div 
+                                                className="fixed bg-white rounded-md shadow-xl border border-gray-200 z-[9999]"
+                                                style={{
+                                                    top: `${dropdownPosition.top}px`,
+                                                    left: `${dropdownPosition.left}px`,
+                                                    width: 'min(240px, calc(100vw - 32px))',
+                                                    maxWidth: '240px'
+                                                }}
+                                            >
+                                                <div className="py-1">
+                                                    <button
+                                                        className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors whitespace-nowrap"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleCancelBooking(booking.id, false); // No charge
+                                                            setOpenCancelDropdown(null);
+                                                        }}
+                                                    >
+                                                        No Charge Cancellation
+                                                    </button>
+                                                    <button
+                                                        className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors whitespace-nowrap"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleCancelBooking(booking.id, true); // Full charge - reverses nights
+                                                            setOpenCancelDropdown(null);
+                                                        }}
+                                                    >
+                                                        Full Charge Cancellation
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
+                            );
                         }
                         
                         return (
@@ -484,8 +575,8 @@ export default function GuestBookingsV2() {
                                 status={bookingStatus.label}
                                 statusColor={!bookingStatus?.label?.includes('Pending') ? `bg-${bookingStatus.color}-400` : null}
                                 image={imageUrl}
-                                buttonText="EDIT BOOKING"
-                                hideEditButton={bookingStatus.name.includes('cancelled') || activeTab === 1}
+                                buttonText={editButtonLabel}
+                                hideEditButton={isCancelled || activeTab === 1}
                                 customButtons={customButtons.length > 0 ? customButtons : undefined}
                                 onButtonClick={() => editBooking(booking)}
                                 viewDetails={() => viewBooking(booking.uuid)}
@@ -538,7 +629,6 @@ export default function GuestBookingsV2() {
             );
         }
 
-        // Determine which offers to show
         const offersToShow = showAllCourseOffers ? courseOffers : courseOffers.slice(0, 3);
         const hasMoreOffers = courseOffers.length > 3;
 
@@ -557,13 +647,11 @@ export default function GuestBookingsV2() {
                             `${moment(course.min_start_date).format('DD MMM, YYYY')} - ${moment(course.min_end_date).format('DD MMM, YYYY')}` :
                             courseDates;
 
-                        // Check if this offer is linked to a booking
                         const isLinkedToBooking = offer.booking_id !== null;
-                        const linkedBooking = offer.booking; // This should come from the API response
+                        const linkedBooking = offer.booking;
 
                         return (
                             <div key={index} className="bg-white rounded-lg shadow-sm overflow-hidden border border-gray-200">
-                                {/* Conditional Badge based on booking status */}
                                 <div className="relative">
                                     <div className="absolute top-3 left-3 z-10">
                                         {isLinkedToBooking ? (
@@ -590,7 +678,6 @@ export default function GuestBookingsV2() {
                                             e.target.nextSibling.style.display = 'flex';
                                         }}
                                     />
-                                    {/* Placeholder for missing images */}
                                     <div className="w-full h-48 bg-gray-200 flex items-center justify-center text-gray-500 hidden">
                                         <svg className="w-12 h-12" fill="currentColor" viewBox="0 0 20 20">
                                             <path fillRule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clipRule="evenodd" />
@@ -598,12 +685,10 @@ export default function GuestBookingsV2() {
                                     </div>
                                 </div>
                                 
-                                {/* Card Content */}
                                 <div className="p-4">
                                     <h3 className="font-semibold text-lg text-gray-900 mb-2">{course.title}</h3>
                                     <p className="text-gray-600 text-sm mb-3 line-clamp-2">{course.description || 'Experience this exciting course designed for all skill levels.'}</p>
                                     
-                                    {/* Date Information */}
                                     <div className="space-y-1 mb-4">
                                         <div className="flex justify-between text-sm">
                                             <span className="text-gray-500">Course dates:</span>
@@ -620,7 +705,6 @@ export default function GuestBookingsV2() {
                                             </div>
                                         )}
                                         
-                                        {/* Show booking information if linked */}
                                         {isLinkedToBooking && (
                                             <div className="flex justify-between text-sm border-t pt-2 mt-2">
                                                 <span className="text-gray-500">Booking ID:</span>
@@ -631,7 +715,6 @@ export default function GuestBookingsV2() {
                                         )}
                                     </div>
                                     
-                                    {/* Conditional Action Buttons */}
                                     <div className="flex gap-2">
                                         <span 
                                             className="flex-1 text-sm cursor-pointer hover:text-blue-800 transition-colors underline py-2"
@@ -642,7 +725,6 @@ export default function GuestBookingsV2() {
                                         </span>
                                         <div className="flex-1">
                                             {isLinkedToBooking ? (
-                                                // Show "View Booking" button if already linked
                                                 <Button 
                                                     size="small"
                                                     color="secondary"
@@ -658,7 +740,6 @@ export default function GuestBookingsV2() {
                                                     }}
                                                 />
                                             ) : (
-                                                // Show "Book Now" button if available
                                                 <Button 
                                                     size="small"
                                                     color="primary"
@@ -675,7 +756,6 @@ export default function GuestBookingsV2() {
                     })}
                 </div>
 
-                {/* View All Button */}
                 {hasMoreOffers && !showAllCourseOffers && (
                     <div className="text-center">
                         <button
@@ -690,7 +770,6 @@ export default function GuestBookingsV2() {
                     </div>
                 )}
 
-                {/* Show Less Button - when all are displayed */}
                 {hasMoreOffers && showAllCourseOffers && (
                     <div className="text-center">
                         <button
@@ -729,7 +808,6 @@ export default function GuestBookingsV2() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {promotions.map((promotion, index) => (
                     <div key={promotion.id || index} className="bg-white rounded-lg shadow-sm overflow-hidden border border-gray-200">
-                        {/* Special Offer Badge */}
                         <div className="relative">
                             <div className="absolute top-3 left-3 z-10">
                                 <StatusBadge 
@@ -749,7 +827,6 @@ export default function GuestBookingsV2() {
                                     }}
                                 />
                             ) : null}
-                            {/* Placeholder for missing images */}
                             <div className={`w-full h-48 bg-gray-200 flex items-center justify-center text-gray-500 ${promotion.imageUrl ? 'hidden' : ''}`}>
                                 <svg className="w-12 h-12" fill="currentColor" viewBox="0 0 20 20">
                                     <path fillRule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clipRule="evenodd" />
@@ -757,12 +834,10 @@ export default function GuestBookingsV2() {
                             </div>
                         </div>
                         
-                        {/* Card Content */}
                         <div className="p-4">
                             <h3 className="font-semibold text-lg text-gray-900 mb-2">{promotion.title}</h3>
                             <p className="text-gray-600 text-sm mb-3 line-clamp-2">{promotion.description}</p>
                             
-                            {/* Promotion Information */}
                             <div className="space-y-1 mb-4">
                                 {promotion.availability && (
                                     <div className="flex justify-between text-sm">
@@ -790,6 +865,21 @@ export default function GuestBookingsV2() {
         };
     }, []);
 
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (openCancelDropdown !== null) {
+                setOpenCancelDropdown(null);
+            }
+        };
+
+        if (openCancelDropdown !== null) {
+            document.addEventListener('click', handleClickOutside);
+            return () => {
+                document.removeEventListener('click', handleClickOutside);
+            };
+        }
+    }, [openCancelDropdown]);
+
     return (
         <Layout title={"My Bookings"} hideSidebar={true}>
             {loading ? (
@@ -800,21 +890,22 @@ export default function GuestBookingsV2() {
                 <div>
                     <div className="w-full bg-[#F7F7F7] border-b border-gray-200">
                         <div className="container mx-auto px-4 sm:px-6">
-                            <div className="grid grid-cols-1 md:grid-cols-12 pt-2">
-                            {/* Left column taking 6 of 12 columns - tabs aligned to the left */}
-                                <div className="md:col-span-6 flex justify-center md:justify-start items-center mb-4 md:mb-0">
-                                    <TabButton 
-                                        tabs={tabs} 
-                                        activeTab={activeTab} 
-                                        onChange={setActiveTab} 
-                                        type="outline"
-                                        borderRadius="4px"
-                                    />
+                            <div className="grid grid-cols-1 md:grid-cols-12 pt-2 pb-4">
+                                {/* Tabs - Allow horizontal scroll on mobile */}
+                                <div className="md:col-span-6 flex justify-start md:justify-start items-center mb-3 md:mb-0 overflow-x-auto">
+                                    <div className="min-w-max">
+                                        <TabButton 
+                                            tabs={tabs} 
+                                            activeTab={activeTab} 
+                                            onChange={setActiveTab} 
+                                            type="outline"
+                                            borderRadius="4px"
+                                        />
+                                    </div>
                                 </div>
                                 
-                                {/* Right column taking 6 of 12 columns - button pushed to the far right */}
-                                {/* Show ADD BOOKING button for all tabs */}
-                                <div className="md:col-span-6 flex justify-center md:justify-end items-center">
+                                {/* Button - Full width on mobile, right-aligned on desktop */}
+                                <div className="md:col-span-6 flex justify-start md:justify-end items-center">
                                     <Button 
                                         size="small" 
                                         color="primary" 
@@ -826,17 +917,14 @@ export default function GuestBookingsV2() {
                         </div>
                     </div>
 
-                    {/* Main content centered */}
                     <div className="px-4 sm:px-6 py-4 sm:py-6">
                         <div className="max-w-7xl mx-auto">
-                            {/* Conditional Content based on active tab */}
                             {activeTab === 0 && renderBookingCards(upcomingBookings)}
                             {activeTab === 1 && renderBookingCards(pastBookings)}
                             {activeTab === 2 && renderCalendarView()}
                         </div>
                     </div>
 
-                    {/* Course Offers Section with background - only show when not on calendar tab */}
                     {activeTab !== 2 && (
                         <div style={{ background: '#EBECF0' }} className="py-8 sm:py-12">
                             <div className="max-w-7xl mx-auto px-4 sm:px-6">
@@ -851,7 +939,6 @@ export default function GuestBookingsV2() {
                         </div>
                     )}
 
-                    {/* Promotions and Special Offers Section - only show when not on calendar tab */}
                     {activeTab !== 2 && (
                         <div className="py-8 sm:py-12">
                             <div className="max-w-7xl mx-auto px-4 sm:px-6">
