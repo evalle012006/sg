@@ -5,24 +5,19 @@ import {
   Eye, 
   Edit, 
   Trash2, 
-  CheckCircle, 
-  XCircle, 
-  Clock,
   Filter,
-  Calendar,
   UserCheck,
   Award,
   AlertCircle,
-  MoreHorizontal
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 import moment from 'moment';
 
-const Table = dynamic(() => import('../../components/ui-v2/Table'));
-const Button = dynamic(() => import('../../components/ui-v2/Button'));
-const StatusBadge = dynamic(() => import('../../components/ui-v2/StatusBadge'));
-const Spinner = dynamic(() => import('../../components/ui/spinner'));
-const Select = dynamic(() => import('../../components/ui-v2/Select'));
+const Table = dynamic(() => import('../ui-v2/Table'));
+const Button = dynamic(() => import('../ui-v2/Button'));
+const StatusBadge = dynamic(() => import('../ui-v2/StatusBadge'));
+const Spinner = dynamic(() => import('../ui/spinner'));
+const Select = dynamic(() => import('../ui-v2/Select'));
 
 export default function CourseOffers({ onEditOffer, onViewOffer }) {
     const router = useRouter();
@@ -38,7 +33,7 @@ export default function CourseOffers({ onEditOffer, onViewOffer }) {
     // Bulk actions
     const [selectedOffers, setSelectedOffers] = useState([]);
 
-    // Filter options (removed 'available')
+    // Filter options
     const statusOptions = [
         { value: '', label: 'All Statuses' },
         { value: 'offered', label: 'Offered' },
@@ -58,7 +53,7 @@ export default function CourseOffers({ onEditOffer, onViewOffer }) {
             if (courseFilter) params.append('course_id', courseFilter);
             if (statusFilter) params.append('status', statusFilter);
             params.append('limit', '100');
-            params.append('include_invalid', 'true'); // Get all offers
+            params.append('include_invalid', 'true');
 
             const response = await fetch(`/api/courses/offers?${params}`);
             if (!response.ok) {
@@ -102,6 +97,60 @@ export default function CourseOffers({ onEditOffer, onViewOffer }) {
             console.error('Error loading courses:', error);
         }
     };
+
+    // Helper function to calculate timing sort priority
+    const getTimingSortPriority = (offer) => {
+        const now = moment();
+        const bookingDeadline = moment(offer.course?.min_end_date);
+        const courseStart = moment(offer.course?.start_date);
+        const courseEnd = moment(offer.course?.end_date);
+
+        // Priority 1 (highest): Course in progress
+        if (now.isAfter(courseStart) && now.isBefore(courseEnd)) {
+            return 1;
+        }
+        
+        // Priority 2: Days to book (with urgency - less days = higher priority)
+        if (now.isBefore(bookingDeadline)) {
+            const daysLeft = bookingDeadline.diff(now, 'days');
+            // Return 2.xxx where xxx is inversely proportional to days left
+            return 2 + (1 / (daysLeft + 1));
+        }
+        
+        // Priority 3: Booking closed (course hasn't started yet)
+        if (now.isAfter(bookingDeadline) && now.isBefore(courseStart)) {
+            return 3;
+        }
+        
+        // Priority 4: Completed status
+        if (offer.status === 'completed') {
+            return 4;
+        }
+        
+        // Priority 5 (lowest): Course ended
+        if (now.isAfter(courseEnd)) {
+            return 5;
+        }
+        
+        // Default
+        return 6;
+    };
+
+    // Sort offers by timing priority
+    const sortedCourseOffers = useMemo(() => {
+        return [...courseOffers].sort((a, b) => {
+            // Primary sort: by timing priority
+            const priorityA = getTimingSortPriority(a);
+            const priorityB = getTimingSortPriority(b);
+            
+            if (priorityA !== priorityB) {
+                return priorityA - priorityB; // Lower number = higher priority
+            }
+            
+            // Secondary sort: by offered date (most recent first)
+            return moment(b.offered_at).valueOf() - moment(a.offered_at).valueOf();
+        });
+    }, [courseOffers]);
 
     // Navigation functions
     const showAddForm = () => {
@@ -149,9 +198,6 @@ export default function CourseOffers({ onEditOffer, onViewOffer }) {
         return statusConfig[offer.status] || statusConfig.offered;
     };
 
-    // Note: Status changes are now handled by automated triggers
-    // Manual status change functions removed
-
     const handleDeleteOffer = async (offer) => {
         if (offer.status === 'accepted') {
             toast.error('Cannot delete an accepted offer. Please change the status first.');
@@ -186,7 +232,6 @@ export default function CourseOffers({ onEditOffer, onViewOffer }) {
             return;
         }
 
-        // Check if any selected offers are accepted
         const acceptedOffers = courseOffers.filter(offer => 
             selectedOffers.includes(offer.id) && offer.status === 'accepted'
         );
@@ -216,7 +261,6 @@ export default function CourseOffers({ onEditOffer, onViewOffer }) {
         }
     };
 
-    // Course options for filter
     const courseOptions = useMemo(() => [
         { value: '', label: 'All Courses' },
         ...courses.map(course => ({
@@ -225,7 +269,6 @@ export default function CourseOffers({ onEditOffer, onViewOffer }) {
         }))
     ], [courses]);
 
-    // Table columns
     const columns = useMemo(() => [
         {
             key: 'selection',
@@ -311,7 +354,7 @@ export default function CourseOffers({ onEditOffer, onViewOffer }) {
                     timingClass = 'text-gray-500';
                 } else if (now.isAfter(courseStart)) {
                     timingInfo = 'Course in progress';
-                    timingClass = 'text-blue-600';
+                    timingClass = 'text-blue-600 font-medium';
                 } else if (now.isAfter(bookingDeadline)) {
                     timingInfo = 'Booking closed';
                     timingClass = 'text-red-600';
@@ -488,7 +531,7 @@ export default function CourseOffers({ onEditOffer, onViewOffer }) {
             {/* Offers Table */}
             <div className="bg-white rounded-lg shadow-sm border border-gray-200">
                 <Table 
-                    data={courseOffers} 
+                    data={sortedCourseOffers}
                     columns={columns}
                     itemsPerPageOptions={[25, 50, 100]}
                     defaultItemsPerPage={25}

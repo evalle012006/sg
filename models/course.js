@@ -51,6 +51,12 @@ module.exports = (sequelize, DataTypes) => {
     rate_snapshot: {
       type: DataTypes.JSON,
       allowNull: true,
+    },
+    // ✅ ADD THIS FIELD FOR SOFT DELETE
+    deleted_at: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: null
     }
   }, {
     sequelize,

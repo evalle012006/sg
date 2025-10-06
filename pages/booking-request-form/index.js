@@ -152,6 +152,8 @@ const BookingRequestForm = () => {
     const [completedEquipments, setCompletedEquipments] = useState(false);
     const [hasFutureCourseOffers, setHasFutureCourseOffers] = useState(null); // null = not checked yet, true/false = has/doesn't have offers
     const [futureCourseOffersChecked, setFutureCourseOffersChecked] = useState(false);
+    const [courseValidationComplete, setCourseValidationComplete] = useState(false); // NEW: Track if validation ran
+    const courseValidationRef = useRef(false); // NEW: Prevent duplicate validations
 
     const fetchAllFutureCourseOffers = useCallback(async () => {
         const guestId = getGuestId();
@@ -166,7 +168,7 @@ const BookingRequestForm = () => {
             console.log('📚 Fetching all future course offers for guest:', guestId);
             
             // API endpoint to get all future offers without date restrictions
-            const apiUrl = `/api/guests/${guestId}/course-offers-future`;
+            const apiUrl = `/api/guests/${guestId}/course-offers/future`;
             
             const response = await fetch(apiUrl);
             if (response.ok) {
@@ -175,11 +177,11 @@ const BookingRequestForm = () => {
                 
                 const hasOffers = data.hasFutureOffers === true && futureOffers.length > 0;
                 
-                console.log(`📚 Future course offers check complete:`, {
-                    total: futureOffers.length,
-                    hasOffers: hasOffers,
-                    summary: data.summary
-                });
+                // console.log(`📚 Future course offers check complete:`, {
+                //     total: futureOffers.length,
+                //     hasOffers: hasOffers,
+                //     summary: data.summary
+                // });
                 
                 setHasFutureCourseOffers(hasOffers);
                 setFutureCourseOffersChecked(true);
@@ -208,13 +210,88 @@ const BookingRequestForm = () => {
         }
     }, [getGuestId]);
 
+    const hasExistingCourseSelection = useCallback((pages) => {
+        for (const page of pages) {
+            for (const section of page.Sections || []) {
+                // Check QaPairs for existing course selections
+                if (section.QaPairs && section.QaPairs.length > 0) {
+                    const courseOfferQaPair = section.QaPairs.find(qaPair => 
+                        questionHasKey(qaPair.Question, QUESTION_KEYS.COURSE_OFFER_QUESTION)
+                    );
+                    
+                    // Check if answered "Yes" to course offer
+                    const hasCourseOfferYes = courseOfferQaPair && 
+                        courseOfferQaPair.answer?.toLowerCase() === 'yes';
+                    
+                    const whichCourseQaPair = section.QaPairs.find(qaPair =>
+                        questionHasKey(qaPair.Question, QUESTION_KEYS.WHICH_COURSE)
+                    );
+                    
+                    const hasWhichCourseAnswer = whichCourseQaPair &&
+                        whichCourseQaPair.answer !== null &&
+                        whichCourseQaPair.answer !== undefined &&
+                        whichCourseQaPair.answer !== '';
+                    
+                    if (hasCourseOfferYes || hasWhichCourseAnswer) {
+                        // console.log(`✅ Found existing course selection in "${page.title}" QaPairs`, {
+                        //     hasCourseOfferYes,
+                        //     courseOfferAnswer: courseOfferQaPair?.answer,
+                        //     hasWhichCourseAnswer,
+                        //     whichCourseAnswer: whichCourseQaPair?.answer
+                        // });
+                        return true;
+                    }
+                }
+                
+                // Also check Questions array for answered course questions
+                if (section.Questions && section.Questions.length > 0) {
+                    const courseOfferQuestion = section.Questions.find(question =>
+                        questionHasKey(question, QUESTION_KEYS.COURSE_OFFER_QUESTION)
+                    );
+                    
+                    const hasCourseOfferYes = courseOfferQuestion &&
+                        courseOfferQuestion.answer?.toLowerCase() === 'yes';
+                    
+                    const whichCourseQuestion = section.Questions.find(question =>
+                        questionHasKey(question, QUESTION_KEYS.WHICH_COURSE)
+                    );
+                    
+                    const hasWhichCourseAnswer = whichCourseQuestion &&
+                        whichCourseQuestion.answer !== null &&
+                        whichCourseQuestion.answer !== undefined &&
+                        whichCourseQuestion.answer !== '';
+                    
+                    if (hasCourseOfferYes || hasWhichCourseAnswer) {
+                        // console.log(`✅ Found existing course selection in "${page.title}" Questions`, {
+                        //     hasCourseOfferYes,
+                        //     courseOfferAnswer: courseOfferQuestion?.answer,
+                        //     hasWhichCourseAnswer,
+                        //     whichCourseAnswer: whichCourseQuestion?.answer
+                        // });
+                        return true;
+                    }
+                }
+            }
+        }
+        console.log('❌ No existing course selection found in any page');
+        return false;
+    }, []);
+
     const filterCoursesPageIfNoOffers = useCallback((pages, hasOffers) => {
         // If we haven't checked yet or if offers exist, don't filter anything
         if (hasOffers === null || hasOffers === true) {
             return pages;
         }
 
-        console.log('🚫 No future course offers available - filtering out courses page');
+        // EXCEPTION: Check if there's already a saved course selection
+        const hasExistingSelection = hasExistingCourseSelection(pages);
+        
+        if (hasExistingSelection) {
+            // console.log('Keeping courses page - existing course selection found in QaPairs');
+            return pages; // Don't filter - keep the courses page
+        }
+
+        // console.log('No future course offers available - filtering out courses page');
 
         // Filter out pages that contain course-related questions
         const filteredPages = pages.filter(page => {
@@ -226,7 +303,7 @@ const BookingRequestForm = () => {
             );
 
             if (hasCourseQuestions) {
-                console.log(`🚫 Hiding page: "${page.title}" (no future course offers available)`);
+                // console.log(`Hiding page: "${page.title}" (no future course offers and no existing selection)`);
                 return false; // Exclude this page
             }
 
@@ -234,7 +311,7 @@ const BookingRequestForm = () => {
         });
 
         return filteredPages;
-    }, []);
+    }, [hasExistingCourseSelection]);
 
     const useCompletionLock = () => {
         const completionLockRef = useRef(new Set());
@@ -242,13 +319,13 @@ const BookingRequestForm = () => {
         const lockPageCompletion = useCallback((pageId) => {
             if (currentBookingType === BOOKING_TYPES.RETURNING_GUEST && prevBookingId) {
                 completionLockRef.current.add(pageId);
-                console.log(`🔒 Completion locked for returning guest page: ${pageId}`);
+                // console.log(`🔒 Completion locked for returning guest page: ${pageId}`);
             }
         }, [currentBookingType, prevBookingId]);
         
         const unlockPageCompletion = useCallback((pageId) => {
             completionLockRef.current.delete(pageId);
-            console.log(`🔓 Completion unlocked for page: ${pageId}`);
+            // console.log(`🔓 Completion unlocked for page: ${pageId}`);
         }, []);
         
         const isCompletionLocked = useCallback((pageId) => {
@@ -5149,7 +5226,6 @@ const BookingRequestForm = () => {
         };
     }, []);
 
-    // useEffect to check for future course offers on component mount
     useEffect(() => {
         if (!futureCourseOffersChecked && (guest || booking || currentUser)) {
             console.log('🔍 Checking for future course offers...');
@@ -5157,19 +5233,41 @@ const BookingRequestForm = () => {
         }
     }, [guest, booking, currentUser, futureCourseOffersChecked, fetchAllFutureCourseOffers]);
 
-    // useEffect to filter courses page when offers check is complete
     useEffect(() => {
         if (futureCourseOffersChecked && hasFutureCourseOffers === false) {
             if (stableProcessedFormData && stableProcessedFormData.length > 0) {
-                console.log('🔄 Filtering courses page from form data (no future offers)');
+                // console.log('🔍 Evaluating course page filtering...', {
+                //     totalPages: stableProcessedFormData.length,
+                //     hasFutureOffers: hasFutureCourseOffers,
+                //     futureCourseOffersChecked
+                // });
+                
+                // Check for existing course selection BEFORE filtering
+                const hasExisting = hasExistingCourseSelection(stableProcessedFormData);
+                // console.log('🔍 Existing course selection check:', hasExisting);
                 
                 // Filter the processed form data
                 const filteredPages = filterCoursesPageIfNoOffers(stableProcessedFormData, hasFutureCourseOffers);
                 
+                // console.log('🔍 Filtering result:', {
+                //     originalPageCount: stableProcessedFormData.length,
+                //     filteredPageCount: filteredPages.length,
+                //     pagesRemoved: stableProcessedFormData.length - filteredPages.length,
+                //     hasExistingSelection: hasExisting,
+                //     originalPages: stableProcessedFormData.map(p => p.title),
+                //     filteredPages: filteredPages.map(p => p.title)
+                // });
+                
                 // Only update if the filtering actually removed pages
                 if (filteredPages.length !== stableProcessedFormData.length) {
+                    // console.log('📝 Applying filtered pages (courses page removed)');
                     setProcessedFormData(filteredPages);
                     safeDispatchData(filteredPages, 'Courses page filtered (no future offers)');
+                } else if (hasExisting) {
+                    console.log('✅ Keeping all pages (existing course selection found)');
+                    // No need to update - pages are already correct
+                } else {
+                    console.log('⚠️ No pages were filtered but should have been?');
                 }
             }
         }
@@ -5178,8 +5276,18 @@ const BookingRequestForm = () => {
         hasFutureCourseOffers, 
         stableProcessedFormData, 
         filterCoursesPageIfNoOffers,
+        hasExistingCourseSelection,
         safeDispatchData
     ]);
+
+    useEffect(() => {
+        // Reset validation flags when UUID changes (new booking loaded)
+        return () => {
+            courseValidationRef.current = false;
+            setCourseValidationComplete(false);
+            console.log('🔄 Reset course validation flags for new booking');
+        };
+    }, [uuid, prevBookingId]);
 
     useEffect(() => {
         return () => {
@@ -5321,6 +5429,102 @@ const BookingRequestForm = () => {
             }
         }
     }, [courseOffersLoaded, courseOffers, currentBookingType, stableProcessedFormData]);
+
+    useEffect(() => {
+        if (!courseOffersLoaded || !stableProcessedFormData || stableProcessedFormData.length === 0) {
+            return;
+        }
+
+        console.log('🔍 Checking for deleted/unavailable courses in booking form...');
+        
+        let hasDeletedCourse = false;
+        let deletedCourseInfo = null;
+
+        const updatedPages = stableProcessedFormData.map(page => {
+            const updatedSections = page.Sections.map(section => {
+                const updatedQuestions = section.Questions.map(question => {
+                    // Check if this is the "which-course" question
+                    if (question.question_key === QUESTION_KEYS.WHICH_COURSE && 
+                        question.type === 'horizontal-card' && 
+                        question.option_type === 'course' &&
+                        question.answer) {
+                        
+                        const selectedCourseId = parseInt(question.answer);
+                        
+                        // Check if the selected course exists in available course offers
+                        const courseStillExists = courseOffers.some(offer => 
+                            offer.course_id === selectedCourseId || offer.id === selectedCourseId
+                        );
+
+                        if (!courseStillExists) {
+                            console.log('❌ Selected course not found - course may have been deleted:', {
+                                courseId: selectedCourseId,
+                                questionKey: question.question_key
+                            });
+
+                            hasDeletedCourse = true;
+                            deletedCourseInfo = {
+                                pageId: page.id,
+                                pageTitle: page.title,
+                                questionId: question.id,
+                                question: question.question,
+                                courseId: selectedCourseId
+                            };
+
+                            // Clear the answer and mark as requiring attention
+                            return {
+                                ...question,
+                                answer: null,
+                                error: 'The course you selected is no longer available. Please choose another course.',
+                                dirty: true,
+                                prefill: false,
+                                temporaryFromPreviousBooking: false
+                            };
+                        }
+                    }
+                    return question;
+                });
+
+                return { ...section, Questions: updatedQuestions };
+            });
+
+            // If this page contains the deleted course question, mark it as incomplete
+            if (hasDeletedCourse && deletedCourseInfo && deletedCourseInfo.pageId === page.id) {
+                return { 
+                    ...page, 
+                    Sections: updatedSections,
+                    complete: false // ✅ Mark page as incomplete
+                };
+            }
+
+            return { ...page, Sections: updatedSections };
+        });
+
+        if (hasDeletedCourse) {
+            console.log('🔄 Clearing deleted course selection and marking page as incomplete');
+            setProcessedFormData(updatedPages);
+            safeDispatchData(updatedPages, 'Cleared deleted course selection');
+
+            // Show user-friendly notification
+            toast.warning(
+                `The course you previously selected is no longer available. Please select a different course to continue with your booking.`,
+                { 
+                    duration: 8000,
+                    position: 'top-center'
+                }
+            );
+
+            // Navigate to the page that needs attention
+            if (deletedCourseInfo) {
+                const pageIndex = updatedPages.findIndex(p => p.id === deletedCourseInfo.pageId);
+                if (pageIndex >= 0) {
+                    setActiveAccordionIndex(pageIndex);
+                    dispatch(bookingRequestFormActions.setCurrentPage(updatedPages[pageIndex]));
+                }
+            }
+        }
+
+    }, [courseOffersLoaded, courseOffers, stableProcessedFormData]);
 
     useEffect(() => {
         if (activeAccordionIndex >= 0) {

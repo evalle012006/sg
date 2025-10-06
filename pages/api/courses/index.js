@@ -17,7 +17,7 @@ export default async function handler(req, res) {
         const { active } = req.query;
 
         // Build where clause for filtering
-        let whereClause = {};
+        let whereClause = { deleted_at: null }; // Exclude soft-deleted courses by default
         
         // Filter for active courses if parameter is provided
         if (active === 'true') {

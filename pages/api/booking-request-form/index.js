@@ -1,4 +1,4 @@
-import { Address, Booking, BookingEquipment, Guest, Page, QaPair, Question, QuestionDependency, Room, RoomType, Section, sequelize, Setting, Template } from "../../../models"
+import { Address, Booking, BookingEquipment, Course, Guest, Page, QaPair, Question, QuestionDependency, Room, RoomType, Section, sequelize, Setting, Template } from "../../../models"
 import { BookingService } from "../../../services/booking/booking";
 import StorageService from "../../../services/storage/storage";
 
@@ -15,43 +15,42 @@ async function refreshImageUrls(question) {
         return question;
     }
 
-    // Initialize storage service
     const storage = new StorageService({ bucketType: 'restricted' });
-
-    // Get the option type, default to 'funder' for backward compatibility
     const optionType = question.option_type || 'funder';
 
-    // Process options if they exist
     if (question.options && Array.isArray(question.options)) {
         const updatedOptions = await Promise.all(
             question.options.map(async (option) => {
+                // ✅ For course options, verify course is not deleted
+                if (optionType === 'course' && option.id) {
+                    const course = await Course.findByPk(option.id);
+                    if (!course || course.deleted_at) {
+                        console.log(`⚠️ Skipping deleted course in options: ${option.id}`);
+                        return null; // Exclude deleted courses from options
+                    }
+                }
+
                 if (option.imageFilename) {
                     try {
-                        // Generate fresh signed URL for the image using appropriate path
                         let filePath;
                         if (optionType === 'course') {
-                            // For course options, use 'courses/' directory (matching existing course storage)
                             filePath = `courses/${option.imageFilename}`;
                         } else {
-                            // For funder and other options, use the option_type directory
                             filePath = `${optionType}/${option.imageFilename}`;
                         }
                         
                         option.imageUrl = await storage.getSignedUrl(filePath);
                     } catch (error) {
-                        console.warn(`Failed to generate signed URL for image: ${option.imageFilename} in ${optionType}/`, error);
-                        // Keep the original imageUrl or set to null if generation fails
+                        console.warn(`Failed to generate signed URL for: ${option.imageFilename}`, error);
                         option.imageUrl = null;
                     }
                 }
                 return option;
             })
         );
-        
-        return {
-            ...question,
-            options: updatedOptions
-        };
+
+        // Filter out null options (deleted courses)
+        question.options = updatedOptions.filter(option => option !== null);
     }
 
     return question;

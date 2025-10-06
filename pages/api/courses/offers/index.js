@@ -48,6 +48,17 @@ async function createCourseOffer(req, res) {
   const isBulkOperation = Array.isArray(guest_ids) && guest_ids.length > 0;
   const targetGuestIds = isBulkOperation ? guest_ids : [guest_id];
 
+  const course = await Course.findByPk(course_id);
+
+  if (!course || course.deleted_at) {
+      await transaction.rollback();
+      return res.status(404).json({
+          error: 'Course not found',
+          message: 'The specified course does not exist or has been deleted'
+      });
+  }
+
+
   // Validate required fields
   if (!course_id) {
     return res.status(400).json({
