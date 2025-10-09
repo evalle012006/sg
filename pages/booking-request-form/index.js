@@ -3072,10 +3072,11 @@ const BookingRequestForm = () => {
                         return;
                     }
 
-                    if (question.type !== 'url') {
-                        const required = question.required ? question.required : false;
-                        const answer = question.answer ? question.answer : question.answer === 0 ? '0' : null;
+                    // IMPORTANT: Define answer OUTSIDE the if block so it's available for all validations
+                    const required = question.required ? question.required : false;
+                    const answer = question.answer ? question.answer : question.answer === 0 ? '0' : null;
 
+                    if (question.type !== 'url') {
                         // ENHANCED: Check for ANY existing errors on the question first
                         if (question.error && typeof question.error === 'string' && question.error.trim() !== '') {
                             console.log(`❌ Found existing error on question "${question.question}": ${question.error}`);
@@ -3158,6 +3159,92 @@ const BookingRequestForm = () => {
                     if (question.type == 'care-table' && question.error) {
                         console.log(`❌ Care table validation failed for: "${question.question}"`);
                         errorMessage.add({ pageId: page.id, pageTitle: page.title, message: 'Please fill in all table columns and rows.', question: question.question, type: question.type });
+                    }
+
+                    // Service cards validation
+                    if ((question.type === 'service-cards' || question.type === 'service-cards-multi') && question.required) {
+                        console.log(`🎴 Validating service-cards question:`, {
+                            question: question.question,
+                            answer: answer,
+                            answerType: typeof answer
+                        });
+                        
+                        let hasSelection = false;
+                        let validAnswer = true;
+                        
+                        // Check if answer exists and is an object
+                        if (answer && typeof answer === 'object') {
+                            // Check if at least one service is selected (answered "Yes")
+                            hasSelection = Object.values(answer).some(service => 
+                                service && service.selected === true
+                            );
+                            
+                            console.log(`🎴 Service cards - hasSelection: ${hasSelection}, answer keys:`, Object.keys(answer));
+                            
+                            // If no services are selected, check if all are explicitly set to "No"
+                            // This means the user interacted with the form
+                            if (!hasSelection) {
+                                const allServicesAnswered = Object.values(answer).every(service =>
+                                    service && typeof service.selected === 'boolean'
+                                );
+                                
+                                console.log(`🎴 No selections, allServicesAnswered: ${allServicesAnswered}`);
+                                
+                                // If not all services have been answered, it's invalid
+                                if (!allServicesAnswered) {
+                                    validAnswer = false;
+                                }
+                            }
+                            
+                            // If services are selected, check for required sub-options
+                            if (hasSelection) {
+                                const services = typeof question.options === 'string' 
+                                    ? JSON.parse(question.options) 
+                                    : question.options;
+                                
+                                for (const serviceValue in answer) {
+                                    const serviceAnswer = answer[serviceValue];
+                                    if (serviceAnswer && serviceAnswer.selected) {
+                                        // Find the service definition
+                                        const serviceDef = services.find(s => s.value === serviceValue);
+                                        
+                                        // Check if sub-options are required and if any are selected
+                                        if (serviceDef && serviceDef.subOptionsRequired && 
+                                            serviceDef.subOptions && serviceDef.subOptions.length > 0) {
+                                            
+                                            if (!serviceAnswer.subOptions || serviceAnswer.subOptions.length === 0) {
+                                                console.log(`❌ Service "${serviceDef.label}" requires sub-option selection`);
+                                                errorMessage.add({
+                                                    pageId: page.id,
+                                                    pageTitle: page.title,
+                                                    message: `Please select at least one option for "${serviceDef.label}".`,
+                                                    question: question.question,
+                                                    type: question.type
+                                                });
+                                                validAnswer = false;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            // Answer is null or not an object
+                            console.log(`❌ Service cards answer is not an object:`, answer);
+                            validAnswer = false;
+                        }
+                        
+                        // Only show error if it's truly invalid (not just all "No" answers)
+                        if (!validAnswer) {
+                            console.log(`❌ Service cards validation failed - no valid answer structure`);
+                            errorMessage.add({
+                                pageId: page.id,
+                                pageTitle: page.title,
+                                message: 'Please answer all service options (Yes or No).',
+                                question: question.question,
+                                type: question.type
+                            });
+                        }
                     }
 
                     if (questionHasKey(question, QUESTION_KEYS.COURSE_OFFER_QUESTION)) {
@@ -3609,7 +3696,16 @@ const BookingRequestForm = () => {
                             }
                         }
 
-                        const answer = (typeof question.answer != 'string' && (question.type === 'multi-select' || question.type === 'checkbox' || question.type === 'checkbox-button' || question.type === 'health-info' || question.type === 'goal-table' || question.type === 'care-table')) ? JSON.stringify(question.answer) : question.answer;
+                        const answer = (typeof question.answer != 'string' && (
+                            question.type === 'multi-select' || 
+                            question.type === 'checkbox' || 
+                            question.type === 'checkbox-button' || 
+                            question.type === 'health-info' || 
+                            question.type === 'goal-table' || 
+                            question.type === 'care-table' ||
+                            question.type === 'service-cards' ||
+                            question.type === 'service-cards-multi'
+                        )) ? JSON.stringify(question.answer) : question.answer;
                         if (answer != undefined) {
                             let qap = {
                                 ...qaPairs[questionIndex],
@@ -3652,7 +3748,16 @@ const BookingRequestForm = () => {
                     });
                 } else {
                     updatedQuestions.map((question, questionIndex) => {
-                        const answer = (typeof question.answer != 'string' && (question.type === 'multi-select' || question.type === 'checkbox' || question.type === 'checkbox-button' || question.type === 'health-info' || question.type === 'goal-table' || question.type === 'care-table')) ? JSON.stringify(question.answer) : question.answer;
+                        const answer = (typeof question.answer != 'string' && (
+                            question.type === 'multi-select' || 
+                            question.type === 'checkbox' || 
+                            question.type === 'checkbox-button' || 
+                            question.type === 'health-info' || 
+                            question.type === 'goal-table' || 
+                            question.type === 'care-table' ||
+                            question.type === 'service-cards' || 
+                            question.type === 'service-cards-multi' 
+                        )) ? JSON.stringify(question.answer) : question.answer;
                         if (answer != undefined) {
                             let qap = {
                                 label: '',
@@ -4267,7 +4372,6 @@ const BookingRequestForm = () => {
                 return;
             }
 
-            // NEW: Extract completedEquipments flag from API response
             if (data.completedEquipments !== undefined) {
                 setCompletedEquipments(data.completedEquipments);
                 console.log('🔧 Equipment completion flag from API:', data.completedEquipments);

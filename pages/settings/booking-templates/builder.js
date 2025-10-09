@@ -45,6 +45,8 @@ const fields = [
     { type: 'rich-text', label: 'Rich Text', description: 'Rich Text' },
     { type: 'goal-table', label: 'Exercise Goal Table', description: 'Select one or more options' },
     { type: 'care-table', label: 'Care Selection Table', description: 'Choose Care per Day' },
+    { type: 'service-cards', label: 'Service Cards', description: 'Service cards with Yes/No and sub-options' },
+    { type: 'service-cards-multi', label: 'Service Cards (Multi)', description: 'Service cards with multi-select and sub-options' },
 ]
 
 export default function TemplateBuilder() {

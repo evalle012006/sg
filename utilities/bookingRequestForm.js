@@ -1089,13 +1089,13 @@ export const convertQAtoQuestionWithNdisFilter = (qa_pairs, sectionId, returnee,
         } else if (qa.question_type === 'care-table') {
             answer = typeof answer === 'string' ? JSON.parse(answer) : answer;
             options = null;
-        } else if (qa.question_type === 'card-selection' || qa.question_type === 'horizontal-card') {
+        } else if (qa.question_type === 'card-selection' || qa.question_type === 'horizontal-card' || qa.question_type === 'service-cards') {
             options = options && options.map(o => {
                 let temp = { ...o };
                 temp.checked = answer && answer.value === o.value;
                 return temp;
             });
-        } else if (qa.question_type === 'card-selection-multi' || qa.question_type === 'horizontal-card-multi') {
+        } else if (qa.question_type === 'card-selection-multi' || qa.question_type === 'horizontal-card-multi' || qa.question_type === 'service-cards-multi') {
             answer = answer ? JSON.parse(answer) : [];
             options = options && options.map(o => {
                 let temp = { ...o };

@@ -30,7 +30,9 @@ export default function FieldBuilder(props) {
         'card-selection',
         'card-selection-multi',
         'horizontal-card',
-        'horizontal-card-multi'
+        'horizontal-card-multi',
+        'service-cards', 
+        'service-cards-multi'
     ];
 
     // Field types that need enhanced options (with description and imageUrl)
@@ -40,6 +42,8 @@ export default function FieldBuilder(props) {
         'horizontal-card',
         'horizontal-card-multi'
     ];
+
+    const serviceCardsFields = ['service-cards', 'service-cards-multi'];
 
     // Package selection fields
     const packageSelectionFields = [
@@ -200,21 +204,49 @@ export default function FieldBuilder(props) {
     }
 
     const updateOptionLabel = async (e, selected, type) => {
-        e.stopPropagation();
+        e?.stopPropagation();
         let updatedOptions = [];
         
         if (type === 'card-selection') {
             // Handle card selection field updates
             updatedOptions = question.options.map((option, index) => {
                 let opt = { ...option };
-
                 if (index === selected.index) {
                     if (selected.field === 'label') {
-                        opt.label = selected.label;
+                    opt.label = selected.label;
                     } else if (selected.field === 'description') {
-                        opt.description = selected.label; // selected.label contains the new value
+                    opt.description = selected.label;
                     } else if (selected.field === 'value') {
-                        opt.value = selected.label; // selected.label contains the new value
+                    opt.value = selected.label;
+                    }
+                }
+                return opt;
+            });
+        } else if (type === 'service-card') {
+            // Handle service card field updates
+            updatedOptions = question.options.map((option, index) => {
+                let opt = { ...option };
+                if (index === selected.index) {
+                    // Handle all service card fields
+                    if (selected.field === 'label') {
+                    opt.label = selected.label;
+                    } else if (selected.field === 'description') {
+                    opt.description = selected.label;
+                    } else if (selected.field === 'availability') {
+                    opt.availability = selected.label;
+                    } else if (selected.field === 'subOptionsTitle') {
+                    opt.subOptionsTitle = selected.label;
+                    } else if (selected.field === 'subOptionsNote') {
+                    opt.subOptionsNote = selected.label;
+                    } else if (selected.field === 'subOptions') {
+                    // Handle sub-options update (passed as JSON string)
+                    opt.subOptions = typeof selected.label === 'string' 
+                        ? JSON.parse(selected.label) 
+                        : selected.label;
+                    } else if (selected.field === 'imageFilename') {
+                    opt.imageFilename = selected.label;
+                    } else if (selected.field === 'imageUrl') {
+                    opt.imageUrl = selected.label;
                     }
                 }
                 return opt;
@@ -223,16 +255,12 @@ export default function FieldBuilder(props) {
             // Handle regular options updates (radio, checkbox, etc.)
             updatedOptions = question.options.map((option, index) => {
                 let opt = { ...option };
-
                 if (index === selected.index) {
                     if (selected.field === 'label' || !selected.field) {
-                        // If field is 'label' or undefined, update the label
-                        opt.label = selected.label;
-                        // For consistency, also update the value to match the label
-                        opt.value = selected.label;
+                    opt.label = selected.label;
+                    opt.value = selected.label;
                     } else if (selected.field === 'value') {
-                        // If explicitly updating value
-                        opt.value = selected.label;
+                    opt.value = selected.label;
                     }
                 }
                 return opt;
@@ -241,7 +269,7 @@ export default function FieldBuilder(props) {
 
         setOptionSyncStatus(false);
         setQuestion({ ...question, options: updatedOptions });
-    }
+        }
 
     const updateUrlField = async (field, value) => {
         let details = typeof question.details === 'string' ? JSON.parse(question.details) : (question.details || {});
@@ -284,7 +312,7 @@ export default function FieldBuilder(props) {
     }
 
     const handleRemoveOption = async (e, selected, fieldType) => {
-        e.stopPropagation();
+        e?.stopPropagation();
         
         // Handle both old format (direct index) and new format (object with index)
         const indexToRemove = typeof selected === 'object' && selected.hasOwnProperty('index') 
@@ -330,11 +358,9 @@ export default function FieldBuilder(props) {
         const currentOptions = typeof question.options === 'string' ? 
             JSON.parse(question.options) : question.options;
         
-        // Create appropriate option structure based on field type
         let newOptionToAdd;
         
         if (cardSelectionFields.includes(question.type)) {
-            // Enhanced option structure for card selection fields
             newOptionToAdd = {
                 label: newOption.label,
                 value: newOption.value || newOption.label.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''),
@@ -342,11 +368,43 @@ export default function FieldBuilder(props) {
                 imageUrl: null,
                 imageFilename: null
             };
-        } else {
-            // Regular option structure for radio, checkbox, etc. with value set to false
+        } else if (serviceCardsFields.includes(question.type)) {
+            // Service cards structure
             newOptionToAdd = {
                 label: newOption.label,
-                value: false // Set to false for radio buttons, checkboxes, etc.
+                value: newOption.value || newOption.label.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''),
+                description: "",
+                availability: "",
+                imageUrl: null,
+                imageFilename: null,
+                required: false,
+                subOptions: [],
+                subOptionsTitle: "",
+                subOptionsNote: "",
+                subOptionsRequired: false
+            };
+            
+            // Set option_type to 'service' if not already set
+            if (!question.option_type) {
+                const updatedQuestion = { ...question, option_type: 'service', options: [...currentOptions, newOptionToAdd] };
+                setQuestion(updatedQuestion);
+                
+                const response = await fetch('/api/booking-templates/questions/' + question.id, {
+                    method: 'POST',
+                    body: JSON.stringify(updatedQuestion),
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                
+                if (response.status == 200) {
+                    dispatch(fetchTemplate(template_uuid));
+                }
+                setNewOption({ label: '', value: '' });
+                return; // Early return since we already saved
+            }
+        } else {
+            newOptionToAdd = {
+                label: newOption.label,
+                value: false
             };
         }
 
@@ -396,19 +454,25 @@ export default function FieldBuilder(props) {
         }
     }, [question.options]);
 
-    // Dynamic file upload based on option_type
+    // Dynamic file upload based on option_type or field type
     const uploadImageFile = async (file) => {
         try {
             const formData = new FormData();
             formData.append('file', file);
             
-            // Use dynamic file path based on option_type
-            const fileType = `${question.option_type || 'funder'}/`;
+            // Determine file type based on field type
+            let fileType;
+            if (serviceCardsFields.includes(question.type)) {
+                fileType = 'service/'; // Use 'service' for service-cards
+            } else {
+                fileType = `${question.option_type || 'funder'}/`;
+            }
+            
             formData.append('fileType', fileType);
             formData.append('metadata', JSON.stringify({
-                courseId: question.id,
+                questionId: question.id,
                 uploadedBy: 'booking-request-form',
-                optionType: question.option_type
+                optionType: question.option_type || 'service'
             }));
 
             const response = await fetch('/api/storage/upload', {
@@ -429,56 +493,126 @@ export default function FieldBuilder(props) {
         }
     };
 
-    const handleImageUpload = async (index, file) => {
+    const handleImageUpload = async (index, file, subOptionIndex = null) => {
         try {
             const currentOption = question.options[index];
             
             // Show loading state - create temporary preview
             const previewUrl = URL.createObjectURL(file);
             
+            // Determine if this is a sub-option upload
+            const isSubOption = subOptionIndex !== null && subOptionIndex !== undefined;
+            
+            // Determine file type
+            let fileType;
+            if (serviceCardsFields.includes(question.type)) {
+                fileType = 'service';
+            } else {
+                fileType = question.option_type || 'funder';
+            }
+            
             // Update options with loading preview
-            let tempUpdatedOptions = question.options.map((option, optionIndex) => {
-                if (optionIndex === index) {
-                    return { ...option, imageUrl: previewUrl, uploading: true };
-                }
-                return option;
-            });
+            let tempUpdatedOptions;
+            if (isSubOption && currentOption.subOptions) {
+                const updatedSubOptions = currentOption.subOptions.map((subOpt, subIdx) => {
+                    if (subIdx === subOptionIndex) {
+                        return { ...subOpt, imageUrl: previewUrl, uploading: true };
+                    }
+                    return subOpt;
+                });
+                
+                tempUpdatedOptions = question.options.map((option, optionIndex) => {
+                    if (optionIndex === index) {
+                        return { ...option, subOptions: updatedSubOptions };
+                    }
+                    return option;
+                });
+            } else {
+                tempUpdatedOptions = question.options.map((option, optionIndex) => {
+                    if (optionIndex === index) {
+                        return { ...option, imageUrl: previewUrl, uploading: true };
+                    }
+                    return option;
+                });
+            }
             
             setOptionSyncStatus(false);
             setQuestion({ ...question, options: tempUpdatedOptions });
 
-            // If there's an existing image, delete it from storage first
-            if (currentOption.imageFilename) {
+            // Delete old image if exists
+            if (isSubOption) {
+                const subOption = currentOption.subOptions?.[subOptionIndex];
+                if (subOption?.imageFilename) {
+                    try {
+                        await fetch(`/api/storage/upload?filename=${subOption.imageFilename}&filepath=${fileType}/`, {
+                            method: 'DELETE'
+                        });
+                    } catch (error) {
+                        console.warn('Failed to delete old sub-option image:', error);
+                    }
+                }
+            } else if (currentOption.imageFilename) {
                 try {
-                    const fileType = question.option_type || 'funder';
                     await fetch(`/api/storage/upload?filename=${currentOption.imageFilename}&filepath=${fileType}/`, {
                         method: 'DELETE'
                     });
                 } catch (error) {
-                    console.warn('Failed to delete old image from storage:', error);
-                    // Continue with upload even if deletion fails
+                    console.warn('Failed to delete old image:', error);
                 }
             }
 
-            // Upload new file to server
+            // Upload new file
             const filename = await uploadImageFile(file);
             
-            // Update options with filename only (imageUrl will be generated by API)
-            const finalUpdatedOptions = question.options.map((option, optionIndex) => {
-                if (optionIndex === index) {
-                    // Clean up old preview URL if it exists
-                    if (option.imageUrl && option.imageUrl.startsWith('blob:')) {
-                        URL.revokeObjectURL(option.imageUrl);
-                    }
-                    return { 
-                        ...option, 
-                        imageFilename: filename, // Store filename for database
-                        imageUrl: previewUrl, // Keep preview for immediate display in builder
-                        uploading: false 
-                    };
-                }
-                return option;
+            // Fetch the image URL from storage
+            const urlResponse = await fetch(`/api/storage/upload?filename=${filename}&filepath=${fileType}/`, {
+                method: 'GET'
             });
+            const urlData = await urlResponse.json();
+            const imageUrl = urlData.fileUrl || null;
+            
+            // Update with filename and fetched URL
+            let finalUpdatedOptions;
+            if (isSubOption && currentOption.subOptions) {
+                const updatedSubOptions = currentOption.subOptions.map((subOpt, subIdx) => {
+                    if (subIdx === subOptionIndex) {
+                        // Clean up blob URL
+                        if (subOpt.imageUrl && subOpt.imageUrl.startsWith('blob:')) {
+                            URL.revokeObjectURL(subOpt.imageUrl);
+                        }
+                        return { 
+                            ...subOpt, 
+                            imageFilename: filename,
+                            imageUrl: imageUrl, // Use fetched URL
+                            uploading: false 
+                        };
+                    }
+                    return subOpt;
+                });
+                
+                finalUpdatedOptions = question.options.map((option, optionIndex) => {
+                    if (optionIndex === index) {
+                        return { ...option, subOptions: updatedSubOptions };
+                    }
+                    return option;
+                });
+            } else {
+                finalUpdatedOptions = question.options.map((option, optionIndex) => {
+                    if (optionIndex === index) {
+                        // Clean up blob URL
+                        if (option.imageUrl && option.imageUrl.startsWith('blob:')) {
+                            URL.revokeObjectURL(option.imageUrl);
+                        }
+                        return { 
+                            ...option, 
+                            imageFilename: filename,
+                            imageUrl: imageUrl, // Use fetched URL
+                            uploading: false 
+                        };
+                    }
+                    return option;
+                });
+            }
 
             setOptionSyncStatus(false);
             setQuestion({ ...question, options: finalUpdatedOptions });
@@ -486,17 +620,15 @@ export default function FieldBuilder(props) {
         } catch (error) {
             console.error('Image upload failed:', error);
             
-            // Remove loading state and show error
+            // Handle error - remove loading state
             const errorUpdatedOptions = question.options.map((option, optionIndex) => {
                 if (optionIndex === index) {
-                    // Clean up preview URL on error
                     if (option.imageUrl && option.imageUrl.startsWith('blob:')) {
                         URL.revokeObjectURL(option.imageUrl);
                     }
-                    // Keep existing imageFilename if there was one, don't clear it on upload error
                     return { 
                         ...option, 
-                        imageUrl: currentOption.imageUrl || null, // Restore previous imageUrl if it existed
+                        imageUrl: currentOption.imageUrl || null,
                         uploading: false, 
                         uploadError: true 
                     };
@@ -507,7 +639,6 @@ export default function FieldBuilder(props) {
             setOptionSyncStatus(false);
             setQuestion({ ...question, options: errorUpdatedOptions });
             
-            // You might want to show a toast notification here
             alert('Failed to upload image. Please try again.');
         }
     };
@@ -555,6 +686,19 @@ export default function FieldBuilder(props) {
                     handleRemoveOption={handleRemoveOption}
                     onImageUpload={handleImageUpload}
                 />;
+            case 'service-cards':
+            case 'service-cards-multi':
+                return <GetField 
+                    type={question.type} 
+                    options={question.options} 
+                    option_type={question.option_type || 'service'}
+                    className="w-full" 
+                    builder={true} 
+                    builderMode={true}
+                    updateOptionLabel={updateOptionLabel} 
+                    handleRemoveOption={handleRemoveOption}
+                    onImageUpload={handleImageUpload}
+                />;
             default:
                 return <GetField type={question.type} options={question.options} className="w-full" builder={true} updateOptionLabel={updateOptionLabel} handleRemoveOption={handleRemoveOption} />;
         }
@@ -562,6 +706,7 @@ export default function FieldBuilder(props) {
 
     const isCardSelectionField = cardSelectionFields.includes(question.type);
     const isPackageSelectionField = packageSelectionFields.includes(question.type);
+    const isServiceCardsField = serviceCardsFields.includes(question.type);
 
     return (<>
         <div className="info-item">
@@ -623,18 +768,18 @@ export default function FieldBuilder(props) {
             
             {fieldWithSelectOptions.includes(question.type) && (
                 <div className="flex flex-col mt-2">
-                    {isCardSelectionField ? (
-                        // Simplified form for card selection fields (removed value input)
+                    {isCardSelectionField || isServiceCardsField ? (
+                        // Simplified form for card selection and service cards fields
                         <div className="space-y-2">
                             <div className="text-sm font-medium text-gray-700 mb-2">
-                                Add New {question.option_type === 'course' ? 'Course' : 'Funder'} Option:
+                                Add New {isServiceCardsField ? 'Service' : question.option_type === 'course' ? 'Course' : 'Funder'} Option:
                             </div>
                             
                             <input 
                                 className="p-1 px-2 block w-full text-base font-normal text-gray-700 bg-white bg-clip-padding border-b border-gray-400
                                     shadow-sm transition ease-in-out focus:text-gray-700 focus:bg-white focus:outline-none disabled:opacity-80 
                                     focus:border-slate-400" 
-                                placeholder={`Option label (e.g., '${question.option_type === 'course' ? 'Advanced Cooking' : 'NDIS'}')`}
+                                placeholder={`Option label (e.g., '${isServiceCardsField ? 'Occupational Therapy' : question.option_type === 'course' ? 'Advanced Cooking' : 'NDIS'}')`}
                                 value={newOption.label} 
                                 onChange={(e) => setNewOption({ ...newOption, label: e.target.value })} 
                             />
@@ -644,7 +789,7 @@ export default function FieldBuilder(props) {
                                 onClick={addOption}
                                 disabled={!newOption.label.trim()}
                             >
-                                Add Option
+                                Add {isServiceCardsField ? 'Service' : 'Option'}
                             </button>
                         </div>
                     ) : (

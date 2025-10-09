@@ -133,10 +133,10 @@ export default async function handler(req, res) {
           }
 
           // Validate new fields
-          if (!item.rate_category || !['day', 'hour'].includes(item.rate_category)) {
+          if (!item.rate_category || !['day', 'hour', 'night'].includes(item.rate_category)) {
             return res.status(400).json({
               success: false,
-              error: `Line item ${i + 1}: Valid rate category is required (day or hour)`
+              error: `Line item ${i + 1}: Valid rate category is required (day, hour, or night)`
             });
           }
 

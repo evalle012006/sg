@@ -163,7 +163,6 @@ const QuestionPage = ({
             }
             
             const data = await response.json();
-            console.log('🎓 Real-time validation response:', data);
             
             const courseOffers = data.success && Array.isArray(data.courseOffers) ? data.courseOffers : [];
             
@@ -441,7 +440,10 @@ const QuestionPage = ({
                             qTemp.error = null;
                         }
 
-                        if (qTemp.type === 'select' || qTemp.type === 'multi-select') {
+                        if (qTemp.type === 'service-cards' || qTemp.type === 'service-cards-multi') {
+                            qTemp[field] = value;
+                            qTemp.dirty = true;
+                        } else if (qTemp.type === 'select' || qTemp.type === 'multi-select') {
                             qTemp[field] = value.label;
                             qTemp.dirty = true;
                         } else if (qTemp.type === 'checkbox') {
@@ -667,6 +669,41 @@ const QuestionPage = ({
         }
     }, [updatedCurrentPage, allPages]);
 
+    useEffect(() => {
+        if (!currentPage?.Sections) return;
+        
+        let needsUpdate = false;
+        const updatedSections = currentPage.Sections.map(section => {
+            const updatedQuestions = section.Questions.map(question => {
+                if ((question.type === 'service-cards' || question.type === 'service-cards-multi') && !question.answer) {
+                    needsUpdate = true;
+                    
+                    // Initialize answer with all services as "No" (selected: false)
+                    const options = typeof question.options === 'string' 
+                        ? JSON.parse(question.options) 
+                        : question.options;
+                    
+                    const initialAnswer = {};
+                    options.forEach(option => {
+                        initialAnswer[option.value] = {
+                            selected: false,
+                            subOptions: []
+                        };
+                    });
+                    
+                    return { ...question, answer: initialAnswer };
+                }
+                return question;
+            });
+            
+            return { ...section, Questions: updatedQuestions };
+        });
+        
+        if (needsUpdate) {
+            const updatedPage = { ...currentPage, Sections: updatedSections };
+            setUpdatedCurrentPage(updatedPage);
+        }
+    }, [currentPage?.id]);
 
     useEffect(() => {
         if (updatedCurrentPage && updatedCurrentPage.dirty) {
@@ -726,7 +763,7 @@ const QuestionPage = ({
         'file-upload', 'health-info', 'rooms', 'equipment', 'radio-ndis', 
         'goal-table', 'care-table', 'card-selection', 'card-selection-multi', 
         'horizontal-card', 'horizontal-card-multi', 'package-selection', 
-        'package-selection-multi'
+        'package-selection-multi', 'service-cards', 'service-cards-multi'   
     ];
 
     return (
@@ -864,6 +901,21 @@ const QuestionPage = ({
                                                 }
                                             }
 
+                                            if (q.type === "service-cards" || q.type === "service-cards-multi") {
+                                                if (typeof q.answer === 'string' && q.answer.trim()) {
+                                                    try {
+                                                        q.answer = JSON.parse(q.answer);
+                                                    } catch (error) {
+                                                        console.error('Error parsing service-cards answer:', error);
+                                                        // Initialize with empty object if parsing fails
+                                                        q.answer = {};
+                                                    }
+                                                } else if (!q.answer) {
+                                                    // Initialize with empty object if no answer
+                                                    q.answer = {};
+                                                }
+                                            }
+
                                             const handleCardSelectionFieldChange = (value, secIdx, qIdx) => {
                                                 markQuestionAsInteracted(secIdx, qIdx);
                                                 
@@ -963,8 +1015,6 @@ const QuestionPage = ({
                                             const handleEquipmentFieldChange = (label, secIdx, qIdx, changes) => {
                                                 markQuestionAsInteracted(secIdx, qIdx);
 
-                                                console.log('🔧 Equipment field change:', { label, changes });
-
                                                 if (changes && changes.length > 0) {
                                                     // FIXED: Defer Redux update to avoid state update during render
                                                     setTimeout(() => {
@@ -997,8 +1047,6 @@ const QuestionPage = ({
                                                     
                                                     // Apply QA pair updates to current page sections if any
                                                     if (qaPairUpdates.length > 0) {
-                                                        console.log('📝 Processing QA pair updates from equipment changes:', qaPairUpdates);
-                                                        
                                                         // FIXED: Defer page updates as well
                                                         setTimeout(() => {
                                                             const updatedSections = [...currentPage.Sections];
@@ -1020,8 +1068,6 @@ const QuestionPage = ({
                                                                                 oldAnswer: question.answer || null,
                                                                                 equipment_related: true
                                                                             };
-                                                                            
-                                                                            console.log(`📝 Updated QA pair: ${qaPairUpdate.equipment_name} (${qaPairUpdate.question_key}) = ${qaPairUpdate.answer}`);
                                                                             break;
                                                                         }
                                                                     }
@@ -1042,7 +1088,6 @@ const QuestionPage = ({
                                                 
                                                 // DON'T update the equipment field answer as a regular question
                                                 // This prevents the empty "Select/Review Equipment Options" from being saved
-                                                console.log('🔧 Equipment field updated, skipping regular question update');
                                                 // updateSections(label, 'answer', secIdx, qIdx, changes);
                                             };
 
@@ -1603,7 +1648,6 @@ const QuestionPage = ({
                                                     )}
                                                     {(q.type === 'goal-table' && !q.hidden) && (
                                                         <React.Fragment>
-                                                            {console.log("Show goal table...")}
                                                             <div className="flex flex-col w-full flex-1">
                                                                 {q.label && <span className="font-bold text-sargood-blue text-xl mb-2">{q.label}</span>}
                                                                 <div className="text-xs flex flex-row">
@@ -1830,6 +1874,56 @@ const QuestionPage = ({
                                                                     required={q.required ? true : false} 
                                                                     size={q.size || 'medium'}
                                                                     localFilterState={localFilterState}
+                                                                    onChange={(value) => handleCardSelectionFieldChange(value, idx, index)} 
+                                                                />
+                                                            </div>
+                                                        </React.Fragment>
+                                                    )}
+
+                                                    {(q.type === 'service-cards' && !q.hidden) && (
+                                                        <React.Fragment>
+                                                            <div className="flex flex-col w-full flex-1 col-span-full">
+                                                                {q.label && <span className="font-bold text-sargood-blue text-xl mb-2">{q.label}</span>}
+                                                                <div className="text-xs flex flex-row">
+                                                                    <span className="font-bold text-sm">{q.question}</span>
+                                                                    {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
+                                                                </div>
+                                                                
+                                                                <GetField 
+                                                                    key={q.id} 
+                                                                    type='service-cards' 
+                                                                    value={q.answer} 
+                                                                    width='100%' 
+                                                                    options={options} 
+                                                                    option_type={q.option_type || 'service'}
+                                                                    error={q.error} 
+                                                                    required={q.required ? true : false} 
+                                                                    size={q.size || 'medium'}
+                                                                    onChange={(value) => handleCardSelectionFieldChange(value, idx, index)} 
+                                                                />
+                                                            </div>
+                                                        </React.Fragment>
+                                                    )}
+
+                                                    {(q.type === 'service-cards-multi' && !q.hidden) && (
+                                                        <React.Fragment>
+                                                            <div className="flex flex-col w-full flex-1 col-span-full">
+                                                                {q.label && <span className="font-bold text-sargood-blue text-xl mb-2">{q.label}</span>}
+                                                                <div className="text-xs flex flex-row">
+                                                                    <span className="font-bold text-sm">{q.question}</span>
+                                                                    {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
+                                                                </div>
+                                                                
+                                                                <GetField 
+                                                                    key={q.id} 
+                                                                    type='service-cards-multi' 
+                                                                    value={q.answer} 
+                                                                    width='100%' 
+                                                                    options={options} 
+                                                                    option_type={q.option_type || 'service'}
+                                                                    error={q.error} 
+                                                                    required={q.required ? true : false} 
+                                                                    size={q.size || 'medium'}
                                                                     onChange={(value) => handleCardSelectionFieldChange(value, idx, index)} 
                                                                 />
                                                             </div>

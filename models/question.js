@@ -38,7 +38,7 @@ module.exports = (sequelize, DataTypes) => {
       comment: 'Type of options for card selection questions (e.g., funder, course)',
       validate: {
         isIn: {
-          args: [['funder', 'course']], // Add new types here as needed
+          args: [['funder', 'course','service']], // Add new types here as needed
           msg: 'option_type must be one of: funder, course'
         }
       }

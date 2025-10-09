@@ -63,7 +63,8 @@ export default function PackageForm({
     // Rate Category options
     const rateCategoryOptions = [
         { value: 'day', label: 'Day' },
-        { value: 'hour', label: 'Hour' }
+        { value: 'hour', label: 'Hour' },
+        { value: 'night', label: 'Night' }
     ];
 
     // Line Item Type options

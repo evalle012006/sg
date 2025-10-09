@@ -39,11 +39,9 @@ export default function GoalTable(props) {
   useEffect(() => {
     const fetchSettingsGoalList = async () => {
       const response = await fetch('/api/settings/goals');
-      console.log("Original props.value:", props.value);
       
       // Parse the value if it's a string
       const parsedValue = getParsedValue();
-      console.log("Parsed props.value:", parsedValue);
       
       if (response.ok) {
         const data = await response.json();

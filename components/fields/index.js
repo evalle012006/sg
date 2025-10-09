@@ -20,6 +20,7 @@ import GoalTable from './goalTable';
 import CareTable from './careTable';
 import CardField from './cardField';
 import PackageSelection from './packageSelection';
+import ServiceCardsField from './serviceCards';
 
 export const fields = {
     "text": (props) => <InputField {...props} type="text" />,
@@ -62,6 +63,9 @@ export const fields = {
 
     "goal-table": GoalTable,
     "care-table": CareTable,
+
+    "service-cards": (props) => <ServiceCardsField {...props} />,
+    "service-cards-multi": (props) => <ServiceCardsField {...props} multi={true} />,
 }
 
 export const GetField = (props) => {
