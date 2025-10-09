@@ -256,6 +256,9 @@ export default function Sidebar({ isCollapsed }) {
                                     {router.pathname === '/settings/manage-packages' && (
                                         <div className="absolute left-0 top-[13rem] w-1 h-10 bg-[#FFCE00]"></div>
                                     )}
+                                    {router.pathname === '/settings/manage-email-trigger' && (
+                                        <div className="absolute left-0 top-[15.5rem] w-1 h-10 bg-[#FFCE00]"></div>
+                                    )}
                                     {router.pathname === '/settings/manage-emails' && (
                                         <div className="absolute left-0 top-[15.5rem] w-1 h-10 bg-[#FFCE00]"></div>
                                     )}
@@ -345,6 +348,19 @@ export default function Sidebar({ isCollapsed }) {
                                             </Link>
                                         </li>
                                         <li>
+                                            <Link href="/settings/manage-email-trigger">
+                                                <a className={`
+                                                    flex items-center px-4 py-2 text-sm transition-colors duration-200 h-10
+                                                    ${router.pathname === '/settings/manage-email-trigger' 
+                                                        ? 'text-[#FFCE00]' 
+                                                        : 'text-gray-300 hover:text-white'
+                                                    }
+                                                `}>
+                                                    <span className="ml-4">Manage Email Triggers</span>
+                                                </a>
+                                            </Link>
+                                        </li>
+                                        <li>
                                             <Link href="/settings/manage-emails">
                                                 <a className={`
                                                     flex items-center px-4 py-2 text-sm transition-colors duration-200 h-10
@@ -353,7 +369,7 @@ export default function Sidebar({ isCollapsed }) {
                                                         : 'text-gray-300 hover:text-white'
                                                     }
                                                 `}>
-                                                    <span className="ml-4">Manage Emails</span>
+                                                    <span className="ml-4">Manage In-App Notifications</span>
                                                 </a>
                                             </Link>
                                         </li>

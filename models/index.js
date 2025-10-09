@@ -40,6 +40,7 @@ const courseRateModel = require('./courserate');
 const packageRequirementModel = require('./packagerequirement');
 const guestFundingModel = require('./guestfunding');
 const promotionModel = require('./promotion');
+const emailTemplateModel = require('./emailtemplate');
 
 const env = process.env.NODE_ENV || 'development';
 const config = require(__dirname + '/../config/config.js')[env];
@@ -90,6 +91,7 @@ const CourseRate = courseRateModel(sequelize, Sequelize.DataTypes);
 const PackageRequirement = packageRequirementModel(sequelize, Sequelize.DataTypes);
 const GuestFunding = guestFundingModel(sequelize, Sequelize.DataTypes);
 const Promotion = promotionModel(sequelize, Sequelize.DataTypes);
+const EmailTemplate = emailTemplateModel(sequelize, Sequelize.DataTypes);
 
 //ASSOCIATIONS
 Role.belongsToMany(Permission, { through: RoleHasPermission, foreignKey: 'role_id' });
@@ -344,4 +346,5 @@ module.exports = {
   PackageRequirement,
   GuestFunding,
   Promotion,
+  EmailTemplate,
 };

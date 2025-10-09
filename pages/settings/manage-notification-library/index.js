@@ -1,41 +1,51 @@
-import React, { useEffect, useState } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
-import { notificationLibraryActions } from '../../../store/notificationLibrarySlice';
-import Spinner from '../../../components/ui/spinner';
-import NotificationLibraryList from '../../../components/manage-notification-library/list';
+import { useEffect, useState } from "react";
+import { useDispatch } from "react-redux";
+import { notificationLibraryActions } from "../../../store/notificationLibrarySlice";
+import dynamic from 'next/dynamic';
+
+const Spinner = dynamic(() => import('../../../components/ui/spinner'));
+const NotificationLibraryList = dynamic(() => import('../../../components/manage-notification-library/list'));
 
 export default function NotificationLibraryPage() {
-  const dispatch = useDispatch();
-  const [isLoading, setIsLoading] = useState(true);
+    const dispatch = useDispatch();
+    const [isLoading, setIsLoading] = useState(true);
 
-  const fetchData = async () => {
-    const response = await fetch("/api/notification-library")
+    const fetchNotificationLibrary = async () => {
+        setIsLoading(true);
+        try {
+            const response = await fetch('/api/notification-library/list', {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
 
-    if (response.ok) {
-      const data = await response.json();
-      dispatch(notificationLibraryActions.setList(data));
-      setIsLoading(false);
+            if (response.ok) {
+                const data = await response.json();
+                dispatch(notificationLibraryActions.setNotificationLibraryList(data));
+            }
+        } catch (error) {
+            console.error('Error fetching notification library:', error);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchNotificationLibrary();
+    }, []);
+
+    if (isLoading) {
+        return (
+            <div className='h-screen flex items-center justify-center'>
+                <Spinner />
+            </div>
+        );
     }
-  }
 
-  useEffect(() => {
-    let mounted = true;
-
-    mounted && fetchData();
-
-    return (() => {
-      mounted = false;
-    });
-
-  }, []);
-
-  if (isLoading) {
-    return <div className='h-screen flex items-center justify-center'>
-      <Spinner />
-    </div>
-  }
-
-  return (
-    <NotificationLibraryList refreshData={fetchData} />
-  )
+    return (
+        <div>
+            <NotificationLibraryList refreshData={fetchNotificationLibrary} />
+        </div>
+    );
 }

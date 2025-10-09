@@ -1,48 +1,110 @@
 import React, { useEffect, useState } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch } from 'react-redux';
 import { emailTriggerActions } from '../../../store/emailTriggerSlice';
-import Spinner from '../../../components/ui/spinner';
-import EmailTriggerList from '../../../components/manage-email-trigger/list';
+import dynamic from 'next/dynamic';
+
+const Layout = dynamic(() => import('../../../components/layout'));
+const Spinner = dynamic(() => import('../../../components/ui/spinner'));
+const TabButton = dynamic(() => import('../../../components/ui-v2/TabButton'));
+const EmailTriggerList = dynamic(() => import('../../../components/manage-email-trigger/list'));
+const EmailTemplateList = dynamic(() => import('../../../components/email-templates/EmailTemplateList'));
 
 export default function EmailManagementPage() {
   const dispatch = useDispatch();
   const [isLoading, setIsLoading] = useState(true);
+  const [selectedTab, setSelectedTab] = useState('email-triggers');
 
   const fetchData = async () => {
-    const response = await fetch("/api/email-triggers")
+    try {
+      const response = await fetch("/api/email-triggers");
 
-    if (response.ok) {
-      const data = await response.json();
+      if (response.ok) {
+        const data = await response.json();
 
-      const emailTriggers = [];
-      data.map(s => {
-        const email_template_str = s.email_template.replaceAll('-', ' ');
-        emailTriggers.push({ ...s, label: s.recipient, value: s.recipient, email_template_str: email_template_str});
-      });
-      
-      dispatch(emailTriggerActions.setList(emailTriggers));
+        const emailTriggers = data.map(trigger => ({
+          ...trigger,
+          label: trigger.recipient,
+          value: trigger.recipient,
+          template_name: trigger.template?.name || trigger.email_template?.replaceAll('-', ' '),
+          template_id: trigger.email_template_id
+        }));
+        
+        dispatch(emailTriggerActions.setList(emailTriggers));
+      }
+    } catch (error) {
+      console.error('Error fetching email triggers:', error);
+    } finally {
       setIsLoading(false);
     }
-  }
+  };
 
   useEffect(() => {
     let mounted = true;
-
-    mounted && fetchData();
-
-    return (() => {
+    if (mounted) {
+      fetchData();
+    }
+    return () => {
       mounted = false;
-    });
-
+    };
   }, []);
 
-  if (isLoading) {
-    return <div className='h-screen flex items-center justify-center'>
-      <Spinner />
-    </div>
+  useEffect(() => {
+    if (selectedTab) {
+      localStorage.setItem('emailManagementTab', selectedTab);
+    }
+  }, [selectedTab]);
+
+  useEffect(() => {
+    const savedTab = localStorage.getItem('emailManagementTab');
+    if (savedTab) {
+      setSelectedTab(savedTab);
+    }
+  }, []);
+
+  const mainTabs = [
+    { label: 'EMAIL TRIGGERS', size: 'medium', fullLabel: 'EMAIL TRIGGERS' },
+    { label: 'EMAIL TEMPLATES', size: 'medium', fullLabel: 'EMAIL TEMPLATES' }
+  ];
+
+  const handleTabChange = (index) => {
+    const tabNames = ['email-triggers', 'email-templates'];
+    setSelectedTab(tabNames[index]);
+  };
+
+  const getCurrentTabContent = () => {
+    if (selectedTab === 'email-templates') {
+      return <EmailTemplateList />;
+    }
+    return <EmailTriggerList refreshData={fetchData} />;
+  };
+
+  if (isLoading && selectedTab === 'email-triggers') {
+    return (
+      <Layout title="Manage Emails">
+        <div className="h-screen flex items-center justify-center">
+          <Spinner />
+        </div>
+      </Layout>
+    );
   }
 
   return (
-    <EmailTriggerList refreshData={fetchData} />
-  )
+    <Layout title="Manage Emails">
+      <div className="p-4">
+        {/* Tab Navigation */}
+        <div className="mb-6">
+          <TabButton
+            tabs={mainTabs}
+            onChange={handleTabChange}
+            type="outline"
+          />
+        </div>
+
+        {/* Tab Content */}
+        <div className="mt-6">
+          {getCurrentTabContent()}
+        </div>
+      </div>
+    </Layout>
+  );
 }

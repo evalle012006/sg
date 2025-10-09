@@ -1,4 +1,4 @@
-import { Booking, BookingEquipment, EmailTrigger, Equipment, EquipmentCategory, Guest, Log, Page, QaPair, Question, QuestionDependency } from "../../models";
+import { Booking, BookingEquipment, EmailTrigger, EmailTemplate, Equipment, EquipmentCategory, Guest, Log, Page, QaPair, Question, QuestionDependency } from "../../models";
 import { Room, RoomType, Section, Setting, Template, NotificationLibrary } from "../../models";
 import EntityBuilder from "../common/entityBuilder";
 import _ from 'lodash';
@@ -18,6 +18,8 @@ import {
     mapQuestionTextToKey,
     getCoordinatorInfo
 } from "./question-helper";
+const EmailTriggerService = require('./emailTriggerService');
+const { prepareBookingEmailData } = require('../../utilities/emailHelpers');
 
 const { Op } = require("sequelize");
 export class BookingService extends EntityBuilder {
@@ -1535,6 +1537,184 @@ export class BookingService extends EntityBuilder {
             await SendEmail(guest?.email, 'Sargood On Collaroy - Booking', "booking-notify-date-of-stay", emailData);
             return true;
         } else {
+            return false;
+        }
+    }
+
+
+    /**
+     * Trigger emails when booking is submitted
+     * UPDATED to use new email trigger service
+     */
+    async triggerEmailsOnSubmitV2(booking) {
+        try {
+            console.log(`\n📧 Processing email triggers for booking ${booking.uuid}...`);
+
+            // Check if booking is complete
+            if (!this.isBookingComplete(booking.uuid)) {
+                console.log('⊘ Booking not complete - skipping email triggers');
+                return false;
+            }
+
+            // Fetch full booking data with all relations
+            const bookingData = await this.entityModel.findOne({
+                where: { uuid: booking.uuid },
+                include: [
+                    {
+                        model: Section,
+                        include: [{ model: QaPair, include: ['Question'] }]
+                    },
+                    {
+                        model: Room,
+                        include: [{ model: RoomType }]
+                    },
+                    Guest
+                ]
+            });
+
+            if (!bookingData) {
+                console.log('⊘ Booking data not found');
+                return false;
+            }
+
+            // Process all email triggers
+            const results = await EmailTriggerService.processTriggersForBooking(
+                booking,
+                bookingData
+            );
+
+            console.log(`\n✓ Email trigger processing complete:`);
+            console.log(`  - Total triggers: ${results.total}`);
+            console.log(`  - Sent: ${results.sent}`);
+            console.log(`  - Skipped: ${results.skipped}`);
+            console.log(`  - Failed: ${results.failed}\n`);
+
+            return results.sent > 0;
+
+        } catch (error) {
+            console.error('Error triggering emails on submit:', error);
+            // Don't throw - we don't want email failures to block booking submission
+            return false;
+        }
+    }
+
+    /**
+     * Trigger emails when booking is confirmed
+     * UPDATED to use new email trigger service
+     */
+    async triggerEmailsOnBookingConfirmedV2(booking) {
+        try {
+            console.log(`\n📧 Processing confirmation email triggers for booking ${booking.uuid}...`);
+
+            if (!this.isBookingComplete(booking.uuid)) {
+                console.log('⊘ Booking not complete - skipping email triggers');
+                return false;
+            }
+
+            const bookingData = await this.entityModel.findOne({
+                where: { uuid: booking.uuid },
+                include: [
+                    {
+                        model: Section,
+                        include: [{ model: QaPair, include: ['Question'] }]
+                    },
+                    {
+                        model: Room,
+                        include: [{ model: RoomType }]
+                    },
+                    Guest
+                ]
+            });
+
+            if (!bookingData) {
+                console.log('⊘ Booking data not found');
+                return false;
+            }
+
+            // Process triggers
+            const results = await EmailTriggerService.processTriggersForBooking(
+                booking,
+                bookingData
+            );
+
+            console.log(`\n✓ Confirmation email triggers processed: ${results.sent} sent\n`);
+
+            return results.sent > 0;
+
+        } catch (error) {
+            console.error('Error triggering confirmation emails:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Trigger emails when booking is amended
+     * NEW method for amendment notifications
+     */
+    async triggerEmailsOnBookingAmendedV2(booking, amendments) {
+        try {
+            console.log(`\n📧 Processing amendment email triggers for booking ${booking.uuid}...`);
+
+            const bookingData = await this.entityModel.findOne({
+                where: { uuid: booking.uuid },
+                include: [
+                    {
+                        model: Section,
+                        include: [{ model: QaPair, include: ['Question'] }]
+                    },
+                    {
+                        model: Room,
+                        include: [{ model: RoomType }]
+                    },
+                    Guest
+                ]
+            });
+
+            if (!bookingData) {
+                console.log('⊘ Booking data not found');
+                return false;
+            }
+
+            // Get triggers specifically for amendments
+            const amendmentTriggers = await EmailTrigger.findAll({
+                where: {
+                    enabled: true,
+                    type: 'internal' // or create a new 'amendment' type
+                },
+                include: [{ model: EmailTemplate, as: 'template' }]
+            });
+
+            // Add amendment details to email data
+            let sentCount = 0;
+            for (const trigger of amendmentTriggers) {
+                try {
+                    const emailData = prepareBookingEmailData(booking, bookingData, trigger);
+                    
+                    // Add amendment-specific data
+                    emailData.amendments = amendments;
+                    emailData.amendment_count = amendments.length;
+                    emailData.amended_at = new Date().toLocaleString('en-AU', {
+                        timeZone: 'Australia/Sydney'
+                    });
+
+                    if (trigger.email_template_id) {
+                        await EmailService.sendWithTemplate(
+                            trigger.recipient,
+                            trigger.email_template_id,
+                            emailData
+                        );
+                        sentCount++;
+                    }
+                } catch (error) {
+                    console.error(`Error sending amendment email for trigger ${trigger.id}:`, error);
+                }
+            }
+
+            console.log(`✓ Amendment email triggers processed: ${sentCount} sent\n`);
+            return sentCount > 0;
+
+        } catch (error) {
+            console.error('Error triggering amendment emails:', error);
             return false;
         }
     }
