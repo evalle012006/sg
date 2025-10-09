@@ -97,6 +97,8 @@ const EmailTemplate = emailTemplateModel(sequelize, Sequelize.DataTypes);
 Role.belongsToMany(Permission, { through: RoleHasPermission, foreignKey: 'role_id' });
 Permission.belongsToMany(Role, { through: RoleHasPermission, foreignKey: 'permission_id' });
 
+EmailTrigger.belongsTo(EmailTemplate, { foreignKey: 'email_template_id', as: 'template' });
+EmailTemplate.hasMany(EmailTrigger, { foreignKey: 'email_template_id', as: 'triggers' });
 
 Guest.hasMany(Booking)
 Booking.belongsTo(Guest)

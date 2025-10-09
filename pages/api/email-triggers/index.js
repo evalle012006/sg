@@ -14,7 +14,7 @@ export default async function handler(req, res) {
           attributes: ['id', 'name', 'subject', 'preview_image']
         }
       ],
-      order: [['created_at', 'DESC']]
+      order: [['createdAt', 'DESC']]
     });
 
     return res.status(200).json(emailTriggers);

@@ -1,30 +1,52 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useSelector } from 'react-redux';
 import { toast } from 'react-toastify';
 import dynamic from 'next/dynamic';
-import { Plus, Search, Edit, Power, PowerOff, TrendingUp, Mail } from 'lucide-react';
+import { Plus, Search, Edit, Power, PowerOff, Mail, FileText, Trash2 } from 'lucide-react';
 
 const Table = dynamic(() => import('../ui-v2/Table'));
 const Button = dynamic(() => import('../ui-v2/Button'));
 const StatusBadge = dynamic(() => import('../ui-v2/StatusBadge'));
-const EmailTriggerForm = dynamic(() => import('../manage-email-trigger/EmailTriggerForm'))
+const EmailTemplateBuilder = dynamic(() => import('./EmailTemplateBuilder'));
 
-function EmailTriggerList({ refreshData }) {
-  const emailTriggerData = useSelector(state => state.emailTrigger.list);
+function EmailTemplateList() {
+  const [templates, setTemplates] = useState([]);
   const [list, setList] = useState([]);
   const [showModal, setShowModal] = useState(false);
-  const [selectedTrigger, setSelectedTrigger] = useState(null);
+  const [selectedTemplate, setSelectedTemplate] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isFiltering, setIsFiltering] = useState(false);
   const [filteredData, setFilteredData] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    fetchTemplates();
+  }, []);
 
   useEffect(() => {
     if (isFiltering) {
       setList(filteredData);
     } else {
-      setList(emailTriggerData);
+      setList(templates);
     }
-  }, [isFiltering, filteredData, emailTriggerData]);
+  }, [isFiltering, filteredData, templates]);
+
+  const fetchTemplates = async () => {
+    try {
+      setIsLoading(true);
+      const response = await fetch('/api/email-templates');
+      const data = await response.json();
+      
+      if (data.success) {
+        setTemplates(data.data);
+        console.log('Templates loaded:', data.data); // Debug log
+      }
+    } catch (error) {
+      console.error('Error fetching templates:', error);
+      toast.error('Failed to fetch email templates');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleSearch = (e) => {
     const query = e.target.value.toLowerCase();
@@ -35,10 +57,10 @@ function EmailTriggerList({ refreshData }) {
       return;
     }
 
-    const filtered = emailTriggerData.filter(trigger =>
-      trigger.recipient?.toLowerCase().includes(query) ||
-      trigger.template_name?.toLowerCase().includes(query) ||
-      trigger.type?.toLowerCase().includes(query)
+    const filtered = templates.filter(template =>
+      template.name?.toLowerCase().includes(query) ||
+      template.subject?.toLowerCase().includes(query) ||
+      template.description?.toLowerCase().includes(query)
     );
 
     setFilteredData(filtered);
@@ -46,156 +68,106 @@ function EmailTriggerList({ refreshData }) {
   };
 
   const handleCreateNew = () => {
-    setSelectedTrigger(null);
+    setSelectedTemplate(null);
     setShowModal(true);
   };
 
-  const handleEdit = (trigger) => {
-    setSelectedTrigger(trigger);
+  const handleEdit = (template) => {
+    setSelectedTemplate(template);
     setShowModal(true);
   };
 
-  const handleSave = async (formData) => {
+  const handleSave = async (templateData) => {
     try {
-      const url = selectedTrigger
-        ? '/api/email-triggers/update'
-        : '/api/email-triggers/create';
+      const url = selectedTemplate
+        ? `/api/email-templates/${selectedTemplate.id}`
+        : '/api/email-templates';
 
-      const method = 'POST';
-      const payload = selectedTrigger
-        ? { ...formData, id: selectedTrigger.id }
-        : formData;
+      const method = selectedTemplate ? 'PUT' : 'POST';
 
       const response = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(templateData)
       });
 
       if (!response.ok) {
-        throw new Error('Failed to save email trigger');
+        throw new Error('Failed to save email template');
       }
 
-      toast.success('Email trigger saved successfully');
+      toast.success('Email template saved successfully');
       setShowModal(false);
-      setSelectedTrigger(null);
-      refreshData();
+      setSelectedTemplate(null);
+      fetchTemplates();
     } catch (error) {
-      console.error('Error saving trigger:', error);
+      console.error('Error saving template:', error);
       throw error;
     }
   };
 
-  const handleToggleEnabled = async (trigger) => {
+  const handleToggleActive = async (template) => {
     try {
-      const response = await fetch('/api/email-triggers/update', {
-        method: 'POST',
+      const response = await fetch(`/api/email-templates/${template.id}`, {
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...trigger,
-          enabled: !trigger.enabled
+          ...template,
+          is_active: !template.is_active
         })
       });
 
       if (!response.ok) {
-        throw new Error('Failed to update trigger');
+        throw new Error('Failed to update template');
       }
 
-      toast.success(`Email trigger ${trigger.enabled ? 'disabled' : 'enabled'} successfully`);
-      refreshData();
+      toast.success(`Email template ${template.is_active ? 'deactivated' : 'activated'} successfully`);
+      fetchTemplates();
     } catch (error) {
-      console.error('Error toggling trigger:', error);
-      toast.error('Failed to update trigger');
+      console.error('Error toggling template:', error);
+      toast.error('Failed to update template');
+    }
+  };
+
+  const handleDelete = async (template) => {
+    if (!confirm(`Are you sure you want to delete "${template.name}"? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/email-templates/${template.id}`, {
+        method: 'DELETE'
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to delete template');
+      }
+
+      toast.success('Email template deleted successfully');
+      fetchTemplates();
+    } catch (error) {
+      console.error('Error deleting template:', error);
+      toast.error(error.message || 'Failed to delete template');
     }
   };
 
   const columns = useMemo(
     () => [
       {
-        Header: 'Recipient',
-        accessor: 'recipient',
-        Cell: ({ value }) => (
-          <div className="flex items-center space-x-2">
-            <Mail className="w-4 h-4 text-gray-400" />
-            <span className="font-medium text-gray-900">{value}</span>
-          </div>
-        )
-      },
-      {
-        Header: 'Email Template',
-        accessor: 'template_name',
-        Cell: ({ row: { original } }) => (
-          <div>
-            <div className="font-medium text-gray-900">{original.template_name}</div>
-            {original.template && (
-              <div className="text-xs text-gray-500 mt-0.5">
-                {original.template.subject}
-              </div>
-            )}
-          </div>
-        )
-      },
-      {
-        Header: 'Type',
-        accessor: 'type',
-        Cell: ({ value }) => {
-          const config = {
-            highlights: { color: 'info', label: 'Highlights' },
-            external: { color: 'success', label: 'External' },
-            internal: { color: 'warning', label: 'Internal' }
-          };
-          const typeConfig = config[value] || { color: 'default', label: value };
-          
-          return (
-            <StatusBadge
-              status={typeConfig.color}
-              label={typeConfig.label}
-            />
-          );
-        }
-      },
-      {
-        Header: 'Trigger Conditions',
-        accessor: 'trigger_questions',
-        Cell: ({ value }) => (
-          <div className="space-y-1.5 max-w-md">
-            {value && value.length > 0 ? (
-              value.slice(0, 2).map((question, index) => (
-                <div key={index} className="bg-gray-50 rounded px-2 py-1 text-xs border border-gray-200">
-                  <p className="font-medium text-gray-700 truncate">
-                    {index + 1}. {question.question}
-                  </p>
-                  {question.answer && (
-                    <p className="text-gray-500 mt-0.5">
-                      Answer: <span className="font-medium">{question.answer}</span>
-                    </p>
-                  )}
-                </div>
-              ))
-            ) : (
-              <span className="text-gray-400 text-xs italic">No conditions</span>
-            )}
-            {value && value.length > 2 && (
-              <p className="text-xs text-blue-600">
-                +{value.length - 2} more condition{value.length - 2 > 1 ? 's' : ''}
-              </p>
-            )}
-          </div>
-        )
-      },
-      {
-        Header: 'Statistics',
-        accessor: 'trigger_count',
-        Cell: ({ row: { original } }) => (
-          <div className="flex items-center space-x-2">
-            <TrendingUp className="w-4 h-4 text-gray-400" />
-            <div className="text-sm">
-              <div className="font-medium text-gray-900">
-                {original.trigger_count || 0} sent
-              </div>
-              {original.last_triggered_at && (
-                <div className="text-xs text-gray-500">
-                  Last: {new Date(original.last_triggered_at).toLocaleDateString()}
+        key: 'name',
+        label: 'TEMPLATE NAME',
+        searchable: true,
+        render: (value, row) => (
+          <div className="flex items-center space-x-3">
+            <div className="flex-shrink-0 w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+              <FileText className="w-5 h-5 text-blue-600" />
+            </div>
+            <div>
+              <div className="font-medium text-gray-900">{value || 'Untitled Template'}</div>
+              {row.description && (
+                <div className="text-xs text-gray-500 mt-0.5">
+                  {row.description}
                 </div>
               )}
             </div>
@@ -203,44 +175,119 @@ function EmailTriggerList({ refreshData }) {
         )
       },
       {
-        Header: 'Status',
-        accessor: 'enabled',
-        Cell: ({ row: { original } }) => (
+        key: 'subject',
+        label: 'EMAIL SUBJECT',
+        searchable: true,
+        render: (value, row) => (
+          <div className="flex items-center space-x-2">
+            <Mail className="w-4 h-4 text-gray-400" />
+            <span className="text-sm text-gray-700">{value || '-'}</span>
+          </div>
+        )
+      },
+      {
+        key: 'template_type',
+        label: 'TYPE',
+        searchable: false,
+        render: (value, row) => {
+          const config = {
+            custom: { type: 'primary', label: 'Custom' },
+            system: { type: 'warning', label: 'System' },
+            migrated: { type: 'neutral', label: 'Migrated' }
+          };
+          const typeConfig = config[value] || { type: 'neutral', label: value || 'Custom' };
+          
+          return (
+            <StatusBadge
+              type={typeConfig.type}
+              label={typeConfig.label}
+            />
+          );
+        }
+      },
+      {
+        key: 'createdAt',
+        label: 'CREATED',
+        searchable: false,
+        render: (value, row) => (
+          <span className="text-sm text-gray-600">
+            {value ? new Date(value).toLocaleDateString('en-US', {
+              year: 'numeric',
+              month: 'short',
+              day: 'numeric'
+            }) : '-'}
+          </span>
+        )
+      },
+      {
+        key: 'is_active',
+        label: 'STATUS',
+        searchable: false,
+        render: (value, row) => (
           <button
-            onClick={() => handleToggleEnabled(original)}
-            className="group flex items-center space-x-2"
-            title={original.enabled ? 'Click to disable' : 'Click to enable'}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleToggleActive(row);
+            }}
+            className="flex items-center space-x-2 px-3 py-1.5 rounded-lg transition-colors group hover:bg-gray-50"
+            title={row.is_active ? 'Click to deactivate' : 'Click to activate'}
           >
-            {original.enabled ? (
+            {row.is_active ? (
               <>
                 <Power className="w-5 h-5 text-green-600 group-hover:text-green-700" />
-                <StatusBadge status="success" label="Active" />
+                <StatusBadge type="success" label="Active" />
               </>
             ) : (
               <>
                 <PowerOff className="w-5 h-5 text-gray-400 group-hover:text-gray-600" />
-                <StatusBadge status="default" label="Inactive" />
+                <StatusBadge type="neutral" label="Inactive" />
               </>
             )}
           </button>
         )
       },
       {
-        Header: 'Action',
-        accessor: 'action',
-        Cell: ({ row: { original } }) => (
-          <button
-            onClick={() => handleEdit(original)}
-            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-            title="Edit Trigger"
-          >
-            <Edit className="w-5 h-5" />
-          </button>
+        key: 'actions',
+        label: 'ACTIONS',
+        searchable: false,
+        render: (value, row) => (
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleEdit(row);
+              }}
+              className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+              title="Edit Template"
+            >
+              <Edit className="w-5 h-5" />
+            </button>
+            {row.template_type !== 'system' && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDelete(row);
+                }}
+                className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                title="Delete Template"
+              >
+                <Trash2 className="w-5 h-5" />
+              </button>
+            )}
+          </div>
         )
       }
     ],
-    [refreshData]
+    []
   );
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="pb-16">
@@ -248,15 +295,15 @@ function EmailTriggerList({ refreshData }) {
       <div className="mb-6">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
-            <h2 className="text-2xl font-bold text-gray-900">Email Triggers</h2>
-            <p className="text-sm text-gray-600 mt-1">Manage automated email notifications</p>
+            <h2 className="text-2xl font-bold text-gray-900">Email Templates</h2>
+            <p className="text-sm text-gray-600 mt-1">Create and manage email templates</p>
           </div>
           
           <Button
             type="button"
             color="primary"
             size="medium"
-            label="CREATE NEW TRIGGER"
+            label="CREATE NEW TEMPLATE"
             onClick={handleCreateNew}
             icon={<Plus className="w-4 h-4" />}
           />
@@ -272,26 +319,67 @@ function EmailTriggerList({ refreshData }) {
           <input
             className="w-full bg-white border border-gray-300 rounded-lg py-2.5 pl-10 pr-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             onChange={handleSearch}
-            placeholder="Search triggers..."
+            placeholder="Search templates..."
             type="text"
             value={searchQuery}
           />
         </div>
       </div>
 
+      {/* Debug Info - Remove after fixing */}
+      {process.env.NODE_ENV === 'development' && (
+        <div className="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded">
+          <p className="text-sm">
+            <strong>Debug:</strong> Templates count: {list.length} | 
+            Filtering: {isFiltering.toString()} | 
+            Loading: {isLoading.toString()}
+          </p>
+        </div>
+      )}
+
+      {/* Empty State */}
+      {list.length === 0 && !isLoading && (
+        <div className="bg-white rounded-lg border border-gray-200 p-12 text-center">
+          <div className="mx-auto w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
+            <FileText className="w-8 h-8 text-gray-400" />
+          </div>
+          <h3 className="text-lg font-semibold text-gray-900 mb-2">No email templates found</h3>
+          <p className="text-gray-600 mb-6">
+            {searchQuery ? 'Try adjusting your search query' : 'Get started by creating your first email template'}
+          </p>
+          {!searchQuery && (
+            <Button
+              type="button"
+              color="primary"
+              size="medium"
+              label="CREATE NEW TEMPLATE"
+              onClick={handleCreateNew}
+              icon={<Plus className="w-4 h-4" />}
+            />
+          )}
+        </div>
+      )}
+
       {/* Table */}
-      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-        <Table columns={columns} data={list} />
-      </div>
+      {list.length > 0 && (
+        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+          <Table 
+            data={list}
+            columns={columns}
+            itemsPerPageOptions={[10, 15, 25, 50]}
+            defaultItemsPerPage={15}
+          />
+        </div>
+      )}
 
       {/* Modal */}
       {showModal && (
-        <EmailTriggerForm
-          trigger={selectedTrigger}
+        <EmailTemplateBuilder
+          templateData={selectedTemplate}
           onSave={handleSave}
           onClose={() => {
             setShowModal(false);
-            setSelectedTrigger(null);
+            setSelectedTemplate(null);
           }}
         />
       )}
@@ -299,4 +387,4 @@ function EmailTriggerList({ refreshData }) {
   );
 }
 
-export default EmailTriggerList;
+export default EmailTemplateList;

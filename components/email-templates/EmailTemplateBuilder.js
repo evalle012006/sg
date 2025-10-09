@@ -1,49 +1,73 @@
 import React, { useRef, useState, useEffect } from 'react';
-import dynamic from 'next/dynamic';
 import { toast } from 'react-toastify';
-import { X, Mail, Eye, Save, Info } from 'lucide-react';
+import dynamic from 'next/dynamic';
+import { X, Mail, Save, Info } from 'lucide-react';
 
-// Dynamic imports
+const EmailEditor = dynamic(() => import('react-email-editor'), { ssr: false });
 const Button = dynamic(() => import('../ui-v2/Button'));
 const TextField = dynamic(() => import('../ui-v2/TextField'));
 
-// Dynamically import EmailEditor to avoid SSR issues
-const EmailEditor = dynamic(() => import('react-email-editor'), { ssr: false });
-
 const EmailTemplateBuilder = ({ templateData, onSave, onClose }) => {
   const emailEditorRef = useRef(null);
-  const [name, setName] = useState(templateData?.name || '');
-  const [subject, setSubject] = useState(templateData?.subject || '');
-  const [description, setDescription] = useState(templateData?.description || '');
+  const [name, setName] = useState('');
+  const [subject, setSubject] = useState('');
+  const [description, setDescription] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [showMergeTags, setShowMergeTags] = useState(false);
-  
-  // Field validation states
   const [nameError, setNameError] = useState('');
   const [subjectError, setSubjectError] = useState('');
+  const [showMergeTags, setShowMergeTags] = useState(false);
 
-  // Available merge tags for booking data
+  // Merge tags grouped by category
   const mergeTags = {
-    guest_name: { name: 'Guest Name', value: '{{guest_name}}', category: 'Guest Info' },
-    guest_email: { name: 'Guest Email', value: '{{guest_email}}', category: 'Guest Info' },
-    guest_phone: { name: 'Guest Phone', value: '{{guest_phone}}', category: 'Guest Info' },
-    check_in_date: { name: 'Check-in Date', value: '{{check_in_date}}', category: 'Booking Info' },
-    check_out_date: { name: 'Check-out Date', value: '{{check_out_date}}', category: 'Booking Info' },
-    funder: { name: 'Funder', value: '{{funder}}', category: 'Booking Info' },
-    booking_highlights: { name: 'Booking Highlights', value: '{{booking_highlights}}', category: 'Booking Info' },
-    question: { name: 'Question', value: '{{question}}', category: 'Dynamic' },
-    answer: { name: 'Answer', value: '{{answer}}', category: 'Dynamic' },
-    selected_list_answer: { name: 'Selected Answer', value: '{{selected_list_answer}}', category: 'Dynamic' }
+    guest: [
+      { name: 'Guest Name', value: '{{guest_name}}' },
+      { name: 'Guest Email', value: '{{guest_email}}' },
+      { name: 'Guest Phone', value: '{{guest_phone}}' },
+      { name: 'Guest Address', value: '{{guest_address}}' }
+    ],
+    booking: [
+      { name: 'Booking Reference', value: '{{booking_reference}}' },
+      { name: 'Check-in Date', value: '{{checkin_date}}' },
+      { name: 'Check-out Date', value: '{{checkout_date}}' },
+      { name: 'Number of Guests', value: '{{number_of_guests}}' },
+      { name: 'Number of Nights', value: '{{number_of_nights}}' },
+      { name: 'Room Type', value: '{{room_type}}' },
+      { name: 'Total Amount', value: '{{total_amount}}' }
+    ],
+    property: [
+      { name: 'Property Name', value: '{{property_name}}' },
+      { name: 'Property Address', value: '{{property_address}}' },
+      { name: 'Property Phone', value: '{{property_phone}}' },
+      { name: 'Property Email', value: '{{property_email}}' }
+    ],
+    other: [
+      { name: 'Current Date', value: '{{current_date}}' },
+      { name: 'Current Time', value: '{{current_time}}' },
+      { name: 'Booking URL', value: '{{booking_url}}' }
+    ]
   };
 
-  // Group merge tags by category
-  const groupedMergeTags = Object.values(mergeTags).reduce((acc, tag) => {
-    if (!acc[tag.category]) {
-      acc[tag.category] = [];
+  const groupedMergeTags = {
+    'Guest Information': mergeTags.guest,
+    'Booking Details': mergeTags.booking,
+    'Property Information': mergeTags.property,
+    'Other': mergeTags.other
+  };
+
+  // Flatten merge tags for email editor
+  const flatMergeTags = Object.values(mergeTags).flat().map(tag => ({
+    name: tag.name,
+    value: tag.value,
+    mergeTags: {}
+  }));
+
+  useEffect(() => {
+    if (templateData) {
+      setName(templateData.name || '');
+      setSubject(templateData.subject || '');
+      setDescription(templateData.description || '');
     }
-    acc[tag.category].push(tag);
-    return acc;
-  }, {});
+  }, [templateData]);
 
   const exportHtml = () => {
     return new Promise((resolve) => {
@@ -93,11 +117,11 @@ const EmailTemplateBuilder = ({ templateData, onSave, onClose }) => {
         subject: subject.trim(),
         description: description.trim(),
         html_content: html,
-        json_design: design
+        json_design: design,
+        is_active: templateData?.is_active !== undefined ? templateData.is_active : true
       };
 
       await onSave(templatePayload);
-      toast.success('Template saved successfully!');
     } catch (error) {
       console.error('Error saving template:', error);
       toast.error('Failed to save template');
@@ -109,7 +133,11 @@ const EmailTemplateBuilder = ({ templateData, onSave, onClose }) => {
   const onReady = () => {
     // Load existing design if editing
     if (templateData?.json_design) {
-      emailEditorRef.current?.editor?.loadDesign(templateData.json_design);
+      try {
+        emailEditorRef.current?.editor?.loadDesign(templateData.json_design);
+      } catch (error) {
+        console.error('Error loading template design:', error);
+      }
     }
   };
 
@@ -183,12 +211,12 @@ const EmailTemplateBuilder = ({ templateData, onSave, onClose }) => {
           {/* Description */}
           <div className="mt-4">
             <label className="font-semibold form-label inline-block mb-1.5 text-slate-700">
-              Description
+              Description <span className="text-gray-400 font-normal">(Optional)</span>
             </label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Brief description of this template (optional)"
+              placeholder="Brief description of this template"
               className="block w-full px-3.5 py-2.5 text-base font-normal text-gray-700 bg-white border border-gray-300 rounded-lg shadow-sm transition ease-in-out focus:border-blue-400 focus:ring-2 focus:ring-blue-200 focus:outline-none"
               rows="2"
             />
@@ -215,7 +243,7 @@ const EmailTemplateBuilder = ({ templateData, onSave, onClose }) => {
           </button>
           
           {showMergeTags && (
-            <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="mt-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               {Object.entries(groupedMergeTags).map(([category, tags]) => (
                 <div key={category} className="bg-white rounded-lg p-3 border border-gray-200">
                   <h4 className="text-xs font-semibold text-gray-700 mb-2 uppercase">{category}</h4>
@@ -223,7 +251,7 @@ const EmailTemplateBuilder = ({ templateData, onSave, onClose }) => {
                     {tags.map((tag, index) => (
                       <div key={index} className="flex flex-col">
                         <span className="text-xs font-medium text-gray-600">{tag.name}</span>
-                        <code className="text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded mt-1 font-mono">
+                        <code className="text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded mt-1 font-mono break-all">
                           {tag.value}
                         </code>
                       </div>
@@ -242,7 +270,15 @@ const EmailTemplateBuilder = ({ templateData, onSave, onClose }) => {
             onReady={onReady}
             minHeight="100%"
             options={{
-              mergeTags: Object.values(mergeTags)
+              mergeTags: flatMergeTags,
+              features: {
+                colorPicker: {
+                  presets: ['#000000', '#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6']
+                }
+              },
+              fonts: {
+                showDefaultFonts: true
+              }
             }}
           />
         </div>
@@ -250,9 +286,9 @@ const EmailTemplateBuilder = ({ templateData, onSave, onClose }) => {
         {/* Footer Help Text */}
         <div className="px-6 py-3 bg-gray-50 border-t border-gray-200">
           <p className="text-xs text-gray-600 flex items-center">
-            <Info className="w-3 h-3 mr-1" />
+            <Info className="w-3 h-3 mr-1.5 flex-shrink-0" />
             Use merge tags like <code className="mx-1 px-2 py-0.5 bg-gray-200 rounded text-blue-600">{`{{guest_name}}`}</code> 
-            to insert dynamic content from booking data
+            to insert dynamic content from booking data. Drag and drop elements from the left panel to build your email.
           </p>
         </div>
       </div>

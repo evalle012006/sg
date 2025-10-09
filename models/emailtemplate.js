@@ -94,7 +94,6 @@ module.exports = (sequelize, DataTypes) => {
     sequelize,
     modelName: 'EmailTemplate',
     tableName: 'email_templates',
-    underscored: true
   });
   
   return EmailTemplate;

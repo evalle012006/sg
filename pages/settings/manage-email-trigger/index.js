@@ -73,8 +73,10 @@ export default function EmailManagementPage() {
 
   const getCurrentTabContent = () => {
     if (selectedTab === 'email-templates') {
+      // Email Templates tab - shows EmailTemplateList with "CREATE NEW TEMPLATE" button
       return <EmailTemplateList />;
     }
+    // Email Triggers tab - shows EmailTriggerList with "CREATE NEW TRIGGER" button
     return <EmailTriggerList refreshData={fetchData} />;
   };
 
