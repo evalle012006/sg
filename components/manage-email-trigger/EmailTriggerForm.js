@@ -1,13 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { toast } from 'react-toastify';
-import { X, Mail, Plus, AlertCircle, Trash2, Settings, HelpCircle } from 'lucide-react';
+import { Home, Mail, Plus, AlertCircle, Trash2, Settings, HelpCircle } from 'lucide-react';
 
 const Button = dynamic(() => import('../ui-v2/Button'));
 const TextField = dynamic(() => import('../ui-v2/TextField'));
 const Select = dynamic(() => import('../ui-v2/Select'));
+const Spinner = dynamic(() => import('../ui/spinner'));
 
-const EmailTriggerForm = ({ trigger, onSave, onClose }) => {
+const EmailTriggerForm = ({ mode, triggerId, onCancel, onSuccess }) => {
+  const isAddMode = mode === 'add';
+  const isEditMode = mode === 'edit';
+  const isViewMode = mode === 'view';
+  
   const [formData, setFormData] = useState({
     recipient: '',
     email_template_id: '',
@@ -20,6 +25,7 @@ const EmailTriggerForm = ({ trigger, onSave, onClose }) => {
   const [availableQuestions, setAvailableQuestions] = useState([]);
   const [selectedQuestion, setSelectedQuestion] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isPageLoading, setIsPageLoading] = useState(false);
   
   // Validation states
   const [fieldErrors, setFieldErrors] = useState({});
@@ -36,16 +42,32 @@ const EmailTriggerForm = ({ trigger, onSave, onClose }) => {
     fetchTemplates();
     fetchQuestions();
     
-    if (trigger) {
-      setFormData({
-        recipient: trigger.recipient || '',
-        email_template_id: trigger.email_template_id || '',
-        type: trigger.type || 'highlights',
-        enabled: trigger.enabled !== undefined ? trigger.enabled : true,
-        trigger_questions: trigger.trigger_questions || []
-      });
+    if (triggerId && !isAddMode) {
+      fetchTrigger();
     }
-  }, [trigger]);
+  }, [triggerId, isAddMode]);
+
+  const fetchTrigger = async () => {
+    try {
+      setIsPageLoading(true);
+      const response = await fetch(`/api/email-triggers/${triggerId}`);
+      if (response.ok) {
+        const data = await response.json();
+        setFormData({
+          recipient: data.recipient || '',
+          email_template_id: data.email_template_id || '',
+          type: data.type || 'highlights',
+          enabled: data.enabled !== undefined ? data.enabled : true,
+          trigger_questions: data.trigger_questions || []
+        });
+      }
+    } catch (error) {
+      console.error('Error fetching trigger:', error);
+      toast.error('Failed to load trigger');
+    } finally {
+      setIsPageLoading(false);
+    }
+  };
 
   const fetchTemplates = async () => {
     try {
@@ -127,14 +149,13 @@ const EmailTriggerForm = ({ trigger, onSave, onClose }) => {
         {
           question: question.question,
           question_key: question.question_key,
-          answer: '' // Can be empty for "any answer" triggers
+          answer: ''
         }
       ]
     });
 
     setSelectedQuestion('');
     
-    // Clear validation error if exists
     if (fieldErrors.trigger_questions) {
       const newErrors = { ...fieldErrors };
       delete newErrors.trigger_questions;
@@ -171,286 +192,387 @@ const EmailTriggerForm = ({ trigger, onSave, onClose }) => {
     setIsLoading(true);
 
     try {
-      await onSave(formData);
+      const url = isEditMode
+        ? '/api/email-triggers/update'
+        : '/api/email-triggers/create';
+
+      const payload = isEditMode
+        ? { ...formData, id: triggerId }
+        : formData;
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to save email trigger');
+      }
+
       toast.success('Email trigger saved successfully');
+      onSuccess();
     } catch (error) {
+      console.error('Error saving trigger:', error);
       toast.error('Failed to save email trigger');
     } finally {
       setIsLoading(false);
     }
   };
 
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 z-50 overflow-y-auto">
-      <div className="min-h-screen px-4 py-6">
-        <div className="bg-white rounded-lg shadow-xl w-full max-w-6xl mx-auto">
-          {/* Header */}
-          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-            <div className="flex items-center space-x-3">
-              <div className="p-2 bg-blue-100 rounded-lg">
-                <Settings className="w-6 h-6 text-blue-600" />
-              </div>
-              <div>
-                <h2 className="text-xl font-semibold text-gray-900">
-                  {trigger ? 'Edit Email Trigger' : 'Create Email Trigger'}
-                </h2>
-                <p className="text-sm text-gray-500">Configure email trigger conditions</p>
-              </div>
+  if (isPageLoading) {
+    return (
+      <div className="h-screen flex items-center justify-center">
+        <Spinner />
+      </div>
+    );
+  }
+
+  // View Mode
+  if (isViewMode) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        {/* Header */}
+        <div className="bg-white border-b px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2 text-sm text-gray-600">
+              <Home className="w-4 h-4" />
+              <button 
+                onClick={onCancel}
+                className="hover:text-blue-600 transition-colors"
+              >
+                EMAIL TRIGGERS
+              </button>
+              <span>/</span>
+              <span className="font-medium">VIEW TRIGGER</span>
             </div>
-            
-            <button
-              onClick={onClose}
-              className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-              disabled={isLoading}
-            >
-              <X className="w-6 h-6" />
-            </button>
           </div>
+        </div>
 
-          {/* Validation Summary */}
-          {validationAttempted && Object.keys(fieldErrors).length > 0 && (
-            <div className="mx-6 mt-4 bg-red-50 border-l-4 border-red-400 p-4">
-              <div className="flex items-start">
-                <AlertCircle className="w-5 h-5 text-red-400 mt-0.5 mr-3" />
+        {/* Content */}
+        <div className="p-6">
+          <div className="max-w-4xl mx-auto">
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+              {/* Title Section */}
+              <div className="px-6 py-4 border-b border-gray-200" style={{ background: '#F1F3F6' }}>
+                <h3 className="text-lg font-semibold text-gray-900">Email Trigger Details</h3>
+              </div>
+
+              {/* Details */}
+              <div className="p-6 space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">Recipient Email</label>
+                    <div className="mt-1 text-base text-gray-900">{formData.recipient}</div>
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">Type</label>
+                    <div className="mt-1">
+                      <span className={`px-2 py-1 rounded text-xs font-medium ${
+                        formData.type === 'highlights' ? 'bg-blue-100 text-blue-800' :
+                        formData.type === 'external' ? 'bg-green-100 text-green-800' :
+                        'bg-purple-100 text-purple-800'
+                      }`}>
+                        {formData.type}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">Email Template</label>
+                    <div className="mt-1 text-base text-gray-900">
+                      {templates.find(t => t.value === formData.email_template_id)?.label || 'N/A'}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">Status</label>
+                    <div className="mt-1">
+                      <span className={`px-2 py-1 rounded text-xs font-medium ${
+                        formData.enabled ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                      }`}>
+                        {formData.enabled ? 'Enabled' : 'Disabled'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Trigger Conditions */}
                 <div>
-                  <h3 className="text-sm font-medium text-red-800">
-                    Please fix the following errors:
-                  </h3>
-                  <ul className="mt-2 text-sm text-red-700 list-disc pl-5 space-y-1">
-                    {Object.entries(fieldErrors).map(([field, error]) => (
-                      <li key={field}>{error}</li>
+                  <label className="text-sm font-medium text-gray-700 mb-3 block">Trigger Conditions</label>
+                  <div className="space-y-2">
+                    {formData.trigger_questions.map((tq, index) => (
+                      <div key={index} className="border border-gray-200 rounded-lg p-4">
+                        <div className="text-sm font-medium text-gray-900">{tq.question}</div>
+                        {tq.answer && (
+                          <div className="text-sm text-gray-600 mt-1">
+                            Required Answer: <span className="font-medium">{tq.answer}</span>
+                          </div>
+                        )}
+                        {!tq.answer && (
+                          <div className="text-sm text-gray-500 mt-1 italic">Any answer will trigger</div>
+                        )}
+                      </div>
                     ))}
-                  </ul>
+                  </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex items-center space-x-3 pt-4">
+                  <Button
+                    type="button"
+                    color="secondary"
+                    size="large"
+                    label="BACK"
+                    onClick={onCancel}
+                  />
                 </div>
               </div>
             </div>
-          )}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
-          {/* Form Content */}
-          <form onSubmit={handleSubmit} className="p-6">
-            <div className="max-w-7xl mx-auto">
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                {/* Left Column - Main Configuration (2/3 width) */}
-                <div className="lg:col-span-2 space-y-6">
-                  {/* Basic Information Section */}
-                  <div className="bg-white border border-gray-200 rounded-lg p-6">
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                      <Mail className="w-5 h-5 mr-2 text-blue-600" />
-                      Basic Information
-                    </h3>
-                    
-                    <div className="space-y-4">
-                      {/* Recipient Email */}
-                      <TextField
-                        label="Recipient Email"
-                        value={formData.recipient}
-                        onChange={(value) => setFormData({ ...formData, recipient: value })}
-                        placeholder="recipient@example.com"
-                        type="email"
-                        required
-                        size="medium"
-                        error={validationAttempted ? fieldErrors.recipient : ''}
-                      />
+  // Edit/Add Mode - Form
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <div className="bg-white border-b px-6 py-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2 text-sm text-gray-600">
+            <Home className="w-4 h-4" />
+            <button 
+              onClick={onCancel}
+              className="hover:text-blue-600 transition-colors"
+            >
+              EMAIL TRIGGERS
+            </button>
+            <span>/</span>
+            <span className="font-medium">
+              {isAddMode && 'ADD TRIGGER'}
+              {isEditMode && 'EDIT TRIGGER'}
+            </span>
+          </div>
+        </div>
+      </div>
 
-                      {/* Email Template Selection */}
-                      <Select
-                        label="Email Template"
-                        value={formData.email_template_id}
-                        onChange={(value) => setFormData({ ...formData, email_template_id: value })}
-                        options={templates}
-                        placeholder="Select a template"
-                        required
-                        size="medium"
-                        error={validationAttempted ? fieldErrors.email_template_id : ''}
-                      />
+      {/* Validation Summary */}
+      {validationAttempted && Object.keys(fieldErrors).length > 0 && (
+        <div className="mx-6 mt-4 bg-red-50 border-l-4 border-red-400 p-4 rounded">
+          <div className="flex items-start">
+            <AlertCircle className="w-5 h-5 text-red-400 mt-0.5 mr-3" />
+            <div>
+              <h3 className="text-sm font-medium text-red-800">
+                Please fix the following errors:
+              </h3>
+              <ul className="mt-2 text-sm text-red-700 list-disc pl-5 space-y-1">
+                {Object.entries(fieldErrors).map(([field, error]) => (
+                  <li key={field}>{error}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
 
-                      {/* Trigger Type */}
-                      <Select
-                        label="Trigger Type"
-                        value={formData.type}
-                        onChange={(value) => setFormData({ ...formData, type: value })}
-                        options={triggerTypes}
-                        size="medium"
-                      />
-                    </div>
-                  </div>
+      {/* Form Content */}
+      <form onSubmit={handleSubmit} className="p-6">
+        <div className="max-w-7xl mx-auto">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            {/* Left Column - Main Configuration (2/3 width) */}
+            <div className="lg:col-span-2 space-y-6">
+              {/* Basic Information Section */}
+              <div className="bg-white border border-gray-200 rounded-lg p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                  <Mail className="w-5 h-5 mr-2 text-blue-600" />
+                  Basic Information
+                </h3>
+                
+                <div className="space-y-4">
+                  <TextField
+                    label="Recipient Email"
+                    value={formData.recipient}
+                    onChange={(value) => setFormData({ ...formData, recipient: value })}
+                    placeholder="recipient@example.com"
+                    type="email"
+                    required
+                    size="medium"
+                    error={validationAttempted ? fieldErrors.recipient : ''}
+                    disabled={isViewMode}
+                  />
 
-                  {/* Trigger Conditions Section */}
-                  <div className="bg-white border border-gray-200 rounded-lg p-6">
-                    <div className="flex items-start justify-between mb-4">
-                      <div>
-                        <h3 className="text-lg font-semibold text-gray-900 flex items-center">
-                          <AlertCircle className="w-5 h-5 mr-2 text-blue-600" />
-                          Trigger Conditions
-                        </h3>
-                        <p className="text-sm text-gray-600 mt-1">
-                          Define which questions must be answered for this trigger to fire
-                        </p>
-                      </div>
-                    </div>
+                  <Select
+                    label="Email Template"
+                    value={formData.email_template_id}
+                    onChange={(value) => setFormData({ ...formData, email_template_id: value })}
+                    options={templates}
+                    placeholder="Select a template"
+                    required
+                    size="medium"
+                    error={validationAttempted ? fieldErrors.email_template_id : ''}
+                    disabled={isViewMode}
+                  />
 
-                    {/* Add Question Section */}
-                    <div className="mb-4">
-                      <label className="font-semibold form-label inline-block mb-1.5 text-slate-700">
-                        Add Question Condition
-                      </label>
-                      <div className="flex gap-2">
-                        <div className="flex-1">
-                          <Select
-                            value={selectedQuestion}
-                            onChange={setSelectedQuestion}
-                            options={availableQuestions}
-                            placeholder="Select a question to add"
-                            size="medium"
-                          />
-                        </div>
-                        <Button
-                          type="button"
-                          color="primary"
-                          size="medium"
-                          label="ADD"
-                          onClick={handleAddTriggerQuestion}
-                          icon={<Plus className="w-4 h-4" />}
-                        />
-                      </div>
-                      {validationAttempted && fieldErrors.trigger_questions && (
-                        <p className="mt-1.5 text-red-500 text-xs">{fieldErrors.trigger_questions}</p>
-                      )}
-                    </div>
-
-                    {/* Questions List */}
-                    {formData.trigger_questions.length > 0 ? (
-                      <div className="space-y-3">
-                        {formData.trigger_questions.map((tq, index) => (
-                          <div
-                            key={index}
-                            className="border border-gray-200 rounded-lg p-4 bg-gray-50"
-                          >
-                            <div className="flex justify-between items-start mb-3">
-                              <div className="flex-1">
-                                <div className="flex items-start">
-                                  <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 text-blue-600 text-xs font-semibold mr-2 mt-0.5">
-                                    {index + 1}
-                                  </span>
-                                  <div className="flex-1">
-                                    <p className="font-medium text-sm text-gray-900">{tq.question}</p>
-                                    {tq.question_key && (
-                                      <p className="text-xs text-gray-500 mt-1">
-                                        Key: <code className="bg-gray-200 px-1 py-0.5 rounded">{tq.question_key}</code>
-                                      </p>
-                                    )}
-                                  </div>
-                                </div>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveTriggerQuestion(index)}
-                                className="ml-2 p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                                title="Remove condition"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                            
-                            <div>
-                              <TextField
-                                label="Required Answer (leave empty for any answer)"
-                                value={tq.answer || ''}
-                                onChange={(value) => handleTriggerQuestionAnswerChange(index, value)}
-                                placeholder="e.g., Yes, NDIS, etc."
-                                size="medium"
-                              />
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="text-center py-8 border-2 border-dashed border-gray-200 rounded-lg">
-                        <HelpCircle className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-                        <p className="text-sm text-gray-600">No trigger conditions added yet</p>
-                        <p className="text-xs text-gray-500 mt-1">Add at least one question condition above</p>
-                      </div>
-                    )}
-                  </div>
+                  <Select
+                    label="Trigger Type"
+                    value={formData.type}
+                    onChange={(value) => setFormData({ ...formData, type: value })}
+                    options={triggerTypes}
+                    size="medium"
+                    disabled={isViewMode}
+                  />
                 </div>
+              </div>
 
-                {/* Right Column - Settings & Info (1/3 width) */}
-                <div className="lg:col-span-1 space-y-6">
-                  {/* Status Section */}
-                  <div className="bg-white border border-gray-200 rounded-lg p-6">
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Status</h3>
-                    
-                    <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                      <div>
-                        <p className="font-medium text-gray-900">Enable Trigger</p>
-                        <p className="text-xs text-gray-500 mt-1">
-                          {formData.enabled ? 'Trigger is active' : 'Trigger is inactive'}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setFormData({ ...formData, enabled: !formData.enabled })}
-                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                          formData.enabled ? 'bg-blue-600' : 'bg-gray-200'
-                        }`}
-                      >
-                        <span
-                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                            formData.enabled ? 'translate-x-6' : 'translate-x-1'
-                          }`}
-                        />
-                      </button>
+              {/* Trigger Conditions Section */}
+              <div className="bg-white border border-gray-200 rounded-lg p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                  <Settings className="w-5 h-5 mr-2 text-blue-600" />
+                  Trigger Conditions
+                </h3>
+
+                {!isViewMode && (
+                  <div className="mb-4 flex gap-3">
+                    <div className="flex-1">
+                      <Select
+                        value={selectedQuestion}
+                        onChange={setSelectedQuestion}
+                        options={availableQuestions}
+                        placeholder="Select a question to add..."
+                        size="medium"
+                      />
                     </div>
-                  </div>
-
-                  {/* Help Section */}
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
-                    <h3 className="text-lg font-semibold text-blue-900 mb-3 flex items-center">
-                      <HelpCircle className="w-5 h-5 mr-2" />
-                      How It Works
-                    </h3>
-                    <ul className="text-sm text-blue-800 space-y-2">
-                      <li className="flex items-start">
-                        <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-600 mt-1.5 mr-2"></span>
-                        <span>Add questions that must be answered to trigger this email</span>
-                      </li>
-                      <li className="flex items-start">
-                        <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-600 mt-1.5 mr-2"></span>
-                        <span>Specify required answers or leave empty to trigger on any answer</span>
-                      </li>
-                      <li className="flex items-start">
-                        <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-600 mt-1.5 mr-2"></span>
-                        <span>All conditions must match for the email to be sent</span>
-                      </li>
-                    </ul>
-                  </div>
-
-                  {/* Action Buttons */}
-                  <div className="sticky top-6 space-y-3">
-                    <Button
-                      type="submit"
-                      color="primary"
-                      size="large"
-                      label={isLoading ? 'SAVING...' : 'SAVE TRIGGER'}
-                      disabled={isLoading}
-                      className="w-full"
-                    />
                     <Button
                       type="button"
                       color="secondary"
-                      size="large"
-                      label="CANCEL"
-                      onClick={onClose}
-                      disabled={isLoading}
-                      className="w-full"
+                      size="medium"
+                      label="ADD"
+                      icon={<Plus className="w-4 h-4" />}
+                      onClick={handleAddTriggerQuestion}
                     />
                   </div>
+                )}
+
+                {validationAttempted && fieldErrors.trigger_questions && (
+                  <div className="mb-4 text-sm text-red-600">
+                    {fieldErrors.trigger_questions}
+                  </div>
+                )}
+
+                <div className="space-y-3">
+                  {formData.trigger_questions.map((tq, index) => (
+                    <div key={index} className="border border-gray-200 rounded-lg p-4">
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex-1">
+                          <div className="text-sm font-medium text-gray-900">{tq.question}</div>
+                          {tq.question_key && (
+                            <div className="text-xs text-gray-500 mt-1">Key: {tq.question_key}</div>
+                          )}
+                        </div>
+                        {!isViewMode && (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveTriggerQuestion(index)}
+                            className="ml-2 p-1 text-red-600 hover:bg-red-50 rounded"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                      <TextField
+                        placeholder="Required answer (leave empty for any answer)"
+                        value={tq.answer}
+                        onChange={(value) => handleTriggerQuestionAnswerChange(index, value)}
+                        size="small"
+                        disabled={isViewMode}
+                      />
+                    </div>
+                  ))}
+
+                  {formData.trigger_questions.length === 0 && (
+                    <div className="text-sm text-gray-500 text-center py-4">
+                      No trigger conditions added yet
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
-          </form>
+
+            {/* Right Column - Settings & Actions (1/3 width) */}
+            <div className="space-y-6">
+              {/* Status Section */}
+              <div className="bg-white border border-gray-200 rounded-lg p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Status</h3>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-gray-700">Enable Trigger</span>
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, enabled: !formData.enabled })}
+                    disabled={isViewMode}
+                    className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                      formData.enabled ? 'bg-blue-600' : 'bg-gray-200'
+                    } ${isViewMode ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  >
+                    <span
+                      className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
+                        formData.enabled ? 'translate-x-5' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+              </div>
+
+              {/* Help Section */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
+                <h3 className="text-sm font-semibold text-blue-900 mb-3 flex items-center">
+                  <HelpCircle className="w-4 h-4 mr-2" />
+                  How It Works
+                </h3>
+                <ul className="text-xs text-blue-800 space-y-2">
+                  <li className="flex items-start">
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-600 mt-1 mr-2"></span>
+                    <span>Add questions that must be answered to trigger this email</span>
+                  </li>
+                  <li className="flex items-start">
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-600 mt-1 mr-2"></span>
+                    <span>Specify required answers or leave empty to trigger on any answer</span>
+                  </li>
+                  <li className="flex items-start">
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-600 mt-1 mr-2"></span>
+                    <span>All conditions must match for the email to be sent</span>
+                  </li>
+                </ul>
+              </div>
+
+              {/* Action Buttons */}
+              {!isViewMode && (
+                <div className="space-y-3">
+                  <Button
+                    type="submit"
+                    color="primary"
+                    size="large"
+                    label={isLoading ? 'SAVING...' : 'SAVE TRIGGER'}
+                    disabled={isLoading}
+                    className="w-full"
+                  />
+                  <Button
+                    type="button"
+                    color="secondary"
+                    size="large"
+                    label="CANCEL"
+                    onClick={onCancel}
+                    disabled={isLoading}
+                    className="w-full"
+                  />
+                </div>
+              )}
+            </div>
+          </div>
         </div>
-      </div>
+      </form>
     </div>
   );
 };
