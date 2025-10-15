@@ -312,15 +312,31 @@ const validateAllFieldsFilled = (tableData) => {
 /**
  * Detect if there's a date mismatch between existing care data and current stay dates
  */
-const detectDateMismatch = (existingData, currentStartDate, currentEndDate) => {
+const detectDateMismatch = (existingData = [], currentStartDate, currentEndDate) => {
   if (!existingData || existingData.length === 0 || !currentStartDate || !currentEndDate) {
+    return { hasMismatch: false, details: null };
+  }
+
+   let dataToProcess = existingData;
+
+  if (typeof existingData === 'string' && existingData.trim().startsWith('[')) {
+    try {
+      dataToProcess = JSON.parse(existingData);
+    } catch (e) {
+      console.error("Error parsing existingData JSON string:", e);
+      // If parsing fails, treat it as empty or invalid data
+      return { hasMismatch: false, details: null };
+    }
+  }
+
+  if (!Array.isArray(dataToProcess) || dataToProcess.length === 0 || !currentStartDate || !currentEndDate) {
     return { hasMismatch: false, details: null };
   }
 
   // Extract dates from existing care data
   const existingDates = new Set();
-  existingData.forEach(item => {
-    if (item.date) {
+  dataToProcess.forEach(item => {
+    if (item && item.date) {
       // Convert DD/MM/YYYY to YYYY-MM-DD for comparison
       let normalizedDate;
       if (item.date.includes('/')) {

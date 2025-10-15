@@ -168,7 +168,7 @@ const BookingRequestForm = () => {
             console.log('📚 Fetching all future course offers for guest:', guestId);
             
             // API endpoint to get all future offers without date restrictions
-            const apiUrl = `/api/guests/${guestId}/course-offers/future`;
+            const apiUrl = `/api/guests/${guestId}/course-offers-future`;
             
             const response = await fetch(apiUrl);
             if (response.ok) {
@@ -760,24 +760,27 @@ const BookingRequestForm = () => {
         });
         
         // FIXED: Recalculate completion after cleanup with proper preservation for special pages
-        cleanedPages.forEach(page => {
-            const originalCompleted = originalCompletions.get(page.id);
+        const updatedCleanedPages = cleanedPages.map(page => {
+            let updatedPage = {...page};
+            const originalCompleted = originalCompletions.get(updatedPage.id);
             
             // CRITICAL FIX: Preserve specific page completion during cleaning
             if (currentBookingType === BOOKING_TYPES.FIRST_TIME_GUEST) {
-                page.completed = equipmentPageCompleted || originalCompleted;
+                updatedPage.completed = equipmentPageCompleted || originalCompleted;
                 // console.log(`🛡️ Equipment page completion for First Time Guest: ${equipmentPageCompleted}`);
-            } else if (page.id === 'ndis_packages_page' && originalCompleted !== undefined) {
+            } else if (updatedPage.id === 'ndis_packages_page' && originalCompleted !== undefined) {
                 // FIXED: Preserve NDIS page completion during cleaning operations
-                page.completed = originalCompleted;
+                updatedPage.completed = originalCompleted;
                 // console.log(`🛡️ Preserved NDIS Requirements page completion during cleaning: ${originalCompleted}`);
             } else {
                 // For all other pages, recalculate normally
-                page.completed = calculatePageCompletion(page);
+                updatedPage.completed = calculatePageCompletion(updatedPage);
             }
+
+            return updatedPage;
         });
         
-        return cleanedPages;
+        return updatedCleanedPages;
     }, [calculatePageCompletion, equipmentPageCompleted]);
 
     const removeDuplicateQuestions = useCallback((pages, isNdisFunded) => {

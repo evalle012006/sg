@@ -1014,7 +1014,7 @@ const QuestionPage = ({
 
                                             const handleEquipmentFieldChange = (label, secIdx, qIdx, changes) => {
                                                 markQuestionAsInteracted(secIdx, qIdx);
-
+                                                console.log("EQUIPMENT CHANGES DETECTED: ", changes);
                                                 if (changes && changes.length > 0) {
                                                     // FIXED: Defer Redux update to avoid state update during render
                                                     setTimeout(() => {
@@ -1044,7 +1044,7 @@ const QuestionPage = ({
                                                             });
                                                         }
                                                     });
-                                                    
+                                                    console.log("QA PAIR UPDATES TO PROCESS: ", qaPairUpdates);
                                                     // Apply QA pair updates to current page sections if any
                                                     if (qaPairUpdates.length > 0) {
                                                         // FIXED: Defer page updates as well
@@ -1058,7 +1058,7 @@ const QuestionPage = ({
                                                                     
                                                                     for (let questionIndex = 0; questionIndex < section.Questions.length; questionIndex++) {
                                                                         const question = section.Questions[questionIndex];
-                                                                        
+                                                                        console.log("FOUND QUESTION: ", question)
                                                                         if (question.question_key === qaPairUpdate.question_key) {
                                                                             // Update the question's answer
                                                                             updatedSections[sectionIndex].Questions[questionIndex] = {

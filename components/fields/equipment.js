@@ -854,7 +854,6 @@ const EquipmentField = memo((props) => {
 
     }, [categoryTypes, groupedEquipments, markUserInteraction, protectUserSelection]);
 
-    // FIXED: handleDirectQuantityChange with deferred onChange
     const handleDirectQuantityChange = useCallback((equipmentKey, equipmentName, value) => {
         const parsedQuantity = parseInt(value) || 0;
         
@@ -923,7 +922,6 @@ const EquipmentField = memo((props) => {
                     newChanges = [...prev, equipmentChange];
                 }
 
-                // FIXED: Defer the onChange call to avoid state update during render
                 setTimeout(() => {
                     if (mountedRef.current && props.hasOwnProperty('onChange')) {
                         const validationResult = validateSelections();

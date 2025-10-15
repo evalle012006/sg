@@ -4,7 +4,7 @@ import dynamic from 'next/dynamic';
 import { 
   Home, Save, Info, Eye, Code, Edit3, Bold, Italic, Underline, 
   AlignLeft, AlignCenter, AlignRight, List, ListOrdered, Link2, 
-  Image as ImageIcon, Type, Palette, Minus, ChevronDown
+  Image as ImageIcon, Type, Palette, Minus, ChevronDown, RefreshCw
 } from 'lucide-react';
 
 const Button = dynamic(() => import('../ui-v2/Button'));
@@ -27,50 +27,78 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
   const [subjectError, setSubjectError] = useState('');
   const [showMergeTags, setShowMergeTags] = useState(false);
   const [templateData, setTemplateData] = useState(null);
-  const [viewMode, setViewMode] = useState('editor'); // 'editor', 'preview', 'code'
+  const [viewMode, setViewMode] = useState('editor');
   const [showLinkDialog, setShowLinkDialog] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
   const [linkText, setLinkText] = useState('');
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [selectedColor, setSelectedColor] = useState('#000000');
-
-  // Merge tags grouped by category
-  const mergeTagsGrouped = {
-    'Guest Information': [
-      { label: 'Guest Name', value: '{{guest_name}}' },
-      { label: 'Guest Email', value: '{{guest_email}}' },
-      { label: 'Guest Phone', value: '{{guest_phone}}' },
-      { label: 'Guest Address', value: '{{guest_address}}' },
-    ],
-    'Booking Details': [
-      { label: 'Booking Reference', value: '{{booking_reference}}' },
-      { label: 'Check-in Date', value: '{{checkin_date}}' },
-      { label: 'Check-out Date', value: '{{checkout_date}}' },
-      { label: 'Number of Guests', value: '{{number_of_guests}}' },
-      { label: 'Number of Nights', value: '{{number_of_nights}}' },
-    ],
-    'Property Information': [
-      { label: 'Property Name', value: '{{property_name}}' },
-      { label: 'Property Address', value: '{{property_address}}' },
-      { label: 'Property Phone', value: '{{property_phone}}' },
-      { label: 'Property Email', value: '{{property_email}}' },
-    ]
-  };
+  
+  // NEW: Dynamic merge tags state
+  const [mergeTagsGrouped, setMergeTagsGrouped] = useState({});
+  const [isLoadingMergeTags, setIsLoadingMergeTags] = useState(true);
+  const [mergeTagsError, setMergeTagsError] = useState(null);
 
   const commonColors = [
     '#000000', '#434343', '#666666', '#999999', '#b7b7b7', '#cccccc', '#d9d9d9', '#efefef', '#f3f3f3', '#ffffff',
     '#980000', '#ff0000', '#ff9900', '#ffff00', '#00ff00', '#00ffff', '#4a86e8', '#0000ff', '#9900ff', '#ff00ff',
   ];
 
+  // NEW: Fetch dynamic merge tags on component mount
+  useEffect(() => {
+    fetchMergeTags();
+  }, []);
+
   useEffect(() => {
     if (templateId && !isAddMode) {
       fetchTemplate();
     } else {
-      // Start with empty content for new templates
       setContent('');
       setIsPageLoading(false);
     }
   }, [templateId, isAddMode]);
+
+  // NEW: Fetch dynamic merge tags from API
+  const fetchMergeTags = async () => {
+    try {
+      setIsLoadingMergeTags(true);
+      setMergeTagsError(null);
+      
+      const response = await fetch('/api/email-templates/merge-tags');
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch merge tags');
+      }
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        setMergeTagsGrouped(data.data);
+      } else {
+        throw new Error(data.message || 'Failed to load merge tags');
+      }
+    } catch (error) {
+      console.error('Error fetching merge tags:', error);
+      setMergeTagsError(error.message);
+      toast.error('Failed to load merge tags. Using defaults.');
+      
+      // Fallback to basic merge tags if API fails
+      setMergeTagsGrouped({
+        'Guest Information': [
+          { label: 'Guest Name', value: '{{guest_name}}', description: 'Full name of the guest' },
+          { label: 'Guest Email', value: '{{guest_email}}', description: 'Guest email address' },
+          { label: 'Guest Phone', value: '{{guest_phone}}', description: 'Guest phone number' },
+        ],
+        'Booking Details': [
+          { label: 'Booking Reference', value: '{{booking_reference}}', description: 'Unique booking ID' },
+          { label: 'Check-in Date', value: '{{checkin_date}}', description: 'Arrival date' },
+          { label: 'Check-out Date', value: '{{checkout_date}}', description: 'Departure date' },
+        ],
+      });
+    } finally {
+      setIsLoadingMergeTags(false);
+    }
+  };
 
   const fetchTemplate = async () => {
     try {
@@ -159,26 +187,76 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
   };
 
   useEffect(() => {
-    // Set initial content when loading an existing template
     if (editorRef.current && content) {
-      // Only update if the editor is empty or content is different
       if (editorRef.current.innerHTML !== content) {
         editorRef.current.innerHTML = content;
       }
     }
   }, []);
 
-  // Separate effect for when content changes from fetch
   useEffect(() => {
     if (editorRef.current && content && !isAddMode) {
       editorRef.current.innerHTML = content;
     }
   }, [templateData]);
 
-  const handleEditorFocus = () => {
-    if (editorRef.current && editorRef.current.innerHTML.trim() === '') {
-      editorRef.current.innerHTML = '';
+  // Sync editor content when switching back to editor view
+  useEffect(() => {
+    if (viewMode === 'editor' && editorRef.current && content) {
+      // Only update if the content has actually changed to avoid cursor jumping
+      if (editorRef.current.innerHTML !== content) {
+        editorRef.current.innerHTML = content;
+      }
     }
+  }, [viewMode, content]);
+
+  // Update toolbar state based on cursor position
+  const updateToolbarState = () => {
+    if (!editorRef.current || isViewMode) return;
+
+    try {
+      setToolbarState({
+        bold: document.queryCommandState('bold'),
+        italic: document.queryCommandState('italic'),
+        underline: document.queryCommandState('underline'),
+        fontSize: document.queryCommandValue('fontSize') || '3'
+      });
+    } catch (error) {
+      // Ignore errors when commands are not available
+    }
+  };
+
+  // Add event listeners to track cursor/selection changes
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor || isViewMode) return;
+
+    const handleSelectionChange = () => {
+      // Only update if the selection is within our editor
+      const selection = window.getSelection();
+      if (selection && selection.anchorNode) {
+        const isInEditor = editor.contains(selection.anchorNode);
+        if (isInEditor) {
+          updateToolbarState();
+        }
+      }
+    };
+
+    // Listen for selection changes
+    document.addEventListener('selectionchange', handleSelectionChange);
+    // Also update on mouse up and key up within the editor
+    editor.addEventListener('mouseup', updateToolbarState);
+    editor.addEventListener('keyup', updateToolbarState);
+
+    return () => {
+      document.removeEventListener('selectionchange', handleSelectionChange);
+      editor.removeEventListener('mouseup', updateToolbarState);
+      editor.removeEventListener('keyup', updateToolbarState);
+    };
+  }, [isViewMode, viewMode]);
+
+  const handleEditorFocus = () => {
+    // Don't clear content on focus - only affects placeholder display via CSS
   };
 
   const handleSave = async () => {
@@ -357,17 +435,27 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
           </div>
 
           {!isViewMode && (
-            <button
-              onClick={() => setShowMergeTags(!showMergeTags)}
-              className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
-                showMergeTags
-                  ? 'bg-green-600 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-            >
-              <Type className="w-4 h-4" />
-              {showMergeTags ? 'Hide' : 'Show'} Merge Tags
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowMergeTags(!showMergeTags)}
+                className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
+                  showMergeTags
+                    ? 'bg-green-600 text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                <Type className="w-4 h-4" />
+                {showMergeTags ? 'Hide' : 'Show'} Merge Tags
+              </button>
+              <button
+                onClick={fetchMergeTags}
+                className="px-4 py-2 rounded-lg flex items-center gap-2 bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
+                title="Refresh merge tags"
+                disabled={isLoadingMergeTags}
+              >
+                <RefreshCw className={`w-4 h-4 ${isLoadingMergeTags ? 'animate-spin' : ''}`} />
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -383,17 +471,34 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
                 Merge Tags
               </h3>
               
-              {Object.entries(mergeTagsGrouped).map(([category, tags]) => (
+              {isLoadingMergeTags && (
+                <div className="flex items-center justify-center py-8">
+                  <Spinner />
+                  <span className="ml-2 text-sm text-gray-600">Loading merge tags...</span>
+                </div>
+              )}
+
+              {mergeTagsError && (
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4">
+                  <p className="text-sm text-yellow-800">
+                    <Info className="w-4 h-4 inline mr-1" />
+                    {mergeTagsError}
+                  </p>
+                </div>
+              )}
+              
+              {!isLoadingMergeTags && Object.entries(mergeTagsGrouped).map(([category, tags]) => (
                 <div key={category} className="mb-6">
                   <h4 className="text-sm font-medium text-gray-700 mb-2 uppercase tracking-wider">
                     {category}
                   </h4>
                   <div className="space-y-1">
-                    {tags.map((tag) => (
+                    {tags.map((tag, index) => (
                       <button
-                        key={tag.value}
+                        key={`${tag.value}-${index}`}
                         onClick={() => insertMergeTag(tag.value)}
                         className="w-full text-left px-3 py-2 text-sm bg-gray-50 hover:bg-blue-50 rounded-lg transition-colors group"
+                        title={tag.description}
                       >
                         <div className="font-medium text-gray-900 group-hover:text-blue-600">
                           {tag.label}
@@ -401,11 +506,29 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
                         <div className="text-xs text-gray-500 font-mono mt-0.5">
                           {tag.value}
                         </div>
+                        {tag.description && (
+                          <div className="text-xs text-gray-400 mt-1">
+                            {tag.description}
+                          </div>
+                        )}
                       </button>
                     ))}
                   </div>
                 </div>
               ))}
+
+              {!isLoadingMergeTags && Object.keys(mergeTagsGrouped).length === 0 && (
+                <div className="text-center py-8 text-gray-500">
+                  <Type className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                  <p className="text-sm">No merge tags available</p>
+                  <button
+                    onClick={fetchMergeTags}
+                    className="mt-2 text-blue-600 hover:text-blue-700 text-sm"
+                  >
+                    Try reloading
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -668,10 +791,9 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
                 <textarea
                   value={content}
                   onChange={(e) => {
-                    setContent(e.target.value);
-                    if (editorRef.current) {
-                      editorRef.current.innerHTML = e.target.value;
-                    }
+                    const newContent = e.target.value;
+                    setContent(newContent);
+                    // Don't update editor ref immediately - wait until switching back to editor view
                   }}
                   className="w-full h-[600px] p-4 font-mono text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none bg-white"
                   placeholder="HTML code will appear here..."
@@ -688,8 +810,8 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
       <div className="px-6 py-3 bg-gray-50 border-t border-gray-200 flex-shrink-0">
         <p className="text-xs text-gray-600 flex items-center max-w-7xl mx-auto">
           <Info className="w-3 h-3 mr-1.5 flex-shrink-0" />
-          {viewMode === 'editor' && 'Use the toolbar to format text and click merge tag buttons to insert dynamic content.'}
-          {viewMode === 'preview' && 'Preview shows how your email will look to recipients. Switch to Editor to make changes.'}
+          {viewMode === 'editor' && 'Use the toolbar to format text and click merge tag buttons to insert dynamic content from bookings.'}
+          {viewMode === 'preview' && 'Preview shows how your email will look to recipients. Merge tags will be replaced with actual booking data when sent.'}
           {viewMode === 'code' && 'Edit the raw HTML code. Changes will be reflected in the editor view.'}
         </p>
       </div>
