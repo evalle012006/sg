@@ -1417,16 +1417,79 @@ const PackageSelection = ({
             </div>
           )}
         </div>
-        
-        {/* Right Sidebar - Lorem Ipsum Section */}
+
+        {/* Right Sidebar - Package Description */}
         {!builderMode && (
-          <div className="w-full lg:w-96 xl:w-1/2 flex-shrink-0">
-            <div className="p-4 bg-gray-50 rounded-lg border border-gray-200 sticky top-4">
-              <h3 className="font-semibold text-gray-900 mb-3">Promo code</h3>
-              <p className="text-gray-700 text-sm leading-relaxed">
-                Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.
-              </p>
-            </div>
+          <div className="w-full lg:w-96 xl:w-1/2 flex-shrink-0 mt-2 lg:mt-8">
+            {(() => {
+              // Find the currently selected package
+              const selectedPackage = packages.find(pkg => isPackageSelected(pkg));
+              
+              if (selectedPackage && selectedPackage.description) {
+                return (
+                  <div className="bg-white rounded-lg border border-gray-200 shadow-sm sticky top-4 overflow-hidden">
+                    {/* Header */}
+                    <div className="bg-blue-500 px-4 py-3 sm:px-6 sm:py-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 sm:w-10 sm:h-10 bg-white/10 rounded-lg flex items-center justify-center flex-shrink-0">
+                          <svg className="w-4 h-4 sm:w-5 sm:h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                          </svg>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-white font-semibold text-base sm:text-lg">Package Description</h3>
+                          <p className="text-blue-100 text-xs sm:text-sm truncate">{selectedPackage.name}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Description content */}
+                    <div className="p-4 sm:p-6">
+                      <div className="text-gray-700 text-sm sm:text-base leading-relaxed whitespace-pre-line">
+                        {selectedPackage.description}
+                      </div>
+
+                      {/* Package metadata */}
+                      <div className="mt-4 pt-4 border-t border-gray-200">
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-gray-600">
+                          <span className="font-mono bg-gray-100 px-2 py-1 rounded">
+                            {selectedPackage.package_code}
+                          </span>
+                          <span className="text-gray-400">•</span>
+                          <span>{selectedPackage.funder}</span>
+                          {selectedPackage.ndis_package_type && (
+                            <>
+                              <span className="text-gray-400">•</span>
+                              <span className="uppercase">{selectedPackage.ndis_package_type}</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
+              // Default view when no package selected or no description
+              return (
+                <div className="bg-gray-50 rounded-lg border border-gray-200 sticky top-4 overflow-hidden">
+                  <div className="p-6 sm:p-8 text-center">
+                    <div className="w-12 h-12 sm:w-16 sm:h-16 bg-blue-100 rounded-xl flex items-center justify-center mx-auto mb-3 sm:mb-4">
+                      <svg className="w-6 h-6 sm:w-8 sm:h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                      </svg>
+                    </div>
+                    <h3 className="font-semibold text-gray-900 mb-2 text-base sm:text-lg">Package Description</h3>
+                    <p className="text-xs sm:text-sm text-gray-600 leading-relaxed max-w-xs mx-auto">
+                      {packages.length === 1 
+                        ? "Package description will appear here once loaded."
+                        : "Select a package to view its description."
+                      }
+                    </p>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         )}
       </div>

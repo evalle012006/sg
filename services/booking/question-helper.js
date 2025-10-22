@@ -56,7 +56,7 @@ const QUESTION_KEYS = {
     
     // Funding and coordinators
     FUNDING_SOURCE: 'how-will-your-stay-be-funded',
-    NDIS_FUNDING_OPTIONS: 'please-select-from-one-of-the-following-ndis-funding-options', // NEW: Added missing question key
+    NDIS_FUNDING_OPTIONS: 'please-select-from-one-of-the-following-ndis-funding-options',
     NDIS_COORDINATOR_EMAIL: 'ndis-support-coordinator-email-address',
     NDIS_COORDINATOR_FIRST_NAME: 'ndis-support-coordinator-first-name',
     NDIS_COORDINATOR_LAST_NAME: 'ndis-support-coordinator-last-name',

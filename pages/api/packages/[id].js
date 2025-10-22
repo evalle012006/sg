@@ -13,6 +13,7 @@ export default async function handler(req, res) {
         'funder', 
         'price', 
         'ndis_package_type', 
+        'description',
         'ndis_line_items', 
         'image_filename',
         'created_at',
@@ -59,7 +60,7 @@ export default async function handler(req, res) {
 
     } else if (req.method === 'PUT' || req.method === 'PATCH') {
       // Update package
-      const { name, package_code, funder, price, ndis_package_type, ndis_line_items, image_filename } = req.body;
+      const { name, package_code, funder, price, ndis_package_type, description, ndis_line_items, image_filename } = req.body;
 
       // Basic validation
       if (!name || !name.trim()) {
@@ -87,6 +88,7 @@ export default async function handler(req, res) {
       const updateData = {
         name: name.trim(),
         package_code: package_code.trim(),
+        description: description ? description.trim() : null,
         funder: funder.trim(),
         image_filename: image_filename || null
       };

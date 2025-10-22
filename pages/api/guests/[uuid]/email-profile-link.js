@@ -131,27 +131,21 @@ export default async function handler(req, res) {
         language: guest.HealthInfo?.language || healthData?.language || '',
         require_interpreter: guest.HealthInfo?.require_interpreter ?? healthData?.require_interpreter ?? null,
         cultural_beliefs: guest.HealthInfo?.cultural_beliefs || healthData?.cultural_beliefs || '',
-        
-        // Emergency Contact
         emergency_name: guest.HealthInfo?.emergency_name || healthData?.emergency_name || '',
         emergency_mobile_number: guest.HealthInfo?.emergency_mobile_number || healthData?.emergency_mobile_number || '',
         emergency_email: guest.HealthInfo?.emergency_email || healthData?.emergency_email || '',
         emergency_relationship: guest.HealthInfo?.emergency_relationship || healthData?.emergency_relationship || '',
-        
-        // GP/Specialist
         specialist_name: guest.HealthInfo?.specialist_name || healthData?.specialist_name || '',
         specialist_mobile_number: guest.HealthInfo?.specialist_mobile_number || healthData?.specialist_mobile_number || '',
         specialist_practice_name: guest.HealthInfo?.specialist_practice_name || healthData?.specialist_practice_name || '',
-        
-        // SCI Information
         sci_year: guest.HealthInfo?.sci_year || healthData?.sci_year || '',
-        sci_injury_type: guest.HealthInfo?.sci_injury_type || healthData?.sci_injury_type || '',
         sci_level_asia: guest.HealthInfo?.sci_level_asia || healthData?.sci_level_asia || '',
         sci_intial_spinal_rehab: guest.HealthInfo?.sci_intial_spinal_rehab || healthData?.sci_intial_spinal_rehab || '',
         sci_type: guest.HealthInfo?.sci_type || healthData?.sci_type || '',
         sci_type_level: guest.HealthInfo?.sci_type_level || healthData?.sci_type_level || [],
-        sci_other_details: guest.HealthInfo?.sci_other_details || healthData?.sci_other_details || '',
         sci_inpatient: guest.HealthInfo?.sci_inpatient ?? healthData?.sci_inpatient ?? null,
+        sci_injury_type: guest.HealthInfo?.sci_injury_type || healthData?.sci_injury_type || '',
+        sci_other_details: guest.HealthInfo?.sci_other_details || healthData?.sci_other_details || '',
       },
       
       // Flags
@@ -161,6 +155,9 @@ export default async function handler(req, res) {
       logo_base64: logoBase64,
       logo_footer_base64: logoFooterBase64,
       
+      // Profile image - intentionally empty for email PDF to avoid loading issues
+      profile_image_url: '',
+      
       // Generation timestamp
       generated_at: formatAustralianDateTime(new Date()),
     };
@@ -168,10 +165,26 @@ export default async function handler(req, res) {
     // Generate HTML with the template
     const html = template(templateData);
 
-    // Generate PDF using puppeteer
-    const browser = await puppeteer.launch({ headless: 'new' });
+    // Generate PDF using puppeteer with improved configuration
+    const browser = await puppeteer.launch({ 
+      headless: 'new',
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage'
+      ]
+    });
     const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: 'networkidle0' });
+    
+    // Set longer timeout for content loading
+    await page.setDefaultNavigationTimeout(60000);
+    await page.setDefaultTimeout(60000);
+    
+    await page.setContent(html, { 
+      waitUntil: ['networkidle0', 'load'],
+      timeout: 60000 
+    });
+    
     const pdf = await page.pdf({
       format: 'A4',
       printBackground: true,

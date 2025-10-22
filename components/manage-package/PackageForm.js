@@ -23,6 +23,7 @@ export default function PackageForm({
         funder: '',
         price: '',
         ndis_package_type: '',
+        description: '',
         ndis_line_items: []
     });
 
@@ -284,6 +285,7 @@ export default function PackageForm({
                 funder: '', 
                 price: '', 
                 ndis_package_type: '',
+                description: '',
                 ndis_line_items: []
             });
             setFieldErrors({});
@@ -349,6 +351,7 @@ export default function PackageForm({
                 funder: packageData.funder || '',
                 price: packageData.price || '',
                 ndis_package_type: packageData.ndis_package_type || '',
+                description: packageData.description || '',
                 ndis_line_items: updatedLineItems
             });
             
@@ -419,6 +422,7 @@ export default function PackageForm({
                 package_code: formData.package_code.trim(),
                 funder: formData.funder.trim(),
                 ndis_package_type: formData.funder === 'NDIS' ? formData.ndis_package_type : null,
+                description: formData.description || null,
                 price: formData.funder === 'Non-NDIS' ? (parseFloat(formData.price) || 0) : null,
                 ndis_line_items: formData.funder === 'NDIS' ? formData.ndis_line_items.map(item => ({
                     sta_package: item.sta_package.trim(),
@@ -631,6 +635,29 @@ export default function PackageForm({
                         {validationAttempted && fieldErrors.package_code && (
                             <p className="mt-1.5 text-sm text-red-600">{fieldErrors.package_code}</p>
                         )}
+                    </div>
+
+                    {/* Description */}
+                    <div className="mb-6">
+                        <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-2">
+                            Package Description
+                        </label>
+                        <textarea
+                            id="description"
+                            name="description"
+                            value={formData.description}
+                            onChange={handleInputChange}
+                            placeholder="Enter a detailed description of this package (optional)"
+                            disabled={isReadOnly}
+                            rows="4"
+                            maxLength="2000"
+                            className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-y ${
+                                isReadOnly ? 'bg-gray-50 text-gray-500 cursor-not-allowed border-gray-300' : 'border-gray-300'
+                            }`}
+                        />
+                        <p className="mt-1.5 text-xs text-gray-500">
+                            {formData.description.length}/2000 characters
+                        </p>
                     </div>
 
                     {/* Funder - Dropdown Select */}

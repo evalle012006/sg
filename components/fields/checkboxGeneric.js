@@ -39,11 +39,15 @@ export default function CheckboxGeneric(props) {
     }
   }, [props.builder]);
 
+  // Generate a unique id for the checkbox
+  const checkboxId = `checkbox-${props.id}`;
+
   return (
     <div className="flex flex-col">
       <div className="mt-1 cursor-pointer">
         <div className="flex items-center mr-4">
           <input 
+            id={checkboxId}
             name={props.name} 
             type="checkbox" 
             checked={props.checked || false}
@@ -78,7 +82,7 @@ export default function CheckboxGeneric(props) {
             </div>
           ) : (
             props.label && !props.hideLabel && 
-            <label htmlFor={props.name} className={`ml-2 text-sm cursor-pointer ${props.bold ? 'font-bold' : 'font-medium'}`}>
+            <label htmlFor={checkboxId} className={`ml-2 text-sm cursor-pointer ${props.bold ? 'font-bold' : 'font-medium'}`}>
               {label}
             </label>
           )}

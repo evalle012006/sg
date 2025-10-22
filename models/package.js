@@ -71,6 +71,13 @@ module.exports = (sequelize, DataTypes) => {
         }
       }
     },
+    description: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      validate: {
+        len: [0, 2000] // Maximum 2000 characters for description
+      }
+    },
     ndis_line_items: {
       type: DataTypes.JSON,
       allowNull: true,

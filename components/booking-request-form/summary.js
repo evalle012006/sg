@@ -39,12 +39,30 @@ const SummaryOfStay = ({
   const [hasExistingSignature, setHasExistingSignature] = useState(false);
   const [packageResolved, setPackageResolved] = useState(false);
   const [resolvedPackageData, setResolvedPackageData] = useState(null);
+  const [isResolvingPackage, setIsResolvingPackage] = useState(false);
 
   // Helper to check if package is NDIS Support Holiday Package
   const isSupportHolidayPackage = () => {
-    // Check from resolved package data API response
-    const packageCode = resolvedPackageData?.package_code || packageData?.package_code;
-    return packageCode === 'HOLIDAY_SUPPORT_PLUS' || packageCode === 'HOLIDAY_SUPPORT';
+    // ✅ FIX: Check if package data is available first
+    if (!resolvedPackageData && !summary?.data) {
+      return false;
+    }
+    
+    // Check from resolved package data API response first (most reliable)
+    if (resolvedPackageData?.package_code) {
+      return resolvedPackageData.package_code === 'HOLIDAY_SUPPORT_PLUS' || 
+             resolvedPackageData.package_code === 'HOLIDAY_SUPPORT';
+    }
+    
+    // Fallback: Check from summary data
+    if (summary?.data?.packageCode) {
+      return summary.data.packageCode === 'HOLIDAY_SUPPORT_PLUS' || 
+             summary.data.packageCode === 'HOLIDAY_SUPPORT';
+    }
+    
+    // Fallback: Check package name
+    const packageName = summary?.data?.ndisPackage || summary?.data?.packageTypeAnswer || '';
+    return packageName.includes('Holiday Support');
   };
 
   // NEW: Extract care and course data from summary if not provided as props
@@ -249,9 +267,14 @@ const SummaryOfStay = ({
   };
 
   const resolvePackageSelection = async () => {
-    if (bookingData?.data?.selectedPackageId && bookingData?.data?.packageSelectionType === 'package-selection' && !packageResolved) {
+    if (bookingData?.data?.selectedPackageId && 
+        bookingData?.data?.packageSelectionType === 'package-selection' && 
+        !packageResolved) {
       try {
+        setIsResolvingPackage(true);
         setPackageResolved(true);
+        
+        console.log('🔄 Resolving package selection:', bookingData.data.selectedPackageId);
         
         const response = await fetch(`/api/packages/${bookingData.data.selectedPackageId}`);
         if (response.ok) {
@@ -259,29 +282,48 @@ const SummaryOfStay = ({
           
           if (result.success && result.package) {
             const packageData = result.package;
+            
+            console.log('✅ Package resolved successfully:', {
+              packageId: packageData.id,
+              packageCode: packageData.package_code,
+              packageName: packageData.name
+            });
+            
             setResolvedPackageData(packageData);
             
             const updatedSummaryData = { ...bookingData };
             
+            // ✅ FIX: Set the package name correctly for both NDIS and non-NDIS
             if (packageData.name?.includes('Wellness')) {
               updatedSummaryData.data.packageType = serializePackage(packageData.name);
-              updatedSummaryData.data.packageTypeAnswer = packageData.name;
+              updatedSummaryData.data.packageTypeAnswer = packageData.name; // This is the display name
               updatedSummaryData.data.packageCost = packageData.price;
               updatedSummaryData.data.isNDISFunder = false;
+              updatedSummaryData.data.packageCode = packageData.package_code;
             } else {
-              updatedSummaryData.data.ndisPackage = packageData.name;
+              // ✅ FIX: For NDIS packages, set BOTH ndisPackage AND packageTypeAnswer
+              updatedSummaryData.data.ndisPackage = packageData.name; // Full package name
               updatedSummaryData.data.packageType = serializePackage(packageData.name);
+              updatedSummaryData.data.packageTypeAnswer = packageData.name; // ✅ ADD: Display name
               updatedSummaryData.data.packageCost = packageData.price;
               updatedSummaryData.data.isNDISFunder = true;
+              updatedSummaryData.data.packageCode = packageData.package_code;
             }
             
             setSummary(updatedSummaryData);
+            
+            console.log('✅ Summary updated with resolved package data:', {
+              packageName: packageData.name,
+              isNDIS: updatedSummaryData.data.isNDISFunder
+            });
           }
         } else {
-          console.error('Failed to fetch package details for summary:', bookingData.data.selectedPackageId);
+          console.error('❌ Failed to fetch package details for summary:', bookingData.data.selectedPackageId);
         }
       } catch (error) {
-        console.error('Error resolving package selection in summary:', error);
+        console.error('❌ Error resolving package selection in summary:', error);
+      } finally {
+        setIsResolvingPackage(false);
       }
     }
   };
@@ -291,12 +333,18 @@ const SummaryOfStay = ({
 
     console.log('Summary Data:', summaryData);
 
-    if (summaryData?.data?.selectedPackageId && summaryData?.data?.packageSelectionType === 'package-selection') {
+    // ✅ If package needs resolution, trigger it and return early
+    if (summaryData?.data?.selectedPackageId && 
+        summaryData?.data?.packageSelectionType === 'package-selection' && 
+        !packageResolved) {
+      console.log('📦 Package selection detected, resolving...');
       resolvePackageSelection();
-      return;
+      return; // Exit early, wait for resolution
     }
 
-    const isNDISFunder = summaryData?.data?.funder?.includes('NDIS') || summaryData?.data?.funder?.includes('NDIA') ? true : false;
+    // Only proceed with summary setup if package is resolved or not needed
+    const isNDISFunder = summaryData?.data?.funder?.includes('NDIS') || 
+                         summaryData?.data?.funder?.includes('NDIA') ? true : false;
     summaryData.data.isNDISFunder = isNDISFunder;
     
     if (!isNDISFunder) {
@@ -373,6 +421,33 @@ const SummaryOfStay = ({
     return totalPackageCost + getTotalOutOfPocketExpenses();
   };
 
+  // ✅ Show loading state while package is being resolved
+  if (isResolvingPackage) {
+    return (
+      <div className="max-w-4xl mx-auto p-6 space-y-6">
+        <div className="flex justify-center items-center py-12">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <p className="text-gray-600">Loading package information...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ✅ Don't render the component until we have summary data
+  if (!summary) {
+    return (
+      <div className="max-w-4xl mx-auto p-6 space-y-6">
+        <div className="flex justify-center items-center py-12">
+          <div className="text-center">
+            <p className="text-gray-600">Loading summary...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-6">
       <div className="flex justify-between items-start mb-6 flex-col sm:flex-row sm:items-center">
@@ -423,7 +498,7 @@ const SummaryOfStay = ({
         </div>
       </div>
 
-      {summary?.data?.isNDISFunder ? (
+      {(summary?.data?.isNDISFunder || summary?.data?.funder == "ndis") ? (
         <div className="mt-8">
           <h2 className="text-lg font-semibold mb-4 text-slate-700">Package - cost to be charged to your funder:</h2>
           <p className="text-slate-700 mb-2 p-2">Package Name: { summary.data.ndisPackage }</p>

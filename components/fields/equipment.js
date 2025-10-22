@@ -317,8 +317,12 @@ const EquipmentField = memo((props) => {
             const res = await fetch("/api/equipments?" + new URLSearchParams({ includeHidden: true }));
             if (!res.ok) throw new Error('Failed to fetch equipments');
             const data = await res.json();
-            setEquipments(data);
-            return data;
+            // Filter to only show equipment with status 'Active'
+            const activeEquipments = data.filter(equipment => 
+                equipment.status === 'Active' || equipment.status === 'active'
+            );
+            setEquipments(activeEquipments);
+            return activeEquipments;
         } catch (error) {
             console.error('Error fetching equipments:', error);
             return [];
@@ -349,7 +353,7 @@ const EquipmentField = memo((props) => {
 
     // Check if a category has special handling
     const hasSpecialHandling = (categoryName) => {
-        const specialCategories = ['infant_care']; // Updated: removed 'cot', added 'infant_care'
+        const specialCategories = ['infant_care'];
         return specialCategories.includes(categoryName);
     };
 
@@ -380,6 +384,12 @@ const EquipmentField = memo((props) => {
                 return;
             }
             
+            // NEW: adaptive_bathroom_options should be multi_select without confirmation
+            if (categoryName === 'adaptive_bathroom_options') {
+                types[categoryName] = 'multi_select';
+                return;
+            }
+            
             // Binary categories: single equipment item that represents a yes/no choice
             if (equipmentCount === 1 && !hasGroupType) {
                 types[categoryName] = 'binary';
@@ -387,7 +397,7 @@ const EquipmentField = memo((props) => {
             // Multi-select categories: multiple items or items with type 'group'
             else if (hasGroupType || equipmentCount > 1) {
                 // Check if this category needs confirmation (based on category name patterns)
-                const needsConfirmation = categoryName.includes('adaptive_bathroom');
+                const needsConfirmation = false; // Removed adaptive_bathroom check
                 
                 if (needsConfirmation) {
                     types[categoryName] = 'confirmation_multi';
@@ -472,7 +482,6 @@ const EquipmentField = memo((props) => {
                     });
                     
                     // Create initial equipment changes for prefilled items with quantity > 0
-                    // This should be called after metadata is set but before the function returns
                     setTimeout(() => {
                         if (mountedRef.current && Object.keys(metaData).length > 0) {
                             createInitialInfantCareEquipmentChanges(categoryEquipments, metaData);
@@ -619,7 +628,7 @@ const EquipmentField = memo((props) => {
             if (categoryType === 'special') {
                 // Handle special category validation
                 if (categoryName === 'infant_care') {
-                    // NEW: Validate infant_care equipment with direct quantities
+                    // Validate infant_care equipment with direct quantities
                     const categoryEquipments = groupedEquipments[categoryName] || [];
                     categoryEquipments.forEach(equipment => {
                         const equipmentKey = getEquipmentKey(equipment.name);
@@ -699,6 +708,13 @@ const EquipmentField = memo((props) => {
                                 allValid = false;
                             }
                         }
+                    } else if (categoryType === 'multi_select') {
+                        // For multi_select that's not required (like adaptive_bathroom_options), skip validation
+                        if (isRequired && (!categorySelections[categoryName] || 
+                            (Array.isArray(categorySelections[categoryName]) && categorySelections[categoryName].length === 0))) {
+                            errors[categoryName] = `Please select at least one option from ${formatCategoryName(categoryName)}`;
+                            allValid = false;
+                        }
                     }
                 }
                 
@@ -740,11 +756,11 @@ const EquipmentField = memo((props) => {
 
     const isRequiredCategory = (categoryName, categoryType) => {
         const alwaysRequired = ['mattress_options', 'shower_commodes'];
-        const requiredMultiSelect = ['adaptive_bathroom_options'];
+        const requiredMultiSelect = []; // Removed 'adaptive_bathroom_options'
         const conditionallyRequired = {
             'sling': () => categorySelections['ceiling_hoist'] === 'yes'
         };
-        const optionalCategories = ['transfer_aids', 'miscellaneous', 'infant_care']; // NEW: infant_care is optional
+        const optionalCategories = ['transfer_aids', 'miscellaneous', 'infant_care', 'adaptive_bathroom_options'];
         
         if (alwaysRequired.includes(categoryName)) return true;
         if (conditionallyRequired[categoryName]) return conditionallyRequired[categoryName]();
@@ -805,8 +821,7 @@ const EquipmentField = memo((props) => {
 
             // Handle special categories
             if (categoryType === 'special' && categoryName === 'infant_care') {
-                // NEW: Handle infant_care equipment changes
-                const equipmentKey = key; // For infant_care, the key is the equipment key
+                const equipmentKey = key;
                 if (value === 'no') {
                     setEquipmentMetaData(prev => ({
                         ...prev,
@@ -947,15 +962,12 @@ const EquipmentField = memo((props) => {
         if (!equipment) return;
 
         setEquipmentChanges(prev => {
-            // Find existing infant_care change or create new one
             const existingInfantCareChangeIndex = prev.findIndex(c => c.category === 'infant_care');
             
             if (existingInfantCareChangeIndex !== -1) {
-                // Update existing infant_care change
                 const existingChange = prev[existingInfantCareChangeIndex];
                 const updatedEquipments = existingChange.equipments.filter(eq => eq.id !== equipment.id);
                 
-                // Add the updated equipment with user modification flag
                 updatedEquipments.push({
                     ...equipment,
                     label: equipment.name,
@@ -977,7 +989,6 @@ const EquipmentField = memo((props) => {
                 
                 return updatedChanges;
             } else {
-                // Create new infant_care change
                 const newChange = {
                     category: 'infant_care',
                     equipments: [{
@@ -1011,9 +1022,7 @@ const EquipmentField = memo((props) => {
         );
 
         if (categoryType === 'special') {
-            // Handle special categories
             if (categoryName === 'infant_care') {
-                // NEW: Handle infant_care - this is now handled by individual equipment functions
                 return;
             }
         } else if (categoryType === 'binary') {
@@ -1113,12 +1122,11 @@ const EquipmentField = memo((props) => {
             if (equipmentKey && metaData[equipmentKey]) {
                 const quantity = metaData[equipmentKey].quantity || 0;
                 
-                // Only create equipment changes for items with quantity > 0
                 if (quantity > 0) {
                     equipmentChangesToAdd.push({
                         ...equipment,
                         label: equipment.name,
-                        value: true, // quantity > 0 means it's selected
+                        value: true,
                         meta_data: { 
                             quantity,
                             source: metaData[equipmentKey].source || 'prefilled',
@@ -1138,7 +1146,6 @@ const EquipmentField = memo((props) => {
             };
             
             setEquipmentChanges(prev => {
-                // Remove any existing infant_care changes first
                 const filtered = prev.filter(c => c.category !== 'infant_care');
                 return [...filtered, infantCareChange];
             });
@@ -1295,7 +1302,6 @@ const EquipmentField = memo((props) => {
                         const metaData = equipmentMetaData[equipmentKey] || {};
                         const quantity = metaData.quantity || 0;
                         
-                        // Check if user has modified this equipment
                         const isUserModified = userModificationsRef.current.has(equipmentKey) || metaData.userModified === true;
                         
                         const { isRequired } = getValidationStyling(equipmentKey);
@@ -1355,7 +1361,7 @@ const EquipmentField = memo((props) => {
                                                         type="number"
                                                         min="0"
                                                         max="2"
-                                                        value={quantity} // Always use the current quantity value
+                                                        value={quantity}
                                                         disabled={props?.disabled}
                                                         onChange={(e) => handleDirectQuantityChange(equipmentKey, equipment.name, e.target.value)}
                                                         className="w-16 text-center px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
@@ -1501,8 +1507,7 @@ const EquipmentField = memo((props) => {
 
     const getConfirmationQuestionLabel = (categoryName) => {
         const specialLabels = {
-            'shower_commodes': 'Would you like to book a shower commode?',
-            'adaptive_bathroom_options': 'Would you like to use any of our adaptive bathroom options?'
+            'shower_commodes': 'Would you like to book a shower commode?'
         };
         return specialLabels[categoryName] || `Would you like to use ${formatCategoryName(categoryName)}?`;
     };

@@ -82,7 +82,6 @@ const BookingRequestForm = () => {
     const funder = useSelector(state => state.bookingRequestForm.funder);
 
     const [showWarningDialog, setShowWarningDialog] = useState(false);
-    const [wasBookingFormDirty, setWasBookingFormDirty] = useState(false);
     const [submitting, setSubmitting] = useState(false);
 
     const [bookingData, setBookingData] = useState();
@@ -147,13 +146,11 @@ const BookingRequestForm = () => {
     const [pagesWithSavedData, setPagesWithSavedData] = useState(new Set());
 
     const [selectedCourseOfferId, setSelectedCourseOfferId] = useState(null);
-    const [courseOfferPreselected, setCourseOfferPreselected] = useState(false);
 
     const [completedEquipments, setCompletedEquipments] = useState(false);
     const [hasFutureCourseOffers, setHasFutureCourseOffers] = useState(null); // null = not checked yet, true/false = has/doesn't have offers
     const [futureCourseOffersChecked, setFutureCourseOffersChecked] = useState(false);
-    const [courseValidationComplete, setCourseValidationComplete] = useState(false); // NEW: Track if validation ran
-    const courseValidationRef = useRef(false); // NEW: Prevent duplicate validations
+    const courseValidationRef = useRef(false);
 
     const fetchAllFutureCourseOffers = useCallback(async () => {
         const guestId = getGuestId();
@@ -3175,19 +3172,32 @@ const BookingRequestForm = () => {
                         let hasSelection = false;
                         let validAnswer = true;
                         
-                        // Check if answer exists and is an object
-                        if (answer && typeof answer === 'object') {
+                        // ✅ FIX: Parse the answer if it's a string
+                        let parsedAnswer = answer;
+                        if (typeof answer === 'string') {
+                            try {
+                                parsedAnswer = JSON.parse(answer);
+                                console.log(`🎴 Parsed string answer to object:`, parsedAnswer);
+                            } catch (e) {
+                                console.error(`❌ Failed to parse service cards answer:`, e);
+                                validAnswer = false;
+                                parsedAnswer = null;
+                            }
+                        }
+                        
+                        // Check if parsedAnswer exists and is an object
+                        if (parsedAnswer && typeof parsedAnswer === 'object') {
                             // Check if at least one service is selected (answered "Yes")
-                            hasSelection = Object.values(answer).some(service => 
+                            hasSelection = Object.values(parsedAnswer).some(service => 
                                 service && service.selected === true
                             );
                             
-                            console.log(`🎴 Service cards - hasSelection: ${hasSelection}, answer keys:`, Object.keys(answer));
+                            console.log(`🎴 Service cards - hasSelection: ${hasSelection}, answer keys:`, Object.keys(parsedAnswer));
                             
                             // If no services are selected, check if all are explicitly set to "No"
                             // This means the user interacted with the form
                             if (!hasSelection) {
-                                const allServicesAnswered = Object.values(answer).every(service =>
+                                const allServicesAnswered = Object.values(parsedAnswer).every(service =>
                                     service && typeof service.selected === 'boolean'
                                 );
                                 
@@ -3199,41 +3209,44 @@ const BookingRequestForm = () => {
                                 }
                             }
                             
-                            // If services are selected, check for required sub-options
+                            // If services are selected, check for required sub-options ONLY IF THEY EXIST
                             if (hasSelection) {
                                 const services = typeof question.options === 'string' 
                                     ? JSON.parse(question.options) 
                                     : question.options;
                                 
-                                for (const serviceValue in answer) {
-                                    const serviceAnswer = answer[serviceValue];
+                                for (const serviceValue in parsedAnswer) {
+                                    const serviceAnswer = parsedAnswer[serviceValue];
                                     if (serviceAnswer && serviceAnswer.selected) {
                                         // Find the service definition
                                         const serviceDef = services.find(s => s.value === serviceValue);
                                         
-                                        // Check if sub-options are required and if any are selected
-                                        if (serviceDef && serviceDef.subOptionsRequired && 
-                                            serviceDef.subOptions && serviceDef.subOptions.length > 0) {
-                                            
-                                            if (!serviceAnswer.subOptions || serviceAnswer.subOptions.length === 0) {
-                                                console.log(`❌ Service "${serviceDef.label}" requires sub-option selection`);
-                                                errorMessage.add({
-                                                    pageId: page.id,
-                                                    pageTitle: page.title,
-                                                    message: `Please select at least one option for "${serviceDef.label}".`,
-                                                    question: question.question,
-                                                    type: question.type
-                                                });
-                                                validAnswer = false;
-                                                break;
+                                        // Only check sub-options if they exist AND are required
+                                        if (serviceDef && serviceDef.subOptions && serviceDef.subOptions.length > 0) {
+                                            // Sub-options exist, now check if they're required
+                                            if (serviceDef.subOptionsRequired) {
+                                                if (!serviceAnswer.subOptions || serviceAnswer.subOptions.length === 0) {
+                                                    console.log(`❌ Service "${serviceDef.label}" requires sub-option selection`);
+                                                    errorMessage.add({
+                                                        pageId: page.id,
+                                                        pageTitle: page.title,
+                                                        message: `Please select at least one option for "${serviceDef.label}".`,
+                                                        question: question.question,
+                                                        type: question.type
+                                                    });
+                                                    validAnswer = false;
+                                                    break;
+                                                }
                                             }
                                         }
+                                        // If no sub-options exist, the selection is valid as-is
+                                        console.log(`✅ Service "${serviceDef?.label || serviceValue}" is valid (no sub-options required)`);
                                     }
                                 }
                             }
                         } else {
                             // Answer is null or not an object
-                            console.log(`❌ Service cards answer is not an object:`, answer);
+                            console.log(`❌ Service cards answer is not a valid object:`, parsedAnswer);
                             validAnswer = false;
                         }
                         
@@ -3788,7 +3801,7 @@ const BookingRequestForm = () => {
             });
         });
 
-        if (equipmentChangesState && equipmentChangesState.length > 0) {
+        if (equipmentChangesState && equipmentChangesState?.length > 0) {
             console.log('📝 Processing equipment changes for QA pair updates...', equipmentChangesState);
             
             equipmentChangesState.forEach(equipmentChange => {
@@ -3799,12 +3812,14 @@ const BookingRequestForm = () => {
                         const questionMapping = getInfantCareQuestionMapping(equipment.name);
                         
                         if (questionMapping && equipment.meta_data?.quantity !== undefined) {
-                            // Find the section ID for this question
+                            // Find the section ID and question details for this question
                             let sectionId = null;
                             let existingQaPairId = null;
                             let oldAnswer = null;
+                            let questionId = null;
+                            let questionType = null;
                             
-                            // Look through all pages to find the question
+                            // FIXED: Look through all pages to find the question and gather ALL required fields
                             stableProcessedFormData?.forEach(page => {
                                 page.Sections?.forEach(section => {
                                     // Check Questions array
@@ -3812,6 +3827,9 @@ const BookingRequestForm = () => {
                                         if (question.question_key === questionMapping.questionKey) {
                                             sectionId = section.id;
                                             oldAnswer = question.answer;
+                                            questionId = question.fromQa ? question.question_id : question.id;
+                                            questionType = question.type;
+                                            console.log(`✅ Found question in Questions array: "${question.question}" (ID: ${questionId})`);
                                         }
                                     });
                                     
@@ -3821,24 +3839,33 @@ const BookingRequestForm = () => {
                                             sectionId = section.id;
                                             existingQaPairId = qaPair.id;
                                             oldAnswer = qaPair.answer;
+                                            questionId = qaPair.question_id || qaPair.Question?.id;
+                                            questionType = qaPair.question_type || qaPair.Question?.type;
+                                            console.log(`✅ Found existing QaPair: "${qaPair.question}" (QaPair ID: ${existingQaPairId}, Question ID: ${questionId})`);
                                         }
                                     });
                                 });
                             });
                             
-                            if (sectionId) {
+                            if (sectionId && questionId) {
                                 const newAnswer = equipment.meta_data.quantity.toString();
                                 const isDirty = oldAnswer !== newAnswer;
                                 
                                 if (isDirty || submit) {
                                     const equipmentQaPair = {
+                                        question: questionMapping.questionText,
+                                        question_key: questionMapping.questionKey,
+                                        question_type: questionType || 'integer',
+                                        question_id: questionId,
+                                        section_id: sectionId,
                                         answer: newAnswer,
                                         updatedAt: new Date(),
                                         dirty: isDirty,
                                         oldAnswer: oldAnswer,
                                         equipment_related: true,
                                         equipment_name: equipment.name,
-                                        equipment_category: 'infant_care'
+                                        equipment_category: 'infant_care',
+                                        submit: submit
                                     };
                                     
                                     if (existingQaPairId) {
@@ -3848,9 +3875,14 @@ const BookingRequestForm = () => {
                                     }
                                     
                                     qa_pairs.push(equipmentQaPair);
+                                    console.log(`✅ Created complete qa_pair for ${equipment.name}:`, equipmentQaPair);
                                 }
                             } else {
-                                console.warn(`⚠️ Could not find section for equipment question: ${questionMapping.questionKey} (${equipment.name})`);
+                                console.warn(`⚠️ Could not find complete question data for: ${questionMapping.questionKey} (${equipment.name})`, {
+                                    sectionId,
+                                    questionId,
+                                    questionType
+                                });
                             }
                         }
                     });
@@ -3902,7 +3934,6 @@ const BookingRequestForm = () => {
             if (equipmentChangesState.length > 0) {
                 dataForm.equipmentChanges = [...equipmentChangesState];
             }
-            setWasBookingFormDirty(true);
 
             const response = await fetch('/api/booking-request-form/save-qa-pair', {
                 method: 'POST',
@@ -5391,7 +5422,6 @@ const BookingRequestForm = () => {
         // Reset validation flags when UUID changes (new booking loaded)
         return () => {
             courseValidationRef.current = false;
-            setCourseValidationComplete(false);
             console.log('🔄 Reset course validation flags for new booking');
         };
     }, [uuid, prevBookingId]);

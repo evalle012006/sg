@@ -1,42 +1,23 @@
-import { promises as fs } from 'fs';
-import path from 'path';
 import { RenderPDF } from '../../../../services/booking/exports/pdf-render';
-import handlebars from 'handlebars';
+import { getServerSession } from 'next-auth/next';
+import { authOptions } from '../../auth/[...nextauth]';
 import { Address, Guest, HealthInfo } from '../../../../models';
-
-export const config = {
-  api: {
-    responseLimit: '50mb',
-  },
-};
+import path from 'path';
+import { promises as fs } from 'fs';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ message: 'Method not allowed' });
   }
 
-  try {
-    const { uuid } = req.query;
-    const { origin, guestData, healthData, profileImageUrl } = req.body;
+  const { uuid } = req.query;
+  const { origin, guestData, healthData, profileImageUrl } = req.body;
 
-    // Register helpers
-    handlebars.registerHelper({
-        'isArray': function(value) {
-            return Array.isArray(value);
-        },
-        'eq': function(a, b) {
-            return a === b;
-        },
-        'or': function() {
-          return Array.prototype.slice.call(arguments, 0, -1).some(Boolean);
-        },
-        'and': function() {
-          return Array.prototype.slice.call(arguments, 0, -1).every(Boolean);
-        },
-        'formatArray': function(arr) {
-          return Array.isArray(arr) ? arr.join(', ') : arr;
-        },
-    });
+  try {
+    const session = await getServerSession(req, res, authOptions);
+    if (!session) {
+      return res.status(401).json({ message: 'Unauthorized' });
+    }
 
     // Fetch complete guest data from database
     const guest = await Guest.findOne({
@@ -119,31 +100,27 @@ export default async function handler(req, res) {
         language: guest.HealthInfo?.language || healthData?.language || '',
         require_interpreter: guest.HealthInfo?.require_interpreter ?? healthData?.require_interpreter ?? null,
         cultural_beliefs: guest.HealthInfo?.cultural_beliefs || healthData?.cultural_beliefs || '',
-        
-        // Emergency Contact
         emergency_name: guest.HealthInfo?.emergency_name || healthData?.emergency_name || '',
         emergency_mobile_number: guest.HealthInfo?.emergency_mobile_number || healthData?.emergency_mobile_number || '',
         emergency_email: guest.HealthInfo?.emergency_email || healthData?.emergency_email || '',
         emergency_relationship: guest.HealthInfo?.emergency_relationship || healthData?.emergency_relationship || '',
-        
-        // GP/Specialist
         specialist_name: guest.HealthInfo?.specialist_name || healthData?.specialist_name || '',
         specialist_mobile_number: guest.HealthInfo?.specialist_mobile_number || healthData?.specialist_mobile_number || '',
         specialist_practice_name: guest.HealthInfo?.specialist_practice_name || healthData?.specialist_practice_name || '',
-        
-        // SCI Information
         sci_year: guest.HealthInfo?.sci_year || healthData?.sci_year || '',
-        sci_injury_type: guest.HealthInfo?.sci_injury_type || healthData?.sci_injury_type || '',
         sci_level_asia: guest.HealthInfo?.sci_level_asia || healthData?.sci_level_asia || '',
         sci_intial_spinal_rehab: guest.HealthInfo?.sci_intial_spinal_rehab || healthData?.sci_intial_spinal_rehab || '',
         sci_type: guest.HealthInfo?.sci_type || healthData?.sci_type || '',
         sci_type_level: guest.HealthInfo?.sci_type_level || healthData?.sci_type_level || [],
-        sci_other_details: guest.HealthInfo?.sci_other_details || healthData?.sci_other_details || '',
         sci_inpatient: guest.HealthInfo?.sci_inpatient ?? healthData?.sci_inpatient ?? null,
+        sci_injury_type: guest.HealthInfo?.sci_injury_type || healthData?.sci_injury_type || '',
+        sci_other_details: guest.HealthInfo?.sci_other_details || healthData?.sci_other_details || '',
       },
       
-      // Profile Image
-      profile_image_url: profileImageUrl || '',
+      // Profile Image - ensure it's a valid URL or empty
+      profile_image_url: profileImageUrl && typeof profileImageUrl === 'string' && profileImageUrl.trim() !== '' 
+        ? profileImageUrl 
+        : '',
       
       // Flags
       flags: guest.flags || [],
@@ -151,6 +128,8 @@ export default async function handler(req, res) {
       // Generation timestamp
       generated_at: formatAustralianDateTime(new Date()),
     };
+
+    console.log('Profile image URL being used:', formattedData.profile_image_url);
 
     // Create temporary directory for PDF generation
     const tempDir = path.join(process.cwd(), 'tmp');
@@ -172,6 +151,12 @@ export default async function handler(req, res) {
           },
           eq: function(a, b) {
             return a === b;
+          },
+          or: function() {
+            return Array.prototype.slice.call(arguments, 0, -1).some(Boolean);
+          },
+          and: function() {
+            return Array.prototype.slice.call(arguments, 0, -1).every(Boolean);
           },
           formatArray: function(arr) {
             return Array.isArray(arr) ? arr.join(', ') : arr;

@@ -270,7 +270,7 @@ async function enrichQAPairsWithPackageData(qaPairs) {
           [Op.in]: Array.from(packageIds)
         }
       },
-      attributes: ['id', 'name', 'package_code', 'funder', 'price', 'ndis_package_type', 'ndis_line_items', 'image_filename']
+      attributes: ['id', 'name', 'package_code', 'funder', 'price', 'ndis_package_type', 'description', 'ndis_line_items', 'image_filename']
     });
 
     const packageMap = new Map();

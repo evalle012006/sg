@@ -1414,6 +1414,61 @@ export const checkAnswerMatch = (actualAnswer, expectedAnswer) => {
         return false;
     }
 
+    // Handle service-cards format
+    // Service-cards stores answers as objects like:
+    // { "service-value": { selected: true, subOptions: ["sub1", "sub2"] } }
+    if (typeof actualAnswer === 'object' && !Array.isArray(actualAnswer)) {
+        // Parse actualAnswer if it's a string
+        let serviceData = actualAnswer;
+        if (typeof actualAnswer === 'string') {
+            try {
+                serviceData = JSON.parse(actualAnswer);
+            } catch (e) {
+                // Not JSON, fall through to other checks
+                serviceData = null;
+            }
+        }
+
+        // Check if this looks like service-cards data
+        if (serviceData && typeof serviceData === 'object' && !Array.isArray(serviceData)) {
+            // Check if expected answer contains colon (could be yes/no or sub-option format)
+            if (typeof expectedAnswer === 'string' && expectedAnswer.includes(':')) {
+                const parts = expectedAnswer.split(':');
+                const serviceValue = parts[0];
+                const optionValue = parts[1];
+                
+                // Check for Yes/No conditions
+                if (optionValue === 'yes') {
+                    // Format: "service-value:yes" - Check if service is selected
+                    const service = serviceData[serviceValue];
+                    return service && service.selected === true;
+                } else if (optionValue === 'no') {
+                    // Format: "service-value:no" - Check if service is NOT selected
+                    const service = serviceData[serviceValue];
+                    // Service explicitly not selected (selected: false) OR not in the data at all
+                    return !service || service.selected === false;
+                } else {
+                    // Format: "service-value:sub-option-value" - Check sub-option
+                    // When checking sub-option, we automatically imply the service must be selected (Yes)
+                    const service = serviceData[serviceValue];
+                    if (service && service.selected === true && service.subOptions) {
+                        return service.subOptions.includes(optionValue);
+                    }
+                    return false;
+                }
+            } else if (typeof expectedAnswer === 'string') {
+                // Legacy format: "service-value" (for backward compatibility)
+                // This checks if service is selected (same as :yes)
+                const service = serviceData[expectedAnswer];
+                if (service !== undefined) {
+                    // This is service-cards data, check if selected
+                    return service.selected === true;
+                }
+                // Not service-cards format, continue to other checks
+            }
+        }
+    }
+
     // Handle array answers for multi-select questions
     if (Array.isArray(actualAnswer)) {
         if (Array.isArray(expectedAnswer)) {
@@ -1436,34 +1491,23 @@ export const checkAnswerMatch = (actualAnswer, expectedAnswer) => {
                     return parsedAnswer.includes(expectedAnswer);
                 }
             }
+            // If parsed but not array, it might be service-cards
+            if (typeof parsedAnswer === 'object' && parsedAnswer !== null) {
+                // Recursively call with parsed data
+                return checkAnswerMatch(parsedAnswer, expectedAnswer);
+            }
         } catch (e) {
             // Not JSON, continue with other checks
         }
+        
+        // String comparison as last resort
+        return String(actualAnswer).toLowerCase() === String(expectedAnswer).toLowerCase();
     }
 
-    // Handle boolean conversions
-    if (typeof actualAnswer === 'boolean' && typeof expectedAnswer === 'string') {
-        return (actualAnswer === true && expectedAnswer.toLowerCase() === 'yes') ||
-               (actualAnswer === false && expectedAnswer.toLowerCase() === 'no');
-    }
-    
-    if (typeof expectedAnswer === 'boolean' && typeof actualAnswer === 'string') {
-        return (expectedAnswer === true && actualAnswer.toLowerCase() === 'yes') ||
-               (expectedAnswer === false && actualAnswer.toLowerCase() === 'no');
-    }
-
-    // Handle string comparisons (case insensitive)
-    if (typeof actualAnswer === 'string' && typeof expectedAnswer === 'string') {
-        return actualAnswer.toLowerCase().trim() === expectedAnswer.toLowerCase().trim();
-    }
-
-    // Handle number comparisons
-    if (typeof actualAnswer === 'number' || typeof expectedAnswer === 'number') {
-        return Number(actualAnswer) === Number(expectedAnswer);
-    }
-
-    return false;
+    // Type conversion and comparison
+    return String(actualAnswer) === String(expectedAnswer);
 };
+
 
 /**
  * Clear answers from questions that are now hidden to prevent them from affecting dependencies

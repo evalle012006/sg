@@ -80,6 +80,7 @@ export const Page = (props) => {
             .map((section, index) => { return { ...section, order: index + 1 } });
         debouncedSyncSectionOrder(hoverIndex, section);
         setSections(newSections);
+        dispatch(globalActions.setLoading(false));
     }, []);
 
     const renderSection = useCallback((section, index) => {

@@ -210,62 +210,68 @@ export default function GoalTable(props) {
           </tr>
         </thead>
         <tbody>
-          {goals.map((goal, index) => (
-            <tr key={goal.id} className="border-b hover:bg-gray-50">
-              <td className={`p-4 border ${getErrorStyles("goalRequired")}`}>
-                <div className="flex items-center">
-                  <CheckboxGeneric
-                    id={goal.id}
-                    checked={goal.value}
-                    label={goal.goal}
-                    onChange={handleCheckboxChange}
-                    hideLabel={true}
-                  />
-                  {(index !== goals.length - 1) ? (
-                    <span className="ml-2">{goal.goal}</span>
-                  ) : (
-                    <div className="w-full ml-2">
-                      <textarea 
-                        className={`auto-save-input font-bold p-1 bg-transparent border-stone-50 ${
-                          hasValidationRun && errors.specificGoalRequired && goal.value ? "border-red-500 bg-red-50" : ""
-                        }`}
-                        placeholder={goal.goal}
-                        defaultValue={specificGoal}
-                        data-tip="edit field label"
-                        style={{ width: '90%', fontSize: '12px', fontWeight: 'normal' }}
-                        rows="4"
-                        onBlur={(e) => {
-                          hasUserInteracted.current = true;
-                          const value = e.target.value;
-                          setSpecificGoal(value);
-                          handleCheckboxChange(goal.id, true, value);
-                        }}
-                      />
-                      {hasValidationRun && errors.specificGoalRequired && goal.value && (
-                        <div className="text-red-500 text-sm mt-1">
-                          Please specify your goal
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </td>
-              {showDetails[goal.id] && (
-                <>
-                  <td className="p-4 border">{goal.service}</td>
-                  <td className="p-4 border">{goal.expect}</td>
-                  <td className="p-4 border">
-                    <ul className="list-disc pl-5">
-                      {goal.funding?.map((item, idx) => (
-                        <li key={idx} className="text-sm">{item}</li>
-                      )) || null}
-                    </ul>
-                  </td>
-                  <td className="p-4 border">{goal.rate}</td>
-                </>
-              )}
-            </tr>
-          ))}
+          {goals.map((goal, index) => {
+            const checkboxId = `checkbox-${goal.id}`;
+            
+            return (
+              <tr key={goal.id} className="border-b hover:bg-gray-50">
+                <td className={`p-4 border ${getErrorStyles("goalRequired")}`}>
+                  <div className="flex items-center">
+                    <CheckboxGeneric
+                      id={goal.id}
+                      checked={goal.value}
+                      label={goal.goal}
+                      onChange={handleCheckboxChange}
+                      hideLabel={true}
+                    />
+                    {(index !== goals.length - 1) ? (
+                      <label htmlFor={checkboxId} className="ml-2 cursor-pointer">
+                        {goal.goal}
+                      </label>
+                    ) : (
+                      <div className="w-full ml-2">
+                        <textarea 
+                          className={`auto-save-input font-bold p-1 bg-transparent border-stone-50 ${
+                            hasValidationRun && errors.specificGoalRequired && goal.value ? "border-red-500 bg-red-50" : ""
+                          }`}
+                          placeholder={goal.goal}
+                          defaultValue={specificGoal}
+                          data-tip="edit field label"
+                          style={{ width: '90%', fontSize: '12px', fontWeight: 'normal' }}
+                          rows="4"
+                          onBlur={(e) => {
+                            hasUserInteracted.current = true;
+                            const value = e.target.value;
+                            setSpecificGoal(value);
+                            handleCheckboxChange(goal.id, true, value);
+                          }}
+                        />
+                        {hasValidationRun && errors.specificGoalRequired && goal.value && (
+                          <div className="text-red-500 text-sm mt-1">
+                            Please specify your goal
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </td>
+                {showDetails[goal.id] && (
+                  <>
+                    <td className="p-4 border">{goal.service}</td>
+                    <td className="p-4 border">{goal.expect}</td>
+                    <td className="p-4 border">
+                      <ul className="list-disc pl-5">
+                        {goal.funding?.map((item, idx) => (
+                          <li key={idx} className="text-sm">{item}</li>
+                        )) || null}
+                      </ul>
+                    </td>
+                    <td className="p-4 border">{goal.rate}</td>
+                  </>
+                )}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

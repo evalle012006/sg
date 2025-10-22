@@ -84,6 +84,7 @@ export default async function handler(req, res) {
         'funder', 
         'price', 
         'ndis_package_type',
+        'description',
         'ndis_line_items',
         'image_filename',
         'created_at',
@@ -135,6 +136,7 @@ export default async function handler(req, res) {
         funder: packageData.funder,
         price: packageData.price,
         ndis_package_type: packageData.ndis_package_type,
+        description: packageData.description,
         ndis_line_items: packageData.ndis_line_items,
         image_filename: packageData.image_filename,
         created_at: packageData.created_at,
@@ -173,7 +175,6 @@ export default async function handler(req, res) {
 
       // Add summary and compatibility fields for frontend
       transformed.summary = generatePackageSummary(packageData, transformed.requirement);
-      transformed.description = transformed.summary;
       transformed.inclusions = Array.isArray(packageData.ndis_line_items) ? packageData.ndis_line_items : [];
       transformed.features = [];
 

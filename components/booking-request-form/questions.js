@@ -1014,7 +1014,7 @@ const QuestionPage = ({
 
                                             const handleEquipmentFieldChange = (label, secIdx, qIdx, changes) => {
                                                 markQuestionAsInteracted(secIdx, qIdx);
-                                                console.log("EQUIPMENT CHANGES DETECTED: ", changes);
+
                                                 if (changes && changes.length > 0) {
                                                     // FIXED: Defer Redux update to avoid state update during render
                                                     setTimeout(() => {
@@ -1044,43 +1044,55 @@ const QuestionPage = ({
                                                             });
                                                         }
                                                     });
-                                                    console.log("QA PAIR UPDATES TO PROCESS: ", qaPairUpdates);
-                                                    // Apply QA pair updates to current page sections if any
+                                                    
+                                                    // FIXED: Apply QA pair updates by searching through ALL pages, not just currentPage
                                                     if (qaPairUpdates.length > 0) {
-                                                        // FIXED: Defer page updates as well
                                                         setTimeout(() => {
-                                                            const updatedSections = [...currentPage.Sections];
-                                                            
-                                                            qaPairUpdates.forEach(qaPairUpdate => {
-                                                                // Find the section and question for this QA pair update
-                                                                for (let sectionIndex = 0; sectionIndex < updatedSections.length; sectionIndex++) {
-                                                                    const section = updatedSections[sectionIndex];
-                                                                    
-                                                                    for (let questionIndex = 0; questionIndex < section.Questions.length; questionIndex++) {
-                                                                        const question = section.Questions[questionIndex];
-                                                                        console.log("FOUND QUESTION: ", question)
-                                                                        if (question.question_key === qaPairUpdate.question_key) {
-                                                                            // Update the question's answer
-                                                                            updatedSections[sectionIndex].Questions[questionIndex] = {
+                                                            // Search through ALL pages to find and update the questions
+                                                            const updatedAllPages = allPages.map(page => {
+                                                                const updatedSections = page.Sections.map(section => {
+                                                                    const updatedQuestions = section.Questions.map(question => {
+                                                                        // Check if this question matches any of our updates
+                                                                        const matchingUpdate = qaPairUpdates.find(
+                                                                            update => question.question_key === update.question_key
+                                                                        );
+                                                                        
+                                                                        if (matchingUpdate) {
+                                                                            console.log(`✅ Found and updating question: "${question.question}" on page "${page.title}"`);
+                                                                            return {
                                                                                 ...question,
-                                                                                answer: qaPairUpdate.answer,
+                                                                                answer: matchingUpdate.answer,
                                                                                 dirty: true,
                                                                                 oldAnswer: question.answer || null,
                                                                                 equipment_related: true
                                                                             };
-                                                                            break;
                                                                         }
-                                                                    }
-                                                                }
+                                                                        
+                                                                        return question;
+                                                                    });
+                                                                    
+                                                                    return {
+                                                                        ...section,
+                                                                        Questions: updatedQuestions
+                                                                    };
+                                                                });
+                                                                
+                                                                return {
+                                                                    ...page,
+                                                                    Sections: updatedSections,
+                                                                    dirty: page.Sections !== updatedSections // Mark page as dirty if sections changed
+                                                                };
                                                             });
                                                             
-                                                            // Update the page with the modified sections
-                                                            const updatedPageData = { ...currentPage, Sections: updatedSections, dirty: true };
-                                                            setUpdatedCurrentPage(updatedPageData);
-                                                            
-                                                            // Also trigger immediate update
+                                                            // Update ALL pages, not just current page
                                                             if (typeof updateAndDispatchPageDataImmediate === 'function') {
-                                                                updateAndDispatchPageDataImmediate(updatedSections, currentPage.id);
+                                                                // For each page that was updated, call the immediate update
+                                                                updatedAllPages.forEach(page => {
+                                                                    if (page.dirty) {
+                                                                        console.log(`📝 Dispatching update for page: "${page.title}"`);
+                                                                        updateAndDispatchPageDataImmediate(page.Sections, page.id);
+                                                                    }
+                                                                });
                                                             }
                                                         }, 10);
                                                     }

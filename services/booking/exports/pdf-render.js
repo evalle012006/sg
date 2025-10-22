@@ -3,15 +3,32 @@ const handlebars = require('handlebars');
 const fs = require('fs');
 const path = require('path');
 
-const RenderPDF = async ({ htmlTemplatePath, pdfData, pdfPath, withLetterHead = false }) => {
+const RenderPDF = async ({ htmlTemplatePath, pdfData, pdfPath, withLetterHead = false, helpers = {} }) => {
+
+    // Register custom helpers if provided
+    if (helpers && typeof helpers === 'object') {
+        Object.keys(helpers).forEach(helperName => {
+            handlebars.registerHelper(helperName, helpers[helperName]);
+        });
+    }
 
     // begin pdf generation process
     console.log('initializing browser instances...')
     const browser = await puppeteer.launch({
-        args: ['--force-color-profile=srgb'],
-        headless: 'chrome',
+        args: [
+            '--force-color-profile=srgb',
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-web-security'  // Allow loading external images
+        ],
+        headless: 'new',
     });
     const page = await browser.newPage();
+
+    // Increase timeout for image loading
+    await page.setDefaultNavigationTimeout(60000);
+    await page.setDefaultTimeout(60000);
 
     // serializing required data
     const filePath = path.resolve(htmlTemplatePath);
@@ -20,11 +37,31 @@ const RenderPDF = async ({ htmlTemplatePath, pdfData, pdfPath, withLetterHead = 
 
     console.log('generating pdf...')
     const template = handlebars.compile(htmlContent)(pdfData);
-    await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/66.0.3359.181 Safari/537.36 WAIT_UNTIL=load")
-    await page.setContent(template, { waitUntil: 'networkidle2' });
+    await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+    
+    // Set content with longer timeout for image loading
+    await page.setContent(template, { 
+        waitUntil: ['networkidle0', 'load'],
+        timeout: 60000 
+    });
+    
     await page.emulateMediaType('screen');
+    
+    // Wait for images to load
+    await page.evaluate(() => {
+        return Promise.all(
+            Array.from(document.images)
+                .filter(img => !img.complete)
+                .map(img => new Promise(resolve => {
+                    img.onload = img.onerror = resolve;
+                }))
+        );
+    });
+
     let pdfOptions = {
-        path: resolvedPdfPath, format: 'A4', margin: {
+        path: resolvedPdfPath, 
+        format: 'A4', 
+        margin: {
             top: "1.5cm",
             right: "1.5cm",
             bottom: "1.5cm",

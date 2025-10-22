@@ -96,7 +96,8 @@ export default async function handler(req, res) {
         'package_code', 
         'funder', 
         'price', 
-        'ndis_package_type',  // ✅ Make sure this is included
+        'ndis_package_type',
+        'description',
         'ndis_line_items', 
         'image_filename',
         'created_at',

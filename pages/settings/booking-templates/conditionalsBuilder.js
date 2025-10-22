@@ -41,14 +41,18 @@ export default function ConditionalsBuilder() {
         'card-selection',
         'card-selection-multi',
         'horizontal-card',
-        'horizontal-card-multi'
+        'horizontal-card-multi',
+        'service-cards',           
+        'service-cards-multi'      
     ];
 
     const cardSelectionFields = [
         'card-selection',
         'card-selection-multi',
         'horizontal-card',
-        'horizontal-card-multi'
+        'horizontal-card-multi',
+        'service-cards',           
+        'service-cards-multi'      
     ];
 
     useEffect(() => {
@@ -80,26 +84,169 @@ export default function ConditionalsBuilder() {
         let conditions = [];
 
         if (fieldWithSelectOptions.includes(selectedQuestion.type)) {
-            const selectedQuestionOptions = typeof selectedQuestion.options == 'string' ? JSON.parse(selectedQuestion.options) : selectedQuestion.options;
+            const selectedQuestionOptions = typeof selectedQuestion.options == 'string' 
+                ? JSON.parse(selectedQuestion.options) 
+                : selectedQuestion.options;
+            
             selectedQuestion.options && selectedQuestionOptions.map(option => {
-                const answerValue = cardSelectionFields.includes(selectedQuestion.type) ? option.value : option.label;
+                const answerValue = cardSelectionFields.includes(selectedQuestion.type) 
+                    ? option.value 
+                    : option.label;
                 const displayValue = option.label;
-                const existingConditions = questions.filter(question =>
-                    question.QuestionDependencies.filter(dependency => dependency.dependence_id === selectedQuestion.id && dependency.answer === answerValue).length > 0);
+                
+                // For service-cards, create conditions for Yes/No AND sub-options
+                if (selectedQuestion.type === 'service-cards' || selectedQuestion.type === 'service-cards-multi') {
+                    // Yes condition (service selected = true)
+                    const yesAnswerValue = `${option.value}:yes`;
+                    const yesDisplayValue = `${option.label} → Yes`;
+                    
+                    const existingYesConditions = questions.filter(question =>
+                        question.QuestionDependencies.filter(dependency => 
+                            dependency.dependence_id === selectedQuestion.id && 
+                            dependency.answer === yesAnswerValue
+                        ).length > 0
+                    );
 
-                if (existingConditions.length) {
-                    existingConditions.forEach(condition => {
-                        conditions.push({
-                            question: selectedQuestion.question, 
-                            answer: displayValue,
-                            nextQuestion: condition.question,
-                            metaData: condition.QuestionDependencies.find(dependency => dependency.dependence_id === selectedQuestion.id && dependency.answer === answerValue)
+                    if (existingYesConditions.length) {
+                        existingYesConditions.forEach(condition => {
+                            conditions.push({
+                                question: selectedQuestion.question, 
+                                answer: yesDisplayValue,
+                                nextQuestion: condition.question || condition.type,
+                                isYesNo: true,
+                                yesNoValue: 'yes',
+                                parentService: option.label,
+                                metaData: condition.QuestionDependencies.find(dependency => 
+                                    dependency.dependence_id === selectedQuestion.id && 
+                                    dependency.answer === yesAnswerValue
+                                )
+                            });
                         });
-                    });
+                    } else {
+                        conditions.push({ 
+                            question: selectedQuestion.question, 
+                            answer: yesDisplayValue, 
+                            type: selectedQuestion.type, 
+                            nextQuestion: 'Next Question',
+                            isYesNo: true,
+                            yesNoValue: 'yes',
+                            parentService: option.label,
+                            metaData: null 
+                        });
+                    }
+
+                    // No condition (service selected = false)
+                    const noAnswerValue = `${option.value}:no`;
+                    const noDisplayValue = `${option.label} → No`;
+                    
+                    const existingNoConditions = questions.filter(question =>
+                        question.QuestionDependencies.filter(dependency => 
+                            dependency.dependence_id === selectedQuestion.id && 
+                            dependency.answer === noAnswerValue
+                        ).length > 0
+                    );
+
+                    if (existingNoConditions.length) {
+                        existingNoConditions.forEach(condition => {
+                            conditions.push({
+                                question: selectedQuestion.question, 
+                                answer: noDisplayValue,
+                                nextQuestion: condition.question || condition.type,
+                                isYesNo: true,
+                                yesNoValue: 'no',
+                                parentService: option.label,
+                                metaData: condition.QuestionDependencies.find(dependency => 
+                                    dependency.dependence_id === selectedQuestion.id && 
+                                    dependency.answer === noAnswerValue
+                                )
+                            });
+                        });
+                    } else {
+                        conditions.push({ 
+                            question: selectedQuestion.question, 
+                            answer: noDisplayValue, 
+                            type: selectedQuestion.type, 
+                            nextQuestion: 'Next Question',
+                            isYesNo: true,
+                            yesNoValue: 'no',
+                            parentService: option.label,
+                            metaData: null 
+                        });
+                    }
+
+                    // Sub-options (if available)
+                    if (option.subOptions && option.subOptions.length > 0) {
+                        option.subOptions.forEach(subOption => {
+                            // Format: "service-value:sub-option-value" to track both service and sub-option
+                            const subOptionAnswerValue = `${option.value}:${subOption.value}`;
+                            const subOptionDisplayValue = `${option.label} → ${subOption.label}`;
+                            
+                            const existingSubOptionConditions = questions.filter(question =>
+                                question.QuestionDependencies.filter(dependency => 
+                                    dependency.dependence_id === selectedQuestion.id && 
+                                    dependency.answer === subOptionAnswerValue
+                                ).length > 0
+                            );
+
+                            if (existingSubOptionConditions.length) {
+                                existingSubOptionConditions.forEach(condition => {
+                                    conditions.push({
+                                        question: selectedQuestion.question, 
+                                        answer: subOptionDisplayValue,
+                                        nextQuestion: condition.question || condition.type,
+                                        isSubOption: true,
+                                        parentService: option.label,
+                                        metaData: condition.QuestionDependencies.find(dependency => 
+                                            dependency.dependence_id === selectedQuestion.id && 
+                                            dependency.answer === subOptionAnswerValue
+                                        )
+                                    });
+                                });
+                            } else {
+                                conditions.push({ 
+                                    question: selectedQuestion.question, 
+                                    answer: subOptionDisplayValue, 
+                                    type: selectedQuestion.type, 
+                                    nextQuestion: 'Next Question',
+                                    isSubOption: true,
+                                    parentService: option.label,
+                                    metaData: null 
+                                });
+                            }
+                        });
+                    }
                 } else {
-                    conditions.push({ question: selectedQuestion.question, answer: displayValue, type: selectedQuestion.type, nextQuestion: 'Next Question', metaData: null });
+                    // For non-service-cards, handle as before
+                    const existingConditions = questions.filter(question =>
+                        question.QuestionDependencies.filter(dependency => 
+                            dependency.dependence_id === selectedQuestion.id && 
+                            dependency.answer === answerValue
+                        ).length > 0
+                    );
+
+                    if (existingConditions.length) {
+                        existingConditions.forEach(condition => {
+                            conditions.push({
+                                question: selectedQuestion.question, 
+                                answer: displayValue,
+                                nextQuestion: condition.question || condition.type,
+                                metaData: condition.QuestionDependencies.find(dependency => 
+                                    dependency.dependence_id === selectedQuestion.id && 
+                                    dependency.answer === answerValue
+                                )
+                            });
+                        });
+                    } else {
+                        conditions.push({ 
+                            question: selectedQuestion.question, 
+                            answer: displayValue, 
+                            type: selectedQuestion.type, 
+                            nextQuestion: 'Next Question', 
+                            metaData: null 
+                        });
+                    }
                 }
-            })
+            });
         }
 
         setSelectedQuestionConditions(conditions);
@@ -110,25 +257,129 @@ export default function ConditionalsBuilder() {
 
         questions.forEach(selectedQuestion => {
             if (fieldWithSelectOptions.includes(selectedQuestion.type)) {
-                const selectedQuestionOptions = typeof selectedQuestion.options == 'string' ? JSON.parse(selectedQuestion.options) : selectedQuestion.options;
+                const selectedQuestionOptions = typeof selectedQuestion.options == 'string' 
+                    ? JSON.parse(selectedQuestion.options) 
+                    : selectedQuestion.options;
+                
                 selectedQuestion.options && selectedQuestionOptions.map(option => {
-                    const answerValue = cardSelectionFields.includes(selectedQuestion.type) ? option.value : option.label;
+                    const answerValue = cardSelectionFields.includes(selectedQuestion.type) 
+                        ? option.value 
+                        : option.label;
                     const displayValue = option.label;
-                    const existingConditions = questions.filter(question =>
-                        question.QuestionDependencies.filter(dependency => dependency.dependence_id === selectedQuestion.id && dependency.answer === answerValue).length > 0);
-                    if (existingConditions.length) {
-                        existingConditions.forEach(condition => {
-                            conditions.push({ question: selectedQuestion.question, answer: displayValue, type: selectedQuestion.type, nextQuestion: condition.question });
-                        });
+                    
+                    if (selectedQuestion.type === 'service-cards' || selectedQuestion.type === 'service-cards-multi') {
+                        // Yes conditions
+                        const yesAnswerValue = `${option.value}:yes`;
+                        const yesDisplayValue = `${option.label} → Yes`;
+                        
+                        const existingYesConditions = questions.filter(question =>
+                            question.QuestionDependencies.filter(dependency => 
+                                dependency.dependence_id === selectedQuestion.id && 
+                                dependency.answer === yesAnswerValue
+                            ).length > 0
+                        );
+
+                        if (existingYesConditions.length) {
+                            existingYesConditions.forEach(condition => {
+                                conditions.push({
+                                    question: selectedQuestion.question, 
+                                    answer: yesDisplayValue,
+                                    nextQuestion: condition.question || condition.type,
+                                    isYesNo: true,
+                                    yesNoValue: 'yes',
+                                    parentService: option.label,
+                                    metaData: condition.QuestionDependencies.find(dependency => 
+                                        dependency.dependence_id === selectedQuestion.id && 
+                                        dependency.answer === yesAnswerValue
+                                    )
+                                });
+                            });
+                        }
+
+                        // No conditions
+                        const noAnswerValue = `${option.value}:no`;
+                        const noDisplayValue = `${option.label} → No`;
+                        
+                        const existingNoConditions = questions.filter(question =>
+                            question.QuestionDependencies.filter(dependency => 
+                                dependency.dependence_id === selectedQuestion.id && 
+                                dependency.answer === noAnswerValue
+                            ).length > 0
+                        );
+
+                        if (existingNoConditions.length) {
+                            existingNoConditions.forEach(condition => {
+                                conditions.push({
+                                    question: selectedQuestion.question, 
+                                    answer: noDisplayValue,
+                                    nextQuestion: condition.question || condition.type,
+                                    isYesNo: true,
+                                    yesNoValue: 'no',
+                                    parentService: option.label,
+                                    metaData: condition.QuestionDependencies.find(dependency => 
+                                        dependency.dependence_id === selectedQuestion.id && 
+                                        dependency.answer === noAnswerValue
+                                    )
+                                });
+                            });
+                        }
+
+                        // Sub-option conditions
+                        if (option.subOptions && option.subOptions.length > 0) {
+                            option.subOptions.forEach(subOption => {
+                                const subOptionAnswerValue = `${option.value}:${subOption.value}`;
+                                const subOptionDisplayValue = `${option.label} → ${subOption.label}`;
+                                
+                                const existingSubOptionConditions = questions.filter(question =>
+                                    question.QuestionDependencies.filter(dependency => 
+                                        dependency.dependence_id === selectedQuestion.id && 
+                                        dependency.answer === subOptionAnswerValue
+                                    ).length > 0
+                                );
+
+                                if (existingSubOptionConditions.length) {
+                                    existingSubOptionConditions.forEach(condition => {
+                                        conditions.push({
+                                            question: selectedQuestion.question, 
+                                            answer: subOptionDisplayValue,
+                                            nextQuestion: condition.question || condition.type,
+                                            isSubOption: true,
+                                            parentService: option.label,
+                                            metaData: condition.QuestionDependencies.find(dependency => 
+                                                dependency.dependence_id === selectedQuestion.id && 
+                                                dependency.answer === subOptionAnswerValue
+                                            )
+                                        });
+                                    });
+                                }
+                            });
+                        }
+                    } else {
+                        const existingConditions = questions.filter(question =>
+                            question.QuestionDependencies.filter(dependency => 
+                                dependency.dependence_id === selectedQuestion.id && 
+                                dependency.answer === answerValue
+                            ).length > 0
+                        );
+
+                        if (existingConditions.length) {
+                            existingConditions.forEach(condition => {
+                                conditions.push({
+                                    question: selectedQuestion.question, 
+                                    answer: displayValue,
+                                    nextQuestion: condition.question || condition.type,
+                                    metaData: condition.QuestionDependencies.find(dependency => 
+                                        dependency.dependence_id === selectedQuestion.id && 
+                                        dependency.answer === answerValue
+                                    )
+                                });
+                            });
+                        }
                     }
-                    // else {
-                    //     conditions.push({ question: selectedQuestion.question, answer: option.label, nextQuestion: 'Next Question' });
-                    // }
-                })
-            } else {
-                conditions.push({ question: selectedQuestion.question, answer: 'Any', type: selectedQuestion.type, nextQuestion: 'Next Question' });
+                });
             }
-        })
+        });
+
         setAllQuestionsConditions(conditions);
     }
 
@@ -143,7 +394,7 @@ export default function ConditionalsBuilder() {
         }
 
         const questionsData = template.Pages.map(page => page.Sections.map(section => section.Questions.flat()).flat()).flat(); // extracting all questions from the template
-        questionsData.sort((a, b) => { return a.section_id - b.section_d; });
+        questionsData.sort((a, b) => { return a.section_id - b.section_id; });
         setQuestions(questionsData);
         setFilteredQuestions(questionsData);
     }, [template])
@@ -183,6 +434,7 @@ export default function ConditionalsBuilder() {
     }).then(res => dispatch(fetchTemplate(template_uuid)));
 
     const selectedQuestionOptions = typeof selectedQuestion?.options == 'string' ? JSON.parse(selectedQuestion?.options) : selectedQuestion?.options;
+    
     return (
         <Layout hideTitleBar={true}>
             <div className="grid grid-cols-12">
@@ -266,11 +518,13 @@ export default function ConditionalsBuilder() {
                     </div>
                 </div>
             </div>
+            
+            {/* UPDATED MODAL WITH SERVICE-CARDS YES/NO + SUB-OPTIONS SUPPORT */}
             {showAddConditionModal &&
                 <Modal
                     confirmLabel="Add Condition"
                     title="Add Condition"
-                    description="Select the relavant option, the next question and click on Add Condition"
+                    description="Select the relevant option, the next question and click on Add Condition"
                     onClose={() => {
                         setNewCondition({ question_id: null, answer: null, dependence_id: null });
                         setShowAddConditionModal(false);
@@ -286,26 +540,141 @@ export default function ConditionalsBuilder() {
                         }
                     }}>
                     <div>
-                        <div className="grid grid-cols-2">
-                            <div className="">
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="overflow-y-auto" style={{ maxHeight: '500px' }}>
                                 <p className="text-xl mb-5">Q.{selectedQuestion.id} {selectedQuestion.question}</p>
-                                {selectedQuestion?.options && selectedQuestionOptions.map((option, index) => <div key={index} className="flex items-center space-x-2 mb-5">
-                                    <input type="radio" name="answer" id={option.label} onChange={() => setNewCondition({ ...newCondition, answer: cardSelectionFields.includes(selectedQuestion.type) ? option.value : option.label })} />
-                                    <label htmlFor="answer">{option.label}</label>
-                                </div>)}
+                                
+                                {/* Regular options display for non-service-cards questions */}
+                                {selectedQuestion?.options && 
+                                 selectedQuestion.type !== 'service-cards' && 
+                                 selectedQuestion.type !== 'service-cards-multi' &&
+                                 selectedQuestionOptions.map((option, index) => (
+                                    <div key={index} className="flex items-center space-x-2 mb-5">
+                                        <input 
+                                            type="radio" 
+                                            name="answer" 
+                                            id={`option-${index}`}
+                                            onChange={() => setNewCondition({ 
+                                                ...newCondition, 
+                                                answer: cardSelectionFields.includes(selectedQuestion.type) 
+                                                    ? option.value 
+                                                    : option.label 
+                                            })} 
+                                        />
+                                        <label htmlFor={`option-${index}`} className="cursor-pointer">{option.label}</label>
+                                    </div>
+                                ))}
+                                
+                                {/* Enhanced display for service-cards questions with YES/NO + sub-options */}
+                                {selectedQuestion?.options && 
+                                 (selectedQuestion.type === 'service-cards' || 
+                                  selectedQuestion.type === 'service-cards-multi') &&
+                                 selectedQuestionOptions.map((option, optionIndex) => (
+                                    <div key={optionIndex} className="mb-6 border border-gray-200 rounded-lg p-4 bg-gray-50">
+                                        {/* Service name header */}
+                                        <div className="mb-3">
+                                            <h4 className="font-bold text-gray-800 text-base mb-2">{option.label}</h4>
+                                        </div>
+                                        
+                                        {/* Yes/No options - ALWAYS shown */}
+                                        <div className="space-y-2 mb-3">
+                                            {/* Yes option */}
+                                            <div className="flex items-center space-x-2 p-2 bg-green-50 rounded border-l-4 border-green-500">
+                                                <input 
+                                                    type="radio" 
+                                                    name="answer" 
+                                                    id={`yes-${optionIndex}`}
+                                                    checked={newCondition.answer === `${option.value}:yes`}
+                                                    onChange={() => setNewCondition({ 
+                                                        ...newCondition, 
+                                                        answer: `${option.value}:yes`
+                                                    })} 
+                                                />
+                                                <label htmlFor={`yes-${optionIndex}`} className="font-medium text-gray-800 cursor-pointer flex-1">
+                                                    Yes
+                                                </label>
+                                            </div>
+                                            
+                                            {/* No option */}
+                                            <div className="flex items-center space-x-2 p-2 bg-red-50 rounded border-l-4 border-red-500">
+                                                <input 
+                                                    type="radio" 
+                                                    name="answer" 
+                                                    id={`no-${optionIndex}`}
+                                                    checked={newCondition.answer === `${option.value}:no`}
+                                                    onChange={() => setNewCondition({ 
+                                                        ...newCondition, 
+                                                        answer: `${option.value}:no`
+                                                    })} 
+                                                />
+                                                <label htmlFor={`no-${optionIndex}`} className="font-medium text-gray-800 cursor-pointer flex-1">
+                                                    No
+                                                </label>
+                                            </div>
+                                        </div>
+                                        
+                                        {/* Sub-options (if available) */}
+                                        {option.subOptions && option.subOptions.length > 0 && (
+                                            <div className="mt-3 pt-3 border-t border-gray-300">
+                                                <p className="text-xs text-gray-600 uppercase tracking-wide mb-2 font-semibold">
+                                                    📋 SUB-OPTIONS:
+                                                </p>
+                                                <div className="space-y-1">
+                                                    {option.subOptions.map((subOption, subIndex) => (
+                                                        <div 
+                                                            key={subIndex} 
+                                                            className="flex items-center space-x-2 p-2 hover:bg-white rounded"
+                                                        >
+                                                            <input 
+                                                                type="radio" 
+                                                                name="answer" 
+                                                                id={`sub-${optionIndex}-${subIndex}`}
+                                                                checked={newCondition.answer === `${option.value}:${subOption.value}`}
+                                                                onChange={() => setNewCondition({ 
+                                                                    ...newCondition, 
+                                                                    answer: `${option.value}:${subOption.value}` 
+                                                                })} 
+                                                            />
+                                                            <label 
+                                                                htmlFor={`sub-${optionIndex}-${subIndex}`}
+                                                                className="text-sm text-gray-700 cursor-pointer flex-1"
+                                                            >
+                                                                {subOption.label}
+                                                            </label>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
                             </div>
-                            <div>
-                                <p className="text-xl mb-5">Next Question</p>
-                                <div className="border border-stone-100 w-[32rem] h-[20rem] overflow-y-scroll p-2">
-                                    {questions && questions.map((question, index) => <div key={index} className="flex items-center space-x-2 mb-5">
-                                        <input type="radio" name="next-question" id={question.id} onChange={() => setNewCondition({ ...newCondition, question_id: question.id })} />
-                                        <label htmlFor="next-question">Q {question.id}. {question.question}</label>
-                                    </div>)}
+                            
+                            <div className="flex flex-col">
+                                <p className="text-xl mb-3">Next Question</p>
+                                <div className="border border-stone-100 flex-1 overflow-y-auto p-2" style={{ maxHeight: '500px' }}>
+                                    {questions && questions.map((question, index) => (
+                                        <div key={index} className="flex items-center space-x-2 mb-3">
+                                            <input 
+                                                type="radio" 
+                                                name="next-question" 
+                                                id={`next-${question.id}`}
+                                                onChange={() => setNewCondition({ 
+                                                    ...newCondition, 
+                                                    question_id: question.id 
+                                                })} 
+                                            />
+                                            <label htmlFor={`next-${question.id}`} className="cursor-pointer text-sm">
+                                                Q {question.id}. {question.question || question.type}
+                                            </label>
+                                        </div>
+                                    ))}
                                 </div>
                             </div>
                         </div>
                     </div>
-                </Modal>}
+                </Modal>
+            }
         </Layout >
     )
 }
