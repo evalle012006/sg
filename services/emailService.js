@@ -4,6 +4,7 @@ const handlebars = require('handlebars');
 
 /**
  * Register Handlebars helpers for email templates
+ * Enhanced with array/object formatting and conditional helpers
  */
 function registerHelpers() {
   // Date formatting
@@ -18,12 +19,15 @@ function registerHelpers() {
   handlebars.registerHelper('ne', (a, b) => a !== b);
   handlebars.registerHelper('gt', (a, b) => a > b);
   handlebars.registerHelper('lt', (a, b) => a < b);
+  handlebars.registerHelper('gte', (a, b) => a >= b);
+  handlebars.registerHelper('lte', (a, b) => a <= b);
   handlebars.registerHelper('or', function() {
     return Array.prototype.slice.call(arguments, 0, -1).some(Boolean);
   });
   handlebars.registerHelper('and', function() {
     return Array.prototype.slice.call(arguments, 0, -1).every(Boolean);
   });
+  handlebars.registerHelper('not', (value) => !value);
 
   // String helpers
   handlebars.registerHelper('uppercase', str => str ? str.toUpperCase() : '');
@@ -32,12 +36,76 @@ function registerHelpers() {
     if (!str) return '';
     return str.charAt(0).toUpperCase() + str.slice(1);
   });
+  handlebars.registerHelper('trim', str => str ? str.trim() : '');
 
   // Array helpers
   handlebars.registerHelper('length', arr => Array.isArray(arr) ? arr.length : 0);
-  
+  handlebars.registerHelper('isArray', value => Array.isArray(value));
+  handlebars.registerHelper('isEmpty', value => {
+    if (!value) return true;
+    if (Array.isArray(value)) return value.length === 0;
+    if (typeof value === 'object') return Object.keys(value).length === 0;
+    return false;
+  });
+  handlebars.registerHelper('isNotEmpty', value => {
+    if (!value) return false;
+    if (Array.isArray(value)) return value.length > 0;
+    if (typeof value === 'object') return Object.keys(value).length > 0;
+    return true;
+  });
+
+  // Array formatting helpers
+  handlebars.registerHelper('join', (arr, separator = ', ') => {
+    if (!Array.isArray(arr)) return '';
+    return arr.join(separator);
+  });
+
+  handlebars.registerHelper('first', arr => {
+    if (!Array.isArray(arr) || arr.length === 0) return '';
+    return arr[0];
+  });
+
+  handlebars.registerHelper('last', arr => {
+    if (!Array.isArray(arr) || arr.length === 0) return '';
+    return arr[arr.length - 1];
+  });
+
+  // Object helpers
+  handlebars.registerHelper('keys', obj => {
+    if (typeof obj !== 'object' || obj === null) return [];
+    return Object.keys(obj);
+  });
+
+  handlebars.registerHelper('values', obj => {
+    if (typeof obj !== 'object' || obj === null) return [];
+    return Object.values(obj);
+  });
+
+  // JSON parse helper (for parsing stringified arrays/objects)
+  handlebars.registerHelper('parseJSON', str => {
+    try {
+      return typeof str === 'string' ? JSON.parse(str) : str;
+    } catch (e) {
+      return str;
+    }
+  });
+
   // Default value helper
   handlebars.registerHelper('default', (value, defaultValue) => value || defaultValue);
+
+  // Type checking helpers
+  handlebars.registerHelper('isString', value => typeof value === 'string');
+  handlebars.registerHelper('isNumber', value => typeof value === 'number');
+  handlebars.registerHelper('isObject', value => typeof value === 'object' && value !== null && !Array.isArray(value));
+
+  // Math helpers
+  handlebars.registerHelper('add', (a, b) => Number(a) + Number(b));
+  handlebars.registerHelper('subtract', (a, b) => Number(a) - Number(b));
+  handlebars.registerHelper('multiply', (a, b) => Number(a) * Number(b));
+  handlebars.registerHelper('divide', (a, b) => Number(a) / Number(b));
+  
+  // Index helper for loops (to get 1-based index)
+  handlebars.registerHelper('inc', value => Number(value) + 1);
 }
 
 class EmailService {
@@ -79,119 +147,12 @@ class EmailService {
 
       return {
         success: true,
-        message: 'Email sent successfully',
-        recipient,
-        template_id: templateId
+        message: 'Email sent successfully'
       };
     } catch (error) {
-      console.error('Error sending email with template:', error);
+      console.error('Email sending error:', error);
       throw error;
     }
-  }
-
-  /**
-   * Send email using legacy template system (for backward compatibility)
-   * @param {string} recipient 
-   * @param {string} subject 
-   * @param {string} templateName 
-   * @param {object} data 
-   * @returns {Promise<object>}
-   */
-  static async sendWithLegacyTemplate(recipient, subject, templateName, data) {
-    try {
-      await SendEmail(recipient, subject, templateName, data);
-      
-      console.log(`✓ Email sent successfully to ${recipient} using legacy template ${templateName}`);
-      
-      return {
-        success: true,
-        message: 'Email sent successfully (legacy)',
-        recipient,
-        template_name: templateName
-      };
-    } catch (error) {
-      console.error('Error sending email with legacy template:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Preview template with sample data
-   * @param {number} templateId 
-   * @param {object} data 
-   * @returns {Promise<object>}
-   */
-  static async previewTemplate(templateId, data) {
-    try {
-      registerHelpers();
-
-      const template = await EmailTemplate.findByPk(templateId);
-      
-      if (!template) {
-        throw new Error(`Email template ${templateId} not found`);
-      }
-
-      const compiledSubject = handlebars.compile(template.subject);
-      const compiledHtml = handlebars.compile(template.html_content);
-
-      const subject = compiledSubject(data);
-      const html = compiledHtml(data);
-
-      return {
-        success: true,
-        subject,
-        html
-      };
-    } catch (error) {
-      console.error('Error previewing template:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Validate template syntax
-   * @param {string} htmlContent 
-   * @param {string} subject 
-   * @returns {object}
-   */
-  static validateTemplate(htmlContent, subject) {
-    const errors = [];
-
-    try {
-      // Try to compile subject
-      handlebars.compile(subject);
-    } catch (error) {
-      errors.push({
-        field: 'subject',
-        message: `Invalid Handlebars syntax in subject: ${error.message}`
-      });
-    }
-
-    try {
-      // Try to compile HTML
-      handlebars.compile(htmlContent);
-    } catch (error) {
-      errors.push({
-        field: 'html_content',
-        message: `Invalid Handlebars syntax in content: ${error.message}`
-      });
-    }
-
-    // Check for unclosed tags
-    const openTags = (htmlContent.match(/{{/g) || []).length;
-    const closeTags = (htmlContent.match(/}}/g) || []).length;
-    
-    if (openTags !== closeTags) {
-      errors.push({
-        field: 'html_content',
-        message: 'Unclosed Handlebars tags detected'
-      });
-    }
-
-    return {
-      isValid: errors.length === 0,
-      errors
-    };
   }
 }
 

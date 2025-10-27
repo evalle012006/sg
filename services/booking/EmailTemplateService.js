@@ -103,11 +103,12 @@ class EmailTemplateMappingService {
 
   /**
    * Get the default booking template from settings
+   * FIXED: Changed 'key' to 'attribute' to match the Settings model schema
    */
   async getDefaultTemplate() {
     try {
       const setting = await Setting.findOne({
-        where: { key: 'default_template' }
+        where: { attribute: 'default_template' }
       });
 
       if (!setting || !setting.value) {
@@ -159,7 +160,8 @@ class EmailTemplateMappingService {
               question: question.question,
               type: question.type,
               section: section.label,
-              page: page.name,
+              section_id: section.id,
+              page: page.title,
               options: question.options
             });
           });
@@ -231,22 +233,54 @@ class EmailTemplateMappingService {
         description: 'Property contact email'
       });
 
-      // Map questions to merge tags
+      // Track used merge tags globally to detect duplicates across sections
+      const usedMergeTags = new Map(); // key: merge_tag, value: count of usage
+
+      // Map questions to merge tags - NOW SHOWING ALL QUESTIONS
       questions.forEach(question => {
-        if (question.question_key && EmailTemplateMappingService.MERGE_TAG_MAP[question.question_key]) {
-          const mergeTag = EmailTemplateMappingService.MERGE_TAG_MAP[question.question_key];
-          const category = this.getCategoryForMergeTag(mergeTag);
-          
-          if (category && availableTags[category]) {
-            availableTags[category].push({
-              label: question.question,
-              value: `{{${mergeTag}}}`,
-              description: `From: ${question.section}`,
-              question_key: question.question_key,
-              question_type: question.type
-            });
-          }
+        // Skip questions without question_key
+        if (!question.question_key) {
+          return;
         }
+
+        let mergeTag;
+        let category;
+
+        // Check if question has a predefined merge tag mapping
+        if (EmailTemplateMappingService.MERGE_TAG_MAP[question.question_key]) {
+          mergeTag = EmailTemplateMappingService.MERGE_TAG_MAP[question.question_key];
+          category = this.getCategoryForMergeTag(mergeTag);
+        } else {
+          // For questions without predefined mapping, use question_key as merge tag
+          mergeTag = question.question_key;
+          
+          // Check if this merge tag already exists (duplicate question_key in different section)
+          if (usedMergeTags.has(mergeTag)) {
+            // Make it unique by appending section_id
+            const count = usedMergeTags.get(mergeTag);
+            usedMergeTags.set(mergeTag, count + 1);
+            mergeTag = `${question.question_key}_s${question.section_id}`;
+          } else {
+            usedMergeTags.set(mergeTag, 1);
+          }
+          
+          // Default category for unmapped questions
+          category = 'Other Questions';
+        }
+
+        // Initialize category if it doesn't exist
+        if (!availableTags[category]) {
+          availableTags[category] = [];
+        }
+
+        availableTags[category].push({
+          label: question.question,
+          value: `{{${mergeTag}}}`,
+          description: `From: ${question.section} (Page: ${question.page})`,
+          question_key: question.question_key,
+          question_type: question.type,
+          section_id: question.section_id
+        });
       });
 
       // Remove empty categories
@@ -329,10 +363,37 @@ class EmailTemplateMappingService {
       }
 
       // Map all question answers to merge tags
+      // First, handle predefined mappings
       Object.entries(EmailTemplateMappingService.MERGE_TAG_MAP).forEach(([questionKey, mergeTag]) => {
         const answer = getAnswerByQuestionKey(qaPairs, questionKey);
         if (answer) {
           tagValues[mergeTag] = this.formatAnswerForEmail(answer);
+        }
+      });
+
+      // Then, handle all other questions using their question_key directly
+      // Also handle section-specific tags for duplicate question_keys
+      qaPairs.forEach(qaPair => {
+        const questionKey = qaPair.Question?.question_key || qaPair.question_key;
+        const sectionId = qaPair.section_id;
+        
+        if (questionKey && !tagValues[questionKey]) {
+          // Only add if not already handled by predefined mappings
+          const answer = qaPair.answer;
+          if (answer) {
+            tagValues[questionKey] = this.formatAnswerForEmail(answer);
+            
+            // Also add section-specific version (for duplicate question_keys)
+            if (sectionId) {
+              tagValues[`${questionKey}_s${sectionId}`] = this.formatAnswerForEmail(answer);
+            }
+          }
+        } else if (questionKey && sectionId) {
+          // If the base key already exists, still add the section-specific version
+          const answer = qaPair.answer;
+          if (answer) {
+            tagValues[`${questionKey}_s${sectionId}`] = this.formatAnswerForEmail(answer);
+          }
         }
       });
 
@@ -380,25 +441,32 @@ class EmailTemplateMappingService {
 
   /**
    * Format answer for email display
+   * Enhanced to preserve arrays and objects for Handlebars templating
    */
   formatAnswerForEmail(answer) {
-    if (typeof answer === 'object') {
+    // If already an object or array, return as-is for Handlebars to process
+    if (typeof answer === 'object' && answer !== null) {
+      return answer;
+    }
+    
+    // Try to parse string as JSON
+    if (typeof answer === 'string') {
       try {
-        return JSON.stringify(answer);
+        const parsed = JSON.parse(answer);
+        // Return parsed arrays and objects as-is for Handlebars
+        if (Array.isArray(parsed) || typeof parsed === 'object') {
+          return parsed;
+        }
+        // For primitive values, return the string
+        return answer;
       } catch (e) {
-        return String(answer);
+        // Not JSON, return as string
+        return answer;
       }
     }
     
-    try {
-      const parsed = JSON.parse(answer);
-      if (Array.isArray(parsed)) {
-        return parsed.join(', ');
-      }
-      return String(answer);
-    } catch (e) {
-      return String(answer);
-    }
+    // For other types, convert to string
+    return String(answer || '');
   }
 
   /**

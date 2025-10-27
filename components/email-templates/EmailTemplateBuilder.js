@@ -4,8 +4,10 @@ import dynamic from 'next/dynamic';
 import { 
   Home, Save, Info, Eye, Code, Edit3, Bold, Italic, Underline, 
   AlignLeft, AlignCenter, AlignRight, List, ListOrdered, Link2, 
-  Image as ImageIcon, Type, Palette, Minus, ChevronDown, RefreshCw
+  Image as ImageIcon, Type, Palette, Minus, ChevronDown, RefreshCw,
+  X
 } from 'lucide-react';
+import TemplateHelperDocumentation from './TemplateHelperDocumentation';
 
 const Button = dynamic(() => import('../ui-v2/Button'));
 const TextField = dynamic(() => import('../ui-v2/TextField'));
@@ -33,8 +35,10 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
   const [linkText, setLinkText] = useState('');
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [selectedColor, setSelectedColor] = useState('#000000');
+  const [showHelperMenu, setShowHelperMenu] = useState(false);
+  const [selectedMergeTag, setSelectedMergeTag] = useState(null);
+  const [showHelperModal, setShowHelperModal] = useState(false);
   
-  // NEW: Dynamic merge tags state
   const [mergeTagsGrouped, setMergeTagsGrouped] = useState({});
   const [isLoadingMergeTags, setIsLoadingMergeTags] = useState(true);
   const [mergeTagsError, setMergeTagsError] = useState(null);
@@ -175,9 +179,87 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
     setLinkText('');
   };
 
+  const insertList = (tagName) => {
+      const listTemplate = `{{#if (isNotEmpty ${tagName})}}
+    <ul>
+      {{#each ${tagName}}}
+      <li>{{this}}</li>
+      {{/each}}
+    </ul>
+    {{else}}
+    <p>No items</p>
+    {{/if}}`;
+      
+      if (editorRef.current) {
+        editorRef.current.focus();
+        document.execCommand('insertHTML', false, listTemplate);
+        updateContent();
+      }
+      setShowHelperMenu(false);
+  };
+
+  const insertTable = (tagName) => {
+      const tableTemplate = `{{#if (isNotEmpty ${tagName})}}
+    <table border="1" cellpadding="8" cellspacing="0" style="border-collapse: collapse; width: 100%;">
+      <thead>
+        <tr style="background-color: #f0f0f0;">
+          <th>Column 1</th>
+          <th>Column 2</th>
+          <th>Column 3</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{#each ${tagName}}}
+        <tr>
+          <td>{{this.field1}}</td>
+          <td>{{this.field2}}</td>
+          <td>{{this.field3}}</td>
+        </tr>
+        {{/each}}
+      </tbody>
+    </table>
+    {{else}}
+    <p>No data available</p>
+    {{/if}}`;
+
+      if (editorRef.current) {
+        editorRef.current.focus();
+        document.execCommand('insertHTML', false, tableTemplate);
+        updateContent();
+      }
+      setShowHelperMenu(false);
+  };
+
+  const insertConditional = (tagName) => {
+      const conditionalTemplate = `{{#if ${tagName}}}
+    <div>
+      <p>${tagName}: {{${tagName}}}</p>
+    </div>
+    {{else}}
+    <p>Not provided</p>
+    {{/if}}`;
+
+      if (editorRef.current) {
+        editorRef.current.focus();
+        document.execCommand('insertHTML', false, conditionalTemplate);
+        updateContent();
+      }
+      setShowHelperMenu(false);
+  };
+
   const applyColor = (color) => {
     execCommand('foreColor', color);
     setShowColorPicker(false);
+  };
+
+  const handleMergeTagClick = (tag) => {
+    setSelectedMergeTag(tag);
+    setShowHelperMenu(true);
+  };
+
+  const insertSimpleMergeTag = (tag) => {
+    insertMergeTag(tag.value);
+    setShowHelperMenu(false);
   };
 
   const updateContent = () => {
@@ -455,7 +537,30 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
               >
                 <RefreshCw className={`w-4 h-4 ${isLoadingMergeTags ? 'animate-spin' : ''}`} />
               </button>
-            </div>
+              {/* Help/Documentation Button */}
+              <div className="ml-auto px-2 border-l border-gray-200">
+                  <button
+                    onClick={() => setShowHelperModal(true)}
+                    className="flex items-center gap-2 px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors"
+                    title="View helper guide"
+                  >
+                    <svg 
+                      className="w-5 h-5" 
+                      fill="none" 
+                      stroke="currentColor" 
+                      viewBox="0 0 24 24"
+                    >
+                      <path 
+                        strokeLinecap="round" 
+                        strokeLinejoin="round" 
+                        strokeWidth={2} 
+                        d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" 
+                      />
+                    </svg>
+                    <span>Help</span>
+                  </button>
+                </div>
+              </div>
           )}
         </div>
       </div>
@@ -495,27 +600,102 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
                   <div className="space-y-1">
                     {tags.map((tag, index) => (
                       <button
-                        key={`${tag.value}-${index}`}
-                        onClick={() => insertMergeTag(tag.value)}
-                        className="w-full text-left px-3 py-2 text-sm bg-gray-50 hover:bg-blue-50 rounded-lg transition-colors group"
+                        onClick={() => handleMergeTagClick(tag)}
+                        className="w-full text-left px-3 py-2 rounded hover:bg-gray-50 transition-colors"
                         title={tag.description}
                       >
-                        <div className="font-medium text-gray-900 group-hover:text-blue-600">
-                          {tag.label}
-                        </div>
-                        <div className="text-xs text-gray-500 font-mono mt-0.5">
-                          {tag.value}
-                        </div>
+                        <div className="font-medium text-sm text-gray-900">{tag.label}</div>
+                        <div className="text-xs text-gray-500 mt-0.5">{tag.value}</div>
                         {tag.description && (
-                          <div className="text-xs text-gray-400 mt-1">
-                            {tag.description}
-                          </div>
+                          <div className="text-xs text-gray-400 mt-0.5">{tag.description}</div>
                         )}
                       </button>
                     ))}
                   </div>
                 </div>
               ))}
+
+              {showHelperMenu && selectedMergeTag && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
+                  <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
+                    <div className="flex justify-between items-start mb-4">
+                      <div>
+                        <h3 className="text-lg font-semibold text-gray-900">
+                          Insert: {selectedMergeTag.label}
+                        </h3>
+                        <p className="text-sm text-gray-500 mt-1">{selectedMergeTag.value}</p>
+                      </div>
+                      <button
+                        onClick={() => setShowHelperMenu(false)}
+                        className="text-gray-400 hover:text-gray-600"
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
+                    </div>
+
+                    <div className="space-y-3">
+                      <button
+                        onClick={() => insertSimpleMergeTag(selectedMergeTag)}
+                        className="w-full text-left px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                      >
+                        <div className="font-medium text-sm text-gray-900">Simple Insert</div>
+                        <div className="text-xs text-gray-500 mt-1">
+                          Insert as: {selectedMergeTag.value}
+                        </div>
+                      </button>
+
+                      <button
+                        onClick={() => insertList(selectedMergeTag.value.replace(/{{|}}/g, ''))}
+                        className="w-full text-left px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                      >
+                        <div className="font-medium text-sm text-gray-900 flex items-center">
+                          <List className="w-4 h-4 mr-2" />
+                          Insert as Bullet List
+                        </div>
+                        <div className="text-xs text-gray-500 mt-1">
+                          Display array items as a formatted list
+                        </div>
+                      </button>
+
+                      <button
+                        onClick={() => insertTable(selectedMergeTag.value.replace(/{{|}}/g, ''))}
+                        className="w-full text-left px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                      >
+                        <div className="font-medium text-sm text-gray-900 flex items-center">
+                          <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                          </svg>
+                          Insert as Table
+                        </div>
+                        <div className="text-xs text-gray-500 mt-1">
+                          Display array of objects as a table
+                        </div>
+                      </button>
+
+                      <button
+                        onClick={() => insertConditional(selectedMergeTag.value.replace(/{{|}}/g, ''))}
+                        className="w-full text-left px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                      >
+                        <div className="font-medium text-sm text-gray-900 flex items-center">
+                          <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12M8 12h12m-12 5h12M3 7h.01M3 12h.01M3 17h.01" />
+                          </svg>
+                          Insert with Conditional
+                        </div>
+                        <div className="text-xs text-gray-500 mt-1">
+                          Show only when data exists
+                        </div>
+                      </button>
+                    </div>
+
+                    <div className="mt-4 pt-4 border-t border-gray-200">
+                      <p className="text-xs text-gray-500">
+                        💡 Tip: You can also edit these in Code View for full customization
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {!isLoadingMergeTags && Object.keys(mergeTagsGrouped).length === 0 && (
                 <div className="text-center py-8 text-gray-500">
@@ -815,6 +995,52 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
           {viewMode === 'code' && 'Edit the raw HTML code. Changes will be reflected in the editor view.'}
         </p>
       </div>
+
+      {/* Helper Documentation Modal */}
+      {showHelperModal && (
+        <div className="fixed inset-0 z-50 overflow-y-auto">
+          <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
+            {/* Background overlay */}
+            <div 
+              className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75"
+              onClick={() => setShowHelperModal(false)}
+            />
+
+            {/* Modal panel */}
+            <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-5xl sm:w-full">
+              {/* Header */}
+              <div className="bg-gray-50 px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+                <h3 className="text-lg font-medium text-gray-900">
+                  Template Helper Guide
+                </h3>
+                <button
+                  onClick={() => setShowHelperModal(false)}
+                  className="text-gray-400 hover:text-gray-500 focus:outline-none"
+                >
+                  <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Content */}
+              <div className="bg-white px-6 py-4 max-h-[70vh] overflow-y-auto">
+                <TemplateHelperDocumentation />
+              </div>
+
+              {/* Footer */}
+              <div className="bg-gray-50 px-6 py-4 border-t border-gray-200 flex justify-end">
+                <button
+                  onClick={() => setShowHelperModal(false)}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

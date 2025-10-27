@@ -41,6 +41,7 @@ const packageRequirementModel = require('./packagerequirement');
 const guestFundingModel = require('./guestfunding');
 const promotionModel = require('./promotion');
 const emailTemplateModel = require('./emailtemplate');
+const emailTriggerQuestionModel = require('./emailtriggerquestion');
 
 const env = process.env.NODE_ENV || 'development';
 const config = require(__dirname + '/../config/config.js')[env];
@@ -92,6 +93,7 @@ const PackageRequirement = packageRequirementModel(sequelize, Sequelize.DataType
 const GuestFunding = guestFundingModel(sequelize, Sequelize.DataTypes);
 const Promotion = promotionModel(sequelize, Sequelize.DataTypes);
 const EmailTemplate = emailTemplateModel(sequelize, Sequelize.DataTypes);
+const EmailTriggerQuestion = emailTriggerQuestionModel(sequelize, Sequelize.DataTypes);
 
 //ASSOCIATIONS
 Role.belongsToMany(Permission, { through: RoleHasPermission, foreignKey: 'role_id' });
@@ -99,6 +101,38 @@ Permission.belongsToMany(Role, { through: RoleHasPermission, foreignKey: 'permis
 
 EmailTrigger.belongsTo(EmailTemplate, { foreignKey: 'email_template_id', as: 'template' });
 EmailTemplate.hasMany(EmailTrigger, { foreignKey: 'email_template_id', as: 'triggers' });
+
+EmailTrigger.belongsToMany(Question, { 
+  through: EmailTriggerQuestion, 
+  foreignKey: 'email_trigger_id',
+  otherKey: 'question_id',
+  as: 'questions' 
+});
+Question.belongsToMany(EmailTrigger, { 
+  through: EmailTriggerQuestion, 
+  foreignKey: 'question_id',
+  otherKey: 'email_trigger_id',
+  as: 'emailTriggers' 
+});
+
+// Direct access to junction table records
+EmailTrigger.hasMany(EmailTriggerQuestion, { 
+  foreignKey: 'email_trigger_id', 
+  as: 'triggerQuestions' 
+});
+EmailTriggerQuestion.belongsTo(EmailTrigger, { 
+  foreignKey: 'email_trigger_id', 
+  as: 'emailTrigger' 
+});
+
+Question.hasMany(EmailTriggerQuestion, { 
+  foreignKey: 'question_id', 
+  as: 'triggerQuestions' 
+});
+EmailTriggerQuestion.belongsTo(Question, { 
+  foreignKey: 'question_id', 
+  as: 'question' 
+});
 
 Guest.hasMany(Booking)
 Booking.belongsTo(Guest)
@@ -349,4 +383,5 @@ module.exports = {
   GuestFunding,
   Promotion,
   EmailTemplate,
+  EmailTriggerQuestion,
 };

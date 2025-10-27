@@ -7,7 +7,33 @@ import { Plus, Search, Edit, Eye, Power, PowerOff, Trash2 } from 'lucide-react';
 
 const Table = dynamic(() => import('../ui-v2/Table'));
 const Button = dynamic(() => import('../ui-v2/Button'));
-const ToggleButton = dynamic(() => import('../ui/toggle'));
+
+// Inline Toggle Component with proper styling
+const Toggle = ({ checked, onChange, disabled = false }) => {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      disabled={disabled}
+      onClick={onChange}
+      className={`
+        relative inline-flex h-6 w-11 items-center rounded-full
+        transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 
+        focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed
+        ${checked ? 'bg-blue-600' : 'bg-gray-300'}
+      `}
+    >
+      <span
+        className={`
+          inline-block h-4 w-4 transform rounded-full bg-white shadow-lg
+          transition-transform duration-200 ease-in-out
+          ${checked ? 'translate-x-6' : 'translate-x-1'}
+        `}
+      />
+    </button>
+  );
+};
 
 function EmailTriggerList({ refreshData }) {
   const router = useRouter();
@@ -76,15 +102,23 @@ function EmailTriggerList({ refreshData }) {
         })
       });
 
+      const responseData = await response.json();
+
+      if (responseData.success) {
+        toast.success('Email trigger updated successfully');
+        refreshData();
+      } else {
+        toast.error(responseData.errors?.join(', ') || 'Failed to update trigger');
+        return;
+      }
+
       if (!response.ok) {
         throw new Error('Failed to update trigger');
       }
 
-      toast.success('Email trigger updated successfully');
-      refreshData();
     } catch (error) {
       console.error('Error toggling trigger:', error);
-      toast.error('Failed to update trigger');
+      toast.error(response.errors?.join(', ') || 'Failed to update trigger');
     }
   };
 
@@ -167,10 +201,12 @@ function EmailTriggerList({ refreshData }) {
         label: 'STATUS',
         searchable: false,
         render: (value, row) => (
-          <ToggleButton
-            checked={value}
-            onChange={() => handleToggleEnabled(row)}
-          />
+          <div className="flex items-center gap-2">
+            <Toggle
+              checked={value}
+              onChange={() => handleToggleEnabled(row)}
+            />
+          </div>
         )
       },
       {

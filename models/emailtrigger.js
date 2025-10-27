@@ -2,20 +2,7 @@
 const { Model } = require('sequelize');
 
 module.exports = (sequelize, DataTypes) => {
-  class EmailTrigger extends Model {
-    /**
-     * Helper method for defining associations.
-     * This method is not a part of Sequelize lifecycle.
-     * The `models/index` file will call this method automatically.
-     */
-    static associate(models) {
-      // Association with EmailTemplate
-      EmailTrigger.belongsTo(models.EmailTemplate, {
-        foreignKey: 'email_template_id',
-        as: 'template'
-      });
-    }
-  }
+  class EmailTrigger extends Model {}
   
   EmailTrigger.init({
     recipient: {
@@ -38,10 +25,10 @@ module.exports = (sequelize, DataTypes) => {
     trigger_questions: {
       type: DataTypes.JSON,
       allowNull: true,
+      comment: 'DEPRECATED: Use questions association instead',
       get() {
         const rawValue = this.getDataValue('trigger_questions');
         if (!rawValue) return [];
-        // Already parsed by Sequelize for JSON type
         return rawValue;
       }
     },
@@ -51,7 +38,6 @@ module.exports = (sequelize, DataTypes) => {
       get() {
         const rawValue = this.getDataValue('trigger_conditions');
         if (!rawValue) return null;
-        // Already parsed by Sequelize for JSON type
         return rawValue;
       }
     },
