@@ -18,15 +18,15 @@ const EmailTriggerForm = ({ onSuccess, onCancel }) => {
   });
 
   // UI state
+  const [templates, setTemplates] = useState([]);
   const [questions, setQuestions] = useState([]);
-  const [templateInfo, setTemplateInfo] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [triggerData, setTriggerData] = useState(null);
 
-  // Load questions and template on mount
+  // Fetch templates and questions on mount
   useEffect(() => {
-    fetchQuestionsWithTemplate();
+    fetchTemplatesAndQuestions();
   }, []);
 
   // Fetch trigger data when in edit mode
@@ -42,6 +42,48 @@ const EmailTriggerForm = ({ onSuccess, onCancel }) => {
       populateFormFromTrigger(triggerData);
     }
   }, [triggerData, questions]);
+
+  /**
+   * Fetch both templates and questions
+   * Questions come from booking template (not email template specific)
+   * Templates are just for choosing which email to send
+   */
+  const fetchTemplatesAndQuestions = async () => {
+    try {
+      setLoading(true);
+      
+      // Fetch email templates
+      const templatesResponse = await fetch('/api/email-templates');
+      if (!templatesResponse.ok) {
+        throw new Error('Failed to fetch templates');
+      }
+      const templatesResult = await templatesResponse.json();
+      console.log('Templates loaded:', templatesResult);
+
+      // Check if it's wrapped in { success, data } or just an array
+      const templatesData = templatesResult.success ? templatesResult.data : templatesResult;
+      
+      // Filter to only active templates
+      const activeTemplates = templatesData.filter(t => t.is_active);
+      setTemplates(activeTemplates);
+
+      // Fetch questions from booking template (not email template specific)
+      const questionsResponse = await fetch('/api/booking-templates/questions?include_options=true');
+      if (!questionsResponse.ok) {
+        throw new Error('Failed to fetch questions');
+      }
+      const questionsResult = await questionsResponse.json();
+      console.log('Questions loaded:', questionsResult.questions?.length || 0);
+
+      setQuestions(questionsResult.questions || []);
+
+      setLoading(false);
+    } catch (error) {
+      console.error('Error fetching data:', error);
+      toast.error('Failed to load templates or questions');
+      setLoading(false);
+    }
+  };
 
   /**
    * Fetch trigger data by ID
@@ -71,60 +113,38 @@ const EmailTriggerForm = ({ onSuccess, onCancel }) => {
   };
 
   /**
-   * Fetch questions from the existing booking-templates API
-   */
-  const fetchQuestionsWithTemplate = async () => {
-    try {
-      setLoading(true);
-      
-      const response = await fetch('/api/booking-templates/questions?include_options=true');
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.message || 'Failed to fetch questions');
-      }
-
-      console.log('Questions loaded:', result.questions?.length || 0);
-
-      setQuestions(result.questions || []);
-      setTemplateInfo({
-        id: result.template_id,
-        name: result.template_name,
-        total: result.total
-      });
-
-      setLoading(false);
-    } catch (error) {
-      console.error('Error fetching questions:', error);
-      toast.error(error.message || 'Failed to load questions');
-      setLoading(false);
-    }
-  };
-
-  /**
    * Populate form from existing trigger data
-   * Converts from database format to component format
    */
   const populateFormFromTrigger = (trigger) => {
     console.log('Populating form with trigger:', trigger);
     console.log('Available questions:', questions.length);
 
-    // Convert trigger_questions from { question: "text", answer: "value" } 
-    // to { question_text: "text", answer: "value", question_id: null }
+    // Convert trigger_questions from database format to component format
     const convertedQuestions = (trigger.trigger_questions || []).map(tq => {
-      // Find matching question by text
-      const matchingQuestion = questions.find(q => 
-        q.question.toLowerCase().trim() === tq.question.toLowerCase().trim()
-      );
+      // Find matching question by question_key (more reliable than text matching)
+      let matchingQuestion = null;
+      
+      if (tq.question_key) {
+        matchingQuestion = questions.find(q => q.question_key === tq.question_key);
+      }
+      
+      // Fallback to text matching if question_key match fails
+      if (!matchingQuestion && tq.question) {
+        matchingQuestion = questions.find(q => 
+          q.question.toLowerCase().trim() === tq.question.toLowerCase().trim()
+        );
+      }
 
       console.log('Question match:', {
         original: tq.question,
+        question_key: tq.question_key,
         matched: matchingQuestion ? 'YES - ID: ' + matchingQuestion.id : 'NO'
       });
 
       return {
         question_text: tq.question,
         question_id: matchingQuestion ? matchingQuestion.id : null,
+        question_key: tq.question_key,
         answer: Array.isArray(tq.answer) ? tq.answer.join(', ') : (tq.answer || '')
       };
     });
@@ -164,7 +184,7 @@ const EmailTriggerForm = ({ onSuccess, onCancel }) => {
       ...prev,
       trigger_questions: [
         ...prev.trigger_questions,
-        { question_id: null, question_text: '', answer: '' }
+        { question_id: null, question_text: '', answer: '', question_key: null }
       ]
     }));
   };
@@ -192,10 +212,14 @@ const EmailTriggerForm = ({ onSuccess, onCancel }) => {
           ...updated[index],
           question_id: value,
           question_text: question ? question.question : '',
+          question_key: question ? question.question_key : null,
           answer: '' // Reset answer when question changes
         };
       } else {
-        updated[index] = { ...updated[index], [field]: value };
+        updated[index] = {
+          ...updated[index],
+          [field]: value
+        };
       }
       
       return { ...prev, trigger_questions: updated };
@@ -205,139 +229,73 @@ const EmailTriggerForm = ({ onSuccess, onCancel }) => {
   /**
    * Render answer input based on question type
    */
-  const renderAnswerInput = (triggerQuestion, index) => {
-    const question = getQuestionById(triggerQuestion.question_id);
-    
+  const renderAnswerInput = (question, value, onChange) => {
     if (!question) {
       return (
         <input
           type="text"
-          className="w-full p-2 border rounded bg-gray-50"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
           placeholder="Select a question first"
+          className="w-full p-2 border rounded bg-gray-100"
           disabled
         />
       );
     }
 
-    const { question_type, options } = question;
-    const currentAnswer = triggerQuestion.answer;
+    const questionType = question.question_type || question.type;
 
-    switch (question_type) {
+    switch (questionType) {
       case 'select':
+      case 'radio':
         return (
           <select
-            value={currentAnswer}
-            onChange={(e) => updateTriggerQuestion(index, 'answer', e.target.value)}
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
             className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500"
             required
           >
-            <option value="">-- Select Answer --</option>
-            {options && options.map((opt, i) => (
-              <option key={i} value={opt.value}>
+            <option value="">-- Select an answer --</option>
+            {(question.options || []).map((opt, idx) => (
+              <option key={idx} value={opt.value || opt.label}>
                 {opt.label}
               </option>
             ))}
           </select>
         );
 
-      case 'radio':
-        return (
-          <div className="space-y-2">
-            {options && options.map((opt, i) => (
-              <label key={i} className="flex items-center space-x-2 cursor-pointer">
-                <input
-                  type="radio"
-                  name={`radio-${index}`}
-                  value={opt.value}
-                  checked={currentAnswer === opt.value}
-                  onChange={(e) => updateTriggerQuestion(index, 'answer', e.target.value)}
-                  className="w-4 h-4"
-                />
-                <span>{opt.label}</span>
-              </label>
-            ))}
-          </div>
-        );
-
       case 'checkbox':
-        // Parse current answer (can be array or comma-separated string)
-        const selectedValues = Array.isArray(currentAnswer) 
-          ? currentAnswer 
-          : (currentAnswer ? currentAnswer.split(',').map(v => v.trim()) : []);
-
-        const toggleCheckbox = (value) => {
-          let newValues;
-          if (selectedValues.includes(value)) {
-            newValues = selectedValues.filter(v => v !== value);
-          } else {
-            newValues = [...selectedValues, value];
-          }
-          // Store as comma-separated string to match existing data format
-          updateTriggerQuestion(index, 'answer', newValues.join(', '));
-        };
-
         return (
           <div className="space-y-2">
-            {options && options.map((opt, i) => {
-              const isChecked = selectedValues.includes(opt.value);
-              return (
-                <label key={i} className="flex items-center space-x-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    value={opt.value}
-                    checked={isChecked}
-                    onChange={() => toggleCheckbox(opt.value)}
-                    className="w-4 h-4"
-                  />
-                  <span>{opt.label}</span>
-                </label>
-              );
-            })}
+            <p className="text-xs text-gray-600 mb-2">
+              Select one or more options (comma-separated values):
+            </p>
+            <input
+              type="text"
+              value={value}
+              onChange={(e) => onChange(e.target.value)}
+              placeholder="e.g., option1, option2"
+              className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500"
+            />
+            <div className="text-xs text-gray-500">
+              Available options: {(question.options || []).map(opt => opt.label).join(', ')}
+            </div>
           </div>
-        );
-
-      case 'textarea':
-        return (
-          <textarea
-            value={currentAnswer}
-            onChange={(e) => updateTriggerQuestion(index, 'answer', e.target.value)}
-            className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500"
-            rows="3"
-            placeholder="Enter expected answer (leave empty to trigger on any response)"
-          />
-        );
-
-      case 'email':
-        return (
-          <input
-            type="email"
-            value={currentAnswer}
-            onChange={(e) => updateTriggerQuestion(index, 'answer', e.target.value)}
-            className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500"
-            placeholder="Enter expected email (leave empty to trigger on any response)"
-          />
-        );
-
-      case 'number':
-        return (
-          <input
-            type="number"
-            value={currentAnswer}
-            onChange={(e) => updateTriggerQuestion(index, 'answer', e.target.value)}
-            className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500"
-            placeholder="Enter expected number (leave empty to trigger on any response)"
-          />
         );
 
       case 'text':
+      case 'textarea':
+      case 'email':
+      case 'tel':
+      case 'number':
       default:
         return (
           <input
             type="text"
-            value={currentAnswer}
-            onChange={(e) => updateTriggerQuestion(index, 'answer', e.target.value)}
-            className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
             placeholder="Enter expected answer (leave empty to trigger on any response)"
+            className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500"
           />
         );
     }
@@ -345,12 +303,16 @@ const EmailTriggerForm = ({ onSuccess, onCancel }) => {
 
   /**
    * Handle form submission
-   * Converts component format back to database format and calls the appropriate API
    */
   const handleSubmit = async (e) => {
     e.preventDefault();
     
     // Validation
+    if (!formData.email_template_id) {
+      toast.error('Please select an email template');
+      return;
+    }
+
     if (formData.trigger_questions.length === 0) {
       toast.error('Please add at least one trigger question');
       return;
@@ -380,21 +342,10 @@ const EmailTriggerForm = ({ onSuccess, onCancel }) => {
       // Validate emails (can be comma-separated)
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       const emails = formData.recipient.split(',').map(e => e.trim());
-      for (let email of emails) {
-        if (email && !emailRegex.test(email)) {
-          toast.error(`Invalid email: ${email}`);
-          return;
-        }
-      }
-    } else if (formData.type === 'external') {
-      // For external, we need a question that contains email
-      const hasEmailQuestion = formData.trigger_questions.some(tq => {
-        const q = getQuestionById(tq.question_id);
-        return q && (q.question_type === 'email' || q.question.toLowerCase().includes('email'));
-      });
+      const invalidEmails = emails.filter(email => !emailRegex.test(email));
       
-      if (!hasEmailQuestion) {
-        toast.error('External triggers must include a question that contains an email address');
+      if (invalidEmails.length > 0) {
+        toast.error(`Invalid email address(es): ${invalidEmails.join(', ')}`);
         return;
       }
     }
@@ -402,34 +353,23 @@ const EmailTriggerForm = ({ onSuccess, onCancel }) => {
     try {
       setSaving(true);
 
-      // Convert back to database format with all required fields
+      // Convert trigger_questions to database format
       const trigger_questions = formData.trigger_questions.map(tq => {
         const question = getQuestionById(tq.question_id);
-        
-        if (!question) {
-          throw new Error(`Question with ID ${tq.question_id} not found`);
-        }
-        
-        // Convert answer back to array if it's a comma-separated string for checkbox type
-        let answer = tq.answer;
-        if (question.question_type === 'checkbox' && typeof answer === 'string' && answer.includes(',')) {
-          answer = answer.split(',').map(v => v.trim()).filter(v => v);
-        }
-        
         return {
-          question: question.question,
-          question_key: question.question_key || `question_${question.id}`,
-          question_type: question.question_type,
-          section_id: question.section_id,
-          options: question.options || [],
-          answer: answer || (question.question_type === 'select' || question.question_type === 'radio' ? '' : undefined)
+          question: question?.question || tq.question_text,
+          question_key: question?.question_key || tq.question_key,
+          question_type: question?.question_type || question?.type,
+          answer: tq.answer,
+          section_id: question?.section_id,
+          options: question?.options || []
         };
       });
 
       // Prepare the request body
       const requestBody = {
         recipient: formData.recipient.trim(),
-        email_template_id: formData.email_template_id || templateInfo.id,
+        email_template_id: formData.email_template_id,
         type: formData.type,
         enabled: formData.enabled,
         trigger_questions: trigger_questions
@@ -483,31 +423,60 @@ const EmailTriggerForm = ({ onSuccess, onCancel }) => {
     return (
       <div className="flex items-center justify-center p-8">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
-        <span className="ml-3 text-gray-600">Loading questions...</span>
+        <span className="ml-3 text-gray-600">Loading...</span>
       </div>
     );
   }
 
+  // Get selected template info
+  const selectedTemplate = templates.find(t => t.id === formData.email_template_id);
+
   return (
     <form onSubmit={handleSubmit} className="space-y-6 bg-white p-6 rounded-lg shadow">
-      {/* Template Info Banner */}
-      {templateInfo && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <div className="flex items-start">
-            <svg className="w-5 h-5 text-blue-500 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <div className="ml-3">
-              <h4 className="text-sm font-semibold text-blue-900">
-                {isEditMode ? 'Editing Email Trigger' : 'Create New Email Trigger'}
-              </h4>
-              <p className="text-sm text-blue-700 mt-1">
-                Using: {templateInfo.name} - {templateInfo.total} questions available
-              </p>
-            </div>
+      {/* Header Info Banner */}
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+        <div className="flex items-start">
+          <svg className="w-5 h-5 text-blue-500 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <div className="ml-3">
+            <h4 className="text-sm font-semibold text-blue-900">
+              {isEditMode ? 'Editing Email Trigger' : 'Create New Email Trigger'}
+            </h4>
+            <p className="text-sm text-blue-700 mt-1">
+              {questions.length} questions available from booking template
+            </p>
           </div>
         </div>
-      )}
+      </div>
+
+      {/* Email Template Selector */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Email Template * <span className="text-xs text-gray-500">(Which email to send)</span>
+        </label>
+        <select
+          value={formData.email_template_id || ''}
+          onChange={(e) => setFormData(prev => ({ ...prev, email_template_id: parseInt(e.target.value) || null }))}
+          className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500"
+          required
+        >
+          <option value="">-- Select an email template --</option>
+          {templates.map(template => (
+            <option key={template.id} value={template.id}>
+              {template.name}
+            </option>
+          ))}
+        </select>
+        {selectedTemplate && (
+          <p className="text-xs text-gray-600 mt-1">
+            Subject: {selectedTemplate.subject}
+          </p>
+        )}
+        <p className="text-xs text-gray-500 mt-1">
+          Select which email template will be sent when this trigger fires
+        </p>
+      </div>
 
       {/* Trigger Type */}
       <div>
@@ -532,6 +501,36 @@ const EmailTriggerForm = ({ onSuccess, onCancel }) => {
         </p>
       </div>
 
+      {/* Recipient Email (for internal/highlights types) */}
+      {(formData.type === 'internal' || formData.type === 'highlights') && (
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Recipient Email(s) *
+          </label>
+          <input
+            type="text"
+            value={formData.recipient}
+            onChange={(e) => setFormData(prev => ({ ...prev, recipient: e.target.value }))}
+            placeholder="email@example.com or email1@example.com, email2@example.com"
+            className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500"
+            required
+          />
+          <p className="text-xs text-gray-500 mt-1">
+            Enter one or more email addresses (comma-separated)
+          </p>
+        </div>
+      )}
+
+      {/* External type note */}
+      {formData.type === 'external' && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+          <p className="text-sm text-yellow-800">
+            ⚠️ For external triggers, the recipient email will be taken from the booking form. 
+            Make sure one of your trigger questions asks for an email address.
+          </p>
+        </div>
+      )}
+
       {/* Trigger Questions */}
       <div>
         <div className="flex items-center justify-between mb-3">
@@ -547,126 +546,94 @@ const EmailTriggerForm = ({ onSuccess, onCancel }) => {
           </button>
         </div>
 
-        <div className="space-y-4">
-          {formData.trigger_questions.map((tq, index) => {
-            const selectedQuestion = getQuestionById(tq.question_id);
-            
-            return (
-              <div key={index} className="border rounded-lg p-4 bg-gray-50">
-                <div className="flex items-start justify-between mb-3">
-                  <span className="text-sm font-medium text-gray-700">
-                    Trigger #{index + 1}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => removeTriggerQuestion(index)}
-                    className="text-red-500 hover:text-red-700"
-                  >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
+        {questions.length === 0 ? (
+          <div className="border rounded-lg p-4 bg-gray-50 text-center">
+            <p className="text-gray-600">No questions available from booking template</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {formData.trigger_questions.map((tq, index) => {
+              const selectedQuestion = getQuestionById(tq.question_id);
+              
+              return (
+                <div key={index} className="border rounded-lg p-4 bg-gray-50">
+                  <div className="flex items-start justify-between mb-3">
+                    <span className="text-sm font-medium text-gray-700">
+                      Trigger #{index + 1}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => removeTriggerQuestion(index)}
+                      className="text-red-500 hover:text-red-700"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
 
-                {/* Question Selection */}
-                <div className="mb-3">
-                  <label className="block text-sm text-gray-600 mb-1">Select Question</label>
-                  <select
-                    value={tq.question_id || ''}
-                    onChange={(e) => updateTriggerQuestion(index, 'question_id', e.target.value)}
-                    className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500"
-                    required
-                  >
-                    <option value="">-- Select a question --</option>
-                    {questions.map(q => (
-                      <option 
-                        key={q.id} 
-                        value={q.id}
-                        disabled={isQuestionSelected(q.id) && tq.question_id !== q.id}
-                      >
-                        {q.display_label}
-                      </option>
-                    ))}
-                  </select>
-                  
-                  {/* Show original question text if it couldn't be matched */}
-                  {!tq.question_id && tq.question_text && (
-                    <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-sm">
-                      <p className="font-medium text-yellow-800">⚠️ Original Question:</p>
-                      <p className="text-yellow-700 mt-1">{tq.question_text}</p>
-                      <p className="text-xs text-yellow-600 mt-1">
-                        This question text doesn't match any current question. Please select the correct question.
-                      </p>
+                  {/* Question Selection */}
+                  <div className="mb-3">
+                    <label className="block text-sm text-gray-600 mb-1">Select Question</label>
+                    <select
+                      value={tq.question_id || ''}
+                      onChange={(e) => updateTriggerQuestion(index, 'question_id', e.target.value)}
+                      className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500"
+                      required
+                    >
+                      <option value="">-- Select a question --</option>
+                      {questions.map(q => (
+                        <option 
+                          key={q.id} 
+                          value={q.id}
+                          disabled={isQuestionSelected(q.id) && tq.question_id !== q.id}
+                        >
+                          {q.display_label}
+                        </option>
+                      ))}
+                    </select>
+                    
+                    {/* Show original question text if it couldn't be matched */}
+                    {!tq.question_id && tq.question_text && (
+                      <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-sm">
+                        <p className="font-medium text-yellow-800">⚠️ Original Question:</p>
+                        <p className="text-yellow-700 mt-1">{tq.question_text}</p>
+                        <p className="text-xs text-yellow-600 mt-1">
+                          This question text doesn&apos;t match any current question. Please select the correct question.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Question Info */}
+                  {selectedQuestion && (
+                    <div className="mb-3 flex items-center space-x-2">
+                      <span className="inline-block px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded">
+                        Type: {selectedQuestion.question_type || selectedQuestion.type}
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        {selectedQuestion.page_title}
+                      </span>
                     </div>
                   )}
-                </div>
 
-                {/* Question Info */}
-                {selectedQuestion && (
-                  <div className="mb-3 flex items-center space-x-2">
-                    <span className="inline-block px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded">
-                      Type: {selectedQuestion.question_type}
-                    </span>
-                    <span className="text-xs text-gray-500">
-                      {selectedQuestion.page_title}
-                    </span>
+                  {/* Answer Input */}
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1">
+                      Expected Answer {['select', 'radio'].includes(selectedQuestion?.question_type) ? '*' : '(optional)'}
+                    </label>
+                    {renderAnswerInput(
+                      selectedQuestion,
+                      tq.answer,
+                      (value) => updateTriggerQuestion(index, 'answer', value)
+                    )}
                   </div>
-                )}
-
-                {/* Answer Input */}
-                <div>
-                  <label className="block text-sm text-gray-600 mb-1">
-                    Expected Answer {['select', 'radio'].includes(selectedQuestion?.question_type) ? '*' : '(Optional)'}
-                  </label>
-                  {renderAnswerInput(tq, index)}
-                  {selectedQuestion && !['select', 'radio', 'checkbox'].includes(selectedQuestion.question_type) && (
-                    <p className="text-xs text-gray-500 mt-1">
-                      Leave empty to trigger when this question receives any answer
-                    </p>
-                  )}
                 </div>
-              </div>
-            );
-          })}
-
-          {formData.trigger_questions.length === 0 && (
-            <div className="text-center py-8 text-gray-500">
-              <p>No trigger questions added yet.</p>
-              <p className="text-sm">Click "Add Question" to get started.</p>
-            </div>
-          )}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </div>
-
-      {/* Recipients - Internal or Highlights */}
-      {(formData.type === 'internal' || formData.type === 'highlights') && (
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Recipient Emails *
-          </label>
-          <input
-            type="text"
-            value={formData.recipient}
-            onChange={(e) => setFormData(prev => ({ ...prev, recipient: e.target.value }))}
-            className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500"
-            placeholder="email@example.com or email1@example.com, email2@example.com"
-            required
-          />
-          <p className="text-xs text-gray-500 mt-1">
-            Enter one or more email addresses separated by commas
-          </p>
-        </div>
-      )}
-
-      {/* Recipients - External */}
-      {formData.type === 'external' && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <p className="text-sm text-blue-700">
-            <strong>External triggers</strong> send emails to an address provided in one of the trigger questions.
-            Make sure one of your trigger questions asks for an email address.
-          </p>
-        </div>
-      )}
 
       {/* Active Status */}
       <div className="flex items-center space-x-2">

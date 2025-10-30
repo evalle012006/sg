@@ -600,6 +600,7 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
                   <div className="space-y-1">
                     {tags.map((tag, index) => (
                       <button
+                        key={index}
                         onClick={() => handleMergeTagClick(tag)}
                         className="w-full text-left px-3 py-2 rounded hover:bg-gray-50 transition-colors"
                         title={tag.description}

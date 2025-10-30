@@ -278,7 +278,7 @@ Count: {{length equipment_list}} items
         </code>
       </pre>
       <p className="text-sm mt-2 text-gray-700">
-        Without <code>parseJSON</code>, you can only display simple string arrays like <code>["item1", "item2"]</code>
+        Without <code>parseJSON</code>, you can only display simple string arrays like <code>[&quot;item1&quot;, &quot;item2&quot;]</code>
       </p>
     </div>
   </div>

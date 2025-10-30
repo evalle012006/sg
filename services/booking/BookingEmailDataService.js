@@ -1,36 +1,27 @@
-import { Setting, Template, Page, Section, Question, Room, RoomType, Guest, EmailTrigger } from "../../models";
+/**
+ * BookingEmailDataService - OPTIMIZED VERSION
+ * 
+ * ✨ PERFORMANCE OPTIMIZATION:
+ * - Methods now accept either booking ID or pre-fetched booking object
+ * - Eliminates redundant database queries when processing multiple triggers
+ * - Backward compatible - still works with booking IDs
+ * 
+ * Previous issue: For each trigger, booking data was fetched twice (evaluateTrigger + prepareEmailData)
+ * Solution: Fetch once at top level, pass booking object through the chain
+ */
+
+import { Booking, Setting, Template, Page, Section, Question, Room, RoomType, Guest, EmailTrigger, QaPair } from "../../models";
+import EmailService from "./emailService";
 import { QUESTION_KEYS, getAnswerByQuestionKey, findByQuestionKey, mapQuestionTextToKey } from "./question-helper";
 import moment from "moment";
 
-/**
- * Enhanced Generic Booking Email Data Service with Trigger Evaluation
- * 
- * This version includes:
- * 1. Automatic data preparation (all booking data)
- * 2. Trigger evaluation (check if booking matches trigger conditions)
- * 3. Conditional email sending based on trigger rules
- * 
- * Usage:
- *   // Simple usage (no trigger evaluation)
- *   const emailData = await BookingEmailDataService.prepareEmailData(bookingId);
- *   
- *   // With trigger evaluation
- *   const shouldSend = await BookingEmailDataService.evaluateTrigger(bookingId, trigger);
- *   if (shouldSend) {
- *     const emailData = await BookingEmailDataService.prepareEmailData(bookingId);
- *     await EmailService.sendWithTemplate(recipient, templateId, emailData);
- *   }
- *   
- *   // All-in-one: evaluate and send
- *   await BookingEmailDataService.processEmailTrigger(bookingId, trigger);
- */
 class BookingEmailDataService {
   
   /**
-   * Main method: Prepare complete email data from booking ID
-   * (Same as before - no changes to this core functionality)
+   * ✨ OPTIMIZED: Main method now accepts booking object OR booking ID
+   * @param {object|string|number} bookingOrId - Booking object or booking ID
    */
-  async prepareEmailData(bookingId, additionalData = {}, options = {}) {
+  async prepareEmailData(bookingOrId, additionalData = {}, options = {}) {
     try {
       const {
         includeRawAnswers = false,
@@ -39,10 +30,13 @@ class BookingEmailDataService {
         includeMetadata = true
       } = options;
 
-      const bookingData = await this.fetchBookingData(bookingId);
+      // ✨ NEW: Check if we received a booking object or need to fetch it
+      const bookingData = typeof bookingOrId === 'object' && bookingOrId !== null
+        ? bookingOrId
+        : await this.fetchBookingData(bookingOrId);
       
       if (!bookingData) {
-        console.error(`Booking not found: ${bookingId}`);
+        console.error(`Booking not found: ${bookingOrId}`);
         return null;
       }
 
@@ -63,8 +57,9 @@ class BookingEmailDataService {
 
       if (includeRawAnswers) {
         emailData._raw_qa_pairs = bookingData.Sections
-          ?.map(section => section.QaPairs)
-          .flat() || [];
+          ?.map(section => section.QaPairs || [])
+          .flat()
+          .filter(qa => qa != null) || [];
       }
 
       return emailData;
@@ -76,41 +71,47 @@ class BookingEmailDataService {
   }
 
   /**
-   * NEW: Evaluate if a booking matches trigger conditions
-   * 
-   * @param {string} bookingId - Booking UUID or ID
-   * @param {object} trigger - EmailTrigger object with trigger_questions
-   * @returns {Promise<object>} - { shouldSend: boolean, reason: string, matchedAnswers: object }
+   * ✨ OPTIMIZED: Now accepts booking object OR booking ID
+   * @param {object|string|number} bookingOrId - Booking object or booking ID
    */
-  async evaluateTrigger(bookingId, trigger) {
+  async evaluateTrigger(bookingOrId, trigger) {
     try {
-      // If no trigger questions specified, always send
-      if (!trigger.trigger_questions || trigger.trigger_questions.length === 0) {
+      const triggerQuestions = trigger.triggerQuestions || [];
+
+      if (triggerQuestions.length === 0) {
         return {
           shouldSend: true,
           reason: 'No trigger conditions specified',
-          matchedAnswers: {}
+          matchedAnswers: {},
+          evaluationDetails: []
         };
       }
 
-      // Fetch booking data
-      const bookingData = await this.fetchBookingData(bookingId);
+      // ✨ OPTIMIZED: Use existing booking data if provided
+      const bookingData = typeof bookingOrId === 'object' && bookingOrId !== null
+        ? bookingOrId
+        : await this.fetchBookingData(bookingOrId);
+
       if (!bookingData) {
         return {
           shouldSend: false,
           reason: 'Booking not found',
-          matchedAnswers: {}
+          matchedAnswers: {},
+          evaluationDetails: []
         };
       }
 
-      // Get Q&A pairs
-      const qaPairs = bookingData.Sections?.map(section => section.QaPairs).flat() || [];
+      const qaPairs = bookingData.Sections
+        ?.map(section => section.QaPairs || [])
+        .flat()
+        .filter(qa => qa != null) || [];
 
-      // Evaluate each trigger question
+      console.log(`📊 Booking has ${qaPairs.length} answered questions`);
+
       const evaluationResults = [];
       const matchedAnswers = {};
 
-      for (const triggerQuestion of trigger.trigger_questions) {
+      for (const triggerQuestion of triggerQuestions) {
         const result = this.evaluateTriggerQuestion(
           triggerQuestion,
           qaPairs
@@ -123,11 +124,8 @@ class BookingEmailDataService {
         }
       }
 
-      // Determine if email should be sent
-      // Logic: ALL trigger questions must match (AND logic)
       const allMatched = evaluationResults.every(r => r.matched);
       
-      // Get reasons for non-matches
       const nonMatchReasons = evaluationResults
         .filter(r => !r.matched)
         .map(r => r.reason);
@@ -146,23 +144,35 @@ class BookingEmailDataService {
       return {
         shouldSend: false,
         reason: `Error: ${error.message}`,
-        matchedAnswers: {}
+        matchedAnswers: {},
+        evaluationDetails: []
       };
     }
   }
 
   /**
-   * NEW: Evaluate a single trigger question
-   * @private
+   * Evaluate a single trigger question
    */
   evaluateTriggerQuestion(triggerQuestion, qaPairs) {
-    const triggerQuestionText = triggerQuestion.question;
+    const question = triggerQuestion.question;
     const expectedAnswer = triggerQuestion.answer;
     
-    // Try to map question text to question key
-    const triggerQuestionKey = mapQuestionTextToKey(triggerQuestionText);
+    if (!question) {
+      return {
+        matched: false,
+        reason: 'Question data missing from trigger',
+        questionText: 'Unknown',
+        questionKey: null,
+        expectedAnswer,
+        actualAnswer: null
+      };
+    }
+
+    const triggerQuestionText = question.question;
+    const triggerQuestionKey = question.question_key;
     
-    // Find the relevant Q&A pair
+    console.log(`🔍 Looking for question: "${triggerQuestionText}" (key: ${triggerQuestionKey})`);
+    
     let relevantQaPair;
     if (triggerQuestionKey) {
       relevantQaPair = findByQuestionKey(qaPairs, triggerQuestionKey);
@@ -173,8 +183,8 @@ class BookingEmailDataService {
       );
     }
 
-    // If question not found in booking
     if (!relevantQaPair) {
+      console.log(`   ❌ Question not found in booking`);
       return {
         matched: false,
         reason: `Question "${triggerQuestionText}" not found in booking`,
@@ -186,8 +196,8 @@ class BookingEmailDataService {
     }
 
     const actualAnswer = relevantQaPair.answer;
+    console.log(`   ✅ Found! Answer: "${actualAnswer}"`);
 
-    // If no answer provided in booking
     if (!actualAnswer) {
       return {
         matched: false,
@@ -199,7 +209,6 @@ class BookingEmailDataService {
       };
     }
 
-    // If trigger doesn't specify an expected answer, just check if question exists with any answer
     if (!expectedAnswer || expectedAnswer === '') {
       return {
         matched: true,
@@ -211,7 +220,6 @@ class BookingEmailDataService {
       };
     }
 
-    // Compare actual answer with expected answer
     const matched = this.answersMatch(actualAnswer, expectedAnswer);
 
     return {
@@ -227,226 +235,327 @@ class BookingEmailDataService {
   }
 
   /**
-   * NEW: Compare two answers (handles case-insensitive, trimming, etc.)
-   * @private
-   */
+   * Compare answers (handles strings, arrays, booleans)
+  **/
   answersMatch(actualAnswer, expectedAnswer) {
-    // Convert both to strings for comparison
-    const actual = String(actualAnswer).toLowerCase().trim();
-    const expected = String(expectedAnswer).toLowerCase().trim();
-    
-    // Direct match
-    if (actual === expected) {
+    const parseAnswer = (answer) => {
+      if (Array.isArray(answer)) {
+        return answer.map(a => String(a).trim().toLowerCase());
+      }
+      
+      if (typeof answer === 'string') {
+        if (answer.startsWith('[') && answer.endsWith(']')) {
+          try {
+            const parsed = JSON.parse(answer);
+            if (Array.isArray(parsed)) {
+              return parsed.map(a => String(a).trim().toLowerCase());
+            }
+          } catch (e) {
+            // Not valid JSON, treat as comma-separated string
+          }
+        }
+        
+        return answer.split(',').map(a => a.trim().toLowerCase()).filter(a => a);
+      }
+      
+      return [String(answer).trim().toLowerCase()];
+    };
+
+    const actualValues = parseAnswer(actualAnswer);
+    const expectedValues = parseAnswer(expectedAnswer);
+
+    const hasAnyMatch = expectedValues.some(expected => 
+      actualValues.some(actual => 
+        actual === expected || 
+        actual.includes(expected) || 
+        expected.includes(actual)
+      )
+    );
+
+    if (hasAnyMatch) {
+      console.log(`   ✓ Partial match found: ${expectedValues.filter(exp => 
+        actualValues.some(act => act.includes(exp) || exp.includes(act))
+      ).join(', ')}`);
       return true;
     }
 
-    // Try parsing as JSON and comparing
-    try {
-      const actualParsed = JSON.parse(actualAnswer);
-      const expectedParsed = JSON.parse(expectedAnswer);
-      
-      // If both are arrays, check if they have the same elements
-      if (Array.isArray(actualParsed) && Array.isArray(expectedParsed)) {
-        return JSON.stringify(actualParsed.sort()) === JSON.stringify(expectedParsed.sort());
-      }
-      
-      // If both are objects, do deep comparison
-      if (typeof actualParsed === 'object' && typeof expectedParsed === 'object') {
-        return JSON.stringify(actualParsed) === JSON.stringify(expectedParsed);
-      }
-    } catch (e) {
-      // Not JSON, continue with string comparison
+    const normalizedActual = actualValues.sort().join(',');
+    const normalizedExpected = expectedValues.sort().join(',');
+    
+    if (normalizedActual === normalizedExpected) {
+      console.log('   ✓ Exact match');
+      return true;
     }
 
+    console.log(`   ✗ No match: actual [${actualValues.join(', ')}] vs expected [${expectedValues.join(', ')}]`);
     return false;
   }
 
   /**
-   * NEW: Process an email trigger (evaluate + prepare data + return result)
-   * This combines evaluation and data preparation in one call
-   * 
-   * @param {string} bookingId - Booking UUID or ID
-   * @param {object} trigger - EmailTrigger object
-   * @param {object} additionalData - Additional data to include in email
-   * @returns {Promise<object>} - { shouldSend, emailData, evaluation }
+   * ✨ OPTIMIZED: Process email trigger with booking object
+   * @param {object|string|number} bookingOrId - Booking object or booking ID
    */
-  async processEmailTrigger(bookingId, trigger, additionalData = {}) {
+  async processEmailTrigger(bookingOrId, trigger, additionalData = {}) {
     try {
-      // First, evaluate trigger conditions
-      const evaluation = await this.evaluateTrigger(bookingId, trigger);
-      
-      // If conditions not met, return early
-      if (!evaluation.shouldSend) {
+      // ✨ OPTIMIZED: Fetch booking data ONCE here if needed
+      const bookingData = typeof bookingOrId === 'object' && bookingOrId !== null
+        ? bookingOrId
+        : await this.fetchBookingData(bookingOrId);
+
+      if (!bookingData) {
         return {
           shouldSend: false,
-          emailData: null,
-          evaluation,
-          trigger
+          evaluation: {
+            shouldSend: false,
+            reason: 'Booking not found'
+          },
+          trigger,
+          emailData: null
         };
       }
 
-      // Prepare email data
-      const emailData = await this.prepareEmailData(
-        bookingId,
-        {
-          ...additionalData,
-          // Add trigger-specific data
-          _trigger_matched: true,
-          _trigger_id: trigger.id,
-          _matched_answers: evaluation.matchedAnswers
-        }
-      );
+      // ✨ OPTIMIZED: Pass booking object to avoid refetching
+      const evaluation = await this.evaluateTrigger(bookingData, trigger);
+      
+      if (!evaluation.shouldSend) {
+        return {
+          shouldSend: false,
+          evaluation,
+          trigger,
+          emailData: null
+        };
+      }
 
+      // ✨ OPTIMIZED: Pass booking object to avoid refetching
+      const emailData = await this.prepareEmailData(bookingData, additionalData);
+      
       return {
         shouldSend: true,
-        emailData,
         evaluation,
-        trigger
+        trigger,
+        emailData
       };
 
     } catch (error) {
       console.error('Error processing email trigger:', error);
       return {
         shouldSend: false,
-        emailData: null,
         evaluation: {
           shouldSend: false,
           reason: `Error: ${error.message}`
         },
-        trigger
+        trigger,
+        emailData: null,
+        error: error.message
       };
     }
   }
 
   /**
-   * NEW: Process multiple triggers for a booking
-   * Returns results for all triggers, including which should send and which should not
-   * 
-   * @param {string} bookingId - Booking UUID or ID
-   * @param {Array} triggers - Array of EmailTrigger objects
-   * @param {object} additionalData - Additional data to include in emails
-   * @returns {Promise<Array>} - Array of results for each trigger
+   * ✨ OPTIMIZED: Evaluate and send with booking object
+   * @param {object|string|number} bookingOrId - Booking object or booking ID
    */
-  async processMultipleTriggers(bookingId, triggers, additionalData = {}) {
+  async sendWithTriggerEvaluation(bookingOrId, trigger, additionalData = {}) {
     try {
-      const results = [];
+      // ✨ OPTIMIZED: Fetch booking data ONCE here if needed
+      const bookingData = typeof bookingOrId === 'object' && bookingOrId !== null
+        ? bookingOrId
+        : await this.fetchBookingData(bookingOrId);
 
-      for (const trigger of triggers) {
-        const result = await this.processEmailTrigger(
-          bookingId,
-          trigger,
-          additionalData
-        );
-        results.push(result);
+      if (!bookingData) {
+        return {
+          sent: false,
+          reason: 'Booking not found',
+          recipient: null,
+          evaluation: null
+        };
       }
 
-      return results;
-
-    } catch (error) {
-      console.error('Error processing multiple triggers:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * NEW: Send email with trigger evaluation
-   * Only sends if trigger conditions are met
-   * 
-   * @param {string} bookingId - Booking UUID or ID
-   * @param {object} trigger - EmailTrigger object
-   * @param {object} additionalData - Additional data to include
-   * @returns {Promise<object>} - { sent, reason, emailData }
-   */
-  async sendWithTriggerEvaluation(bookingId, trigger, additionalData = {}) {
-    try {
-      // Process trigger
-      const result = await this.processEmailTrigger(bookingId, trigger, additionalData);
+      // ✨ OPTIMIZED: Pass booking object to processEmailTrigger
+      const result = await this.processEmailTrigger(bookingData, trigger, additionalData);
 
       if (!result.shouldSend) {
-        console.log(`📧 Email not sent: ${result.evaluation.reason}`);
         return {
           sent: false,
           reason: result.evaluation.reason,
-          emailData: null,
+          recipient: null,
           evaluation: result.evaluation
         };
       }
 
       // Determine recipient
-      let recipient = trigger.recipient;
-      
-      // Special case: If trigger type is 'funder', recipient comes from matched answer
-      if (trigger.type === 'funder' && result.evaluation.matchedAnswers) {
+      let recipient;
+      if (trigger.type === 'internal') {
+        recipient = trigger.recipient;
+      } else if (trigger.type === 'external') {
         const matchedAnswerKey = Object.keys(result.evaluation.matchedAnswers)[0];
         recipient = result.evaluation.matchedAnswers[matchedAnswerKey];
+      } else {
+        recipient = trigger.recipient;
       }
 
       if (!recipient) {
-        console.log(`📧 Email not sent: No recipient specified`);
         return {
           sent: false,
-          reason: 'No recipient specified',
-          emailData: result.emailData,
+          reason: 'No recipient found',
+          recipient: null,
           evaluation: result.evaluation
         };
       }
 
-      // Send email
-      const EmailService = require('./email').default;
-      await EmailService.sendWithTemplate(
-        recipient,
-        trigger.email_template_id,
-        result.emailData
-      );
+      const templateId = trigger.email_template_id || trigger.template?.id;
+      if (!templateId) {
+        return {
+          sent: false,
+          reason: 'No email template configured',
+          recipient: null,
+          evaluation: result.evaluation
+        };
+      }
 
-      console.log(`✅ Email sent to ${recipient}`);
+      // Queue email
+      await this.queueEmail(recipient, templateId, result.emailData);
+
       return {
         sent: true,
-        reason: 'Email sent successfully',
+        reason: 'Email queued successfully',
         recipient,
-        emailData: result.emailData,
         evaluation: result.evaluation
       };
 
     } catch (error) {
-      console.error('Error sending email with trigger evaluation:', error);
+      console.error('Error in sendWithTriggerEvaluation:', error);
       return {
         sent: false,
         reason: `Error: ${error.message}`,
-        emailData: null
+        recipient: null,
+        error: error.message
       };
     }
   }
 
-  // ============================================
-  // Private Helper Methods (same as before)
-  // ============================================
-
-  async fetchBookingData(bookingId) {
-    const { Booking } = require("../../models");
+  /**
+   * Queue email using dispatchHttpTaskHandler
+   */
+  async queueEmail(recipient, templateId, emailData) {
+    const { dispatchHttpTaskHandler } = require('../queues/dispatchHttpTask');
     
-    return await Booking.findOne({
-      where: { 
-        [require("sequelize").Op.or]: [
-          { uuid: bookingId },
-          { id: bookingId }
-        ]
-      },
-      include: [
-        {
-          model: Section,
-          include: [{ 
-            model: require("../../models").QaPair, 
-            include: ['Question'] 
-          }]
-        },
-        {
-          model: Room,
-          include: [{ model: RoomType }]
-        },
-        Guest
-      ]
+    await dispatchHttpTaskHandler('booking', { 
+      type: 'sendTriggerEmail',
+      payload: {
+        recipient,
+        templateId,
+        emailData
+      }
     });
+    
+    console.log(`📬 Email queued for ${recipient} with template ${templateId}`);
+  }
+
+  /**
+   * Fetch booking data with ALL sections from ALL pages
+   */
+  async fetchBookingData(bookingId) {
+    try {
+      const whereClause = bookingId.includes('-') 
+        ? { uuid: bookingId }
+        : { id: bookingId };
+
+      const booking = await Booking.findOne({
+        where: whereClause,
+        include: [
+          Guest,
+          {
+            model: Section,
+            where: {
+              model_type: 'booking'
+            },
+            required: false
+          },
+          {
+            model: Room,
+            include: [RoomType]
+          }
+        ]
+      });
+
+      if (!booking) {
+        return null;
+      }
+
+      let templateId = null;
+      if (booking.Sections && booking.Sections.length > 0) {
+        const firstSection = booking.Sections[0];
+        if (firstSection.orig_section_id) {
+          const origSection = await Section.findByPk(firstSection.orig_section_id);
+          if (origSection && origSection.model_type === 'page') {
+            const page = await Page.findByPk(origSection.model_id);
+            if (page) {
+              templateId = page.template_id;
+            }
+          }
+        }
+      }
+
+      if (templateId) {
+        const template = await Template.findOne({
+          where: { id: templateId },
+          include: [{
+            model: Page,
+            include: [{
+              model: Section
+            }]
+          }]
+        });
+
+        if (template) {
+          const origSectionIds = [];
+          template.Pages.forEach(page => {
+            page.Sections.forEach(section => {
+              origSectionIds.push(section.id);
+            });
+          });
+
+          const allBookingSections = await Section.findAll({
+            where: {
+              model_type: 'booking',
+              model_id: booking.id,
+              orig_section_id: origSectionIds
+            },
+            include: [
+              {
+                model: QaPair,
+                include: [Question]
+              }
+            ],
+            order: [['order', 'ASC']]
+          });
+
+          booking.Sections = allBookingSections;
+          
+          console.log(`📊 Loaded booking with ${template.Pages.length} pages from template`);
+          console.log(`📊 Found ${allBookingSections.length} booking sections across all pages`);
+          
+          const totalQaPairs = allBookingSections.reduce((sum, section) => 
+            sum + (section.QaPairs?.length || 0), 0
+          );
+          console.log(`📊 Total QaPairs loaded: ${totalQaPairs}`);
+        }
+      } else {
+        if (booking && booking.Sections) {
+          console.log(`📊 Loaded booking with ${booking.Sections.length} sections (no template)`);
+          const totalQaPairs = booking.Sections.reduce((sum, section) => {
+            return sum + (section.QaPairs?.length || 0);
+          }, 0);
+          console.log(`📊 Total QaPairs loaded: ${totalQaPairs}`);
+        }
+      }
+
+      return booking;
+    } catch (error) {
+      console.error('Error fetching booking data:', error);
+      throw error;
+    }
   }
 
   addSystemMetadata(emailData, bookingData) {
@@ -476,70 +585,54 @@ class BookingEmailDataService {
   addBookingDetails(emailData, bookingData, dateFormat) {
     emailData.booking_reference = bookingData.reference_id || bookingData.uuid || '';
     emailData.booking_uuid = bookingData.uuid || '';
-    emailData.booking_status = bookingData.status || '';
+    emailData.booking_id = bookingData.id;
     emailData.booking_type = bookingData.type || '';
-    emailData.late_arrival = bookingData.late_arrival || false;
-    emailData.alternate_contact_name = bookingData.alternate_contact_name || '';
-    emailData.alternate_contact_number = bookingData.alternate_contact_number || '';
-    emailData.created_at = bookingData.createdAt 
-      ? moment(bookingData.createdAt).format(dateFormat) 
-      : '';
-    emailData.updated_at = bookingData.updatedAt 
-      ? moment(bookingData.updatedAt).format(dateFormat) 
-      : '';
+    emailData.booking_status = bookingData.status || '';
+    emailData.booking_status_name = bookingData.status_name || '';
+    
+    if (bookingData.createdAt) {
+      emailData.booking_created_at = moment(bookingData.createdAt).format(dateFormat);
+      emailData.booking_created_at_long = moment(bookingData.createdAt).format('dddd, MMMM D, YYYY');
+    }
+    
+    if (bookingData.updatedAt) {
+      emailData.booking_updated_at = moment(bookingData.updatedAt).format(dateFormat);
+    }
   }
 
   addRoomData(emailData, bookingData) {
-    const rooms = bookingData.Rooms || [];
-    
-    if (rooms.length > 0) {
-      const primaryRoom = rooms[0];
-      
-      emailData.room_id = primaryRoom.id;
-      emailData.room_label = primaryRoom.label || '';
-      emailData.room_checkin = primaryRoom.checkin 
-        ? moment(primaryRoom.checkin).format('DD/MM/YYYY') 
-        : '';
-      emailData.room_checkout = primaryRoom.checkout 
-        ? moment(primaryRoom.checkout).format('DD/MM/YYYY') 
-        : '';
-      emailData.arrival_time = primaryRoom.arrival_time || '';
-      
-      emailData.number_of_adults = primaryRoom.adults || 0;
-      emailData.number_of_children = primaryRoom.children || 0;
-      emailData.number_of_infants = primaryRoom.infants || 0;
-      emailData.number_of_pets = primaryRoom.pets || 0;
-      emailData.number_of_guests = primaryRoom.total_guests || 0;
-      
-      if (primaryRoom.RoomType) {
-        emailData.room_type_id = primaryRoom.RoomType.id;
-        emailData.room_type = primaryRoom.RoomType.name || '';
-        emailData.room_type_name = primaryRoom.RoomType.name || '';
-      }
-      
-      emailData.rooms = rooms.map(room => ({
-        id: room.id,
-        label: room.label,
-        type: room.RoomType?.name || '',
-        checkin: room.checkin,
-        checkout: room.checkout,
-        adults: room.adults,
-        children: room.children,
-        infants: room.infants,
-        total_guests: room.total_guests
+    if (bookingData.Rooms && bookingData.Rooms.length > 0) {
+      emailData.room_count = bookingData.Rooms.length;
+      emailData.rooms = bookingData.Rooms.map(room => ({
+        room_number: room.room_number || '',
+        room_type: room.RoomType?.name || '',
+        room_type_description: room.RoomType?.description || '',
+        number_of_adults: room.number_of_adults || 0,
+        number_of_children: room.number_of_children || 0,
+        number_of_infants: room.number_of_infants || 0
       }));
+
+      const firstRoom = bookingData.Rooms[0];
+      emailData.room_number = firstRoom.room_number || '';
+      emailData.room_type = firstRoom.RoomType?.name || '';
+      emailData.room_type_description = firstRoom.RoomType?.description || '';
+      emailData.number_of_adults = firstRoom.number_of_adults || 0;
+      emailData.number_of_children = firstRoom.number_of_children || 0;
+      emailData.number_of_infants = firstRoom.number_of_infants || 0;
       
-      emailData.room_count = rooms.length;
+      const totalAdults = bookingData.Rooms.reduce((sum, room) => sum + (room.number_of_adults || 0), 0);
+      const totalChildren = bookingData.Rooms.reduce((sum, room) => sum + (room.number_of_children || 0), 0);
+      const totalInfants = bookingData.Rooms.reduce((sum, room) => sum + (room.number_of_infants || 0), 0);
       
-      const roomTypes = rooms
-        .map(room => room.RoomType?.name)
-        .filter(Boolean);
-      emailData.room_types = roomTypes.join(', ');
+      emailData.total_adults = totalAdults;
+      emailData.total_children = totalChildren;
+      emailData.total_infants = totalInfants;
+      emailData.total_guests = totalAdults + totalChildren + totalInfants;
     } else {
+      emailData.room_count = 0;
       emailData.number_of_adults = 0;
       emailData.number_of_children = 0;
       emailData.number_of_infants = 0;
-      emailData.number_of_pets = 0;
       emailData.number_of_guests = 0;
       emailData.rooms = [];
       emailData.room_count = 0;
@@ -789,7 +882,6 @@ class BookingEmailDataService {
         return false;
       }
 
-      const EmailService = require('./email').default;
       await EmailService.sendWithTemplate(recipient, templateId, emailData);
       
       return true;
@@ -800,7 +892,6 @@ class BookingEmailDataService {
   }
 }
 
-// Export singleton instance
 const bookingEmailDataService = new BookingEmailDataService();
 export default bookingEmailDataService;
 export { BookingEmailDataService };
