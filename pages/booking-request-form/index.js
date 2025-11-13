@@ -782,37 +782,32 @@ const BookingRequestForm = () => {
 
     const removeDuplicateQuestions = useCallback((pages, isNdisFunded) => {
         const seenQuestions = new Set();
+        const seenQuestionIds = new Set(); // ✅ NEW: Track by ID too
         const ndisPageExists = pages.some(p => p.id === 'ndis_packages_page');
         
-        // console.log('🔧 Starting enhanced duplicate removal with section cleanup...');
+        console.log('🔧 Starting enhanced duplicate removal with NDIS page cleanup...');
         
         return pages.map(page => {
-            // Skip processing for NDIS page itself
-            if (page.id === 'ndis_packages_page') {
-                return page;
-            }
-
-            // Step 1: Filter questions and QaPairs, removing duplicates and NDIS questions
             const sectionsWithFilteredContent = page.Sections.map(section => {
                 const filteredQuestions = section.Questions?.filter(question => {
                     const questionKey = question.question_key || question.question || question.id;
+                    const questionId = question.question_id || question.id;
+                    const compositeKey = `${questionKey}_${questionId}`;
                     
                     // STEP 1: Remove NDIS questions from non-NDIS pages
-                    if (question.ndis_only && isNdisFunded && ndisPageExists) {
-                        const shouldKeepHere = page.id === 'ndis_packages_page';
-                        if (!shouldKeepHere) {
-                            // console.log(`🗑️ Removing NDIS question from ${page.title}: "${question.question}"`);
-                            return false;
-                        }
-                    }
-                    
-                    // STEP 2: Remove duplicates
-                    if (seenQuestions.has(questionKey)) {
-                        // console.log(`🗑️ Removing duplicate: ${question.question} from ${page.title}`);
+                    if (page.id !== 'ndis_packages_page' && question.ndis_only && isNdisFunded && ndisPageExists) {
+                        console.log(`🗑️ Removing NDIS question from ${page.title}: "${question.question}"`);
                         return false;
                     }
                     
-                    seenQuestions.add(questionKey);
+                    // STEP 2: Remove duplicates by composite key AND ID
+                    if (seenQuestions.has(compositeKey) || seenQuestionIds.has(questionId)) {
+                        console.log(`🗑️ Removing duplicate: "${question.question}" from ${page.title}`);
+                        return false;
+                    }
+                    
+                    seenQuestions.add(compositeKey);
+                    seenQuestionIds.add(questionId);
                     return true;
                 }) || [];
 
@@ -820,19 +815,23 @@ const BookingRequestForm = () => {
                     const question = qaPair.Question;
                     if (!question) return true;
                     
-                    const questionKey = question.question_key || question.question || qaPair.question_id;
+                    const questionKey = question.question_key || question.question || question.id;
+                    const questionId = qaPair.question_id || question.id;
+                    const compositeKey = `${questionKey}_${questionId}`;
                     
                     // STEP 1: Remove NDIS QaPairs from non-NDIS pages
-                    if (question.ndis_only && isNdisFunded && ndisPageExists) {
-                        const shouldKeepHere = page.id === 'ndis_packages_page';
-                        if (!shouldKeepHere) {
-                            // console.log(`🗑️ Removing NDIS QaPair from ${page.title}: "${question.question}"`);
-                            return false;
-                        }
+                    if (page.id !== 'ndis_packages_page' && question.ndis_only && isNdisFunded && ndisPageExists) {
+                        console.log(`🗑️ Removing NDIS QaPair from ${page.title}: "${question.question}"`);
+                        return false;
                     }
                     
                     // STEP 2: Remove duplicate QaPairs
-                    return !seenQuestions.has(questionKey);
+                    if (seenQuestions.has(compositeKey) || seenQuestionIds.has(questionId)) {
+                        console.log(`🗑️ Removing duplicate QaPair from ${page.title}`);
+                        return false;
+                    }
+                    
+                    return true;
                 }) || [];
 
                 return {
@@ -842,18 +841,16 @@ const BookingRequestForm = () => {
                 };
             });
 
-            // Step 2: Remove empty sections after question/QaPair filtering
+            // Remove empty sections
             const sectionsWithContent = sectionsWithFilteredContent.filter(section => {
                 const hasQuestions = section.Questions && section.Questions.length > 0;
                 const hasQaPairs = section.QaPairs && section.QaPairs.length > 0;
                 
-                const shouldKeep = hasQuestions || hasQaPairs;
-                
-                if (!shouldKeep) {
-                    // console.log(`🗑️ Removing empty section "${section.id}" from page "${page.title}" - no remaining content`);
+                if (!hasQuestions && !hasQaPairs) {
+                    console.log(`🗑️ Removing empty section "${section.label}" from "${page.title}"`);
                 }
                 
-                return shouldKeep;
+                return hasQuestions || hasQaPairs;
             });
 
             return {
@@ -889,9 +886,36 @@ const BookingRequestForm = () => {
                     (page, allPages) => applyQuestionDependenciesAcrossPages(page, allPages, bookingFormRoomSelected),
                     bookingFormRoomSelected
                 );
+
+                // ✅ CRITICAL FIX: Protect profile data during processing
+                const protectedProcessed = processed.map(page => ({
+                    ...page,
+                    Sections: page.Sections.map(section => ({
+                        ...section,
+                        Questions: section.Questions.map(question => {
+                            // Don't override answers that came from profile
+                            if (question.fromProfile && question.protected) {
+                                const originalQuestion = formData
+                                    .find(p => p.id === page.id)
+                                    ?.Sections.find(s => s.id === section.id)
+                                    ?.Questions.find(q => q.id === question.id || q.question_key === question.question_key);
+                                
+                                if (originalQuestion?.fromProfile) {
+                                    return {
+                                        ...question,
+                                        answer: originalQuestion.answer, // Preserve profile answer
+                                        fromProfile: true,
+                                        protected: true
+                                    };
+                                }
+                            }
+                            return question;
+                        })
+                    }))
+                }));
                 
                 // STEP 2: Remove duplicates AND clean up empty sections
-                const deduplicated = removeDuplicateQuestions(processed, ndisFunded);
+                const deduplicated = removeDuplicateQuestions(protectedProcessed, ndisFunded);
                 
                 // STEP 3: Apply dependencies
                 const withDependencies = forceRefreshAllDependencies(deduplicated, bookingFormRoomSelected);
@@ -1170,13 +1194,35 @@ const BookingRequestForm = () => {
                 ? JSON.parse(careScheduleQA.answer) 
                 : careScheduleQA.answer;
 
-            // Calculate care hours using existing utility
-            const analysis = calculateCareHours(careData);
+            // 🔧 FIX: Extract careData array from nested structure
+            let careDataArray = careData;
+            if (careData && typeof careData === 'object' && !Array.isArray(careData)) {
+                if (Array.isArray(careData.careData)) {
+                    // console.log('🔄 Extracting careData array from nested structure in currentCareAnalysis');
+                    careDataArray = careData.careData;
+                }
+            }
+
+            // Validate it's an array
+            if (!Array.isArray(careDataArray)) {
+                console.warn('⚠️ Care data is not an array:', careDataArray);
+                return {
+                    requiresCare: false,
+                    totalHoursPerDay: 0,
+                    carePattern: 'no-care',
+                    recommendedPackages: [],
+                    analysis: 'Invalid care data format',
+                    dataSource: dataSource
+                };
+            }
+
+            // Calculate care hours using ONLY the array (no defaultValues)
+            const analysis = calculateCareHours(careDataArray);
 
             return {
                 requiresCare: true,
                 ...analysis,
-                rawCareData: careData,
+                rawCareData: careDataArray,  // Store only the array
                 dataSource: dataSource
             };
         } catch (error) {
@@ -1954,12 +2000,25 @@ const BookingRequestForm = () => {
                             break;
                     }
 
-                    // Log when we override existing data
-                    // if (mapped && originalAnswer && originalAnswer !== updatedQuestion.answer) {
-                    //     console.log(`✅ Profile data override: "${questionKey}" changed from "${originalAnswer}" to "${updatedQuestion.answer}"`);
-                    // } else if (mapped && !originalAnswer) {
-                    //     console.log(`✅ Profile data populated: "${questionKey}" = "${updatedQuestion.answer}"`);
-                    // }
+                    // ✅ CRITICAL FIX: Clear temporary flags when profile data overrides
+                    if (mapped) {
+                        if (updatedQuestion.temporaryFromPreviousBooking) {
+                            console.log(`🔄 Profile data overriding temporary previous booking data for: "${questionKey}"`, {
+                                previousValue: originalAnswer,
+                                profileValue: updatedQuestion.answer
+                            });
+                            updatedQuestion.temporaryFromPreviousBooking = false;
+                        }
+                        
+                        // Mark as coming from profile to prevent future overrides
+                        updatedQuestion.fromProfile = true;
+                        updatedQuestion.protected = true; // Protect from being overridden
+                        
+                        // Mark as dirty only if the value actually changed
+                        if (originalAnswer !== updatedQuestion.answer) {
+                            updatedQuestion.dirty = true;
+                        }
+                    }
 
                     return updatedQuestion;
                 });
@@ -2605,7 +2664,8 @@ const BookingRequestForm = () => {
             const questionCount = page.Sections?.reduce((count, section) => 
                 count + (section.Questions?.length || 0), 0) || 0;
             
-            const contentKey = `page-${page.id}-q${questionCount}-${index}-${profileDataLoaded}`;
+            // Stable key that doesn't change unnecessarily
+            const contentKey = `page-${page.id}-${questionCount}-${profileDataLoaded}`;
 
             return {
                 title: page.title,
@@ -2651,12 +2711,19 @@ const BookingRequestForm = () => {
 
     // Centralized scroll function, now explicitly waiting for layoutRef.current.mainContentRef
     const scrollToAccordionItemInLayout = useCallback((index) => {
-        scroller.scrollTo(`accordion-item-${index}`, {
-            duration: 500,
-            delay: 0,
-            smooth: 'easeInOutQuart',
-            containerId: 'main-content-container', // Add this ID to your layout
-            offset: -100 // Adjust for header offset
+        // Double RAF ensures DOM is fully painted
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                scroller.scrollTo(`accordion-item-${index}`, {
+                    duration: 350, // Slightly faster for snappier feel
+                    delay: 0,
+                    smooth: 'easeInOutQuart',
+                    containerId: 'main-content-container',
+                    offset: -100,
+                    isDynamic: true,
+                    ignoreCancelEvents: false
+                });
+            });
         });
     }, []);
 
@@ -2692,7 +2759,6 @@ const BookingRequestForm = () => {
                 if (pageErrors.length > 0) {
                     console.log('❌ Validation errors found on current page:', pageErrors);
                     
-                    // Update the page with completion status = false due to errors
                     const updatedPages = stableProcessedFormData.map(page => {
                         if (page.id === pageToValidate.id) {
                             return { ...page, completed: false };
@@ -2703,7 +2769,6 @@ const BookingRequestForm = () => {
                     setProcessedFormData(updatedPages);
                     safeDispatchData(updatedPages, 'Page validation failed');
                     
-                    // IMPROVED: Show specific error message
                     const createNavigationErrorMessage = () => {
                         if (pageErrors.length === 1) {
                             return `Please complete the required field "${pageErrors[0].question}" before continuing.`;
@@ -2729,7 +2794,7 @@ const BookingRequestForm = () => {
             }
         }
 
-        // Only navigate if validation passed
+        // Batch all state updates together to prevent multiple re-renders
         dispatch(bookingRequestFormActions.setCurrentPage(targetPage));
         setActiveAccordionIndex(targetIndex);
 
@@ -2737,8 +2802,8 @@ const BookingRequestForm = () => {
         const baseUrl = paths[0];
         const newUrl = `${baseUrl}&&page_id=${targetPage.id}`;
 
+        // Use shallow routing to prevent full page reload
         router.push(newUrl, undefined, { shallow: true });
-        setTimeout(() => scrollToAccordionItemInLayout(targetIndex), 100);
     };
 
     useEffect(() => {
@@ -4511,8 +4576,53 @@ const BookingRequestForm = () => {
                                 s.Questions = qa_pairs.questionList;
 
                                 if (s.QaPairs.length !== sec.Questions.length) {
-                                    const removedQuestions = sec.Questions.filter(q => !qa_pairs.questionList.some(qp => qp.question === q.question))
-                                                                        .map(q => { return { ...q, question: q.question, type: q.type, answer: null } });
+                                    const removedQuestions = sec.Questions.filter(templateQuestion => {
+                                        // ✅ ENHANCED: Check if this template question already has a saved QaPair
+                                        const hasQaPair = s.QaPairs.some(qaPair => {
+                                            // Match by question_id (most reliable for saved data)
+                                            if (qaPair.question_id === templateQuestion.id) {
+                                                return true;
+                                            }
+                                            
+                                            // Match by question_key (for NDIS questions)
+                                            if (qaPair.Question?.question_key && templateQuestion.question_key) {
+                                                return qaPair.Question.question_key === templateQuestion.question_key;
+                                            }
+                                            
+                                            return false;
+                                        });
+                                        
+                                        if (hasQaPair) {
+                                            // console.log(`⚠️ Template question already has QaPair, skipping: "${templateQuestion.question}" (ID: ${templateQuestion.id})`);
+                                            return false;
+                                        }
+                                        
+                                        // Also check if already in converted questionList
+                                        const alreadyInQuestionList = qa_pairs.questionList.some(qaPairQuestion => {
+                                            // Match by question_key
+                                            if (templateQuestion.question_key && qaPairQuestion.question_key) {
+                                                return templateQuestion.question_key === qaPairQuestion.question_key;
+                                            }
+                                            
+                                            // Match by question_id
+                                            if (templateQuestion.id && qaPairQuestion.question_id) {
+                                                return templateQuestion.id === qaPairQuestion.question_id;
+                                            }
+                                            
+                                            return false;
+                                        });
+                                        
+                                        if (alreadyInQuestionList) {
+                                            // console.log(`⚠️ Template question already in converted list, skipping: "${templateQuestion.question}" (ID: ${templateQuestion.id})`);
+                                            return false;
+                                        }
+                                        
+                                        return true;
+                                    }).map(q => { 
+                                        return { ...q, question: q.question, type: q.type, answer: null } 
+                                    });
+                                    
+                                    // console.log(`📋 Adding ${removedQuestions.length} unanswered template questions`);
                                     s.Questions.push(...removedQuestions);
                                 }
 
@@ -4578,8 +4688,43 @@ const BookingRequestForm = () => {
                                 s.Questions = qa_pairs.questionList;
 
                                 if (s.QaPairs.length !== sec.Questions.length) {
-                                    const removedQuestions = sec.Questions.filter(q => !qa_pairs.questionList.some(qp => qp.question === q.question))
-                                                                                .map(q => { return { ...q, question: q.question, type: q.type, answer: null } });
+                                    const removedQuestions = sec.Questions.filter(templateQuestion => {
+                                        // ✅ SAME ENHANCED LOGIC
+                                        const hasQaPair = s.QaPairs.some(qaPair => {
+                                            if (qaPair.question_id === templateQuestion.id) {
+                                                return true;
+                                            }
+                                            if (qaPair.Question?.question_key && templateQuestion.question_key) {
+                                                return qaPair.Question.question_key === templateQuestion.question_key;
+                                            }
+                                            return false;
+                                        });
+                                        
+                                        if (hasQaPair) {
+                                            // console.log(`⚠️ [newBooking] Template question already has QaPair, skipping: "${templateQuestion.question}" (ID: ${templateQuestion.id})`);
+                                            return false;
+                                        }
+                                        
+                                        const alreadyInQuestionList = qa_pairs.questionList.some(qaPairQuestion => {
+                                            if (templateQuestion.question_key && qaPairQuestion.question_key) {
+                                                return templateQuestion.question_key === qaPairQuestion.question_key;
+                                            }
+                                            if (templateQuestion.id && qaPairQuestion.question_id) {
+                                                return templateQuestion.id === qaPairQuestion.question_id;
+                                            }
+                                            return false;
+                                        });
+                                        
+                                        if (alreadyInQuestionList) {
+                                            // console.log(`⚠️ [newBooking] Template question already in converted list, skipping: "${templateQuestion.question}" (ID: ${templateQuestion.id})`);
+                                            return false;
+                                        }
+                                        
+                                        return true;
+                                    }).map(q => { 
+                                        return { ...q, question: q.question, type: q.type, answer: null } 
+                                    });
+                                    
                                     s.Questions.push(...removedQuestions);
                                 }
 
@@ -5664,11 +5809,15 @@ const BookingRequestForm = () => {
     }, [courseOffersLoaded, courseOffers, stableProcessedFormData]);
 
     useEffect(() => {
-        if (activeAccordionIndex >= 0) {
-            // Use a slightly longer initial delay for useEffect, as it might react to data load.
-            setTimeout(() => scrollToAccordionItemInLayout(activeAccordionIndex), 150);
+        if (activeAccordionIndex >= 0 && stableProcessedFormData?.length > 0) {
+            // Coordinate timing with accordion state transition
+            const scrollTimeout = setTimeout(() => {
+                scrollToAccordionItemInLayout(activeAccordionIndex);
+            }, 150); // Balanced timing - not too fast, not too slow
+
+            return () => clearTimeout(scrollTimeout);
         }
-    }, [activeAccordionIndex, scrollToAccordionItemInLayout]);
+    }, [activeAccordionIndex, stableProcessedFormData?.length, scrollToAccordionItemInLayout]);
 
     return (<>
         {stableProcessedFormData && (

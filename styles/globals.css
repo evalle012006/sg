@@ -368,3 +368,32 @@
     @apply p-3 gap-3;
   }
 }
+
+/* Smooth accordion transitions */
+.accordion-item-wrapper {
+  transform: translateZ(0);
+  will-change: transform;
+}
+
+.accordion-item {
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+/* Prevent content shift during scroll */
+[data-accordion-content] {
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+/* Smooth container scrolling */
+#main-content-container {
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Optimize accordion rendering */
+.accordion-item-wrapper > * {
+  transform: translateZ(0);
+}

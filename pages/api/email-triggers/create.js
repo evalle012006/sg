@@ -1,12 +1,11 @@
 /**
- * Update Email Trigger API
- * POST /api/email-triggers/update
+ * Create Email Trigger API
+ * POST /api/email-triggers/create
  * 
- * Updates an existing email trigger with question ID references
+ * Creates a new email trigger with question ID references
  */
 
 import { EmailTrigger, EmailTemplate, Question, EmailTriggerQuestion } from '../../../models';
-import { sequelize } from '../../../models';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -16,11 +15,8 @@ export default async function handler(req, res) {
     });
   }
 
-  const transaction = await sequelize.transaction();
-
   try {
     const {
-      id,
       recipient,
       email_template_id,
       type = 'highlights',
@@ -31,23 +27,11 @@ export default async function handler(req, res) {
     // Validation
     const errors = [];
 
-    // Validate ID for update
-    if (!id) {
-      errors.push('Trigger ID is required for update');
-    }
-
-    // Validate recipient email - FIXED to handle comma-separated emails
+    // Validate recipient email
     if (!recipient || !recipient.trim()) {
       errors.push('Recipient email is required');
-    } else {
-      // Handle comma-separated emails
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      const emails = recipient.split(',').map(e => e.trim());
-      const invalidEmails = emails.filter(email => !emailRegex.test(email));
-      
-      if (invalidEmails.length > 0) {
-        errors.push(`Invalid email format for recipient: ${invalidEmails.join(', ')}`);
-      }
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) {
+      errors.push('Invalid email format for recipient');
     }
 
     // Validate email template
@@ -116,7 +100,6 @@ export default async function handler(req, res) {
 
     // Return validation errors if any
     if (errors.length > 0) {
-      await transaction.rollback();
       return res.status(400).json({ 
         success: false, 
         message: 'Validation failed',
@@ -124,48 +107,26 @@ export default async function handler(req, res) {
       });
     }
 
-    // Check if trigger exists
-    const existingTrigger = await EmailTrigger.findOne({ 
-      where: { id },
-      transaction 
-    });
-    
-    if (!existingTrigger) {
-      await transaction.rollback();
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Email trigger not found' 
-      });
-    }
-
-    // Update the email trigger
-    await existingTrigger.update({
+    // Create the email trigger
+    const emailTrigger = await EmailTrigger.create({
       recipient: recipient.trim(),
       email_template_id: email_template_id,
       type: type,
-      enabled: enabled
-    }, { transaction });
-
-    // Remove all existing trigger question associations
-    await EmailTriggerQuestion.destroy({
-      where: { email_trigger_id: id },
-      transaction
+      enabled: enabled,
+      trigger_count: 0
     });
 
-    // Create new trigger question associations
+    // Create the trigger question associations
     const triggerQuestionRecords = trigger_questions.map(tq => ({
-      email_trigger_id: id,
+      email_trigger_id: emailTrigger.id,
       question_id: tq.question_id,
       answer: tq.answer || null
     }));
 
-    await EmailTriggerQuestion.bulkCreate(triggerQuestionRecords, { transaction });
+    await EmailTriggerQuestion.bulkCreate(triggerQuestionRecords);
 
-    // Commit the transaction
-    await transaction.commit();
-
-    // Fetch the updated trigger with all associations
-    const updatedTrigger = await EmailTrigger.findByPk(id, {
+    // Fetch the complete trigger with all associations
+    const completeTrigger = await EmailTrigger.findByPk(emailTrigger.id, {
       include: [
         {
           model: EmailTemplate,
@@ -185,22 +146,21 @@ export default async function handler(req, res) {
       ]
     });
 
-    // Log the update for audit purposes
-    console.log('Email trigger updated:', {
-      id: updatedTrigger.id,
-      recipient: updatedTrigger.recipient,
+    // Log the creation for audit purposes
+    console.log('Email trigger created:', {
+      id: completeTrigger.id,
+      recipient: completeTrigger.recipient,
       questions_count: trigger_questions.length
     });
 
-    return res.status(200).json({ 
+    return res.status(201).json({ 
       success: true,
-      message: 'Email trigger updated successfully',
-      data: updatedTrigger
+      message: 'Email trigger created successfully',
+      data: completeTrigger
     });
 
   } catch (error) {
-    await transaction.rollback();
-    console.error('Error updating email trigger:', error);
+    console.error('Error creating email trigger:', error);
     return res.status(500).json({ 
       success: false, 
       message: 'Internal server error',
@@ -213,23 +173,52 @@ export default async function handler(req, res) {
  * Example Request Body:
  * 
  * {
- *   "id": 1,
- *   "recipient": "newemail@company.com",
- *   "email_template_id": 2,
+ *   "recipient": "events@company.com",
+ *   "email_template_id": 1,
  *   "type": "highlights",
  *   "enabled": true,
  *   "trigger_questions": [
  *     {
  *       "question_id": 5,
- *       "answer": "26-50"
+ *       "answer": "11-25"
  *     },
  *     {
- *       "question_id": 12,
- *       "answer": "no"
+ *       "question_id": 8,
+ *       "answer": "yes"
  *     }
  *   ]
  * }
  * 
- * Supports comma-separated emails for recipient field:
- * "recipient": "email1@example.com, email2@example.com, email3@example.com"
+ * Response includes full question details:
+ * {
+ *   "success": true,
+ *   "message": "Email trigger created successfully",
+ *   "data": {
+ *     "id": 1,
+ *     "recipient": "events@company.com",
+ *     "email_template_id": 1,
+ *     "type": "highlights",
+ *     "enabled": true,
+ *     "template": {
+ *       "id": 1,
+ *       "name": "Event Inquiry",
+ *       "subject": "New Event Request"
+ *     },
+ *     "triggerQuestions": [
+ *       {
+ *         "id": 1,
+ *         "email_trigger_id": 1,
+ *         "question_id": 5,
+ *         "answer": "11-25",
+ *         "question": {
+ *           "id": 5,
+ *           "question": "How many guests are you expecting?",
+ *           "question_key": "guest_count",
+ *           "question_type": "select",
+ *           "options": [...]
+ *         }
+ *       }
+ *     ]
+ *   }
+ * }
  */

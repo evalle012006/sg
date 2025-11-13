@@ -119,6 +119,37 @@ export default async function handler(req, res) {
                 return res.status(400).json({ success: false, message: 'Error triggering sendDatesOfStayEmail' });
             }
             break;
+        case 'evaluateEmailTriggers': {
+            console.log(`\n🔄 Processing email triggers for booking ${payload.booking_id}...`);
+            
+            const result = await EmailTriggerService.evaluateAndSendTriggers(
+                payload.booking_id,
+                {
+                    enabled: true,  // ✅ Explicitly filter for enabled triggers only
+                    context: payload.context || 'default'
+                }
+            );
+            
+            console.log(`✅ Email trigger evaluation complete: ${result.queued} queued, ${result.skipped} skipped`);
+            
+            return res.status(200).json({ 
+                success: true, 
+                result 
+            });
+        }
+        
+        case 'sendTriggerEmail': {
+            // Existing email sending logic
+            const { recipient, templateId, emailData } = payload;
+            const EmailService = require('../../../services/booking/emailService');
+            
+            await EmailService.sendWithTemplate(recipient, templateId, emailData);
+            
+            return res.status(200).json({ 
+                success: true,
+                message: `Email sent to ${recipient}`
+            });
+        }
         default:
             break;
 

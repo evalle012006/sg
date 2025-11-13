@@ -1,4 +1,4 @@
-import { Booking, BookingEquipment, EmailTrigger, EmailTemplate, Equipment, EquipmentCategory, Guest, Log, Page, QaPair, Question, QuestionDependency } from "../../models";
+import { Booking, BookingEquipment, CourseOffer, EmailTrigger, Equipment, EquipmentCategory, Guest, Log, Page, QaPair, Question, QuestionDependency } from "../../models";
 import { Room, RoomType, Section, Setting, Template, NotificationLibrary } from "../../models";
 import EntityBuilder from "../common/entityBuilder";
 import _ from 'lodash';
@@ -208,31 +208,76 @@ export class BookingService extends EntityBuilder {
     }
 
     isBookingComplete = async (uuid) => {
-        const booking = await this.entityModel.findOne({ where: { uuid }, include: [{ model: Section, include: [{ model: QaPair }] }] });
+        const booking = await this.entityModel.findOne({ 
+            where: { uuid }, 
+            include: [
+                { model: Section, include: [{ model: QaPair }] },
+                { model: Guest }
+            ] 
+        });
+        
         const defaultTemplate = await this.getBookingTemplate(booking, false);
         const qaPairs = booking.Sections.map(section => section.QaPairs).flat();
         const templateQuestions = defaultTemplate.Pages.map(page => page.Sections.map(section => section.Questions).flat()).flat();
         
-        // REFACTORED: Use question key for funding check
+        // Check if NDIS funder
         const isNdisFunder = qaPairs.some(qa => {
             return qa.Question?.question_key === QUESTION_KEYS.FUNDING_SOURCE && 
-                   qa.answer && 
-                   (qa.answer.includes('NDIS') || qa.answer.includes('NDIA'));
+                qa.answer && 
+                (qa.answer.includes('NDIS') || qa.answer.includes('NDIA'));
+        });
+        
+        // ✅ NEW: Check if guest has future course offers
+        const hasFutureCourseOffers = await this.checkGuestHasFutureCourseOffers(booking.Guest.id);
+        
+        // ✅ NEW: Check if there's an existing course selection in the booking
+        const hasExistingCourseSelection = qaPairs.some(qa => {
+            return (qa.Question?.question_key === QUESTION_KEYS.COURSE_OFFER_QUESTION && 
+                    qa.answer?.toLowerCase() === 'yes') ||
+                (qa.Question?.question_key === QUESTION_KEYS.WHICH_COURSE && 
+                    qa.answer && qa.answer !== '');
+        });
+        
+        // ✅ NEW: Determine if course questions should be excluded
+        const shouldExcludeCourseQuestions = !hasFutureCourseOffers && !hasExistingCourseSelection;
+        
+        console.log('Course validation context:', {
+            hasFutureCourseOffers,
+            hasExistingCourseSelection,
+            shouldExcludeCourseQuestions
         });
         
         // calculating required questions
-        const requiredTemplateQuestions = templateQuestions.filter(question => question.type != 'equipment') // removing equipment questions
-            .filter(question => question.required).filter(question => {
+        const requiredTemplateQuestions = templateQuestions
+            .filter(question => question.type != 'equipment') // Remove equipment questions
+            .filter(question => question.required)
+            .filter(question => {
+                // Existing filters
                 if (question.second_booking_only || question.ndis_only) return false;
                 
-                // REFACTORED: Use question key for package check
+                // NDIS package filter
                 if (isNdisFunder && question.type == 'radio' && 
                     question.question_key === QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL) return false;
                 
+                // Exclude course questions if no offers and no existing selection
+                if (shouldExcludeCourseQuestions) {
+                    const isCourseQuestion = 
+                        question.question_key === QUESTION_KEYS.COURSE_OFFER_QUESTION ||
+                        question.question_key === QUESTION_KEYS.WHICH_COURSE ||
+                        question.question_key === QUESTION_KEYS.COURSE_SELECTION;
+                    
+                    if (isCourseQuestion) {
+                        console.log(`Excluding course question from required: "${question.question}"`);
+                        return false;
+                    }
+                }
+                
+                // No dependencies - include it
                 if (question.QuestionDependencies.length == 0) {
                     return true;
                 }
 
+                // Has dependencies - check if they're satisfied
                 if (question.QuestionDependencies.length > 0) {
                     return question.QuestionDependencies.some(dependency => {
                         const dependencyQuestion = qaPairs.find(q => q.question_id == dependency.dependence_id);
@@ -265,13 +310,49 @@ export class BookingService extends EntityBuilder {
         console.log('requiredTemplateQuestions:', requiredTemplateQuestions.length)
         console.log('validatedQuestions:', validatedQuestions.length)
 
-        // verifing if all required and validated questions are answered
+        // verifying if all required and validated questions are answered
         if (validatedQuestions.length == requiredTemplateQuestions.length) {
             console.log('Booking is Complete')
             return true;
         }
 
         return false;
+    }
+
+    checkGuestHasFutureCourseOffers = async (guestId) => {
+        if (!guestId) return false;
+        
+        try {
+            const { CourseOffer, Course } = require("../../models");
+            const { Op } = require("sequelize");
+            
+            const futureOffers = await CourseOffer.count({
+                where: {
+                    guest_id: guestId,
+                    status: {
+                        [Op.in]: ['offered', 'accepted']
+                    }
+                },
+                include: [{
+                    model: Course,
+                    as: 'course',
+                    required: true,
+                    where: {
+                        start_date: {
+                            [Op.gte]: new Date()
+                        },
+                        deleted_at: null
+                    }
+                }]
+            });
+            
+            console.log(`Guest ${guestId} has ${futureOffers} future course offers`);
+            return futureOffers > 0;
+            
+        } catch (error) {
+            console.error('Error checking future course offers:', error);
+            return false;
+        }
     }
 
     getCheckInOutAnswerByKeys = (qaPairs) => {

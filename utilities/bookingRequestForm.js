@@ -237,11 +237,32 @@ export const postProcessPagesForNdis = (pages, isNdisFunded, calculatePageComple
     
     // Create NDIS page if we have NDIS questions
     if (ndisQuestions.length > 0 && fundingPageIndex !== -1) {
+        // ✅ NEW: Sort questions by order before creating the page
+        const sortedNdisQuestions = ndisQuestions.map(section => {
+            const sortedQuestions = [...section.Questions].sort((a, b) => {
+                const orderA = a.order !== undefined ? a.order : 999;
+                const orderB = b.order !== undefined ? b.order : 999;
+                return orderA - orderB;
+            });
+            
+            const sortedQaPairs = section.QaPairs ? [...section.QaPairs].sort((a, b) => {
+                const orderA = a.Question?.order !== undefined ? a.Question.order : 999;
+                const orderB = b.Question?.order !== undefined ? b.Question.order : 999;
+                return orderA - orderB;
+            }) : [];
+            
+            return {
+                ...section,
+                Questions: sortedQuestions,
+                QaPairs: sortedQaPairs
+            };
+        });
+        
         const ndisPage = {
             id: 'ndis_packages_page',
             title: 'NDIS Requirements',
-            description: 'Please complete the NDIS-specific requirements below.',
-            Sections: ndisQuestions,
+            description: '',
+            Sections: sortedNdisQuestions,
             url: "&&page_id=ndis_packages_page",
             active: false,
             hasNext: true,
@@ -249,7 +270,7 @@ export const postProcessPagesForNdis = (pages, isNdisFunded, calculatePageComple
             lastPage: false,
             pageQuestionDependencies: [],
             completed: false,
-            noItems: ndisQuestions.reduce((total, section) => total + section.Questions.length, 0),
+            noItems: sortedNdisQuestions.reduce((total, section) => total + section.Questions.length, 0),
             dirty: false,
             hidden: false,
             template_id: pages[0]?.template_id || null
@@ -365,6 +386,7 @@ export const processFormDataForNdisPackages = (formData, isNdisFunded, calculate
     const updatedPages = [];
     let movedQuestionsCount = 0;
     const processedQuestionKeys = new Set(); // Track processed questions to avoid duplicates
+    const processedQuestionIds = new Set(); 
 
     formData.forEach((page, pageIndex) => {
         const updatedSections = [];
@@ -373,50 +395,61 @@ export const processFormDataForNdisPackages = (formData, isNdisFunded, calculate
             const remainingQuestions = [];
             const remainingQaPairs = [];
 
-            // STEP 1: Build a comprehensive map of all NDIS questions in this section
-            const allNdisQuestions = new Map(); // key -> { question, source: 'QaPairs'|'Questions', data }
+            // STEP 1: Build comprehensive map with ID tracking
+            const allNdisQuestions = new Map();
 
-            // First, identify NDIS questions from QaPairs (answered questions)
+            // Process QaPairs first (answered questions - higher priority)
             section.QaPairs?.forEach(qaPair => {
                 const question = qaPair.Question;
                 if (question && shouldMoveQuestionToNdisPage(question, isNdisFunded)) {
                     const questionKey = question.question_key || question.question || question.id;
-                    allNdisQuestions.set(questionKey, {
-                        question,
-                        source: 'QaPairs',
-                        data: qaPair,
-                        hasAnswer: true,
-                        answer: qaPair.answer
-                    });
-                }
-            });
-
-            // Then, identify NDIS questions from Questions array (unanswered questions)
-            section.Questions?.forEach(question => {
-                if (shouldMoveQuestionToNdisPage(question, isNdisFunded)) {
-                    const questionKey = question.question_key || question.question || question.id;
+                    const questionId = qaPair.question_id || question.id;
                     
-                    // Only add if not already found in QaPairs (prioritize answered questions)
-                    if (!allNdisQuestions.has(questionKey)) {
-                        allNdisQuestions.set(questionKey, {
+                    // ✅ NEW: Create composite key with section info
+                    const compositeKey = `${questionKey}_${questionId}`;
+                    
+                    // Only add if not already processed globally
+                    if (!processedQuestionKeys.has(compositeKey) && !processedQuestionIds.has(questionId)) {
+                        allNdisQuestions.set(compositeKey, {
                             question,
-                            source: 'Questions',
-                            data: question,
-                            hasAnswer: false,
-                            answer: question.answer
+                            source: 'QaPairs',
+                            data: qaPair,
+                            hasAnswer: true,
+                            answer: qaPair.answer,
+                            questionId: questionId
                         });
                     }
                 }
             });
 
-            // STEP 2: Move NDIS questions to NDIS page (deduplicated)
-            allNdisQuestions.forEach((ndisQuestionInfo, questionKey) => {
-                // Skip if already processed globally (avoid cross-section duplicates)
-                if (processedQuestionKeys.has(questionKey)) {
-                    return;
+            // Then process Questions array (unanswered questions)
+            section.Questions?.forEach(question => {
+                if (shouldMoveQuestionToNdisPage(question, isNdisFunded)) {
+                    const questionKey = question.question_key || question.question || question.id;
+                    const questionId = question.question_id || question.id;
+                    const compositeKey = `${questionKey}_${questionId}`;
+                    
+                    // Only add if not in QaPairs and not processed globally
+                    if (!allNdisQuestions.has(compositeKey) && 
+                        !processedQuestionKeys.has(compositeKey) &&
+                        !processedQuestionIds.has(questionId)) {
+                        allNdisQuestions.set(compositeKey, {
+                            question,
+                            source: 'Questions',
+                            data: question,
+                            hasAnswer: false,
+                            answer: question.answer,
+                            questionId: questionId
+                        });
+                    }
                 }
+            });
 
-                processedQuestionKeys.add(questionKey);
+            // STEP 2: Move unique NDIS questions to NDIS page
+            allNdisQuestions.forEach((ndisQuestionInfo, compositeKey) => {
+                // ✅ CRITICAL: Mark as processed globally
+                processedQuestionKeys.add(compositeKey);
+                processedQuestionIds.add(ndisQuestionInfo.questionId);
                 movedQuestionsCount++;
 
                 // Create question object for NDIS page
@@ -430,7 +463,7 @@ export const processFormDataForNdisPackages = (formData, isNdisFunded, calculate
                     options: ndisQuestionInfo.question.options,
                     required: ndisQuestionInfo.question.required,
                     type: ndisQuestionInfo.question.type,
-                    QuestionDependencies: ndisQuestionInfo.question.QuestionDependencies || [], // IMPORTANT: Preserve dependencies
+                    QuestionDependencies: ndisQuestionInfo.question.QuestionDependencies || [],
                     hidden: false,
                     fromQa: ndisQuestionInfo.source === 'QaPairs',
                     question_id: ndisQuestionInfo.source === 'QaPairs' ? 
@@ -441,7 +474,7 @@ export const processFormDataForNdisPackages = (formData, isNdisFunded, calculate
                         ndisQuestionInfo.question.id
                 };
 
-                // Create or find section for NDIS page
+                // Find or create section for NDIS page
                 let existingNdisSection = ndisQuestions.find(ns => ns.id === section.id);
                 if (!existingNdisSection) {
                     existingNdisSection = {
@@ -454,22 +487,35 @@ export const processFormDataForNdisPackages = (formData, isNdisFunded, calculate
                     ndisQuestions.push(existingNdisSection);
                 }
 
-                // Add question to NDIS section
-                existingNdisSection.Questions.push(ndisQuestion);
+                // ✅ NEW: Check if question already exists in this section before adding
+                const alreadyExists = existingNdisSection.Questions.some(q => {
+                    const qKey = q.question_key || q.question;
+                    const qId = q.question_id || q.id;
+                    return qKey === ndisQuestion.question_key || qId === ndisQuestion.question_id;
+                });
 
-                // Also preserve QaPair if it exists
-                if (ndisQuestionInfo.source === 'QaPairs') {
-                    existingNdisSection.QaPairs.push({
-                        ...ndisQuestionInfo.data,
-                        section_id: section.id
-                    });
+                if (!alreadyExists) {
+                    existingNdisSection.Questions.push(ndisQuestion);
+                    
+                    // Also preserve QaPair if it exists
+                    if (ndisQuestionInfo.source === 'QaPairs') {
+                        existingNdisSection.QaPairs.push({
+                            ...ndisQuestionInfo.data,
+                            section_id: section.id
+                        });
+                    }
+                } else {
+                    // console.log(`⚠️ Skipping duplicate in NDIS section: "${ndisQuestion.question}"`);
                 }
             });
 
-            // STEP 3: Filter original section to remove moved questions
+            // STEP 3: Filter original sections
             section.Questions?.forEach(question => {
                 const questionKey = question.question_key || question.question || question.id;
-                if (!allNdisQuestions.has(questionKey)) {
+                const questionId = question.question_id || question.id;
+                const compositeKey = `${questionKey}_${questionId}`;
+                
+                if (!allNdisQuestions.has(compositeKey)) {
                     remainingQuestions.push(question);
                 }
             });
@@ -477,12 +523,15 @@ export const processFormDataForNdisPackages = (formData, isNdisFunded, calculate
             section.QaPairs?.forEach(qaPair => {
                 const question = qaPair.Question;
                 const questionKey = question ? (question.question_key || question.question || question.id) : null;
-                if (!questionKey || !allNdisQuestions.has(questionKey)) {
+                const questionId = qaPair.question_id || question?.id;
+                const compositeKey = questionKey ? `${questionKey}_${questionId}` : null;
+                
+                if (!compositeKey || !allNdisQuestions.has(compositeKey)) {
                     remainingQaPairs.push(qaPair);
                 }
             });
 
-            // Only add section to updated page if it has remaining questions or QaPairs
+            // Only add section if it has remaining content
             if (remainingQuestions.length > 0 || remainingQaPairs.length > 0) {
                 updatedSections.push({
                     ...section,
@@ -492,7 +541,6 @@ export const processFormDataForNdisPackages = (formData, isNdisFunded, calculate
             }
         });
 
-        // Add page to updated pages (even if all sections were removed)
         updatedPages.push({
             ...page,
             Sections: updatedSections
@@ -501,11 +549,38 @@ export const processFormDataForNdisPackages = (formData, isNdisFunded, calculate
 
     // Create NDIS Packages page if we have NDIS questions
     if (ndisQuestions.length > 0) {
+        // ✅ NEW: Sort questions within each section by their order property
+        const sortedNdisQuestions = ndisQuestions.map(section => {
+            const sortedQuestions = [...section.Questions].sort((a, b) => {
+                // Sort by order property
+                const orderA = a.order !== undefined ? a.order : 999;
+                const orderB = b.order !== undefined ? b.order : 999;
+                return orderA - orderB;
+            });
+            
+            const sortedQaPairs = section.QaPairs ? [...section.QaPairs].sort((a, b) => {
+                // Sort QaPairs by their Question's order
+                const orderA = a.Question?.order !== undefined ? a.Question.order : 999;
+                const orderB = b.Question?.order !== undefined ? b.Question.order : 999;
+                return orderA - orderB;
+            }) : [];
+            
+            console.log(`📋 Sorted NDIS section "${section.label}":`, 
+                sortedQuestions.map(q => `${q.question} (order: ${q.order})`).join(', ')
+            );
+            
+            return {
+                ...section,
+                Questions: sortedQuestions,
+                QaPairs: sortedQaPairs
+            };
+        });
+
         const ndisPage = {
             id: 'ndis_packages_page',
             title: 'NDIS Requirements',
-            description: 'Please complete the NDIS-specific requirements below.',
-            Sections: ndisQuestions,
+            description: '',
+            Sections: sortedNdisQuestions,
             url: "&&page_id=ndis_packages_page",
             active: false,
             hasNext: true,
@@ -513,7 +588,7 @@ export const processFormDataForNdisPackages = (formData, isNdisFunded, calculate
             lastPage: false,
             pageQuestionDependencies: [],
             completed: false, // ✅ FIXED: Don't calculate completion here - will be done later
-            noItems: ndisQuestions.reduce((total, section) => total + section.Questions.length, 0),
+            noItems: sortedNdisQuestions.reduce((total, section) => total + section.Questions.length, 0),
             dirty: false,
             hidden: false,
             template_id: formData[0]?.template_id || null

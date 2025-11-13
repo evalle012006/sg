@@ -68,7 +68,7 @@ class EmailTriggerService {
             console.log(`\n📧 Evaluating email triggers for booking ${booking.uuid}...`);
 
             // Build query conditions
-            const whereConditions = { enabled };
+            const whereConditions = { enabled: enabled };
             if (triggerType) {
                 whereConditions.type = triggerType;
             }
