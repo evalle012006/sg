@@ -869,12 +869,20 @@ const PricingTable = ({
   };
 
   const processApiPackageData = () => {
+    console.log(courseAnalysisData)
     const processedRows = packageData.ndis_line_items
       .filter(lineItem => {
         // Filter out room line items for Support Holiday Packages
         if (isSupportHolidayPackage && lineItem.line_item_type === 'room') {
           return false;
         }
+
+        // ✅ NEW: Filter out course line items when there's no course in the booking
+        if (lineItem.line_item_type === 'course' && (!courseAnalysisData || !courseAnalysisData.hasCourse)) {
+          console.log(`🎓 Filtering out course line item (no course in booking): "${lineItem.sta_package}"`);
+          return false;
+        }
+        
         return true;
       })
       .map(lineItem => {

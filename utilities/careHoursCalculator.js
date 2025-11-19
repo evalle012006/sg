@@ -4,7 +4,16 @@
  * @returns {Object} Care analysis with total hours and breakdown
  */
 export function calculateCareHours(careData) {
-  if (!careData || !Array.isArray(careData) || careData.length === 0) {
+  let dataToProcess = careData;
+  
+  if (careData && typeof careData === 'object' && !Array.isArray(careData)) {
+    if (careData.careData && Array.isArray(careData.careData)) {
+      console.warn('⚠️ calculateCareHours received nested structure, extracting careData array');
+      dataToProcess = careData.careData;
+    }
+  }
+  
+  if (!dataToProcess || !Array.isArray(dataToProcess) || dataToProcess.length === 0) {
     return {
       totalHoursPerDay: 0,
       dailyBreakdown: {},
@@ -17,7 +26,7 @@ export function calculateCareHours(careData) {
   // Group care by date to calculate daily totals
   const dailyCare = {};
   
-  careData.forEach(entry => {
+  dataToProcess.forEach(entry => {
     const { date, values } = entry;
     
     if (!dailyCare[date]) {

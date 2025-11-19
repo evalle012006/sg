@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronDown, ChevronRight, Check, AlertCircle } from 'lucide-react';
+import { Element } from 'react-scroll'; // Add this import
 import StatusBadge from './StatusBadge';
 import Button from './Button';
 
@@ -13,7 +14,7 @@ const AccordionItem = ({
   totalItems,
   onNext,
   onBack,
-  onHeaderClick, // New prop for header click
+  onHeaderClick,
   canGoNext,
   canGoBack,
   isLastItem,
@@ -56,93 +57,102 @@ const AccordionItem = ({
   };
 
   return (
-    <div
-      id={`accordion-item-${index}`}
-      className="border-b border-gray-200 last:border-b-0"
+    <Element 
+      name={`accordion-item-${index}`}
+      className="accordion-item-wrapper"
     >
-      {/* Header - Now clickable */}
-      <div 
-        className={`flex items-center justify-between py-4 px-8 ${isOpen ? 'bg-gray-50' : 'bg-white'} transition-colors cursor-pointer hover:bg-gray-50`}
-        onClick={handleHeaderClick}
+      <div
+        id={`accordion-item-${index}`}
+        className="border-b border-gray-200 last:border-b-0 accordion-item"
+        style={{ 
+          opacity: 1,
+          transition: 'opacity 0.15s ease-in-out',
+        }}
       >
-        <div className="flex items-center space-x-4 flex-1">
-          <div className="flex-1">
-            <div className="flex items-center space-x-3 mb-1">
-              <h3 className="font-semibold text-gray-800 text-lg">{title}</h3>
-              <StatusBadge
-                type={getStatusBadgeType()}
-                label={getStatusBadgeLabel()}
-                size="small"
-                showIcon={true}
-              />
-            </div>
-            <p className="text-sm text-gray-600">{description}</p>
-          </div>
-        </div>
-        {/* Visual indicator that shows if section is open */}
-        <div className="text-gray-400">
-          {isOpen ? <ChevronDown size={20} /> : <ChevronRight size={20} />}
-        </div>
-      </div>
-
-      {/* Content Area - Only shown when open */}
-      {isOpen && (
-        <div className="bg-white">
-          {/* Content Area - Full width with no horizontal padding */}
-          <div className="py-2">
-            {customContent ? (
-              customContent
-            ) : (
-              <div className="px-8">
-                <p className="text-gray-600">{description}</p>
+        {/* Header - Now clickable */}
+        <div 
+          className={`flex items-center justify-between py-4 px-8 ${isOpen ? 'bg-gray-50' : 'bg-white'} transition-colors cursor-pointer hover:bg-gray-50`}
+          onClick={handleHeaderClick}
+        >
+          <div className="flex items-center space-x-4 flex-1">
+            <div className="flex-1">
+              <div className="flex items-center space-x-3 mb-1">
+                <h3 className="font-semibold text-gray-800 text-lg">{title}</h3>
+                <StatusBadge
+                  type={getStatusBadgeType()}
+                  label={getStatusBadgeLabel()}
+                  size="small"
+                  showIcon={true}
+                />
               </div>
-            )}
-          </div>
-
-          {/* Navigation Footer - Right aligned buttons only */}
-          <div className="px-8 py-4 bg-white border-t border-gray-200 flex items-center justify-end">
-            <div className="flex items-center space-x-3">
-              {/* Back Button */}
-              {canGoBack && (
-                <Button
-                  color="outline"
-                  size="medium"
-                  label="PREVIOUS"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onBack && onBack(index);
-                  }}
-                  outlineBorderColor="#10b981"
-                />
-              )}
-
-              {/* Next/Submit Button */}
-              {canGoNext ? (
-                <Button
-                  color="secondary"
-                  size="medium"
-                  label="NEXT"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onNext && onNext(index);
-                  }}
-                />
-              ) : isLastItem ? (
-                <Button
-                  color="secondary"
-                  size="medium"
-                  label="SUBMIT"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onNext && onNext(index, true);
-                  }}
-                />
-              ) : null}
+              <p className="text-sm text-gray-600">{description}</p>
             </div>
           </div>
+          {/* Visual indicator that shows if section is open */}
+          <div className="text-gray-400">
+            {isOpen ? <ChevronDown size={20} /> : <ChevronRight size={20} />}
+          </div>
         </div>
-      )}
-    </div>
+
+        {/* Content Area - Only shown when open */}
+        {isOpen && (
+          <div className="bg-white" data-accordion-content>
+            {/* Content Area - Full width with no horizontal padding */}
+            <div className="py-2">
+              {customContent ? (
+                customContent
+              ) : (
+                <div className="px-8">
+                  <p className="text-gray-600">{description}</p>
+                </div>
+              )}
+            </div>
+
+            {/* Navigation Footer - Right aligned buttons only */}
+            <div className="px-8 py-4 bg-white border-t border-gray-200 flex items-center justify-end">
+              <div className="flex items-center space-x-3">
+                {/* Back Button */}
+                {canGoBack && (
+                  <Button
+                    color="outline"
+                    size="medium"
+                    label="PREVIOUS"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onBack && onBack(index);
+                    }}
+                    outlineBorderColor="#10b981"
+                  />
+                )}
+
+                {/* Next/Submit Button */}
+                {canGoNext ? (
+                  <Button
+                    color="secondary"
+                    size="medium"
+                    label="NEXT"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onNext && onNext(index);
+                    }}
+                  />
+                ) : isLastItem ? (
+                  <Button
+                    color="secondary"
+                    size="medium"
+                    label="SUBMIT"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onNext && onNext(index, true);
+                    }}
+                  />
+                ) : null}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </Element>
   );
 };
 
@@ -152,17 +162,27 @@ const Accordion = ({
   className = "",
   allowMultiple = false,
   onNavigate,
-  onHeaderClick, // New prop for header click handling
+  onHeaderClick,
   origin
 }) => {
   const [openItems, setOpenItems] = useState(
     defaultOpenIndex !== null ? [defaultOpenIndex] : []
   );
+  const [isNavigating, setIsNavigating] = useState(false);
 
   // Update open items when defaultOpenIndex changes (controlled from parent)
   useEffect(() => {
     if (defaultOpenIndex !== null) {
+      // Add a small delay to coordinate with scroll
+      setIsNavigating(true);
       setOpenItems([defaultOpenIndex]);
+      
+      // Reset navigating state after transition
+      const timer = setTimeout(() => {
+        setIsNavigating(false);
+      }, 300);
+      
+      return () => clearTimeout(timer);
     }
   }, [defaultOpenIndex]);
 
@@ -172,11 +192,8 @@ const Accordion = ({
 
   const handleNext = (currentIndex, isSubmit = false) => {
     if (isSubmit) {
-      // This is the last item being completed - don't change accordion state
       onNavigate && onNavigate(currentIndex, 'submit');
     } else if (currentIndex < items.length - 1) {
-      // Let parent handle navigation - don't change accordion state here
-      // The parent will update defaultOpenIndex if navigation is successful
       const nextIndex = currentIndex + 1;
       onNavigate && onNavigate(nextIndex, 'next');
     }
@@ -184,29 +201,31 @@ const Accordion = ({
 
   const handleBack = (currentIndex) => {
     if (currentIndex > 0) {
-      // Let parent handle navigation - don't change accordion state here
-      // The parent will update defaultOpenIndex if navigation is successful
       const prevIndex = currentIndex - 1;
       onNavigate && onNavigate(prevIndex, 'back');
     }
   };
 
-  // Handle header click - use the same navigation function
   const handleItemHeaderClick = (clickedIndex) => {
     if (onHeaderClick) {
       onHeaderClick(clickedIndex);
     } else if (onNavigate) {
-      // Fallback: use the same navigation logic as the buttons
       onNavigate(clickedIndex, 'header-click');
     }
   };
 
   return (
     <div className={`w-full h-full ${className}`}>
-      <div className="bg-white h-full">
+      <div 
+        className="bg-white h-full"
+        style={{
+          opacity: isNavigating ? 0.98 : 1,
+          transition: 'opacity 0.15s ease-in-out'
+        }}
+      >
         {items.map((item, index) => (
           <AccordionItem
-            key={index}
+            key={`accordion-${index}-${item.title}`}
             title={item.title}
             description={item.description}
             status={item.status}
@@ -216,7 +235,7 @@ const Accordion = ({
             totalItems={items.length}
             onNext={handleNext}
             onBack={handleBack}
-            onHeaderClick={handleItemHeaderClick} // Pass the header click handler
+            onHeaderClick={handleItemHeaderClick}
             canGoNext={index < items.length - 1}
             canGoBack={index > 0}
             isLastItem={index === items.length - 1}

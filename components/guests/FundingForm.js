@@ -1,60 +1,65 @@
 import React, { useState, useEffect } from 'react';
 import { toast } from 'react-toastify';
-import moment from 'moment';
 import dynamic from 'next/dynamic';
+import { Plus, Trash2, Edit2, AlertCircle, Calendar } from 'lucide-react';
+import moment from 'moment';
 
-// Import existing UI components
+const Button = dynamic(() => import('../ui-v2/Button'));
 const TextField = dynamic(() => import('../ui-v2/TextField'));
 const SelectComponent = dynamic(() => import('../ui/select'));
 const DateComponent = dynamic(() => import('../ui-v2/DateField'));
-const Button = dynamic(() => import('../ui-v2/Button'));
 
-const FundingForm = ({ uuid, initialData, onSave }) => {
-  const [fundingData, setFundingData] = useState({
-    approval_number: '',
-    nights_approved: '',
-    package_id: null,
-    package_approved: '',
-    approval_from: '',
-    approval_to: '',
-    nights_used: 0,
-    // New additional room fields
-    additional_room_approved: null,
-    additional_room_nights_approved: '',
-    additional_room_nights_used: 0
-  });
-  
-  const [isSaving, setIsSaving] = useState(false);
-  
-  // Package options state
+const FundingForm = ({ uuid, onSuccess }) => {
+  const [loading, setLoading] = useState(false);
+  const [fundingApprovals, setFundingApprovals] = useState([]);
+  const [showModal, setShowModal] = useState(false);
+  const [editingApproval, setEditingApproval] = useState(null);
+
+  // Package and Room Type options
   const [packageOptions, setPackageOptions] = useState([]);
   const [loadingPackages, setLoadingPackages] = useState(false);
-
-  // Room types options state
   const [roomTypeOptions, setRoomTypeOptions] = useState([]);
   const [loadingRoomTypes, setLoadingRoomTypes] = useState(false);
 
-  // Load package options from API
+  useEffect(() => {
+    if (uuid) {
+      fetchFundingApprovals();
+      loadPackageOptions();
+      loadRoomTypes();
+    }
+  }, [uuid]);
+
+  const fetchFundingApprovals = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch(`/api/guests/${uuid}/funding-approvals`);
+      if (response.ok) {
+        const result = await response.json();
+        setFundingApprovals(result.data || []);
+      }
+    } catch (error) {
+      console.error('Error fetching funding approvals:', error);
+      toast.error('Failed to load funding approvals');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const loadPackageOptions = async () => {
     setLoadingPackages(true);
     try {
       const response = await fetch('/api/packages/?funder=Non-NDIS&limit=100');
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       
       const result = await response.json();
-      
       const packageList = [];
       const responseData = result.packages || result;
       
       if (Array.isArray(responseData)) {
         responseData.forEach(pkg => {
           if (pkg.funder === 'Non-NDIS') {
-            const label = pkg.name + (pkg.package_code ? ` (${pkg.package_code})` : '');
             packageList.push({
-              label: label,
+              label: pkg.name + (pkg.package_code ? ` (${pkg.package_code})` : ''),
               value: pkg.id,
               packageData: pkg
             });
@@ -64,46 +69,22 @@ const FundingForm = ({ uuid, initialData, onSave }) => {
       
       packageList.sort((a, b) => a.label.localeCompare(b.label));
       setPackageOptions(packageList);
-
     } catch (error) {
-      console.error('Error loading package options:', error);
-      toast.error('Failed to load package options. Using default options.');
+      console.error('Error loading packages:', error);
+      toast.error('Failed to load package options');
     } finally {
       setLoadingPackages(false);
     }
   };
 
-  // Load room types from API with optional filtering
   const loadRoomTypes = async () => {
     setLoadingRoomTypes(true);
     try {
-      // Use manage-room API with simple=true for faster response
-      // Optional: filter by specific room types (e.g., only ocean_view and deluxe)
-      // const filterTypes = ['ocean_view', 'deluxe']; // Uncomment and customize as needed
-      
-      let apiUrl = '/api/manage-room?simple=true';
-      
-      // Uncomment the following lines to enable filtering by room types
-      // if (filterTypes && filterTypes.length > 0) {
-      //   apiUrl += `&types=${filterTypes.join(',')}`;
-      // }
-      
-      const response = await fetch(apiUrl);
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
+      const response = await fetch('/api/manage-room?simple=true');
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       
       const result = await response.json();
-      
-      const roomTypeList = [
-        // Add "No" as the first option
-        {
-          label: 'No',
-          value: null,
-          roomTypeData: null
-        }
-      ];
+      const roomTypeList = [{ label: 'No', value: null, roomTypeData: null }];
       
       if (Array.isArray(result)) {
         result.forEach(roomType => {
@@ -115,437 +96,837 @@ const FundingForm = ({ uuid, initialData, onSave }) => {
         });
       }
       
-      // Sort all options except the first "No" option
       const noOption = roomTypeList.shift();
       roomTypeList.sort((a, b) => a.label.localeCompare(b.label));
       roomTypeList.unshift(noOption);
       
       setRoomTypeOptions(roomTypeList);
-
     } catch (error) {
       console.error('Error loading room types:', error);
-      toast.error('Failed to load room types.');
+      toast.error('Failed to load room types');
     } finally {
       setLoadingRoomTypes(false);
     }
   };
 
-  // Load options on component mount
-  useEffect(() => {
-    loadPackageOptions();
-    loadRoomTypes();
-  }, []);
-
-  // Update state when initialData changes
-  useEffect(() => {
-    if (initialData) {
-      setFundingData(prev => ({
-        ...prev,
-        approval_number: initialData.approval_number || '',
-        nights_approved: initialData.nights_approved || '',
-        package_id: initialData.package_id || null,
-        package_approved: initialData.package_approved || '', 
-        approval_from: initialData.approval_from || '',
-        approval_to: initialData.approval_to || '',
-        nights_used: initialData.nights_used || 0,
-        // New additional room fields
-        additional_room_approved: initialData.additional_room_approved || null,
-        additional_room_nights_approved: initialData.additional_room_nights_approved || '',
-        additional_room_nights_used: initialData.additional_room_nights_used || 0
-      }));
-    }
-  }, [initialData]);
-
-  // Find the selected package label based on package_id
-  const getSelectedPackageLabel = () => {
-    if (fundingData.package_id && packageOptions.length > 0) {
-      const selectedOption = packageOptions.find(option => option.value === fundingData.package_id);
-      return selectedOption ? selectedOption.label : '';
-    }
-    return '';
+  const handleAddNew = () => {
+    setEditingApproval(null);
+    setShowModal(true);
   };
 
-  // Find the selected room type label based on additional_room_approved
-  const getSelectedRoomTypeLabel = () => {
-    if (fundingData.additional_room_approved === null || fundingData.additional_room_approved === undefined) {
-      return 'No';
-    }
-    if (fundingData.additional_room_approved && roomTypeOptions.length > 0) {
-      const selectedOption = roomTypeOptions.find(option => option.value === fundingData.additional_room_approved);
-      return selectedOption ? selectedOption.label : 'No';
-    }
-    return 'No';
+  const handleEdit = (approval) => {
+    setEditingApproval(approval);
+    setShowModal(true);
   };
 
-  // Handle package selection
-  const handlePackageChange = (selected) => {
-    if (selected && selected.value) {
-      setFundingData(prev => ({ 
-        ...prev, 
-        package_id: selected.value,
-        package_approved: selected.label
-      }));
-    } else {
-      setFundingData(prev => ({ 
-        ...prev, 
-        package_id: null,
-        package_approved: ''
-      }));
-    }
-  };
+  const handleDelete = async (approvalId) => {
+    if (!confirm('Are you sure you want to delete this funding approval?')) return;
 
-  // Handle room type selection
-  const handleRoomTypeChange = (selected) => {
-    if (selected) {
-      // If "No" is selected or value is null
-      if (selected.value === null) {
-        setFundingData(prev => ({ 
-          ...prev, 
-          additional_room_approved: null,
-          additional_room_nights_approved: '',
-          additional_room_nights_used: 0
-        }));
-      } else {
-        // A room type is selected
-        setFundingData(prev => ({ 
-          ...prev, 
-          additional_room_approved: selected.value
-        }));
-      }
-    } else {
-      // Cleared selection
-      setFundingData(prev => ({ 
-        ...prev, 
-        additional_room_approved: null,
-        additional_room_nights_approved: '',
-        additional_room_nights_used: 0
-      }));
-    }
-  };
-
-  // Handle save
-  const handleSave = async () => {
-    if (!uuid) {
-      toast.error('Guest ID is required');
-      return;
-    }
-    
-    // Validation: nights_used cannot exceed nights_approved
-    const nightsUsed = parseInt(fundingData.nights_used) || 0;
-    const nightsApproved = parseInt(fundingData.nights_approved) || 0;
-    
-    if (nightsApproved > 0 && nightsUsed > nightsApproved) {
-      toast.error('Nights used cannot exceed nights approved');
-      return;
-    }
-
-    // Validation: additional_room_nights_used cannot exceed additional_room_nights_approved
-    // Only validate if an additional room is actually selected
-    if (fundingData.additional_room_approved) {
-      const additionalNightsUsed = parseInt(fundingData.additional_room_nights_used) || 0;
-      const additionalNightsApproved = parseInt(fundingData.additional_room_nights_approved) || 0;
-      
-      if (additionalNightsApproved > 0 && additionalNightsUsed > additionalNightsApproved) {
-        toast.error('Additional room nights used cannot exceed nights approved');
-        return;
-      }
-    }
-    
-    setIsSaving(true);
     try {
-      const response = await fetch(`/api/guests/${uuid}/funding`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          approval_number: fundingData.approval_number,
-          nights_approved: fundingData.nights_approved,
-          package_id: fundingData.package_id,
-          approval_from: fundingData.approval_from,
-          approval_to: fundingData.approval_to,
-          nights_used: nightsUsed,
-          // New additional room fields
-          additional_room_approved: fundingData.additional_room_approved,
-          additional_room_nights_approved: fundingData.additional_room_nights_approved,
-          additional_room_nights_used: fundingData.additional_room_approved ? 
-            (parseInt(fundingData.additional_room_nights_used) || 0) : 0
-        }),
+      const response = await fetch(`/api/guests/${uuid}/funding-approvals/${approvalId}`, {
+        method: 'DELETE'
       });
 
       if (response.ok) {
-        toast.success('Funding information saved successfully!');
-        if (onSave) {
-          onSave();
-        }
+        toast.success('Funding approval deleted successfully');
+        fetchFundingApprovals();
       } else {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to save funding information');
+        throw new Error('Failed to delete approval');
       }
     } catch (error) {
-      console.error('Error saving funding info:', error);
-      toast.error(error.message || 'Failed to save funding information. Please try again.');
-    } finally {
-      setIsSaving(false);
+      console.error('Error deleting approval:', error);
+      toast.error('Failed to delete funding approval');
     }
   };
 
-  const nightsUsed = parseInt(fundingData.nights_used) || 0;
-  const nightsApproved = parseInt(fundingData.nights_approved) || 0;
-  const additionalNightsUsed = parseInt(fundingData.additional_room_nights_used) || 0;
-  const additionalNightsApproved = parseInt(fundingData.additional_room_nights_approved) || 0;
+  const calculateTotals = () => {
+    return fundingApprovals.reduce((totals, approval) => {
+      const nightsApproved = approval.nights_approved || 0;
+      const nightsUsed = approval.nights_used || 0;
+      const nightsRemaining = Math.max(0, nightsApproved - nightsUsed);
 
-  return (
-    <div className="max-w-6xl mx-auto">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Left Column - Funding Information Form */}
-        <div className="space-y-8">
-          {/* iCare Package Section */}
-          <div className="bg-white border border-gray-200 rounded-lg p-6">
-            <h2 className="text-lg font-semibold text-gray-800 mb-6">iCare Package Funding</h2>
-            
-            <div className="space-y-6">
-              {/* Approval Number */}
-              <TextField
-                label="Approval number"
-                value={fundingData.approval_number}
-                onChange={(value) => setFundingData(prev => ({ ...prev, approval_number: value }))}
-                placeholder="Enter approval number"
-              />
+      return {
+        totalAllocated: totals.totalAllocated + nightsApproved,
+        totalUsed: totals.totalUsed + nightsUsed,
+        totalRemaining: totals.totalRemaining + nightsRemaining
+      };
+    }, { totalAllocated: 0, totalUsed: 0, totalRemaining: 0 });
+  };
 
-              {/* Number of Nights Approved */}
-              <TextField
-                label="Number of nights approved"
-                type="number"
-                value={fundingData.nights_approved}
-                onChange={(value) => setFundingData(prev => ({ ...prev, nights_approved: value }))}
-                placeholder="Enter number of nights"
-                min="0"
-              />
+  const totals = calculateTotals();
 
-              {/* Number of Nights Used */}
-              <TextField
-                label="Number of nights used"
-                type="number"
-                value={fundingData.nights_used}
-                onChange={(value) => setFundingData(prev => ({ ...prev, nights_used: value }))}
-                placeholder="Enter number of nights used"
-                min="0"
-                max={fundingData.nights_approved || undefined}
-              />
+  const ApprovalCard = ({ approval }) => {
+    const nightsApproved = approval.nights_approved || 0;
+    const nightsUsed = approval.nights_used || 0;
+    const nightsRemaining = Math.max(0, nightsApproved - nightsUsed);
+    const nightsPercentage = nightsApproved > 0 ? (nightsUsed / nightsApproved) * 100 : 0;
 
-              {/* Package Approved */}
-              <div>
-                <label className="block text-sm font-medium mb-2 text-gray-700">
-                  Package Approved
-                  {loadingPackages && <span className="text-xs text-gray-500 ml-2">(Loading...)</span>}
-                </label>
-                <SelectComponent
-                  options={packageOptions}
-                  value={getSelectedPackageLabel()}
-                  onChange={handlePackageChange}
-                  placeholder={loadingPackages ? "Loading packages..." : "Select package type"}
-                  disabled={loadingPackages}
-                  isClearable={true}
-                />
+    const additionalNightsApproved = approval.additional_room_nights_approved || 0;
+    const additionalNightsUsed = approval.additional_room_nights_used || 0;
+    const additionalNightsRemaining = Math.max(0, additionalNightsApproved - additionalNightsUsed);
+    const additionalPercentage = additionalNightsApproved > 0 ? (additionalNightsUsed / additionalNightsApproved) * 100 : 0;
+
+    const isExpired = approval.approval_to && moment(approval.approval_to).isBefore(moment());
+    const isActive = approval.approval_from && approval.approval_to 
+      ? moment().isBetween(moment(approval.approval_from), moment(approval.approval_to), 'day', '[]')
+      : false;
+
+    return (
+      <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+        {/* Card Header */}
+        <div className={`p-4 border-b border-gray-200 ${isActive ? 'bg-blue-50' : 'bg-gray-50'}`}>
+          <div className="flex items-start justify-between">
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-1">
+                <h3 className="text-base font-semibold text-gray-800">
+                  {approval.approval_name}
+                </h3>
+                {isActive && (
+                  <span className="px-2 py-0.5 bg-blue-600 text-white text-xs font-medium rounded">
+                    Active
+                  </span>
+                )}
+                {isExpired && (
+                  <span className="px-2 py-0.5 bg-gray-400 text-white text-xs font-medium rounded">
+                    Expired
+                  </span>
+                )}
               </div>
-
-              {/* Approval From */}
-              <DateComponent
-                label="Approval From"
-                value={fundingData.approval_from}
-                onChange={(value) => setFundingData(prev => ({ ...prev, approval_from: value }))}
-              />
-
-              {/* Approval To */}
-              <DateComponent
-                label="Approval To"
-                value={fundingData.approval_to}
-                onChange={(value) => setFundingData(prev => ({ ...prev, approval_to: value }))}
-              />
-            </div>
-          </div>
-
-          {/* Additional Room Section */}
-          <div className="bg-white border border-gray-200 rounded-lg p-6">
-            <h2 className="text-lg font-semibold text-gray-800 mb-2">Additional Room Funding</h2>
-            <p className="text-sm text-gray-500 mb-6">Separate funding allocation for additional rooms</p>
-            
-            <div className="space-y-6">
-              {/* Additional Room Type */}
-              <div>
-                <label className="block text-sm font-medium mb-2 text-gray-700">
-                  Additional Room Type Approved
-                  {loadingRoomTypes && <span className="text-xs text-gray-500 ml-2">(Loading...)</span>}
-                </label>
-                <SelectComponent
-                  options={roomTypeOptions}
-                  value={getSelectedRoomTypeLabel()}
-                  onChange={handleRoomTypeChange}
-                  placeholder={loadingRoomTypes ? "Loading room types..." : "Select room type"}
-                  disabled={loadingRoomTypes}
-                  isClearable={false}
-                />
+              {approval.approval_number && (
+                <p className="text-xs text-gray-500">
+                  Approval number: {approval.approval_number}
+                </p>
+              )}
+              <div className="flex items-center gap-2 mt-2 text-xs text-gray-600">
+                <Calendar size={13} className="flex-shrink-0" />
+                <span>
+                  {moment(approval.approval_from).format('DD MMM YYYY')} - {moment(approval.approval_to).format('DD MMM YYYY')}
+                </span>
               </div>
-
-              {/* Additional Room Nights Approved */}
-              <TextField
-                label="Additional room nights approved"
-                type="number"
-                value={fundingData.additional_room_nights_approved}
-                onChange={(value) => setFundingData(prev => ({ ...prev, additional_room_nights_approved: value }))}
-                placeholder="Enter number of nights"
-                min="0"
-                disabled={!fundingData.additional_room_approved}
-              />
-
-              {/* Additional Room Nights Used */}
-              <TextField
-                label="Additional room nights used"
-                type="number"
-                value={fundingData.additional_room_nights_used}
-                onChange={(value) => setFundingData(prev => ({ ...prev, additional_room_nights_used: value }))}
-                placeholder="Enter number of nights used"
-                min="0"
-                max={fundingData.additional_room_nights_approved || undefined}
-                disabled={!fundingData.additional_room_approved}
-              />
             </div>
-          </div>
 
-          {/* Save Button */}
-          <div className="bg-white border border-gray-200 rounded-lg p-6">
-            <Button
-              onClick={handleSave}
-              disabled={isSaving}
-              size="medium"
-              color="primary"
-              label={isSaving ? 'Saving...' : 'Save Funding Information'}
-              withIcon={true}
-              iconName="check"
-            />
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => handleEdit(approval)}
+                className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                title="Edit"
+              >
+                <Edit2 size={16} />
+              </button>
+              <button
+                onClick={() => handleDelete(approval.id)}
+                className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
+                title="Delete"
+              >
+                <Trash2 size={16} />
+              </button>
+            </div>
           </div>
         </div>
 
-        {/* Right Column - Trackers */}
-        <div className="space-y-8">
-          {/* iCare Night Tracker */}
-          <div className="bg-white border border-gray-200 rounded-lg p-6">
-            <h2 className="text-lg font-semibold text-gray-800 mb-6">iCare Night Tracker</h2>
-            
-            <div>
-              <p className="text-sm text-gray-600 mb-4">
-                Number of nights used in service approval period
-              </p>
-              
-              <div className="bg-gray-50 rounded-lg p-6 text-center">
-                <div className="text-3xl font-bold text-gray-800 mb-2">
-                  {nightsUsed} of {nightsApproved || 0}
-                </div>
+        {/* Card Body */}
+        <div className="p-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Left Column - Info */}
+            <div className="space-y-4">
+              <div>
+                <h4 className="text-sm font-semibold text-gray-700 mb-3">iCare Package Funding</h4>
                 
-                {nightsApproved > 0 && (
-                  <div className="w-full bg-gray-200 rounded-full h-3 mb-4">
-                    <div 
-                      className={`h-3 rounded-full transition-all duration-300 ${
-                        nightsUsed > nightsApproved ? 'bg-gray-600' : 'bg-blue-600'
-                      }`}
-                      style={{ 
-                        width: `${Math.min(100, (nightsUsed / nightsApproved) * 100)}%` 
-                      }}
-                    />
+                {approval.package && (
+                  <div className="mb-3 pb-3 border-b border-gray-200">
+                    <p className="text-xs text-gray-500 mb-1">Package approved</p>
+                    <p className="text-sm text-gray-800">
+                      {approval.package.name}
+                      {approval.package.package_code && ` (${approval.package.package_code})`}
+                    </p>
                   </div>
                 )}
-                
-                <p className={`text-sm ${nightsUsed > nightsApproved ? 'text-gray-600 font-medium' : 'text-gray-500'}`}>
-                  {nightsApproved && nightsUsed !== undefined
-                    ? nightsUsed > nightsApproved
-                      ? `${nightsUsed - nightsApproved} nights over limit`
-                      : `${Math.max(0, nightsApproved - nightsUsed)} nights remaining`
-                    : fundingData.approval_from && fundingData.approval_to
-                      ? 'Set nights approved to track usage'
-                      : 'Set approval period and nights to track usage'
-                  }
-                </p>
+
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Number of nights approved</span>
+                    <span className="font-medium text-gray-800">{nightsApproved}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Number of nights used</span>
+                    <span className="font-medium text-gray-800">{nightsUsed}</span>
+                  </div>
+                </div>
               </div>
-              
-              {fundingData.approval_from && fundingData.approval_to && (
-                <div className="mt-4 text-sm text-gray-600">
-                  <p><strong>Approval Period:</strong></p>
-                  <p>
-                    {moment(fundingData.approval_from).format('DD MMM, YYYY')} - {moment(fundingData.approval_to).format('DD MMM, YYYY')}
-                  </p>
+
+              {/* Additional Room Info */}
+              {approval.additional_room_type_id && approval.additionalRoomType && (
+                <div className="pt-4 border-t border-gray-200">
+                  <h4 className="text-sm font-semibold text-gray-700 mb-3">Additional Room Funding</h4>
+                  <p className="text-xs text-gray-500 mb-3">Separate funding allocation for additional rooms</p>
+                  
+                  <div className="mb-3 pb-3 border-b border-gray-200">
+                    <p className="text-xs text-gray-500 mb-1">Additional room type approved</p>
+                    <p className="text-sm text-gray-800">{approval.additionalRoomType.name}</p>
+                  </div>
+
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Additional room nights approved</span>
+                      <span className="font-medium text-gray-800">{additionalNightsApproved}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Additional room nights used</span>
+                      <span className="font-medium text-gray-800">{additionalNightsUsed}</span>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
-          </div>
 
-          {/* Additional Room Tracker */}
-          <div className="bg-white border border-gray-200 rounded-lg p-6">
-            <h2 className="text-lg font-semibold text-gray-600 mb-6">Additional Room Tracker</h2>
-            
-            <div>
-              <p className="text-sm text-gray-600 mb-4">
-                Number of nights used in service approval period for additional rooms
-              </p>
-              
-              {fundingData.additional_room_approved ? (
-                // Show tracker when a room type is selected
-                <>
-                  <div className="bg-gray-50 rounded-lg p-6 text-center border border-gray-100">
-                    <div className="text-3xl font-bold text-gray-600 mb-2">
-                      {additionalNightsUsed} of {additionalNightsApproved || 0}
+            {/* Right Column - Trackers */}
+            <div className="space-y-6">
+              {/* iCare Night Tracker */}
+              <div>
+                <h4 className="text-sm font-semibold text-gray-700 mb-3">iCare Night Tracker</h4>
+                <p className="text-xs text-gray-600 mb-4">Number of nights used in service approval period</p>
+                
+                <div className="bg-gray-50 rounded-lg p-6 text-center">
+                  <div className="text-3xl font-bold text-gray-800 mb-2">
+                    {nightsUsed} of {nightsApproved}
+                  </div>
+                  
+                  {nightsApproved > 0 && (
+                    <div className="w-full bg-gray-200 rounded-full h-3 mb-4">
+                      <div 
+                        className={`h-3 rounded-full transition-all duration-300 ${
+                          nightsPercentage >= 100 ? 'bg-red-600' : 'bg-blue-600'
+                        }`}
+                        style={{ width: `${Math.min(100, nightsPercentage)}%` }}
+                      />
+                    </div>
+                  )}
+                  
+                  <p className="text-sm text-gray-600">
+                    {nightsApproved > 0
+                      ? nightsRemaining > 0
+                        ? `${nightsRemaining} nights remaining`
+                        : 'No nights remaining'
+                      : 'Set approval period and nights to track usage'
+                    }
+                  </p>
+                </div>
+              </div>
+
+              {/* Additional Room Tracker */}
+              <div>
+                <h4 className="text-sm font-semibold text-gray-700 mb-3">Additional Room Tracker</h4>
+                <p className="text-xs text-gray-600 mb-4">Number of nights used in service approval period for additional rooms</p>
+                
+                {approval.additional_room_type_id && approval.additionalRoomType ? (
+                  <div className="bg-gray-50 rounded-lg p-6 text-center">
+                    <div className="text-3xl font-bold text-gray-800 mb-2">
+                      {additionalNightsUsed} of {additionalNightsApproved}
                     </div>
                     
                     {additionalNightsApproved > 0 && (
                       <div className="w-full bg-gray-200 rounded-full h-3 mb-4">
                         <div 
                           className={`h-3 rounded-full transition-all duration-300 ${
-                            additionalNightsUsed > additionalNightsApproved ? 'bg-gray-700' : 'bg-blue-500'
+                            additionalPercentage >= 100 ? 'bg-red-600' : 'bg-blue-600'
                           }`}
-                          style={{ 
-                            width: `${Math.min(100, (additionalNightsUsed / additionalNightsApproved) * 100)}%` 
-                          }}
+                          style={{ width: `${Math.min(100, additionalPercentage)}%` }}
                         />
                       </div>
                     )}
                     
-                    <p className={`text-sm ${additionalNightsUsed > additionalNightsApproved ? 'text-gray-700 font-medium' : 'text-gray-600'}`}>
-                      {additionalNightsApproved && additionalNightsUsed !== undefined
-                        ? additionalNightsUsed > additionalNightsApproved
-                          ? `${additionalNightsUsed - additionalNightsApproved} nights over limit`
-                          : `${Math.max(0, additionalNightsApproved - additionalNightsUsed)} nights remaining`
+                    <p className="text-sm text-gray-600">
+                      {additionalNightsApproved > 0
+                        ? additionalNightsRemaining > 0
+                          ? `${additionalNightsRemaining} nights remaining`
+                          : 'No nights remaining'
                         : 'Set additional room nights to track usage'
                       }
                     </p>
                   </div>
-                  
-                  {fundingData.additional_room_approved && roomTypeOptions.length > 0 && (
-                    <div className="mt-4 text-sm text-gray-600">
-                      <p><strong>Room Type:</strong></p>
-                      <p>{getSelectedRoomTypeLabel()}</p>
+                ) : (
+                  <div className="bg-gray-50 rounded-lg p-6 text-center">
+                    <div className="mb-3">
+                      <svg className="w-12 h-12 text-gray-300 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                      </svg>
                     </div>
-                  )}
-                </>
-              ) : (
-                // Show message when no room type is selected
-                <div className="bg-gray-50 rounded-lg p-6 text-center border border-gray-200">
-                  <div className="text-gray-400 mb-2">
-                    <svg className="w-16 h-16 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                    </svg>
+                    <p className="text-gray-500 text-sm mb-1">No additional room approved</p>
+                    <p className="text-gray-400 text-xs">Select a room type above to start tracking</p>
                   </div>
-                  <p className="text-gray-500 text-sm">
-                    No additional room approved
-                  </p>
-                  <p className="text-gray-400 text-xs mt-2">
-                    Select a room type above to start tracking
-                  </p>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           </div>
         </div>
       </div>
+    );
+  };
+
+  const ApprovalFormModal = () => {
+    const [formData, setFormData] = useState({
+      approval_name: '',
+      approval_number: '',
+      nights_approved: '',
+      nights_used: 0,
+      package_id: null,
+      approval_from: '',
+      approval_to: '',
+      additional_room_type_id: null,
+      additional_room_nights_approved: '',
+      additional_room_nights_used: 0,
+      status: 'active',
+      notes: ''
+    });
+
+    const [saving, setSaving] = useState(false);
+
+    useEffect(() => {
+      if (editingApproval) {
+        setFormData({
+          approval_name: editingApproval.approval_name || '',
+          approval_number: editingApproval.approval_number || '',
+          nights_approved: editingApproval.nights_approved || '',
+          nights_used: editingApproval.nights_used || 0,
+          package_id: editingApproval.package_id || null,
+          approval_from: editingApproval.approval_from || '',
+          approval_to: editingApproval.approval_to || '',
+          additional_room_type_id: editingApproval.additional_room_type_id || null,
+          additional_room_nights_approved: editingApproval.additional_room_nights_approved || '',
+          additional_room_nights_used: editingApproval.additional_room_nights_used || 0,
+          status: editingApproval.status || 'active',
+          notes: editingApproval.notes || ''
+        });
+      } else {
+        setFormData({
+          approval_name: '',
+          approval_number: '',
+          nights_approved: '',
+          nights_used: 0,
+          package_id: null,
+          approval_from: '',
+          approval_to: '',
+          additional_room_type_id: null,
+          additional_room_nights_approved: '',
+          additional_room_nights_used: 0,
+          status: 'active',
+          notes: ''
+        });
+      }
+    }, [editingApproval]);
+
+    const getSelectedPackageLabel = () => {
+      if (formData.package_id && packageOptions.length > 0) {
+        const selectedOption = packageOptions.find(option => option.value === formData.package_id);
+        return selectedOption ? selectedOption.label : '';
+      }
+      return '';
+    };
+
+    const getSelectedRoomTypeLabel = () => {
+      if (formData.additional_room_type_id === null || formData.additional_room_type_id === undefined) {
+        return 'No';
+      }
+      if (formData.additional_room_type_id && roomTypeOptions.length > 0) {
+        const selectedOption = roomTypeOptions.find(option => option.value === formData.additional_room_type_id);
+        return selectedOption ? selectedOption.label : 'No';
+      }
+      return 'No';
+    };
+
+    const validateForm = () => {
+      if (!formData.approval_name.trim()) {
+        toast.error('Please enter an approval name');
+        return false;
+      }
+
+      if (!formData.approval_number.trim()) {
+        toast.error('Please enter an approval number');
+        return false;
+      }
+
+      if (!formData.approval_from) {
+        toast.error('Please select a start date');
+        return false;
+      }
+
+      if (!formData.approval_to) {
+        toast.error('Please select an end date');
+        return false;
+      }
+
+      if (formData.approval_from && formData.approval_to) {
+        const fromDate = moment(formData.approval_from);
+        const toDate = moment(formData.approval_to);
+        
+        if (toDate.isBefore(fromDate)) {
+          toast.error('Approval end date must be after start date');
+          return false;
+        }
+      }
+
+      if (!formData.package_id) {
+        toast.error('Please select a package');
+        return false;
+      }
+
+      if (!formData.nights_approved || parseInt(formData.nights_approved) < 0) {
+        toast.error('Please enter a valid number of nights approved');
+        return false;
+      }
+
+      if (formData.nights_used === '' || formData.nights_used === null || parseInt(formData.nights_used) < 0) {
+        toast.error('Please enter a valid number of nights used');
+        return false;
+      }
+
+      if (formData.additional_room_type_id && !formData.additional_room_nights_approved) {
+        toast.error('Please enter nights approved for the additional room');
+        return false;
+      }
+
+      if (formData.additional_room_type_id && (formData.additional_room_nights_used === '' || formData.additional_room_nights_used === null)) {
+        toast.error('Please enter nights used for the additional room');
+        return false;
+      }
+
+      return true;
+    };
+
+    const handleSave = async () => {
+      if (!validateForm()) return;
+
+      setSaving(true);
+      try {
+        const url = editingApproval 
+          ? `/api/guests/${uuid}/funding-approvals/${editingApproval.id}`
+          : `/api/guests/${uuid}/funding-approvals`;
+        
+        const method = editingApproval ? 'PUT' : 'POST';
+
+        const payload = {
+          approval_name: formData.approval_name,
+          approval_number: formData.approval_number || null,
+          nights_approved: parseInt(formData.nights_approved),
+          nights_used: parseInt(formData.nights_used) || 0,
+          package_id: formData.package_id,
+          approval_from: formData.approval_from || null,
+          approval_to: formData.approval_to || null,
+          additional_room_type_id: formData.additional_room_type_id,
+          additional_room_nights_approved: formData.additional_room_type_id 
+            ? parseInt(formData.additional_room_nights_approved) || 0 
+            : 0,
+          additional_room_nights_used: formData.additional_room_type_id 
+            ? parseInt(formData.additional_room_nights_used) || 0 
+            : 0,
+          status: formData.status,
+          notes: formData.notes || null
+        };
+
+        const response = await fetch(url, {
+          method: method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (response.ok) {
+          toast.success(editingApproval ? 'Funding approval updated successfully!' : 'Funding approval created successfully!');
+          setShowModal(false);
+          fetchFundingApprovals();
+        } else {
+          const errorData = await response.json();
+          throw new Error(errorData.message || 'Failed to save funding approval');
+        }
+      } catch (error) {
+        console.error('Error saving funding approval:', error);
+        toast.error(error.message || 'Failed to save funding approval. Please try again.');
+      } finally {
+        setSaving(false);
+      }
+    };
+
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-3 sm:p-4 z-50">
+        <div className="bg-white rounded-lg max-w-5xl w-full max-h-[95vh] sm:max-h-[90vh] flex flex-col my-4 sm:my-8">
+          {/* Modal Header */}
+          <div className="flex items-center justify-between p-4 sm:p-6 border-b border-gray-200 flex-shrink-0">
+            <div>
+              <h2 className="text-lg sm:text-xl font-semibold text-gray-800">
+                {editingApproval ? 'Edit Funding Approval' : 'Add New Funding Approval'}
+              </h2>
+              <p className="text-xs sm:text-sm text-gray-500 mt-1">
+                {editingApproval ? 'Update the funding approval details' : 'Create a new funding approval for this guest'}
+              </p>
+            </div>
+            <button
+              onClick={() => setShowModal(false)}
+              className="p-2 hover:bg-gray-100 rounded-full transition-colors flex-shrink-0"
+              disabled={saving}
+            >
+              <span className="text-2xl text-gray-500">×</span>
+            </button>
+          </div>
+
+          {/* Modal Content - Scrollable */}
+          <div className="flex-1 overflow-y-auto">
+            <div className="p-4 sm:p-6">
+              {/* Basic Information Section */}
+              <div className="mb-6 sm:mb-8">
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="w-1 h-5 bg-blue-600 rounded-full"></div>
+                  <h3 className="text-base sm:text-lg font-semibold text-gray-800">Basic Information</h3>
+                </div>
+                
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+                  <TextField
+                    label="Approval name"
+                    value={formData.approval_name}
+                    onChange={(value) => setFormData(prev => ({ ...prev, approval_name: value }))}
+                    placeholder="e.g., iCare Winter 2024"
+                    required
+                  />
+
+                  <TextField
+                    label="Approval number"
+                    value={formData.approval_number}
+                    onChange={(value) => setFormData(prev => ({ ...prev, approval_number: value }))}
+                    placeholder="Enter approval reference number"
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* Approval Period Section */}
+              <div className="mb-6 sm:mb-8">
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="w-1 h-5 bg-blue-600 rounded-full"></div>
+                  <h3 className="text-base sm:text-lg font-semibold text-gray-800">Approval Period</h3>
+                </div>
+                
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
+                  <DateComponent
+                    label="Start date"
+                    value={formData.approval_from}
+                    onChange={(value) => setFormData(prev => ({ ...prev, approval_from: value }))}
+                    required
+                  />
+
+                  <DateComponent
+                    label="End date"
+                    value={formData.approval_to}
+                    onChange={(value) => setFormData(prev => ({ ...prev, approval_to: value }))}
+                    required
+                  />
+                </div>
+                
+                {formData.approval_from && formData.approval_to && (
+                  <div className="mt-3 p-3 bg-blue-50 border border-blue-100 rounded-lg">
+                    <p className="text-xs sm:text-sm text-blue-700">
+                      <span className="font-medium">Duration:</span> {moment(formData.approval_to).diff(moment(formData.approval_from), 'days') + 1} days
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* iCare Package Funding Section */}
+              <div className="mb-6 sm:mb-8">
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="w-1 h-5 bg-blue-600 rounded-full"></div>
+                  <h3 className="text-base sm:text-lg font-semibold text-gray-800">iCare Package Funding</h3>
+                </div>
+                
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 sm:p-5">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+                    <div className="lg:col-span-2">
+                      <label className="block text-sm font-medium mb-2 text-gray-700">
+                        Package approved <span className='text-red-600 font-semibold'>*</span>
+                        {loadingPackages && <span className="text-xs text-gray-500 ml-2">(Loading...)</span>}
+                      </label>
+                      <SelectComponent
+                        options={packageOptions}
+                        value={getSelectedPackageLabel()}
+                        onChange={(selected) => {
+                          setFormData(prev => ({ ...prev, package_id: selected?.value || null }));
+                        }}
+                        placeholder={loadingPackages ? "Loading packages..." : "Select package type"}
+                        disabled={loadingPackages}
+                        isClearable={true}
+                        required
+                      />
+                      <p className="text-xs text-gray-500 mt-1.5">Select the iCare package associated with this approval</p>
+                    </div>
+
+                    <div>
+                      <TextField
+                        label="Nights approved"
+                        type="number"
+                        value={formData.nights_approved}
+                        onChange={(value) => setFormData(prev => ({ ...prev, nights_approved: value }))}
+                        placeholder="0"
+                        min="0"
+                        required
+                      />
+                      <p className="text-xs text-gray-500 mt-1.5">Total nights allocated in this approval</p>
+                    </div>
+
+                    <div>
+                      <TextField
+                        label="Nights used"
+                        type="number"
+                        value={formData.nights_used}
+                        onChange={(value) => setFormData(prev => ({ ...prev, nights_used: value }))}
+                        placeholder="0"
+                        min="0"
+                        required
+                      />
+                      <p className="text-xs text-gray-500 mt-1.5">Nights already consumed from this approval</p>
+                    </div>
+                  </div>
+
+                  {formData.nights_approved && (
+                    <div className="mt-4 p-3 bg-white border border-gray-200 rounded-lg">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-gray-600">Remaining nights:</span>
+                        <span className="font-semibold text-gray-800">
+                          {Math.max(0, parseInt(formData.nights_approved || 0) - parseInt(formData.nights_used || 0))} nights
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Additional Room Funding Section */}
+              <div className="mb-6 sm:mb-8">
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="w-1 h-5 bg-blue-600 rounded-full"></div>
+                  <h3 className="text-base sm:text-lg font-semibold text-gray-800">Additional Room Funding</h3>
+                </div>
+                
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 sm:p-5">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+                    <div className="lg:col-span-2">
+                      <label className="block text-sm font-medium mb-2 text-gray-700">
+                        Additional room type <span className='text-red-600 font-semibold'>*</span>
+                        {loadingRoomTypes && <span className="text-xs text-gray-500 ml-2">(Loading...)</span>}
+                      </label>
+                      <SelectComponent
+                        options={roomTypeOptions}
+                        value={getSelectedRoomTypeLabel()}
+                        onChange={(selected) => {
+                          if (selected?.value === null) {
+                            setFormData(prev => ({ 
+                              ...prev, 
+                              additional_room_type_id: null,
+                              additional_room_nights_approved: '',
+                              additional_room_nights_used: 0
+                            }));
+                          } else {
+                            setFormData(prev => ({ ...prev, additional_room_type_id: selected?.value || null }));
+                          }
+                        }}
+                        placeholder={loadingRoomTypes ? "Loading room types..." : "Select additional room type"}
+                        disabled={loadingRoomTypes}
+                        isClearable={false}
+                        required
+                      />
+                      <p className="text-xs text-gray-500 mt-1.5">Choose the type of additional room or select "No" to skip</p>
+                    </div>
+
+                    {formData.additional_room_type_id && (
+                      <>
+                        <div>
+                          <TextField
+                            label="Additional nights approved"
+                            type="number"
+                            value={formData.additional_room_nights_approved}
+                            onChange={(value) => setFormData(prev => ({ ...prev, additional_room_nights_approved: value }))}
+                            placeholder="0"
+                            min="0"
+                            disabled={!formData.additional_room_type_id}
+                            required
+                          />
+                          <p className="text-xs text-gray-500 mt-1.5">Total additional room nights allocated</p>
+                        </div>
+
+                        <div>
+                          <TextField
+                            label="Additional nights used"
+                            type="number"
+                            value={formData.additional_room_nights_used}
+                            onChange={(value) => setFormData(prev => ({ ...prev, additional_room_nights_used: value }))}
+                            placeholder="0"
+                            min="0"
+                            disabled={!formData.additional_room_type_id}
+                            required
+                          />
+                          <p className="text-xs text-gray-500 mt-1.5">Additional room nights already consumed</p>
+                        </div>
+
+                        {formData.additional_room_nights_approved && (
+                          <div className="lg:col-span-2">
+                            <div className="p-3 bg-white border border-gray-200 rounded-lg">
+                              <div className="flex items-center justify-between text-sm">
+                                <span className="text-gray-600">Additional nights remaining:</span>
+                                <span className="font-semibold text-gray-800">
+                                  {Math.max(0, parseInt(formData.additional_room_nights_approved || 0) - parseInt(formData.additional_room_nights_used || 0))} nights
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Notes Section */}
+              <div>
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="w-1 h-5 bg-gray-400 rounded-full"></div>
+                  <h3 className="text-base sm:text-lg font-semibold text-gray-800">Additional Notes</h3>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium mb-2 text-gray-700">
+                    Notes <span className="text-gray-400 font-normal">(Optional)</span>
+                  </label>
+                  <textarea
+                    value={formData.notes}
+                    onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))}
+                    placeholder="Add any additional notes, special conditions, or important details about this approval..."
+                    rows={4}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none text-sm"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Modal Footer - Fixed */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-3 p-4 sm:p-6 border-t border-gray-200 bg-gray-50 flex-shrink-0">
+            <Button
+              onClick={() => setShowModal(false)}
+              disabled={saving}
+              size="medium"
+              color="secondary"
+              label="Cancel"
+            />
+            <Button
+              onClick={handleSave}
+              disabled={saving}
+              size="medium"
+              color="primary"
+              label={saving ? 'Saving...' : (editingApproval ? 'Update Approval' : 'Create Approval')}
+              withIcon={true}
+              iconName="check"
+            />
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-7xl mx-auto">
+      {/* Simple Header */}
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-800 mb-1">Funding Approvals</h2>
+          <p className="text-sm text-gray-600">
+            Track and manage funding approvals for this guest
+          </p>
+        </div>
+        <Button
+          onClick={handleAddNew}
+          size="medium"
+          color="primary"
+          label="Add Approval"
+          withIcon={true}
+          iconName="plus"
+          Icon={Plus}
+        />
+      </div>
+
+      {/* Summary Cards */}
+      {fundingApprovals.length > 0 && (
+        <div className="grid grid-cols-3 gap-4 mb-6">
+          <div className="bg-white border border-gray-200 rounded-lg p-4">
+            <p className="text-xs text-gray-500 mb-1">Total allocated</p>
+            <p className="text-2xl font-bold text-gray-800">{totals.totalAllocated}</p>
+            <p className="text-xs text-gray-500">nights</p>
+          </div>
+          <div className="bg-white border border-gray-200 rounded-lg p-4">
+            <p className="text-xs text-gray-500 mb-1">Total used</p>
+            <p className="text-2xl font-bold text-gray-800">{totals.totalUsed}</p>
+            <p className="text-xs text-gray-500">nights</p>
+          </div>
+          <div className="bg-white border border-gray-200 rounded-lg p-4">
+            <p className="text-xs text-gray-500 mb-1">Total remaining</p>
+            <p className="text-2xl font-bold text-gray-800">{totals.totalRemaining}</p>
+            <p className="text-xs text-gray-500">nights</p>
+          </div>
+        </div>
+      )}
+
+      {/* Info Banner */}
+      <div className="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
+        <div className="flex items-start">
+          <AlertCircle className="w-5 h-5 text-blue-600 mt-0.5 mr-3 flex-shrink-0" />
+          <div className="text-sm text-blue-800">
+            <p className="font-medium mb-1">How funding approvals work:</p>
+            <ul className="list-disc list-inside space-y-1 text-xs">
+              <li>Each approval shows allocated nights vs. nights used</li>
+              <li>Active approvals are highlighted (within date range)</li>
+              <li>Nights are automatically tracked when bookings are confirmed</li>
+              <li>You can create multiple approvals with different date ranges</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      {/* Approvals List */}
+      {fundingApprovals.length === 0 ? (
+        <div className="bg-white border-2 border-dashed border-gray-300 rounded-lg p-12 text-center">
+          <div className="mb-4">
+            <svg className="w-16 h-16 text-gray-300 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+          </div>
+          <h3 className="text-lg font-semibold text-gray-800 mb-2">No Funding Approvals Yet</h3>
+          <p className="text-gray-600 mb-6">
+            Create funding approvals for this guest to start tracking night usage
+          </p>
+          <Button
+            onClick={handleAddNew}
+            size="medium"
+            color="primary"
+            label="Add First Approval"
+            withIcon={true}
+            iconName="plus"
+            Icon={Plus}
+          />
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {fundingApprovals
+            .sort((a, b) => moment(a.approval_from).diff(moment(b.approval_from)))
+            .map((approval) => (
+              <ApprovalCard key={approval.id} approval={approval} />
+            ))}
+        </div>
+      )}
+
+      {showModal && <ApprovalFormModal />}
     </div>
   );
 };

@@ -24,12 +24,24 @@ export default function CategoryManagement() {
   const [selectedCategory, setSelectedCategory] = useState();
 
   const editCategory = (category) => {
-    setSelectedCategory({ ...category, name: _.startCase(category.name) });
+    setSelectedCategory({ 
+      ...category, 
+      name: _.startCase(category.name),
+      order: category.order || 0
+    });
     setShowViewModal(true)
   }
 
-  // Updated columns to match new Table component pattern
+  // Updated columns to include order
   const columns = useMemo(() => [
+    {
+      key: 'order',
+      label: 'ORDER',
+      searchable: true,
+      render: (value) => (
+        <span className="font-medium text-gray-900">{value || 0}</span>
+      )
+    },
     {
       key: 'name',
       label: 'ASSET CATEGORY',
@@ -69,15 +81,21 @@ export default function CategoryManagement() {
     });
     const data = await response.json();
     let categoriesData = [];
-    data.map(c => {
+    
+    // Sort by order before mapping
+    const sortedData = _.sortBy(data, ['order', 'name']);
+    
+    sortedData.map(c => {
       const categoryName = UppercaseFirstLetter(c.name.replaceAll("_", " "));
       categoriesData.push({
         ...c,
         label: categoryName,
         value: categoryName,
-        id: c.id
+        id: c.id,
+        order: c.order || 0
       });
     });
+    
     setCategories(categoriesData);
     dispatch(assetCategoriesActions.setList(categoriesData));
   };

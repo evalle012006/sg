@@ -441,17 +441,27 @@ const PackageSelection = ({
     if (careAnalysisData && typeof careAnalysisData === 'object' && 
         careAnalysisData.hasOwnProperty('totalHoursPerDay')) {
       
-      console.log('🏥 Using pre-processed care analysis data:', careAnalysisData);
+      // console.log('🏥 Using pre-processed care analysis data:', careAnalysisData);
       
       // If it has raw care data, we could re-process if needed, but usually just use the processed data
-      if (careAnalysisData.rawCareData && Array.isArray(careAnalysisData.rawCareData)) {
-        console.log('🔄 Re-processing care data from rawCareData');
-        const analysis = calculateCareHours(careAnalysisData.rawCareData);
-        return {
-          requiresCare: analysis.totalHoursPerDay > 0,
-          ...analysis,
-          rawCareData: careAnalysisData.rawCareData
-        };
+      if (careAnalysisData.rawCareData) {
+          // console.log('🔄 Re-processing care data from rawCareData');
+          
+          // 🔧 FIX: Handle both array and nested structure
+          let careDataArray = careAnalysisData.rawCareData;
+          if (!Array.isArray(careDataArray) && careDataArray.careData) {
+              // console.log('🔄 Extracting careData from nested rawCareData');
+              careDataArray = careDataArray.careData;
+          }
+          
+          if (Array.isArray(careDataArray)) {
+              const analysis = calculateCareHours(careDataArray);
+              return {
+                  requiresCare: analysis.totalHoursPerDay > 0,
+                  ...analysis,
+                  rawCareData: careDataArray
+              };
+          }
       }
       
       // Use the already processed data as-is
@@ -494,12 +504,32 @@ const PackageSelection = ({
       const rawCareData = typeof careScheduleQA.answer === 'string' 
         ? JSON.parse(careScheduleQA.answer) 
         : careScheduleQA.answer;
-      
-      console.log('🏥 Processing raw care data from qaData:', rawCareData);
-      
-      // Validate that this is actually raw care schedule data (array format)
-      if (!Array.isArray(rawCareData)) {
-        console.warn('⚠️ Care data is not in expected array format:', rawCareData);
+
+      console.log('🏥 Raw care data from qaData:', rawCareData);
+
+      // 🔧 FIX: Extract the care data array - handle both formats:
+      // Format 1: Direct array: [{ care: 'morning', date: '...', values: {...} }, ...]
+      // Format 2: Nested object: { careData: [...], defaultValues: {...} }
+      let careDataArray = rawCareData;
+
+      if (rawCareData && typeof rawCareData === 'object' && !Array.isArray(rawCareData)) {
+        if (Array.isArray(rawCareData.careData)) {
+          console.log('🔄 Extracting careData array from nested structure');
+          careDataArray = rawCareData.careData;
+        } else {
+          console.warn('⚠️ Care data object has no careData array:', Object.keys(rawCareData));
+          return {
+            requiresCare: false,
+            totalHoursPerDay: 0,
+            carePattern: 'no-care',
+            recommendedPackages: []
+          };
+        }
+      }
+
+      // Validate that we have an array now
+      if (!Array.isArray(careDataArray)) {
+        console.warn('⚠️ Final care data is not an array:', typeof careDataArray);
         return {
           requiresCare: false,
           totalHoursPerDay: 0,
@@ -507,8 +537,9 @@ const PackageSelection = ({
           recommendedPackages: []
         };
       }
-      
-      const analysis = calculateCareHours(rawCareData);
+
+      console.log(`✅ Processing ${careDataArray.length} care entries`);
+      const analysis = calculateCareHours(careDataArray);
       
       console.log('🏥 Calculated care analysis from raw data:', {
         totalHours: analysis.totalHoursPerDay,

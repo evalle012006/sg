@@ -181,6 +181,10 @@ function PaginatedTable({
 
   const itemsPerPageOptions = [10, 20, 50, 100];
 
+  // Calculate minimum height based on page size to maintain consistent height
+  // Each row is approximately 56px (py-4 = 1rem = 16px top + 16px bottom + content)
+  const minTableHeight = Math.max(400, pageSize * 56);
+
   // Generate page numbers for pagination
   const renderPaginationButtons = () => {
     const buttons = [];
@@ -251,8 +255,11 @@ function PaginatedTable({
         </div>
       )}
 
-      {/* Table Container */}
-      <div className="overflow-x-auto">
+      {/* Table Container with minimum height */}
+      <div 
+        className="overflow-x-auto" 
+        style={{ minHeight: `${minTableHeight}px` }}
+      >
         <table
           {...getTableProps()}
           className="w-full"

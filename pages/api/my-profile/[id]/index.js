@@ -1,4 +1,4 @@
-import { Guest, GuestFunding, HealthInfo } from '../../../../models';
+import { Guest, GuestApproval, HealthInfo } from '../../../../models';
 import StorageService from '../../../../services/storage/storage';
 import { omitAttribute } from '../../../../utilities/common';
 
@@ -19,8 +19,8 @@ export default async function handler(req, res) {
                     required: false
                 },
                 {
-                    model: GuestFunding,
-                    as: 'funding',
+                    model: GuestApproval,
+                    as: 'approvals', // Changed from 'funding' to 'approvals'
                     required: false
                 }
             ]

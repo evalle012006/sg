@@ -357,6 +357,7 @@ const EmailTriggerForm = ({ onSuccess, onCancel }) => {
       const trigger_questions = formData.trigger_questions.map(tq => {
         const question = getQuestionById(tq.question_id);
         return {
+          question_id: tq.question_id,
           question: question?.question || tq.question_text,
           question_key: question?.question_key || tq.question_key,
           question_type: question?.question_type || question?.type,

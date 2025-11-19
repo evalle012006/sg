@@ -1,4 +1,4 @@
-import { Guest, HealthInfo, GuestFunding, Package, RoomType, sequelize } from '../../../models';
+import { Guest, HealthInfo, GuestApproval, Package, RoomType, sequelize } from '../../../models';
 
 export default async function handler(req, res) {
     if (req.method !== 'POST') {
@@ -209,7 +209,7 @@ export default async function handler(req, res) {
             let fundingResult = null;
             if (Object.keys(fundingUpdateData).length > 0) {
                 // Check if funding info already exists
-                const existingFundingInfo = await GuestFunding.findOne({ 
+                const existingFundingInfo = await GuestApproval.findOne({ 
                     where: { guest_id: parseInt(guest_id) },
                     transaction,
                     include: [
@@ -228,13 +228,13 @@ export default async function handler(req, res) {
 
                 if (existingFundingInfo) {
                     // Update existing funding info
-                    await GuestFunding.update(fundingUpdateData, {
+                    await GuestApproval.update(fundingUpdateData, {
                         where: { guest_id: parseInt(guest_id) },
                         transaction
                     });
                     
                     // Fetch updated record with package and room type details
-                    fundingResult = await GuestFunding.findOne({ 
+                    fundingResult = await GuestApproval.findOne({ 
                         where: { guest_id: parseInt(guest_id) },
                         transaction,
                         include: [
@@ -252,14 +252,14 @@ export default async function handler(req, res) {
                     });
                 } else {
                     // Create new funding info record
-                    fundingResult = await GuestFunding.create({
+                    fundingResult = await GuestApproval.create({
                         guest_id: parseInt(guest_id),
                         ...fundingUpdateData
                     }, { transaction });
                     
                     // Fetch created record with package and room type details
                     if (fundingResult) {
-                        fundingResult = await GuestFunding.findOne({ 
+                        fundingResult = await GuestApproval.findOne({ 
                             where: { id: fundingResult.id },
                             transaction,
                             include: [

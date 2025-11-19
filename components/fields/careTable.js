@@ -7,6 +7,7 @@ const TIME_OPTIONS = {
 };
 
 const CARER_OPTIONS = [
+  'No care required',
   '1',
   '2 for the whole duration',
   '2 for transfers only'
@@ -28,6 +29,11 @@ const DURATION_OPTIONS = [
   '6 hours'
 ];
 
+// Helper function to check if care is not required
+const isNoCareRequired = (carerValue) => {
+  return carerValue === 'No care required';
+};
+
 // Helper function to convert time string to minutes since midnight
 const timeToMinutes = (timeStr) => {
   if (!timeStr) return 0;
@@ -38,9 +44,9 @@ const timeToMinutes = (timeStr) => {
   let totalMinutes = hours * 60 + (minutes || 0);
   
   if (period.toLowerCase() === 'pm' && hours !== 12) {
-    totalMinutes += 12 * 60; // Add 12 hours for PM (except 12 PM)
+    totalMinutes += 12 * 60;
   } else if (period.toLowerCase() === 'am' && hours === 12) {
-    totalMinutes -= 12 * 60; // Subtract 12 hours for 12 AM (midnight)
+    totalMinutes -= 12 * 60;
   }
   
   return totalMinutes;
@@ -64,13 +70,12 @@ const durationToMinutes = (durationStr) => {
 
 // Helper function to check if evening period extends beyond midnight
 const validateEveningTime = (timeStr, durationStr) => {
-  if (!timeStr || !durationStr) return true; // If either is empty, don't validate
+  if (!timeStr || !durationStr) return true;
   
   const startMinutes = timeToMinutes(timeStr);
   const durationMinutes = durationToMinutes(durationStr);
   const endMinutes = startMinutes + durationMinutes;
   
-  // Midnight is 24 * 60 = 1440 minutes
   const midnightMinutes = 24 * 60;
   
   return endMinutes <= midnightMinutes;
@@ -106,19 +111,16 @@ const formatEndTime = (timeStr, durationStr) => {
 const parseDateString = (dateStr) => {
   if (!dateStr) return null;
   
-  // Check if it's in YYYY-MM-DD format
   if (dateStr.includes('-')) {
     const [year, month, day] = dateStr.split('-');
     return new Date(year, parseInt(month) - 1, day);
   }
   
-  // Check if it's in DD/MM/YYYY format
   if (dateStr.includes('/')) {
     const [day, month, year] = dateStr.split('/');
     return new Date(year, parseInt(month) - 1, day);
   }
   
-  // Try to parse as a direct date string
   const parsedDate = new Date(dateStr);
   if (!isNaN(parsedDate.getTime())) {
     return parsedDate;
@@ -151,26 +153,32 @@ const generateDateRange = (startDate, endDate) => {
   return dates;
 };
 
-const transformDataForSaving = (tableData) => {
-  const result = [];
+const transformDataForSaving = (tableData, defaultValues = null, careVaries = false) => {
+  const result = {
+    careData: [],
+    defaultValues: defaultValues || {
+      morning: { carers: '', time: '', duration: '' },
+      afternoon: { carers: '', time: '', duration: '' },
+      evening: { carers: '', time: '', duration: '' }
+    },
+    careVaries: careVaries
+  };
   
   Object.entries(tableData).forEach(([date, periods]) => {
-    // Skip empty or invalid dates
     if (!date || date === 'undefined-undefined-undefined') return;
     
-    // Convert from ISO date string to DD/MM/YYYY format
     let formattedDate;
     if (date.includes('-')) {
       const [year, month, day] = date.split('-');
       formattedDate = `${day}/${month}/${year}`;
     } else {
-      formattedDate = date; // Just in case it's already in the right format
+      formattedDate = date;
     }
     
     Object.entries(periods).forEach(([period, values]) => {
-      // Only include periods that have carers selected (non-empty care periods)
-      if (values.carers && values.carers.trim() !== '') {
-        result.push({
+      // Only include periods that require care
+      if (values.carers && values.carers.trim() !== '' && !isNoCareRequired(values.carers)) {
+        result.careData.push({
           care: period,
           date: formattedDate,
           values: {
@@ -183,29 +191,45 @@ const transformDataForSaving = (tableData) => {
     });
   });
   
+  // ✅ CRITICAL: Ensure we always return the nested structure
+  console.log('💾 Saving care data structure:', {
+    careDataLength: result.careData.length,
+    hasDefaultValues: !!result.defaultValues,
+    careVaries: result.careVaries
+  });
+  
   return result;
 };
 
 const convertValueToTableData = (value = []) => {
   const tableData = {};
+  let extractedDefaults = null;
+  let extractedCareVaries = null;
   
-  if (!Array.isArray(value) || value.length === 0) {
-    return tableData;
+  let dataArray = [];
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    dataArray = value.careData || [];
+    extractedDefaults = value.defaultValues || null;
+    extractedCareVaries = value.careVaries ?? null;
+  } else if (Array.isArray(value)) {
+    dataArray = value;
   }
   
-  value.forEach(item => {
+  if (!Array.isArray(dataArray) || dataArray.length === 0) {
+    return { tableData, extractedDefaults, extractedCareVaries };
+  }
+  
+  dataArray.forEach(item => {
     if (!item.date || !item.care || !item.values) return;
     
     let dateString;
     
-    // Handle different date formats
     if (item.date.includes('/')) {
       const [day, month, year] = item.date.split('/');
       dateString = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
     } else if (item.date.includes('-')) {
-      dateString = item.date; // Already in YYYY-MM-DD format
+      dateString = item.date;
     } else {
-      // Try to parse as a date and convert to YYYY-MM-DD
       const parsedDate = new Date(item.date);
       if (!isNaN(parsedDate.getTime())) {
         dateString = parsedDate.toISOString().split('T')[0];
@@ -230,7 +254,7 @@ const convertValueToTableData = (value = []) => {
     };
   });
   
-  return tableData;
+  return { tableData, extractedDefaults, extractedCareVaries };
 };
 
 const hasAnyValues = (tableData) => {
@@ -245,99 +269,165 @@ const hasAnyValues = (tableData) => {
   return false;
 };
 
-// UPDATED: Enhanced validation logic with evening time validation
-const validateAllFieldsFilled = (tableData) => {
+// Helper to check if default values have any care requirements
+const hasAnyDefaultValues = (defaultValues) => {
+  for (const period in defaultValues) {
+    const values = defaultValues[period];
+    if (values.carers && !isNoCareRequired(values.carers)) {
+      return true;
+    }
+  }
+  return false;
+};
+
+const getActivePeriods = (date, dates) => {
+  if (!date || !dates || dates.length === 0) {
+    return ['morning', 'afternoon', 'evening'];
+  }
+  
+  const dateStr = date.toISOString().split('T')[0];
+  const firstDateStr = dates[0].toISOString().split('T')[0];
+  const lastDateStr = dates[dates.length - 1].toISOString().split('T')[0];
+  
+  if (dateStr === firstDateStr) {
+    return ['afternoon', 'evening'];
+  }
+  
+  if (dateStr === lastDateStr) {
+    return ['morning'];
+  }
+  
+  return ['morning', 'afternoon', 'evening'];
+};
+
+const validateAllFieldsFilled = (tableData, dates, careVaries, defaultValues) => {
   const errors = {
     hasErrors: false,
     dates: {},
-    eveningTimeErrors: [] // Store specific evening time extension errors for detailed messaging
-  };
-  
-  for (const date in tableData) {
-    const dateErrors = {
+    eveningTimeErrors: [],
+    defaultErrors: {
       morning: { carers: false, time: false, duration: false },
       afternoon: { carers: false, time: false, duration: false },
       evening: { carers: false, time: false, duration: false, eveningTimeExtension: false }
-    };
+    }
+  };
+  
+  // Validate default values
+  let hasDefaultErrors = false;
+  for (const period in defaultValues) {
+    const values = defaultValues[period];
     
-    let hasDateErrors = false;
-    
-    for (const period in tableData[date]) {
-      const values = tableData[date][period];
+    // Skip validation if "No care required" is selected
+    if (values.carers && !isNoCareRequired(values.carers)) {
+      if (!values.time) {
+        errors.defaultErrors[period].time = true;
+        hasDefaultErrors = true;
+        errors.hasErrors = true;
+      }
       
-      // Only validate if carers is selected (non-empty care period)
-      if (values.carers && values.carers.trim() !== '') {
-        // If carers is selected, then time and duration must also be filled
-        if (!values.time) {
-          dateErrors[period].time = true;
-          hasDateErrors = true;
+      if (!values.duration) {
+        errors.defaultErrors[period].duration = true;
+        hasDefaultErrors = true;
+        errors.hasErrors = true;
+      }
+      
+      if (period === 'evening' && values.time && values.duration) {
+        if (!validateEveningTime(values.time, values.duration)) {
+          errors.defaultErrors[period].eveningTimeExtension = true;
+          hasDefaultErrors = true;
           errors.hasErrors = true;
         }
-        
-        if (!values.duration) {
-          dateErrors[period].duration = true;
-          hasDateErrors = true;
-          errors.hasErrors = true;
+      }
+    }
+  }
+  
+  // If care varies, also validate the full table
+  if (careVaries) {
+    for (const dateStr in tableData) {
+      const dateErrors = {
+        morning: { carers: false, time: false, duration: false },
+        afternoon: { carers: false, time: false, duration: false },
+        evening: { carers: false, time: false, duration: false, eveningTimeExtension: false }
+      };
+      
+      let hasDateErrors = false;
+      
+      const dateObj = dates.find(d => d.toISOString().split('T')[0] === dateStr);
+      const activePeriods = dateObj ? getActivePeriods(dateObj, dates) : ['morning', 'afternoon', 'evening'];
+      
+      for (const period in tableData[dateStr]) {
+        if (!activePeriods.includes(period)) {
+          continue;
         }
         
-        // Additional validation for evening period - check if time + duration extends beyond midnight
-        if (period === 'evening' && values.time && values.duration) {
-          if (!validateEveningTime(values.time, values.duration)) {
-            dateErrors[period].eveningTimeExtension = true;
+        const values = tableData[dateStr][period];
+        
+        // Skip validation if "No care required" is selected
+        if (values.carers && !isNoCareRequired(values.carers)) {
+          if (!values.time) {
+            dateErrors[period].time = true;
             hasDateErrors = true;
             errors.hasErrors = true;
-            
-            // Store detailed error info for messaging
-            const endTime = formatEndTime(values.time, values.duration);
-            errors.eveningTimeErrors.push({
-              date,
-              startTime: values.time,
-              duration: values.duration,
-              endTime
-            });
+          }
+          
+          if (!values.duration) {
+            dateErrors[period].duration = true;
+            hasDateErrors = true;
+            errors.hasErrors = true;
+          }
+          
+          if (period === 'evening' && values.time && values.duration) {
+            if (!validateEveningTime(values.time, values.duration)) {
+              dateErrors[period].eveningTimeExtension = true;
+              hasDateErrors = true;
+              errors.hasErrors = true;
+              
+              const endTime = formatEndTime(values.time, values.duration);
+              errors.eveningTimeErrors.push({
+                date: dateStr,
+                startTime: values.time,
+                duration: values.duration,
+                endTime
+              });
+            }
           }
         }
       }
-      // If carers is empty, we don't validate time and duration (allowing empty periods)
-    }
-    
-    if (hasDateErrors) {
-      errors.dates[date] = dateErrors;
+      
+      if (hasDateErrors) {
+        errors.dates[dateStr] = dateErrors;
+      }
     }
   }
   
   return errors;
 };
 
-/**
- * Detect if there's a date mismatch between existing care data and current stay dates
- */
 const detectDateMismatch = (existingData = [], currentStartDate, currentEndDate) => {
-  if (!existingData || existingData.length === 0 || !currentStartDate || !currentEndDate) {
+  if (!existingData || !currentStartDate || !currentEndDate) {
     return { hasMismatch: false, details: null };
   }
 
-   let dataToProcess = existingData;
-
-  if (typeof existingData === 'string' && existingData.trim().startsWith('[')) {
+  let dataToProcess = existingData;
+  
+  if (typeof existingData === 'object' && !Array.isArray(existingData)) {
+    dataToProcess = existingData.careData || [];
+  } else if (typeof existingData === 'string' && existingData.trim().startsWith('[')) {
     try {
       dataToProcess = JSON.parse(existingData);
     } catch (e) {
       console.error("Error parsing existingData JSON string:", e);
-      // If parsing fails, treat it as empty or invalid data
       return { hasMismatch: false, details: null };
     }
   }
 
-  if (!Array.isArray(dataToProcess) || dataToProcess.length === 0 || !currentStartDate || !currentEndDate) {
+  if (!Array.isArray(dataToProcess) || dataToProcess.length === 0) {
     return { hasMismatch: false, details: null };
   }
 
-  // Extract dates from existing care data
   const existingDates = new Set();
   dataToProcess.forEach(item => {
     if (item && item.date) {
-      // Convert DD/MM/YYYY to YYYY-MM-DD for comparison
       let normalizedDate;
       if (item.date.includes('/')) {
         const [day, month, year] = item.date.split('/');
@@ -349,7 +439,6 @@ const detectDateMismatch = (existingData = [], currentStartDate, currentEndDate)
     }
   });
 
-  // Generate expected date range
   const expectedDates = new Set();
   const startDate = new Date(currentStartDate);
   const endDate = new Date(currentEndDate);
@@ -360,11 +449,9 @@ const detectDateMismatch = (existingData = [], currentStartDate, currentEndDate)
     currentDate.setDate(currentDate.getDate() + 1);
   }
 
-  // Check for overlap
   const hasOverlap = [...existingDates].some(date => expectedDates.has(date));
   
   if (!hasOverlap && existingDates.size > 0) {
-    // Get date ranges for user-friendly messaging
     const existingDatesArray = [...existingDates].sort();
     const expectedDatesArray = [...expectedDates].sort();
     
@@ -394,7 +481,6 @@ export default function CareTable({
   required = false,
   stayDates = { checkInDate: null, checkOutDate: null }
 }) {
-  // Get dates from Redux state
   const startDate = stayDates.checkInDate;
   const endDate = stayDates.checkOutDate;
   const [dates, setDates] = useState([]);
@@ -404,7 +490,8 @@ export default function CareTable({
     afternoon: { carers: '', time: '', duration: '' },
     evening: { carers: '', time: '', duration: '' }
   });
-  const [autoPopulate, setAutoPopulate] = useState(false);
+  const [careVaries, setCareVaries] = useState(null); // null = not answered, false = doesn't vary, true = varies
+  const [showDetailedTable, setShowDetailedTable] = useState(false);
   const [validationErrors, setValidationErrors] = useState(null);
   const [hasValues, setHasValues] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
@@ -414,12 +501,12 @@ export default function CareTable({
   const valueRef = useRef(value);
   const savedDataRef = useRef({});
   const dateInitializedRef = useRef(false);
+  const savedDefaultsRef = useRef(null);
+  const savedCareVariesRef = useRef(null);
   
-  // Date mismatch detection state
   const [dateMismatch, setDateMismatch] = useState(null);
   const notificationSentRef = useRef(false);
   
-  // Main date initialization effect - will attempt to handle any date format
   useEffect(() => {
     if (startDate && endDate && !dateInitializedRef.current) {
       try {
@@ -440,16 +527,13 @@ export default function CareTable({
     }
   }, [startDate, endDate]);
   
-  // When dates change, setup the table data
   const processedDatesRef = useRef([]);
   useEffect(() => {
     if (!dates || dates.length === 0) return;
     
     try {
-      // Convert dates array to a string to check if we've seen this exact set before
       const datesKey = dates.map(d => d.toISOString()).join('|');
       
-      // If we've already processed this exact set of dates, avoid re-processing
       if (processedDatesRef.current.includes(datesKey)) {
         return;
       }
@@ -467,7 +551,20 @@ export default function CareTable({
       });
       
       if (isInitialMount.current) {
-        const existingData = convertValueToTableData(value);
+        const { tableData: existingData, extractedDefaults, extractedCareVaries } = convertValueToTableData(value);
+        
+        if (extractedDefaults) {
+          setDefaultValues(extractedDefaults);
+          savedDefaultsRef.current = JSON.parse(JSON.stringify(extractedDefaults));
+        }
+        
+        if (extractedCareVaries !== null) {
+          setCareVaries(extractedCareVaries);
+          savedCareVariesRef.current = extractedCareVaries;
+          if (extractedCareVaries === true) {
+            setShowDetailedTable(true);
+          }
+        }
         
         Object.keys(existingData).forEach(dateKey => {
           if (initialData[dateKey]) {
@@ -493,99 +590,111 @@ export default function CareTable({
     }
   }, [dates, value]);
   
-  // Handle value changes from parent component
   useEffect(() => {
     if (isInitialMount.current || value === valueRef.current) return;
     
     valueRef.current = value;
     
-    if (dates.length > 0 && Array.isArray(value) && value.length > 0) {
-      const existingData = convertValueToTableData(value);
+    if (dates.length > 0 && value) {
+      const { tableData: existingData, extractedDefaults, extractedCareVaries } = convertValueToTableData(value);
       
-      setTableData(prev => {
-        const newData = { ...prev };
-        Object.keys(existingData).forEach(dateKey => {
-          if (newData[dateKey]) {
-            newData[dateKey] = {
-              morning: { ...newData[dateKey].morning, ...existingData[dateKey].morning },
-              afternoon: { ...newData[dateKey].afternoon, ...existingData[dateKey].afternoon },
-              evening: { ...newData[dateKey].evening, ...existingData[dateKey].evening }
-            };
-          }
+      if (extractedDefaults && JSON.stringify(extractedDefaults) !== JSON.stringify(savedDefaultsRef.current)) {
+        setDefaultValues(extractedDefaults);
+        savedDefaultsRef.current = JSON.parse(JSON.stringify(extractedDefaults));
+      }
+      
+      if (extractedCareVaries !== null && extractedCareVaries !== savedCareVariesRef.current) {
+        setCareVaries(extractedCareVaries);
+        savedCareVariesRef.current = extractedCareVaries;
+        if (extractedCareVaries === true) {
+          setShowDetailedTable(true);
+        }
+      }
+      
+      if (Array.isArray(existingData.careData) ? existingData.careData.length > 0 : Object.keys(existingData).length > 0) {
+        setTableData(prev => {
+          const newData = { ...prev };
+          Object.keys(existingData).forEach(dateKey => {
+            if (newData[dateKey]) {
+              newData[dateKey] = {
+                morning: { ...newData[dateKey].morning, ...existingData[dateKey].morning },
+                afternoon: { ...newData[dateKey].afternoon, ...existingData[dateKey].afternoon },
+                evening: { ...newData[dateKey].evening, ...existingData[dateKey].evening }
+              };
+            }
+          });
+          return newData;
         });
-        return newData;
-      });
-      
-      savedDataRef.current = JSON.parse(JSON.stringify(existingData));
+        
+        savedDataRef.current = JSON.parse(JSON.stringify(existingData));
+      }
     }
   }, [value, dates]);
 
-  // Update hasValues and validation state when tableData changes
   useEffect(() => {
     setHasValues(hasAnyValues(tableData));
     if (validationErrors) {
       setValidationErrors(null);
     }
     
-    // Check if there are unsaved changes by comparing with savedDataRef
     if (!isInitialMount.current) {
       const currentDataString = JSON.stringify(tableData);
       const savedDataString = JSON.stringify(savedDataRef.current);
-      setHasUnsavedChanges(currentDataString !== savedDataString);
+      const currentDefaultsString = JSON.stringify(defaultValues);
+      const savedDefaultsString = JSON.stringify(savedDefaultsRef.current);
+      const currentCareVaries = careVaries;
+      const savedCareVaries = savedCareVariesRef.current;
+      
+      setHasUnsavedChanges(
+        currentDataString !== savedDataString || 
+        currentDefaultsString !== savedDefaultsString ||
+        currentCareVaries !== savedCareVaries
+      );
     }
-  }, [tableData]);
+  }, [tableData, defaultValues, careVaries]);
 
-  // Date mismatch detection
   useEffect(() => {
-    if (value && value.length > 0 && stayDates?.checkInDate && stayDates?.checkOutDate) {
+    if (value && stayDates?.checkInDate && stayDates?.checkOutDate) {
         const mismatchResult = detectDateMismatch(value, stayDates.checkInDate, stayDates.checkOutDate);
         
-        // Only update state if the mismatch status actually changed
         const newMismatch = mismatchResult.hasMismatch ? mismatchResult.details : null;
         
         if (JSON.stringify(newMismatch) !== JSON.stringify(dateMismatch)) {
             setDateMismatch(newMismatch);
             
-            // Auto-clear data when mismatch is detected
             if (newMismatch && onChange) {
-                onChange([], true); // Clear data and mark as error
+                onChange({ careData: [], defaultValues, careVaries: null }, true);
             }
         }
     }
-  }, [value, stayDates?.checkInDate, stayDates?.checkOutDate, dateMismatch, onChange]);
+  }, [value, stayDates?.checkInDate, stayDates?.checkOutDate, dateMismatch, onChange, defaultValues, careVaries]);
 
   useEffect(() => {
-    // Only clear dateMismatch when new valid data comes in that doesn't have a mismatch
-    if (value && value.length > 0 && stayDates?.checkInDate && stayDates?.checkOutDate && dateMismatch) {
+    if (value && stayDates?.checkInDate && stayDates?.checkOutDate && dateMismatch) {
         const mismatchResult = detectDateMismatch(value, stayDates.checkInDate, stayDates.checkOutDate);
         
         if (!mismatchResult.hasMismatch) {
             setDateMismatch(null);
         }
     }
-  }, [value?.length, stayDates?.checkInDate, stayDates?.checkOutDate]);
+  }, [value, stayDates?.checkInDate, stayDates?.checkOutDate]);
 
-  // Separate useEffect to handle notifying parent about mismatch
   useEffect(() => {
     if (dateMismatch && onChange && !notificationSentRef.current) {
-      onChange([], true); // Empty data + hasError = true
+      onChange({ careData: [], defaultValues, careVaries: null }, true);
       notificationSentRef.current = true;
     } else if (!dateMismatch && notificationSentRef.current) {
-      // Reset notification flag when mismatch is resolved
       notificationSentRef.current = false;
     }
-  }, [dateMismatch]);
+  }, [dateMismatch, onChange, defaultValues]);
 
-  // Fallback direct initialization for cases when dates are in different format
   useEffect(() => {
     if (!dateInitializedRef.current && startDate && endDate) {
-      // Try directly creating Date objects without parsing
       try {
         const start = new Date(startDate);
         const end = new Date(endDate);
         
         if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
-          // Valid dates, generate range
           const days = [];
           const current = new Date(start);
           
@@ -605,123 +714,83 @@ export default function CareTable({
     }
   }, [startDate, endDate]);
 
-  // UPDATED: Enhanced handleChange with smart clearing for evening conflicts
   const handleChange = useCallback((date, period, field, value) => {
-    if (autoPopulate) {
-      setTableData(prev => {
-        const newData = { ...prev };
-        Object.keys(newData).forEach(dateStr => {
-          if (field === 'carers' && (!value || value.trim() === '')) {
-            // If carers is being cleared, also clear time and duration
-            newData[dateStr] = {
-              ...newData[dateStr],
-              [period]: {
-                carers: '',
-                time: '',
-                duration: ''
-              }
-            };
-          } else {
-            // Update the field
-            newData[dateStr] = {
-              ...newData[dateStr],
-              [period]: {
-                ...newData[dateStr][period],
-                [field]: value
-              }
-            };
-            
-            // For evening period, check if the combination would be invalid and clear conflicting field
-            if (period === 'evening' && value && field !== 'carers') {
-              const currentValues = newData[dateStr][period];
-              const currentTime = field === 'time' ? value : currentValues.time;
-              const currentDuration = field === 'duration' ? value : currentValues.duration;
-              
-              // If both time and duration are set, check if they're valid together
-              if (currentTime && currentDuration) {
-                if (!validateEveningTime(currentTime, currentDuration)) {
-                  // Clear the OTHER field (not the one being set)
-                  if (field === 'time') {
-                    newData[dateStr][period].duration = '';
-                  } else if (field === 'duration') {
-                    newData[dateStr][period].time = '';
-                  }
-                }
-              }
-            }
-          }
-        });
-        return newData;
-      });
-    } else {
-      setTableData(prev => {
-        const newData = { ...prev };
-        
-        if (field === 'carers' && (!value || value.trim() === '')) {
-          // If carers is being cleared, also clear time and duration for this specific date/period
+    setTableData(prev => {
+      const newData = { ...prev };
+      
+      if (field === 'carers') {
+        if (!value || value.trim() === '' || isNoCareRequired(value)) {
+          // Clear time and duration when carers is cleared or "No care required" is selected
           newData[date] = {
             ...newData[date],
             [period]: {
-              carers: '',
+              carers: value,
               time: '',
               duration: ''
             }
           };
         } else {
-          // Update the field
+          // Just update carers
           newData[date] = {
             ...newData[date],
             [period]: {
               ...newData[date][period],
-              [field]: value
+              carers: value
             }
           };
+        }
+      } else {
+        // Update other fields
+        newData[date] = {
+          ...newData[date],
+          [period]: {
+            ...newData[date][period],
+            [field]: value
+          }
+        };
+        
+        if (period === 'evening' && value && field !== 'carers') {
+          const currentValues = newData[date][period];
+          const currentTime = field === 'time' ? value : currentValues.time;
+          const currentDuration = field === 'duration' ? value : currentValues.duration;
           
-          // For evening period, check if the combination would be invalid and clear conflicting field
-          if (period === 'evening' && value && field !== 'carers') {
-            const currentValues = newData[date][period];
-            const currentTime = field === 'time' ? value : currentValues.time;
-            const currentDuration = field === 'duration' ? value : currentValues.duration;
-            
-            // If both time and duration are set, check if they're valid together
-            if (currentTime && currentDuration) {
-              if (!validateEveningTime(currentTime, currentDuration)) {
-                // Clear the OTHER field (not the one being set)
-                if (field === 'time') {
-                  newData[date][period].duration = '';
-                } else if (field === 'duration') {
-                  newData[date][period].time = '';
-                }
+          if (currentTime && currentDuration) {
+            if (!validateEveningTime(currentTime, currentDuration)) {
+              if (field === 'time') {
+                newData[date][period].duration = '';
+              } else if (field === 'duration') {
+                newData[date][period].time = '';
               }
             }
           }
         }
-        
-        return newData;
-      });
-    }
-  }, [autoPopulate]);
+      }
+      
+      return newData;
+    });
+  }, []);
 
-  // UPDATED: Enhanced handleDefaultChange with smart clearing for evening conflicts
   const handleDefaultChange = useCallback((period, field, value) => {
     setDefaultValues(prev => {
       const newValues = { ...prev };
       
-      // Update the changed field
       newValues[period] = {
         ...newValues[period],
         [field]: value
       };
       
-      // For evening period, check if the combination would be invalid and clear conflicting field
-      if (period === 'evening' && value) {
+      // Clear time and duration if "No care required" is selected
+      if (field === 'carers' && isNoCareRequired(value)) {
+        newValues[period].time = '';
+        newValues[period].duration = '';
+      }
+      
+      if (period === 'evening' && value && !isNoCareRequired(newValues[period].carers)) {
         const currentTime = field === 'time' ? value : newValues[period].time;
         const currentDuration = field === 'duration' ? value : newValues[period].duration;
         
-        // If both time and duration are set, check if they're valid together
         if (currentTime && currentDuration) {
           if (!validateEveningTime(currentTime, currentDuration)) {
-            // Clear the OTHER field (not the one being set)
             if (field === 'time') {
               newValues[period].duration = '';
             } else if (field === 'duration') {
@@ -735,18 +804,38 @@ export default function CareTable({
     });
   }, []);
 
-  const applyDefaultsToAll = useCallback(() => {
-    setTableData(prev => {
-      const newData = { ...prev };
-      Object.keys(newData).forEach(date => {
-        newData[date] = {
-          morning: { ...defaultValues.morning },
-          afternoon: { ...defaultValues.afternoon },
-          evening: { ...defaultValues.evening }
-        };
+  const handleCareVariesChange = useCallback((varies) => {
+    setCareVaries(varies);
+    
+    if (varies === true) {
+      // Apply defaults to all dates in the table
+      setTableData(prev => {
+        const newData = { ...prev };
+        Object.keys(newData).forEach(date => {
+          newData[date] = {
+            morning: { ...defaultValues.morning },
+            afternoon: { ...defaultValues.afternoon },
+            evening: { ...defaultValues.evening }
+          };
+        });
+        return newData;
       });
-      return newData;
-    });
+      setShowDetailedTable(true);
+    } else if (varies === false) {
+      // Apply defaults to all dates but don't show the table
+      setTableData(prev => {
+        const newData = { ...prev };
+        Object.keys(newData).forEach(date => {
+          newData[date] = {
+            morning: { ...defaultValues.morning },
+            afternoon: { ...defaultValues.afternoon },
+            evening: { ...defaultValues.evening }
+          };
+        });
+        return newData;
+      });
+      setShowDetailedTable(false);
+    }
   }, [defaultValues]);
 
   const formatDate = (date) => {
@@ -758,14 +847,13 @@ export default function CareTable({
     }).format(date).replace(',', '');
   };
 
-  // SIMPLIFIED: handleSave with state preservation only (no immediate database save)
   const handleSave = useCallback(() => {
     setIsSaving(true);
     
     try {
       let hasErrors = false;
       if (required) {
-        const errors = validateAllFieldsFilled(tableData);
+        const errors = validateAllFieldsFilled(tableData, dates, careVaries, defaultValues);
 
         if (errors.hasErrors) {
           hasErrors = true;
@@ -777,29 +865,27 @@ export default function CareTable({
       
       setValidationErrors(null);
       
-      const transformedData = transformDataForSaving(tableData);
+      const transformedData = transformDataForSaving(tableData, defaultValues, careVaries);
       
-      // STEP 1: Call onChange to update parent component state (this preserves data in Redux)
       if (onChange) {
-        console.log('💾 CareTable: Calling onChange with care data (state preservation only)');
+        console.log('💾 CareTable: Calling onChange with care data, default values, and careVaries');
         onChange(transformedData, hasErrors);
       }
       
-      // STEP 2: Mark data as "saved" locally to prevent unsaved changes warning
       savedDataRef.current = JSON.parse(JSON.stringify(tableData));
+      savedDefaultsRef.current = JSON.parse(JSON.stringify(defaultValues));
+      savedCareVariesRef.current = careVaries;
       setHasUnsavedChanges(false);
       
-      console.log('✅ CareTable: Data preserved in state successfully');
+      console.log('✅ CareTable: Data and defaults preserved in state successfully');
       
     } catch (error) {
       console.error('❌ CareTable: Error during save:', error);
-      // Don't clear unsaved changes flag if save failed
     } finally {
       setIsSaving(false);
     }
-  }, [tableData, onChange, required]);
+  }, [tableData, defaultValues, careVaries, onChange, required, dates]);
 
-  // Helper function to get filtered time options for evening period
   const getFilteredTimeOptions = (period, currentDuration, isDefault = false) => {
     if (period !== 'evening' || !currentDuration) {
       return TIME_OPTIONS[period];
@@ -814,7 +900,6 @@ export default function CareTable({
     });
   };
 
-  // Helper function to get filtered duration options for evening period
   const getFilteredDurationOptions = (period, currentTime, isDefault = false) => {
     if (period !== 'evening' || !currentTime) {
       return DURATION_OPTIONS;
@@ -831,12 +916,18 @@ export default function CareTable({
   };
 
   const renderDefaultSelect = (period, field, options) => {
-    // Get current values for this period to enable smart filtering
     const currentValues = defaultValues[period];
+    const hasError = validationErrors?.defaultErrors?.[period]?.[field];
+    const hasEveningTimeError = validationErrors?.defaultErrors?.[period]?.eveningTimeExtension;
+    
+    const showError = hasError || (period === 'evening' && hasEveningTimeError && (field === 'time' || field === 'duration'));
+    
     let filteredOptions = options;
     
-    // Apply smart filtering for evening period
-    if (period === 'evening') {
+    // Disable time and duration fields if "No care required" is selected
+    const isDisabled = field !== 'carers' && isNoCareRequired(currentValues.carers);
+    
+    if (period === 'evening' && !isDisabled) {
       if (field === 'time') {
         filteredOptions = getFilteredTimeOptions(period, currentValues.duration, true);
       } else if (field === 'duration') {
@@ -846,9 +937,12 @@ export default function CareTable({
     
     return (
       <select
-        className="w-full p-1 text-sm border rounded"
+        className={`w-full p-1 text-sm border rounded ${
+          showError ? 'border-red-500 bg-red-50' : ''
+        } ${isDisabled ? 'bg-gray-100 text-gray-400' : ''}`}
         value={defaultValues[period][field]}
         onChange={(e) => handleDefaultChange(period, field, e.target.value)}
+        disabled={isDisabled}
       >
         <option value="">Select</option>
         {filteredOptions.map((option) => (
@@ -860,24 +954,23 @@ export default function CareTable({
     );
   };
 
-  // UPDATED: Enhanced renderSelect with smart option filtering and evening time validation
   const renderSelect = (date, period, field, options) => {
     const dateStr = date.toISOString().split('T')[0];
     const hasError = validationErrors?.dates?.[dateStr]?.[period]?.[field];
     const hasEveningTimeError = validationErrors?.dates?.[dateStr]?.[period]?.eveningTimeExtension;
     
-    // Show error styling if there's a field error OR if it's evening period and there's a time extension error
     const showError = hasError || (period === 'evening' && hasEveningTimeError && (field === 'time' || field === 'duration'));
     
-    // Get current values for this cell
     const currentValues = tableData[dateStr]?.[period];
     const showEveningPreview = period === 'evening' && currentValues?.time && currentValues?.duration;
     const endTime = showEveningPreview ? formatEndTime(currentValues.time, currentValues.duration) : '';
     const isValidEveningTime = showEveningPreview ? validateEveningTime(currentValues.time, currentValues.duration) : true;
     
-    // Apply smart filtering for evening period
+    // Disable time and duration fields if "No care required" is selected
+    const isDisabled = field !== 'carers' && isNoCareRequired(currentValues?.carers);
+    
     let filteredOptions = options;
-    if (period === 'evening') {
+    if (period === 'evening' && !isDisabled) {
       if (field === 'time') {
         filteredOptions = getFilteredTimeOptions(period, currentValues?.duration);
       } else if (field === 'duration') {
@@ -888,9 +981,12 @@ export default function CareTable({
     return (
       <div className="relative">
         <select
-          className={`w-full p-1 text-sm border rounded ${showError ? 'border-red-500 bg-red-50' : ''}`}
+          className={`w-full p-1 text-sm border rounded ${
+            showError ? 'border-red-500 bg-red-50' : ''
+          } ${isDisabled ? 'bg-gray-100 text-gray-400' : ''}`}
           value={tableData[dateStr]?.[period]?.[field] || ''}
           onChange={(e) => handleChange(dateStr, period, field, e.target.value)}
+          disabled={isDisabled}
           title={showError && period === 'evening' && hasEveningTimeError ? 
             `Care period extends beyond midnight. Ends at: ${endTime}` : ''}
         >
@@ -902,7 +998,6 @@ export default function CareTable({
           ))}
         </select>
         
-        {/* Evening time preview and validation indicator */}
         {period === 'evening' && field === 'duration' && showEveningPreview && (
           <div className={`text-xs mt-1 px-1 ${isValidEveningTime ? 'text-green-600' : 'text-red-600'}`}>
             Ends: {endTime} {!isValidEveningTime && '⚠️'}
@@ -912,10 +1007,8 @@ export default function CareTable({
     );
   };
 
-  // Force dates initialization as a manual override button
   const forceInitializeDates = () => {
     try {
-      // Create dates directly from the strings shown in the debug message
       const start = new Date("2025-03-11");
       const end = new Date("2025-03-16");
       
@@ -938,12 +1031,10 @@ export default function CareTable({
     }
   };
 
-  // If we have no dates yet, show a loading indicator or message
   if (dates.length === 0) {
     return (
       <div className="w-full p-4 text-center">
         <p className="text-gray-500">Loading date information...</p>
-        {/* Add debug info */}
         <p className="text-xs text-gray-400 mt-2">
           {startDate ? `Start date: ${startDate}` : 'No start date available'} <br />
           {endDate ? `End date: ${endDate}` : 'No end date available'}
@@ -967,8 +1058,7 @@ export default function CareTable({
 
   return (
     <div className="w-full space-y-4">
-      {/* Enhanced Save Reminder Notification - Updated for state preservation */}
-      {hasValues && hasUnsavedChanges && (
+      {hasUnsavedChanges && (
         <div className="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 rounded shadow-md mb-4" role="alert">
           <div className="flex items-center">
             <svg className="h-6 w-6 text-yellow-500 mr-2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
@@ -980,7 +1070,6 @@ export default function CareTable({
         </div>
       )}
 
-      {/* Date Mismatch Warning */}
       {dateMismatch && (
         <div className="bg-amber-100 border-l-4 border-amber-500 text-amber-700 p-4 rounded shadow-md mb-4" role="alert">
           <div className="flex items-start">
@@ -994,14 +1083,13 @@ export default function CareTable({
                 but your current stay is <span className="font-semibold">{dateMismatch.newDateRange}</span>.
               </p>
               <p className="text-sm mt-2 text-amber-700">
-                <strong>Please set up your care schedule for your new dates below.</strong> You can use the default settings to quickly apply the same care pattern to all days.
+                <strong>Please set up your care schedule for your new dates below.</strong>
               </p>
             </div>
           </div>
         </div>
       )}
       
-      {/* Processing Indicator - Only show during validation/processing */}
       {isSaving && (
         <div className="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-4 rounded shadow-md mb-4" role="alert">
           <div className="flex items-center">
@@ -1011,19 +1099,16 @@ export default function CareTable({
         </div>
       )}
       
-      {/* UPDATED: Enhanced validation error messages with specific evening time errors */}
       {validationErrors && validationErrors.hasErrors && (
         <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative text-sm space-y-2" role="alert">
           <div>
             <strong className="font-bold">Validation Errors:</strong>
           </div>
           
-          {/* General validation errors */}
           <div>
-            <span className="block sm:inline">Please complete the Time and Duration for periods where you&apos;ve selected Carers.</span>
+            <span className="block sm:inline">Please complete the Time and Duration for periods where you&apos;ve selected Carers (excluding &quot;No care required&quot;).</span>
           </div>
           
-          {/* Specific evening time validation errors (should be rare now with filtering) */}
           {validationErrors.eveningTimeErrors && validationErrors.eveningTimeErrors.length > 0 && (
             <div className="border-t pt-2 mt-2">
               <strong className="font-bold text-red-800">Evening Care Conflicts:</strong>
@@ -1047,10 +1132,13 @@ export default function CareTable({
         </div>
       )}
 
-      {/* Default Values Section */}
+      {/* Daily Care Section (formerly "Set Default Care Schedule") */}
       <div className="flex flex-col border rounded-lg p-4 bg-gray-50">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-semibold">Set Default Care Schedule</h3>
+          <h3 className="text-lg font-semibold">Daily Care</h3>
+        </div>
+        <div className="mb-3 text-xs text-gray-600 bg-blue-50 p-2 rounded">
+          <strong>Note:</strong> Check-in day includes afternoon & evening care only. Check-out day includes morning care only.
         </div>
         <table className="w-full border-collapse">
           <thead>
@@ -1087,131 +1175,224 @@ export default function CareTable({
             </tr>
           </tbody>
         </table>
-        <div className="flex items-center justify-end mt-4">
-          <button
-            onClick={applyDefaultsToAll}
-            className="bg-green-500 hover:bg-green-600 text-white text-sm py-2 px-4 rounded"
-          >
-            Copy for the duration of my stay
-          </button>
+      </div>
+
+      {/* Question: Does your care vary from day to day? */}
+      {hasAnyDefaultValues(defaultValues) && (
+        <div className="flex flex-col border rounded-lg p-4 bg-white">
+          <h3 className="text-base font-semibold mb-3">Does your care vary from day to day?</h3>
+          <div className="flex gap-4">
+            <button
+              onClick={() => handleCareVariesChange(false)}
+              className={`flex-1 py-3 px-4 rounded-lg font-medium transition-all ${
+                careVaries === false
+                  ? 'bg-blue-500 text-white shadow-md'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+            >
+              No, my care is the same every day
+            </button>
+            <button
+              onClick={() => handleCareVariesChange(true)}
+              className={`flex-1 py-3 px-4 rounded-lg font-medium transition-all ${
+                careVaries === true
+                  ? 'bg-blue-500 text-white shadow-md'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+            >
+              Yes, my care varies
+            </button>
+          </div>
         </div>
-      </div>
-      <div className="w-full overflow-x-auto">
-        <table className="w-full border-collapse min-w-max">
-          <thead>
-            <tr>
-              <th className="border p-1 text-left text-sm sticky left-0 bg-white">Care</th>
-              {dates.map((date, index) => (
-                <th key={index} className="border p-1 text-left text-sm whitespace-nowrap">
-                  {formatDate(date)}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {/* Morning Section */}
-            <tr>
-              <td colSpan={dates.length + 1} className="border p-1 text-sm font-semibold bg-gray-50 sticky left-0">
-                Morning
-              </td>
-            </tr>
-            <tr>
-              <td className="border p-1 text-sm sticky left-0 bg-white">Carers</td>
-              {dates.map((date, index) => (
-                <td key={index} className="border p-1">
-                  {renderSelect(date, 'morning', 'carers', CARER_OPTIONS)}
-                </td>
-              ))}
-            </tr>
-            <tr>
-              <td className="border p-1 text-sm sticky left-0 bg-white">Time</td>
-              {dates.map((date, index) => (
-                <td key={index} className="border p-1">
-                  {renderSelect(date, 'morning', 'time', TIME_OPTIONS.morning)}
-                </td>
-              ))}
-            </tr>
-            <tr>
-              <td className="border p-1 text-sm sticky left-0 bg-white">Duration</td>
-              {dates.map((date, index) => (
-                <td key={index} className="border p-1">
-                  {renderSelect(date, 'morning', 'duration', DURATION_OPTIONS)}
-                </td>
-              ))}
-            </tr>
+      )}
 
-            {/* Afternoon Section */}
-            <tr>
-              <td colSpan={dates.length + 1} className="border p-1 text-sm font-semibold bg-gray-50 sticky left-0">
-                Afternoon
-              </td>
-            </tr>
-            <tr>
-              <td className="border p-1 text-sm sticky left-0 bg-white">Carers</td>
-              {dates.map((date, index) => (
-                <td key={index} className="border p-1">
-                  {renderSelect(date, 'afternoon', 'carers', CARER_OPTIONS)}
-                </td>
-              ))}
-            </tr>
-            <tr>
-              <td className="border p-1 text-sm sticky left-0 bg-white">Time</td>
-              {dates.map((date, index) => (
-                <td key={index} className="border p-1">
-                  {renderSelect(date, 'afternoon', 'time', TIME_OPTIONS.afternoon)}
-                </td>
-              ))}
-            </tr>
-            <tr>
-              <td className="border p-1 text-sm sticky left-0 bg-white">Duration</td>
-              {dates.map((date, index) => (
-                <td key={index} className="border p-1">
-                  {renderSelect(date, 'afternoon', 'duration', DURATION_OPTIONS)}
-                </td>
-              ))}
-            </tr>
+      {/* Detailed Daily Care Table - Only shown if care varies */}
+      {showDetailedTable && careVaries === true && (
+        <div className="space-y-3">
+          <div className="bg-blue-50 border border-blue-200 p-3 rounded-lg">
+            <p className="text-sm text-blue-800">
+              <strong>Please edit the care schedule for your stay.</strong> The table below has been pre-filled with your daily care information. You can adjust any day as needed.
+            </p>
+          </div>
+          
+          <div className="w-full overflow-x-auto">
+            <table className="w-full border-collapse min-w-max">
+              <thead>
+                <tr>
+                  <th className="border p-1 text-left text-sm sticky left-0 bg-white">Care</th>
+                  {dates.map((date, index) => (
+                    <th key={index} className="border p-1 text-left text-sm whitespace-nowrap">
+                      {formatDate(date)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td colSpan={dates.length + 1} className="border p-1 text-sm font-semibold bg-gray-50 sticky left-0">
+                    Morning <span className="text-xs font-normal text-gray-500">(Not on check-in day)</span>
+                  </td>
+                </tr>
+                <tr>
+                  <td className="border p-1 text-sm sticky left-0 bg-white">Carers</td>
+                  {dates.map((date, index) => {
+                    const activePeriods = getActivePeriods(date, dates);
+                    return (
+                      <td key={index} className={`border p-1 ${!activePeriods.includes('morning') ? 'bg-gray-100' : ''}`}>
+                        {activePeriods.includes('morning') ? (
+                          renderSelect(date, 'morning', 'carers', CARER_OPTIONS)
+                        ) : (
+                          <div className="text-center text-xs text-gray-400">N/A</div>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+                <tr>
+                  <td className="border p-1 text-sm sticky left-0 bg-white">Time</td>
+                  {dates.map((date, index) => {
+                    const activePeriods = getActivePeriods(date, dates);
+                    return (
+                      <td key={index} className={`border p-1 ${!activePeriods.includes('morning') ? 'bg-gray-100' : ''}`}>
+                        {activePeriods.includes('morning') ? (
+                          renderSelect(date, 'morning', 'time', TIME_OPTIONS.morning)
+                        ) : (
+                          <div className="text-center text-xs text-gray-400">N/A</div>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+                <tr>
+                  <td className="border p-1 text-sm sticky left-0 bg-white">Duration</td>
+                  {dates.map((date, index) => {
+                    const activePeriods = getActivePeriods(date, dates);
+                    return (
+                      <td key={index} className={`border p-1 ${!activePeriods.includes('morning') ? 'bg-gray-100' : ''}`}>
+                        {activePeriods.includes('morning') ? (
+                          renderSelect(date, 'morning', 'duration', DURATION_OPTIONS)
+                        ) : (
+                          <div className="text-center text-xs text-gray-400">N/A</div>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
 
-            {/* Evening Section */}
-            <tr>
-              <td colSpan={dates.length + 1} className="border p-1 text-sm font-semibold bg-gray-50 sticky left-0">
-                <div className="flex items-center justify-between">
-                  <span>Evening</span>
-                  <span className="text-xs font-normal text-gray-600 italic">
-                    ⏰ Options filtered to end by 12:00 AM
-                  </span>
-                </div>
-              </td>
-            </tr>
-            <tr>
-              <td className="border p-1 text-sm sticky left-0 bg-white">Carers</td>
-              {dates.map((date, index) => (
-                <td key={index} className="border p-1">
-                  {renderSelect(date, 'evening', 'carers', CARER_OPTIONS)}
-                </td>
-              ))}
-            </tr>
-            <tr>
-              <td className="border p-1 text-sm sticky left-0 bg-white">Time</td>
-              {dates.map((date, index) => (
-                <td key={index} className="border p-1">
-                  {renderSelect(date, 'evening', 'time', TIME_OPTIONS.evening)}
-                </td>
-              ))}
-            </tr>
-            <tr>
-              <td className="border p-1 text-sm sticky left-0 bg-white">Duration</td>
-              {dates.map((date, index) => (
-                <td key={index} className="border p-1">
-                  {renderSelect(date, 'evening', 'duration', DURATION_OPTIONS)}
-                </td>
-              ))}
-            </tr>
-          </tbody>
-        </table>
-      </div>
+                <tr>
+                  <td colSpan={dates.length + 1} className="border p-1 text-sm font-semibold bg-gray-50 sticky left-0">
+                    Afternoon <span className="text-xs font-normal text-gray-500">(Not on check-out day)</span>
+                  </td>
+                </tr>
+                <tr>
+                  <td className="border p-1 text-sm sticky left-0 bg-white">Carers</td>
+                  {dates.map((date, index) => {
+                    const activePeriods = getActivePeriods(date, dates);
+                    return (
+                      <td key={index} className={`border p-1 ${!activePeriods.includes('afternoon') ? 'bg-gray-100' : ''}`}>
+                        {activePeriods.includes('afternoon') ? (
+                          renderSelect(date, 'afternoon', 'carers', CARER_OPTIONS)
+                        ) : (
+                          <div className="text-center text-xs text-gray-400">N/A</div>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+                <tr>
+                  <td className="border p-1 text-sm sticky left-0 bg-white">Time</td>
+                  {dates.map((date, index) => {
+                    const activePeriods = getActivePeriods(date, dates);
+                    return (
+                      <td key={index} className={`border p-1 ${!activePeriods.includes('afternoon') ? 'bg-gray-100' : ''}`}>
+                        {activePeriods.includes('afternoon') ? (
+                          renderSelect(date, 'afternoon', 'time', TIME_OPTIONS.afternoon)
+                        ) : (
+                          <div className="text-center text-xs text-gray-400">N/A</div>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+                <tr>
+                  <td className="border p-1 text-sm sticky left-0 bg-white">Duration</td>
+                  {dates.map((date, index) => {
+                    const activePeriods = getActivePeriods(date, dates);
+                    return (
+                      <td key={index} className={`border p-1 ${!activePeriods.includes('afternoon') ? 'bg-gray-100' : ''}`}>
+                        {activePeriods.includes('afternoon') ? (
+                          renderSelect(date, 'afternoon', 'duration', DURATION_OPTIONS)
+                        ) : (
+                          <div className="text-center text-xs text-gray-400">N/A</div>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+
+                <tr>
+                  <td colSpan={dates.length + 1} className="border p-1 text-sm font-semibold bg-gray-50 sticky left-0">
+                    <div className="flex items-center justify-between">
+                      <span>Evening <span className="text-xs font-normal text-gray-500">(Not on check-out day)</span></span>
+                      <span className="text-xs font-normal text-gray-600 italic">
+                        ⏰ Options filtered to end by 12:00 AM
+                      </span>
+                    </div>
+                  </td>
+                </tr>
+                <tr>
+                  <td className="border p-1 text-sm sticky left-0 bg-white">Carers</td>
+                  {dates.map((date, index) => {
+                    const activePeriods = getActivePeriods(date, dates);
+                    return (
+                      <td key={index} className={`border p-1 ${!activePeriods.includes('evening') ? 'bg-gray-100' : ''}`}>
+                        {activePeriods.includes('evening') ? (
+                          renderSelect(date, 'evening', 'carers', CARER_OPTIONS)
+                        ) : (
+                          <div className="text-center text-xs text-gray-400">N/A</div>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+                <tr>
+                  <td className="border p-1 text-sm sticky left-0 bg-white">Time</td>
+                  {dates.map((date, index) => {
+                    const activePeriods = getActivePeriods(date, dates);
+                    return (
+                      <td key={index} className={`border p-1 ${!activePeriods.includes('evening') ? 'bg-gray-100' : ''}`}>
+                        {activePeriods.includes('evening') ? (
+                          renderSelect(date, 'evening', 'time', TIME_OPTIONS.evening)
+                        ) : (
+                          <div className="text-center text-xs text-gray-400">N/A</div>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+                <tr>
+                  <td className="border p-1 text-sm sticky left-0 bg-white">Duration</td>
+                  {dates.map((date, index) => {
+                    const activePeriods = getActivePeriods(date, dates);
+                    return (
+                      <td key={index} className={`border p-1 ${!activePeriods.includes('evening') ? 'bg-gray-100' : ''}`}>
+                        {activePeriods.includes('evening') ? (
+                          renderSelect(date, 'evening', 'duration', DURATION_OPTIONS)
+                        ) : (
+                          <div className="text-center text-xs text-gray-400">N/A</div>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
       
-      {/* Enhanced Footer with Done button - Updated for state preservation */}
-      {hasValues && hasUnsavedChanges && (
+      {/* Save Button */}
+      {(hasAnyDefaultValues(defaultValues) || hasValues) && hasUnsavedChanges && (
         <div className="flex justify-between items-center bg-gray-50 p-4 rounded-lg">
           <div className="text-sm text-gray-600">
             {isSaving ? (

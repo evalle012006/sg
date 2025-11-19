@@ -38,10 +38,13 @@ const courseModel = require('./course');
 const courseOfferModel = require('./courseoffer');
 const courseRateModel = require('./courserate');
 const packageRequirementModel = require('./packagerequirement');
-const guestFundingModel = require('./guestfunding');
+const guestApprovalModel = require('./guestapproval');
 const promotionModel = require('./promotion');
 const emailTemplateModel = require('./emailtemplate');
 const emailTriggerQuestionModel = require('./emailtriggerquestion');
+const bookingApprovalUsageModel = require('./bookingapprovalusage');
+const fundingApprovalModel = require('./fundingapproval');
+const guestApprovalFundingApprovalModel = require('./guestapprovalfundingapproval');
 
 const env = process.env.NODE_ENV || 'development';
 const config = require(__dirname + '/../config/config.js')[env];
@@ -90,18 +93,25 @@ const Course = courseModel(sequelize, Sequelize.DataTypes);
 const CourseOffer = courseOfferModel(sequelize, Sequelize.DataTypes);
 const CourseRate = courseRateModel(sequelize, Sequelize.DataTypes);
 const PackageRequirement = packageRequirementModel(sequelize, Sequelize.DataTypes);
-const GuestFunding = guestFundingModel(sequelize, Sequelize.DataTypes);
+const GuestApproval = guestApprovalModel(sequelize, Sequelize.DataTypes);
 const Promotion = promotionModel(sequelize, Sequelize.DataTypes);
 const EmailTemplate = emailTemplateModel(sequelize, Sequelize.DataTypes);
 const EmailTriggerQuestion = emailTriggerQuestionModel(sequelize, Sequelize.DataTypes);
+const BookingApprovalUsage = bookingApprovalUsageModel(sequelize, Sequelize.DataTypes);
+const FundingApproval = fundingApprovalModel(sequelize, Sequelize.DataTypes);
+const GuestApprovalFundingApproval = guestApprovalFundingApprovalModel(sequelize, Sequelize.DataTypes);
 
 //ASSOCIATIONS
+
+// Role & Permission associations
 Role.belongsToMany(Permission, { through: RoleHasPermission, foreignKey: 'role_id' });
 Permission.belongsToMany(Role, { through: RoleHasPermission, foreignKey: 'permission_id' });
 
+// Email Trigger & Template associations
 EmailTrigger.belongsTo(EmailTemplate, { foreignKey: 'email_template_id', as: 'template' });
 EmailTemplate.hasMany(EmailTrigger, { foreignKey: 'email_template_id', as: 'triggers' });
 
+// Email Trigger & Question associations
 EmailTrigger.belongsToMany(Question, { 
   through: EmailTriggerQuestion, 
   foreignKey: 'email_trigger_id',
@@ -134,12 +144,15 @@ EmailTriggerQuestion.belongsTo(Question, {
   as: 'question' 
 });
 
+// Guest & Booking associations
 Guest.hasMany(Booking)
 Booking.belongsTo(Guest)
 
+// Guest & HealthInfo associations
 Guest.hasOne(HealthInfo)
 HealthInfo.belongsTo(Guest)
 
+// Booking & Section associations
 Booking.hasMany(Section, {
   foreignKey: 'model_id',
   constraints: false,
@@ -149,6 +162,7 @@ Booking.hasMany(Section, {
 });
 Section.belongsTo(Booking, { foreignKey: 'model_id', constraints: false });
 
+// Guest & Notification associations
 Guest.hasMany(Notification, {
   foreignKey: 'notifyee_id',
   constraints: false,
@@ -158,21 +172,27 @@ Guest.hasMany(Notification, {
 });
 Notification.belongsTo(Guest, { foreignKey: 'notifyee_id', constraints: false });
 
+// Section & QaPair associations
 Section.hasMany(QaPair);
 QaPair.belongsTo(Section);
 
+// Booking & Room associations
 Booking.hasMany(Room);
 Room.belongsTo(Booking);
 
+// RoomType & Room associations
 RoomType.hasMany(Room);
 Room.belongsTo(RoomType);
 
+// Booking & Checklist associations
 Booking.hasOne(Checklist)
 Checklist.belongsTo(Booking)
 
+// Checklist & ChecklistAction associations
 Checklist.hasMany(ChecklistAction)
 ChecklistAction.belongsTo(Checklist)
 
+// Booking & Log associations
 Booking.hasMany(Log, {
   foreignKey: 'loggable_id',
   constraints: false,
@@ -182,30 +202,36 @@ Booking.hasMany(Log, {
 });
 Log.belongsTo(Booking, { foreignKey: 'loggable_id', constraints: false });
 
+// Booking & Equipment associations (many-to-many)
 Booking.belongsToMany(Equipment, { through: BookingEquipment, foreignKey: 'booking_id' });
 Equipment.belongsToMany(Booking, { through: BookingEquipment, foreignKey: 'equipment_id' });
 
 BookingEquipment.hasOne(Equipment, { sourceKey: 'equipment_id', foreignKey: 'id' })
 BookingEquipment.hasOne(Booking, { sourceKey: 'booking_id', foreignKey: 'id' })
 
+// EquipmentCategory & Equipment associations
 EquipmentCategory.hasMany(Equipment, {
   foreignKey: 'category_id',
   constraints: false,
 });
 Equipment.belongsTo(EquipmentCategory, { foreignKey: 'category_id', constraints: false });
 
+// Supplier & Equipment associations
 Supplier.hasMany(Equipment, {
   foreignKey: 'supplier_id',
   constraints: false,
 });
 Equipment.belongsTo(Supplier, { foreignKey: 'supplier_id', constraints: false });
 
+// Template & ChecklistTemplate associations
 Template.hasOne(ChecklistTemplate)
 ChecklistTemplate.belongsTo(Template)
 
+// Template & Page associations
 Template.hasMany(Page)
 Page.belongsTo(Template)
 
+// Page & Section associations
 Page.hasMany(Section, {
   foreignKey: 'model_id',
   constraints: false,
@@ -215,18 +241,21 @@ Page.hasMany(Section, {
 })
 Section.belongsTo(Page, { foreignKey: 'model_id', constraints: false })
 
+// Section & Question associations
 Section.hasMany(Question)
 Question.belongsTo(Section)
 
+// Question & QuestionDependency associations
 Question.hasMany(QuestionDependency, { foreignKey: 'question_id' })
 QuestionDependency.belongsTo(Question, { foreignKey: 'question_id' })
 
 QuestionDependency.hasOne(Question, { as: 'dependency', sourceKey: 'dependence_id', foreignKey: 'id' })
-// Question.hasMany(QuestionDependency, { as: 'dependant', sourceKey: 'id', foreignKey: 'question_id' })
 
+// Question & QaPair associations
 Question.hasOne(QaPair);
 QaPair.belongsTo(Question);
 
+// User & Address associations
 User.hasMany(Address, {
   foreignKey: 'addressable_id',
   constraints: false,
@@ -236,6 +265,7 @@ User.hasMany(Address, {
 })
 Address.belongsTo(User, { foreignKey: 'addressable_id', constraints: false })
 
+// User & Notification associations
 User.hasMany(Notification, {
   foreignKey: 'notifyee_id',
   constraints: false,
@@ -245,10 +275,11 @@ User.hasMany(Notification, {
 });
 Notification.belongsTo(User, { foreignKey: 'notifyee_id', constraints: false })
 
+// User & Comment associations
 User.hasMany(Comment);
 Comment.belongsTo(User);
 
-
+// Guest & Address associations
 Guest.hasMany(Address, {
   foreignKey: 'addressable_id',
   constraints: false,
@@ -258,15 +289,19 @@ Guest.hasMany(Address, {
 })
 Address.belongsTo(Guest, { foreignKey: 'addressable_id', constraints: false })
 
+// Guest & Comment associations
 Guest.hasMany(Comment);
 Comment.belongsTo(Guest);
 
+// User & Role associations (many-to-many)
 User.belongsToMany(Role, { through: ModelHasRole, foreignKey: 'model_id' });
 Role.belongsToMany(User, { through: ModelHasRole, foreignKey: 'role_id' });
 
+// Guest & Role associations (many-to-many)
 Guest.belongsToMany(Role, { through: ModelHasRole, foreignKey: 'model_id' });
 Role.belongsToMany(Guest, { through: ModelHasRole, foreignKey: 'role_id' });
 
+// Course & CourseOffer associations
 Course.hasMany(CourseOffer, {
   foreignKey: 'course_id',
   as: 'offers'
@@ -276,6 +311,7 @@ CourseOffer.belongsTo(Course, {
   as: 'course'
 });
 
+// Guest & CourseOffer associations
 Guest.hasMany(CourseOffer, {
   foreignKey: 'guest_id',
   as: 'courseOffers'
@@ -285,6 +321,7 @@ CourseOffer.belongsTo(Guest, {
   as: 'guest'
 });
 
+// Booking & CourseOffer associations
 Booking.hasMany(CourseOffer, {
   foreignKey: 'booking_id',
   as: 'courseOffers'
@@ -294,6 +331,7 @@ CourseOffer.belongsTo(Booking, {
   as: 'booking'
 });
 
+// User & CourseOffer associations
 User.hasMany(CourseOffer, {
   foreignKey: 'offered_by',
   as: 'offeredCourses'
@@ -303,6 +341,7 @@ CourseOffer.belongsTo(User, {
   as: 'offeredBy'
 });
 
+// Package & PackageRequirement associations
 Package.hasMany(PackageRequirement, {
   foreignKey: 'package_id',
   as: 'requirements'
@@ -312,33 +351,117 @@ PackageRequirement.belongsTo(Package, {
   as: 'package'
 });
 
-Guest.hasOne(GuestFunding, {
+// Guest & GuestApproval associations
+Guest.hasMany(GuestApproval, {
   foreignKey: 'guest_id',
-  as: 'funding'
+  as: 'approvals'
 });
-GuestFunding.belongsTo(Guest, {
+GuestApproval.belongsTo(Guest, {
   foreignKey: 'guest_id',
   as: 'guest'
 });
 
-Package.hasMany(GuestFunding, {
+// Package & GuestApproval associations
+Package.hasMany(GuestApproval, {
   foreignKey: 'package_id',
-  as: 'guestFundings'
+  as: 'guestApprovals'
 });
-GuestFunding.belongsTo(Package, {
+GuestApproval.belongsTo(Package, {
   foreignKey: 'package_id',
   as: 'package'
 });
-// Association between GuestFunding and RoomType for additional room tracking
-RoomType.hasMany(GuestFunding, {
+
+// RoomType & GuestApproval associations (for additional room tracking)
+RoomType.hasMany(GuestApproval, {
   foreignKey: 'additional_room_approved',
-  as: 'guestFundings'
+  as: 'guestApprovals'
 });
-GuestFunding.belongsTo(RoomType, {
+GuestApproval.belongsTo(RoomType, {
   foreignKey: 'additional_room_approved',
   as: 'additionalRoomType'
 });
 
+// Booking & BookingApprovalUsage associations
+Booking.hasMany(BookingApprovalUsage, {
+  foreignKey: 'booking_id',
+  as: 'approvalUsages'
+});
+BookingApprovalUsage.belongsTo(Booking, {
+  foreignKey: 'booking_id',
+  as: 'booking'
+});
+
+// GuestApproval & BookingApprovalUsage associations
+GuestApproval.hasMany(BookingApprovalUsage, {
+  foreignKey: 'guest_approval_id',
+  as: 'usages'
+});
+BookingApprovalUsage.belongsTo(GuestApproval, {
+  foreignKey: 'guest_approval_id',
+  as: 'approval'
+});
+
+// NEW: FundingApproval associations
+Guest.hasMany(FundingApproval, {
+  foreignKey: 'guest_id',
+  as: 'fundingApprovals'
+});
+FundingApproval.belongsTo(Guest, {
+  foreignKey: 'guest_id',
+  as: 'guest'
+});
+// Package & FundingApproval associations
+Package.hasMany(FundingApproval, {
+  foreignKey: 'package_id',
+  as: 'fundingApprovals'
+});
+FundingApproval.belongsTo(Package, {
+  foreignKey: 'package_id',
+  as: 'package'
+});
+
+// RoomType & FundingApproval associations
+RoomType.hasMany(FundingApproval, {
+  foreignKey: 'additional_room_type_id',
+  as: 'fundingApprovals'
+});
+FundingApproval.belongsTo(RoomType, {
+  foreignKey: 'additional_room_type_id',
+  as: 'additionalRoomType'
+});
+
+// GuestApproval & FundingApproval many-to-many associations
+GuestApproval.belongsToMany(FundingApproval, {
+  through: GuestApprovalFundingApproval,
+  foreignKey: 'guest_approval_id',
+  otherKey: 'funding_approval_id',
+  as: 'fundingApprovals'
+});
+FundingApproval.belongsToMany(GuestApproval, {
+  through: GuestApprovalFundingApproval,
+  foreignKey: 'funding_approval_id',
+  otherKey: 'guest_approval_id',
+  as: 'guestApprovals'
+});
+
+// Direct access to junction table
+GuestApproval.hasMany(GuestApprovalFundingApproval, {
+  foreignKey: 'guest_approval_id',
+  as: 'fundingAllocations'
+});
+GuestApprovalFundingApproval.belongsTo(GuestApproval, {
+  foreignKey: 'guest_approval_id',
+  as: 'guestApproval'
+});
+
+FundingApproval.hasMany(GuestApprovalFundingApproval, {
+  foreignKey: 'funding_approval_id',
+  as: 'guestAllocations'
+});
+GuestApprovalFundingApproval.belongsTo(FundingApproval, {
+  foreignKey: 'funding_approval_id',
+  as: 'fundingApproval'
+});
 
 module.exports = {
   sequelize,
@@ -380,8 +503,11 @@ module.exports = {
   CourseOffer,
   CourseRate,
   PackageRequirement,
-  GuestFunding,
+  GuestApproval,
   Promotion,
   EmailTemplate,
   EmailTriggerQuestion,
+  BookingApprovalUsage,
+  FundingApproval,
+  GuestApprovalFundingApproval,
 };

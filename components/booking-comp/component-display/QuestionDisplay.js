@@ -45,13 +45,21 @@ const QuestionDisplay = ({ question, answer, questionType, options, optionType, 
     return String(value);
   };
 
-  // Helper to format care table data for display only (not amendments)
+  // UPDATED: Helper to format care table data for display only (not amendments)
   const formatCareTableForDisplay = (answer) => {
     let data = answer;
     
     try {
       if (typeof answer === 'string') {
         data = JSON.parse(answer);
+      }
+      
+      // UPDATED: Handle new data structure { careData: [], defaultValues: {} }
+      // Extract only careData for display, ignore defaultValues
+      if (data && typeof data === 'object' && !Array.isArray(data)) {
+        if (data.careData && Array.isArray(data.careData)) {
+          data = data.careData;
+        }
       }
       
       if (!Array.isArray(data)) {

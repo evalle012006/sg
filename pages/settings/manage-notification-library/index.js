@@ -9,11 +9,12 @@ const NotificationLibraryList = dynamic(() => import('../../../components/manage
 export default function NotificationLibraryPage() {
     const dispatch = useDispatch();
     const [isLoading, setIsLoading] = useState(true);
+    const [data, setData] = useState([]);
 
     const fetchNotificationLibrary = async () => {
         setIsLoading(true);
         try {
-            const response = await fetch('/api/notification-library/list', {
+            const response = await fetch('/api/notification-library', {
                 method: 'GET',
                 headers: {
                     'Content-Type': 'application/json'
@@ -21,8 +22,9 @@ export default function NotificationLibraryPage() {
             });
 
             if (response.ok) {
-                const data = await response.json();
-                dispatch(notificationLibraryActions.setNotificationLibraryList(data));
+                const dataResponse = await response.json();
+                setData(dataResponse);
+                dispatch(notificationLibraryActions.setNotificationLibraryList(dataResponse));
             }
         } catch (error) {
             console.error('Error fetching notification library:', error);
@@ -45,7 +47,7 @@ export default function NotificationLibraryPage() {
 
     return (
         <div>
-            <NotificationLibraryList refreshData={fetchNotificationLibrary} />
+            <NotificationLibraryList dataList={data} refreshData={fetchNotificationLibrary} />
         </div>
     );
 }

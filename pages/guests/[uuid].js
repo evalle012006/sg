@@ -10,7 +10,6 @@ import moment from "moment";
 import { AbilityContext, Can } from "../../services/acl/can";
 import { guestActions } from "../../store/guestSlice";
 import HealthInformation from "../../components/guests/HealthInformation";
-import FundingForm from "../../components/guests/FundingForm";
 import { Eye, Edit, Trash2, Download, Mail } from 'lucide-react';
 
 const Table = dynamic(() => import('../../components/ui-v2/Table'));
@@ -21,6 +20,7 @@ const NotesAndComments = dynamic(() => import('./notes'));
 const DocumentRenameModal = dynamic(() => import('../../components/ui/document-rename-modal'));
 const AdminGuestProfile = dynamic(() => import('../../components/my-profile/AdminGuestProfile'));
 const GuestCourses = dynamic(() => import('../../components/guest-comp/GuestCourses'));
+const FundingForm = dynamic(() => import('../../components/guests/FundingForm'));
 
 export default function GuestPage() {
   const router = useRouter();
@@ -122,7 +122,7 @@ export default function GuestPage() {
     { label: "PAST", size: "medium", fullLabel: "PAST STAYS" },
     { label: "DOCS", size: "medium", fullLabel: "DOCUMENTS" },
     { label: "NOTES", size: "medium", fullLabel: "NOTES & COMMENTS" },
-    { label: "FUNDING", size: "medium", fullLabel: "FUNDING" }
+    { label: "FUNDING", size: "medium", fullLabel: "FUNDING APPROVALS" }
   ];
 
   const handleDownloadPDF = async (bookingId) => {
@@ -484,9 +484,6 @@ export default function GuestPage() {
       case "documents":
         fetchDocuments();
         break;
-      case "funding":
-        await fetchFundingInfo();
-        break;
       default:
         break;
     }
@@ -769,7 +766,7 @@ export default function GuestPage() {
             <TabButton
               tabs={mainTabs}
               onChange={(index) => {
-                const tabNames = ["guest-profile", "courses", "health-information", "upcoming-stays", "past-stays", "documents", "notes-and-comments", "funding"];
+                const tabNames = ["guest-profile", "courses", "health-information", "upcoming-stays", "past-stays", "documents", "notes-and-comments", "funding-approvals"];
                 const selectedTabName = tabNames[index];
                 setSelectedTab(selectedTabName);
                 handleTabChange(selectedTabName);
@@ -896,12 +893,13 @@ export default function GuestPage() {
               </div>
             )}
 
-            {selectedTab === "funding" && (
+            {selectedTab === "funding-approvals" && (
               <div>
                 <FundingForm 
-                  uuid={uuid}
-                  initialData={fundingData}
-                  onSave={fetchFundingInfo}
+                  uuid={uuid} 
+                  onSuccess={() => {
+                    // toast.success('Funding approvals updated successfully');
+                  }}
                 />
               </div>
             )}

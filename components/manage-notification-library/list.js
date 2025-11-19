@@ -8,15 +8,11 @@ import dynamic from 'next/dynamic';
 
 const Table = dynamic(() => import('../ui-v2/Table'));
 const StatusBadge = dynamic(() => import('../ui-v2/StatusBadge'));
-const Spinner = dynamic(() => import('../ui/spinner'));
 
-const NotificationLibraryList = ({ refreshData }) => {
-    const dispatch = useDispatch();
-    const notificationLibraryList = useSelector(state => state.notificationLibrary.list);
+const NotificationLibraryList = ({ dataList, refreshData }) => {
     const [list, setList] = useState([]);
     const [selectedData, setSelectedData] = useState({});
     const [showUpdateModal, setShowUpdateModal] = useState(false);
-    const [isLoading, setIsLoading] = useState(false);
 
     const handleSave = async (data) => {
         if (data) {
@@ -67,7 +63,6 @@ const NotificationLibraryList = ({ refreshData }) => {
         refreshData();
     }
 
-    // Updated columns configuration following CourseList pattern
     const columns = useMemo(() => [
         {
             key: 'name',
@@ -124,16 +119,9 @@ const NotificationLibraryList = ({ refreshData }) => {
     ], []);
 
     useEffect(() => {
-        setList(notificationLibraryList);
-    }, [notificationLibraryList]);
-
-    if (isLoading) {
-        return (
-            <div className='h-screen flex items-center justify-center'>
-                <Spinner />
-            </div>
-        );
-    }
+        console.log('Data List Updated:', dataList);
+        setList(dataList || []);
+    }, [dataList]);
 
     return (
         <div className='pb-16'>

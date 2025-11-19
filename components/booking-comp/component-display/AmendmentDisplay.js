@@ -262,13 +262,21 @@ const AmendmentDisplay = ({ amendment, onApprove, onDecline, currentUser, bookin
     }
   };
 
-  // Format care table data
+  // UPDATED: Format care table data - extract only careData from new structure
   const formatCareTableData = (answer) => {
     let data = answer;
     
     try {
       if (typeof answer === 'string') {
         data = JSON.parse(answer);
+      }
+      
+      // UPDATED: Handle new data structure { careData: [], defaultValues: {} }
+      // Extract only careData, ignore defaultValues for display
+      if (data && typeof data === 'object' && !Array.isArray(data)) {
+        if (data.careData && Array.isArray(data.careData)) {
+          data = data.careData;
+        }
       }
       
       if (!Array.isArray(data)) {
@@ -333,13 +341,38 @@ const AmendmentDisplay = ({ amendment, onApprove, onDecline, currentUser, bookin
     }
   };
 
-  // Parse care diff logic
+  // UPDATED: Parse care diff logic - extract careData from both old and new data
   const parseCareDiff = (oldData, newData) => {
     if (!oldData || !newData) return { oldFormatted: '', newFormatted: '', detailedChanges: [] };
     
     try {
-      const oldArray = Array.isArray(oldData) ? oldData : JSON.parse(oldData);
-      const newArray = Array.isArray(newData) ? newData : JSON.parse(newData);
+      // UPDATED: Extract careData from new structure if present
+      let oldDataToProcess = oldData;
+      let newDataToProcess = newData;
+      
+      // Parse strings first
+      if (typeof oldDataToProcess === 'string') {
+        oldDataToProcess = JSON.parse(oldDataToProcess);
+      }
+      if (typeof newDataToProcess === 'string') {
+        newDataToProcess = JSON.parse(newDataToProcess);
+      }
+      
+      // Extract careData from new structure if present
+      if (oldDataToProcess && typeof oldDataToProcess === 'object' && !Array.isArray(oldDataToProcess)) {
+        if (oldDataToProcess.careData && Array.isArray(oldDataToProcess.careData)) {
+          oldDataToProcess = oldDataToProcess.careData;
+        }
+      }
+      
+      if (newDataToProcess && typeof newDataToProcess === 'object' && !Array.isArray(newDataToProcess)) {
+        if (newDataToProcess.careData && Array.isArray(newDataToProcess.careData)) {
+          newDataToProcess = newDataToProcess.careData;
+        }
+      }
+      
+      const oldArray = Array.isArray(oldDataToProcess) ? oldDataToProcess : [];
+      const newArray = Array.isArray(newDataToProcess) ? newDataToProcess : [];
       
       const changesMap = {};
       const detailedChanges = [];

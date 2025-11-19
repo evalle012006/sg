@@ -3,11 +3,6 @@ const { Model } = require('sequelize');
 
 module.exports = (sequelize, DataTypes) => {
   class Package extends Model {
-    /**
-     * Helper method for defining associations.
-     * This method is not a part of Sequelize lifecycle.
-     * The `models/index` file will call this method automatically.
-     */
     static associate(models) {
       // Add association with PackageRequirement
       Package.hasMany(models.PackageRequirement, {
@@ -15,10 +10,9 @@ module.exports = (sequelize, DataTypes) => {
         as: 'requirements'
       });
 
-      // Add association with GuestFunding
-      Package.hasMany(models.GuestFunding, {
+      Package.hasMany(models.GuestApproval, {
         foreignKey: 'package_id',
-        as: 'guestFundings'
+        as: 'guestApprovals'
       });
     }
   }
@@ -51,7 +45,7 @@ module.exports = (sequelize, DataTypes) => {
     },
     price: {
       type: DataTypes.DOUBLE,
-      allowNull: true, // Can be null for NDIS packages
+      allowNull: true,
       validate: {
         min: 0
       }
@@ -59,7 +53,7 @@ module.exports = (sequelize, DataTypes) => {
     ndis_package_type: {
       type: DataTypes.ENUM,
       values: ['sta', 'holiday'],
-      allowNull: true, // Only required for NDIS packages
+      allowNull: true,
       validate: {
         isValidForFunder(value) {
           if (this.funder === 'NDIS' && !value) {
@@ -75,7 +69,7 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.TEXT,
       allowNull: true,
       validate: {
-        len: [0, 2000] // Maximum 2000 characters for description
+        len: [0, 2000]
       }
     },
     ndis_line_items: {
@@ -89,7 +83,6 @@ module.exports = (sequelize, DataTypes) => {
               throw new Error('At least one line item is required for NDIS packages');
             }
             
-            // Validate each line item has required fields
             const requiredFields = ['line_item', 'price_per_night'];
             for (const item of value) {
               for (const field of requiredFields) {
@@ -98,7 +91,6 @@ module.exports = (sequelize, DataTypes) => {
                 }
               }
               
-              // Validate price is a number
               if (typeof item.price_per_night !== 'number' || item.price_per_night < 0) {
                 throw new Error('Line item price must be a non-negative number');
               }

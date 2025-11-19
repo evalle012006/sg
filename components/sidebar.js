@@ -234,10 +234,8 @@ export default function Sidebar({ isCollapsed }) {
                             {/* Submenu for Settings - Show when not collapsed and submenu is open */}
                             {!isCollapsed && isSubmenuOpen('settings') && (
                                 <div className="ml-8 relative">
-                                    {/* Continuous left border with top margin */}
                                     <div className="absolute left-0 top-2 bottom-0 w-1 bg-[#D9D9D9]"></div>
                                     
-                                    {/* Active item yellow overlay - Fixed positioning with proper Tailwind classes */}
                                     {router.pathname === '/settings/users' && (
                                         <div className="absolute left-0 top-2 w-1 h-10 bg-[#FFCE00]"></div>
                                     )}
@@ -253,17 +251,21 @@ export default function Sidebar({ isCollapsed }) {
                                     {router.pathname === '/settings/manage-room' && (
                                         <div className="absolute left-0 top-[10.5rem] w-1 h-10 bg-[#FFCE00]"></div>
                                     )}
+
                                     {router.pathname === '/settings/manage-packages' && (
                                         <div className="absolute left-0 top-[13rem] w-1 h-10 bg-[#FFCE00]"></div>
                                     )}
+
                                     {router.pathname === '/settings/manage-email-trigger' && (
                                         <div className="absolute left-0 top-[15.5rem] w-1 h-10 bg-[#FFCE00]"></div>
                                     )}
+
                                     {router.pathname === '/settings/manage-emails' && (
-                                        <div className="absolute left-0 top-[15.5rem] w-1 h-10 bg-[#FFCE00]"></div>
+                                        <div className="absolute left-0 top-[18rem] w-1 h-10 bg-[#FFCE00]"></div>
                                     )}
+                                    
                                     {router.pathname === '/settings/smtp-configuration' && (
-                                        <div className="absolute left-0 top-[17.5rem] w-1 h-10 bg-[#FFCE00]"></div>
+                                        <div className="absolute left-0 top-[20.5rem] w-1 h-10 bg-[#FFCE00]"></div>
                                     )}
                                     
                                     <ul className="relative">
@@ -338,7 +340,7 @@ export default function Sidebar({ isCollapsed }) {
                                             <Link href="/settings/manage-packages">
                                                 <a className={`
                                                     flex items-center px-4 py-2 text-sm transition-colors duration-200 h-10
-                                                    ${router.pathname === '/settings/smtp-configuration' 
+                                                    ${router.pathname === '/settings/manage-packages' 
                                                         ? 'text-[#FFCE00]' 
                                                         : 'text-gray-300 hover:text-white'
                                                     }
@@ -347,6 +349,7 @@ export default function Sidebar({ isCollapsed }) {
                                                 </a>
                                             </Link>
                                         </li>
+
                                         <li>
                                             <Link href="/settings/manage-email-trigger">
                                                 <a className={`

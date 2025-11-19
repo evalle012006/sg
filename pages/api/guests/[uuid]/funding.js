@@ -1,9 +1,11 @@
-import { Guest, GuestFunding, Package, RoomType } from '../../../../models';
+import { Guest, GuestApproval, Package, RoomType } from '../../../../models';
 
 export default async function handler(req, res) {
   const { uuid } = req.query;
   
-  // Find guest by uuid to get the id
+  // Log deprecation warning
+  console.warn(`⚠️  DEPRECATED: /api/guests/${uuid}/funding endpoint called. Use /api/guests/${uuid}/approvals instead.`);
+  
   const guest = await Guest.findOne({ 
     where: { uuid },
     attributes: ['id', 'uuid'] 
@@ -14,9 +16,13 @@ export default async function handler(req, res) {
   }
   
   if (req.method === 'GET') {
+    // Return deprecation notice with the most recent active approval
     try {
-      const funding = await GuestFunding.findOne({
-        where: { guest_id: guest.id },
+      const approval = await GuestApproval.findOne({
+        where: { 
+          guest_id: guest.id,
+          status: 'active'
+        },
         include: [
           {
             model: Package,
@@ -28,44 +34,46 @@ export default async function handler(req, res) {
             as: 'additionalRoomType',
             attributes: ['id', 'name', 'type']
           }
-        ]
+        ],
+        order: [['created_at', 'DESC']]
       });
       
       let response = {
+        _deprecated: true,
+        _message: 'This endpoint is deprecated. Please use /api/guests/[uuid]/approvals instead.',
+        _migration_guide: 'The system now supports multiple approvals per guest.',
         approval_number: '',
         nights_approved: '',
         package_id: null,
-        package_approved: '', // Keep for backward compatibility
+        package_approved: '',
         approval_from: '',
         approval_to: '',
         nights_used: 0,
-        // New additional room fields
         additional_room_approved: null,
         additional_room_nights_approved: 0,
         additional_room_nights_used: 0
       };
       
-      if (funding) {
-        // Format package display name for backward compatibility
+      if (approval) {
         let packageDisplay = '';
-        if (funding.package) {
-          packageDisplay = funding.package.package_code 
-            ? `${funding.package.name} (${funding.package.package_code})`
-            : funding.package.name;
+        if (approval.package) {
+          packageDisplay = approval.package.package_code 
+            ? `${approval.package.name} (${approval.package.package_code})`
+            : approval.package.name;
         }
 
         response = {
-          approval_number: funding.approval_number || '',
-          nights_approved: funding.nights_approved || '',
-          package_id: funding.package_id || null,
-          package_approved: packageDisplay, // For backward compatibility
-          approval_from: funding.approval_from || '',
-          approval_to: funding.approval_to || '',
-          nights_used: funding.nights_used || 0,
-          // New additional room fields
-          additional_room_approved: funding.additional_room_approved || null,
-          additional_room_nights_approved: funding.additional_room_nights_approved || 0,
-          additional_room_nights_used: funding.additional_room_nights_used || 0
+          ...response,
+          approval_number: approval.approval_number || '',
+          nights_approved: approval.nights_approved || '',
+          package_id: approval.package_id || null,
+          package_approved: packageDisplay,
+          approval_from: approval.approval_from || '',
+          approval_to: approval.approval_to || '',
+          nights_used: approval.nights_used || 0,
+          additional_room_approved: approval.additional_room_approved || null,
+          additional_room_nights_approved: approval.additional_room_nights_approved || 0,
+          additional_room_nights_used: approval.additional_room_nights_used || 0
         };
       }
       
@@ -80,98 +88,12 @@ export default async function handler(req, res) {
   }
   
   else if (req.method === 'POST') {
-    try {
-      const { 
-        approval_number, 
-        nights_approved, 
-        package_id, 
-        package_approved, 
-        approval_from, 
-        approval_to, 
-        nights_used,
-        // New additional room fields
-        additional_room_approved,
-        additional_room_nights_approved,
-        additional_room_nights_used
-      } = req.body;
-      
-      // Validate package_id if provided
-      let validatedPackageId = null;
-      if (package_id) {
-        const packageExists = await Package.findByPk(package_id);
-        if (!packageExists) {
-          return res.status(400).json({ 
-            message: 'Invalid package selected. Package does not exist.'
-          });
-        }
-        validatedPackageId = package_id;
-      } else if (package_approved) {
-        // Backward compatibility: try to find package by name/code
-        const packageByName = await Package.findOne({
-          where: {
-            [Package.sequelize.Sequelize.Op.or]: [
-              { name: package_approved },
-              Package.sequelize.Sequelize.literal(`CONCAT(name, ' (', package_code, ')') = '${package_approved}'`)
-            ]
-          }
-        });
-        
-        if (packageByName) {
-          validatedPackageId = packageByName.id;
-        }
-      }
-
-      // Validate additional_room_approved if provided
-      if (additional_room_approved) {
-        const roomTypeExists = await RoomType.findByPk(additional_room_approved);
-        if (!roomTypeExists) {
-          return res.status(400).json({ 
-            message: 'Invalid room type selected. Room type does not exist.'
-          });
-        }
-      }
-      
-      // Check if funding record exists
-      const existingFunding = await GuestFunding.findOne({
-        where: { guest_id: guest.id }
-      });
-      
-      const fundingData = {
-        guest_id: guest.id,
-        approval_number: approval_number || null,
-        nights_approved: parseInt(nights_approved) || null,
-        package_id: validatedPackageId,
-        approval_from: approval_from || null,
-        approval_to: approval_to || null,
-        nights_used: parseInt(nights_used) || 0,
-        // New additional room fields
-        additional_room_approved: additional_room_approved || null,
-        additional_room_nights_approved: parseInt(additional_room_nights_approved) || 0,
-        additional_room_nights_used: parseInt(additional_room_nights_used) || 0
-      };
-      
-      if (existingFunding) {
-        // Update existing record
-        await GuestFunding.update(fundingData, {
-          where: { guest_id: guest.id }
-        });
-      } else {
-        // Create new record
-        await GuestFunding.create(fundingData);
-      }
-      
-      res.status(200).json({ 
-        message: 'Funding information saved successfully!',
-        data: fundingData
-      });
-      
-    } catch (error) {
-      console.error('Error saving funding information:', error);
-      res.status(500).json({ 
-        error: 'Internal server error',
-        message: error.message || 'An error occurred while saving funding information'
-      });
-    }
+    return res.status(410).json({ 
+      _deprecated: true,
+      error: 'Endpoint deprecated',
+      message: 'This endpoint is no longer supported. Please use POST /api/guests/[uuid]/approvals to create new approvals.',
+      migration_guide: 'The system now supports multiple approvals per guest. Use the new approvals endpoint.'
+    });
   }
   
   else {

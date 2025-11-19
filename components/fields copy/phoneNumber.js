@@ -7,6 +7,7 @@ const PhoneNumberField = (props) => {
     const [value, setValue] = useState(props.value || props.defaultValue || '');
 
     const validatePhoneNumber = (val) => {
+        console.log('Validating phone number:', val);
         const validPhoneNumber = /^\(?(\d{3})\)?[- ]?(\d{3})[- ]?(\d{2,4})$/;
         return val.match(validPhoneNumber);
     }
@@ -16,21 +17,24 @@ const PhoneNumberField = (props) => {
         setValue(targetValue);
         setDirty(true);
         
+        // Determine if there's an error
+        let hasError = false;
+        let errorMessage = null;
+        
+        if (!targetValue && props.required) {
+            hasError = true;
+            errorMessage = 'This is a required field.';
+        } else if (targetValue && !validatePhoneNumber(targetValue)) {
+            hasError = true;
+            errorMessage = 'Please input a valid phone number. (e.g. (123)-456-7890, 123-456-7890, or 123456-7890)';
+        }
+        
+        // Set internal error state immediately
+        setError(hasError);
+        setErrorMsg(errorMessage || '');
+        
         // Pass both value and error state to parent
         if (props?.onBlur) {
-            // Determine if there's an error
-            let hasError = false;
-            let errorMessage = null;
-            
-            if (!targetValue && props.required) {
-                hasError = true;
-                errorMessage = 'This is a required field.';
-            } else if (targetValue && !validatePhoneNumber(targetValue)) {
-                hasError = true;
-                errorMessage = 'Please input a valid phone number. (e.g. (123)-456-7890, 123-456-7890, or 123456-7890)';
-            }
-            
-            // Call onBlur with value and error (similar to how date fields work)
             props.onBlur(targetValue, errorMessage);
         }
     }
@@ -40,33 +44,54 @@ const PhoneNumberField = (props) => {
         setValue(targetValue);
         setDirty(true);
         
+        // Determine if there's an error
+        let hasError = false;
+        let errorMessage = null;
+        
+        if (!targetValue && props.required) {
+            hasError = true;
+            errorMessage = 'This is a required field.';
+        } else if (targetValue && !validatePhoneNumber(targetValue)) {
+            hasError = true;
+            errorMessage = 'Please input a valid phone number. (e.g. (123)-456-7890, 123-456-7890, or 123456-7890)';
+        }
+        
+        // Set internal error state immediately
+        setError(hasError);
+        setErrorMsg(errorMessage || '');
+        
         // Pass both value and error state to parent
         if (props?.onChange) {
-            // Determine if there's an error
-            let hasError = false;
-            let errorMessage = null;
-            
-            if (!targetValue && props.required) {
-                hasError = true;
-                errorMessage = 'This is a required field.';
-            } else if (targetValue && !validatePhoneNumber(targetValue)) {
-                hasError = true;
-                errorMessage = 'Please input a valid phone number. (e.g. (123)-456-7890, 123-456-7890, or 123456-7890)';
-            }
-            
-            // Call onChange with value and error
             props.onChange(targetValue, errorMessage);
         }
     }
 
     useEffect(() => {
-        if (props.value !== undefined) {
-            setValue(props.value);
+        if (props.value !== undefined || props.defaultValue !== undefined) {
+            const newValue = props.value !== undefined ? props.value : props.defaultValue;
+            setValue(newValue);
             setDirty(true);
-        } else if (props.defaultValue !== undefined && !value) {
-            setValue(props.defaultValue);
+            
+            // Validate the value passed from parent
+            if (newValue) {
+                if (!validatePhoneNumber(newValue)) {
+                    setError(true);
+                    setErrorMsg('Please input a valid phone number. (e.g. (123)-456-7890, 123-456-7890, or 123456-7890)');
+                } else {
+                    setError(false);
+                    setErrorMsg('');
+                }
+            } else if (props.required) {
+                // If empty and required
+                setError(true);
+                setErrorMsg('This is a required field.');
+            } else {
+                // Empty but not required
+                setError(false);
+                setErrorMsg('');
+            }
         }
-    }, [props.value, props.defaultValue]);
+    }, [props.value, props.defaultValue, props.required]);
 
     // Handle external error prop changes
     useEffect(() => {

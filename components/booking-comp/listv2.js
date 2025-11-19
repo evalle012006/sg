@@ -649,7 +649,7 @@ const fetchBookings = async (searchTerm = searchValue, invalidateCache = false) 
             disabled={!ability.can("Create/Edit", "Booking")} 
             status={JSON.parse(original.eligibility)} 
             booking={original} 
-            fetchData={fetchBookings} 
+            fetchData={() => fetchBookings(searchValue, true)} 
           />
         ),
       },
@@ -661,7 +661,7 @@ const fetchBookings = async (searchTerm = searchValue, invalidateCache = false) 
             disabled={!ability.can("Create/Edit", "Booking")} 
             status={original.status ? JSON.parse(original.status) : ""}
             booking={original} 
-            fetchData={fetchBookings} 
+            fetchData={() => fetchBookings(searchValue, true)}
           />
         ),
       },
@@ -809,7 +809,7 @@ const fetchBookings = async (searchTerm = searchValue, invalidateCache = false) 
         },
       },
     ], 
-    [router, ability, fetchBookings]
+    [router, ability, fetchBookings, searchValue]
   );
 
   return (

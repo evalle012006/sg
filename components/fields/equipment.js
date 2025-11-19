@@ -7,6 +7,7 @@ import { useSelector } from "react-redux";
 import CheckBox from "./checkbox";
 import { BOOKING_TYPES } from "../constants";
 import HorizontalCardSelection from "../ui-v2/HorizontalCardSelection";
+import ImageModal from "../ui-v2/ImageModal";
 
 const EquipmentField = memo((props) => {
     const bookingType = useSelector(state => state.bookingRequestForm.bookingType);
@@ -44,6 +45,9 @@ const EquipmentField = memo((props) => {
 
     const router = useRouter();
     const { uuid, prevBookingId } = router.query;
+
+    const [imageModalOpen, setImageModalOpen] = useState(false);
+    const [selectedImage, setSelectedImage] = useState({ url: '', alt: '' });
 
     // Cleanup on unmount
     useEffect(() => {
@@ -1310,16 +1314,33 @@ const EquipmentField = memo((props) => {
                             <div key={equipment.id}>
                                 <div className={getContainerClasses(equipmentKey)}>
                                     <div className="flex items-start space-x-4">
-                                        <div className="flex-shrink-0">
+                                        <div className="flex-shrink-0 relative group">
                                             {equipment.image_url && (
-                                                <img
-                                                    src={equipment.image_url}
-                                                    alt={equipment.name}
-                                                    className="w-20 h-20 object-cover rounded-lg border border-gray-200"
-                                                    onError={(e) => {
-                                                        e.target.style.display = 'none';
-                                                    }}
-                                                />
+                                                <>
+                                                    <img
+                                                        src={equipment.image_url}
+                                                        alt={equipment.name}
+                                                        className="w-20 h-20 object-cover rounded-lg border border-gray-200"
+                                                        onError={(e) => {
+                                                            e.target.style.display = 'none';
+                                                        }}
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                            e.preventDefault();
+                                                            e.stopPropagation();
+                                                            setSelectedImage({ url: equipment.image_url, alt: equipment.name });
+                                                            setImageModalOpen(true);
+                                                        }}
+                                                        className="absolute inset-0 bg-black bg-opacity-0 hover:bg-opacity-40 rounded-lg transition-all duration-200 flex items-center justify-center opacity-0 group-hover:opacity-100"
+                                                        title="Click to enlarge"
+                                                    >
+                                                        <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v6m3-3H7" />
+                                                        </svg>
+                                                    </button>
+                                                </>
                                             )}
                                         </div>
                                         
@@ -1756,6 +1777,13 @@ const EquipmentField = memo((props) => {
                     )}
                 </div>
             )}
+            {/* Image Modal */}
+            <ImageModal
+                isOpen={imageModalOpen}
+                onClose={() => setImageModalOpen(false)}
+                imageUrl={selectedImage.url}
+                altText={selectedImage.alt}
+            />
         </div>
     );
 });

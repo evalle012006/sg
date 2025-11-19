@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, memo } from 'react';
+import ImageModal from './ImageModal';
 
 const HorizontalCardSelection = memo(({ 
   items = [], 
@@ -12,6 +13,9 @@ const HorizontalCardSelection = memo(({
   // Local state for immediate UI updates
   const [localValue, setLocalValue] = useState(value);
   const [isUpdating, setIsUpdating] = useState(false);
+
+  const [imageModalOpen, setImageModalOpen] = useState(false);
+  const [selectedImage, setSelectedImage] = useState({ url: '', alt: '' });
   
   // Ref for debounced updates
   const updateTimeoutRef = useRef(null);
@@ -179,19 +183,36 @@ const HorizontalCardSelection = memo(({
         >
           <div className={`flex w-full ${currentSize.card} items-center`}>
             {/* Image container */}
-            <div className={`flex-shrink-0 ${currentSize.image} bg-gray-100 flex items-center justify-center overflow-hidden ${origin == 'room' ? '' : 'rounded-l-xl'}`}>
+            <div className={`flex-shrink-0 ${currentSize.image} bg-gray-100 flex items-center justify-center overflow-hidden ${origin == 'room' ? '' : 'rounded-l-xl'} relative group`}>
               {item.imageUrl ? (
-                <img 
-                  src={item.imageUrl} 
-                  alt={item.label}
-                  className="w-full h-full object-cover"
-                  onError={(e) => {
-                    e.target.style.display = 'none';
-                    if (e.target.nextSibling) {
-                      e.target.nextSibling.style.display = 'block';
-                    }
-                  }}
-                />
+                <>
+                  <img 
+                    src={item.imageUrl} 
+                    alt={item.label}
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      e.target.style.display = 'none';
+                      if (e.target.nextSibling) {
+                        e.target.nextSibling.style.display = 'block';
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setSelectedImage({ url: item.imageUrl, alt: item.label });
+                      setImageModalOpen(true);
+                    }}
+                    className="absolute inset-0 bg-black bg-opacity-0 hover:bg-opacity-50 transition-all duration-200 flex items-center justify-center opacity-0 group-hover:opacity-100"
+                    title="Click to enlarge"
+                  >
+                    <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v6m3-3H7" />
+                    </svg>
+                  </button>
+                </>
               ) : null}
               <div className={`text-gray-400 ${item.imageUrl ? 'hidden' : 'block'}`}>
                 <svg xmlns="http://www.w3.org/2000/svg" className={currentSize.placeholderIcon} fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -256,6 +277,13 @@ const HorizontalCardSelection = memo(({
           </div>
         </label>
       ))}
+      {/* Image Modal */}
+      <ImageModal
+        isOpen={imageModalOpen}
+        onClose={() => setImageModalOpen(false)}
+        imageUrl={selectedImage.url}
+        altText={selectedImage.alt}
+      />
     </div>
   );
 });

@@ -1,5 +1,5 @@
 import { BOOKING_TYPES } from "../../../../components/constants";
-import { AccessToken, Booking, Guest, GuestFunding, NotificationLibrary, QaPair, Room, RoomType, Section, Setting } from "../../../../models";
+import { AccessToken, Booking, Guest, GuestApproval, NotificationLibrary, QaPair, Room, RoomType, Section, Setting } from "../../../../models";
 import { NotificationService } from "../../../../services/notification/notification";
 import { dispatchHttpTaskHandler } from "../../../../services/queues/dispatchHttpTask";
 import sendMail from "../../../../utilities/mail";
@@ -138,37 +138,41 @@ export default async function handler(req, res) {
                             
                             if (nightsRequested > 0) {
                                 try {
-                                    // Find the GuestFunding record for this guest
-                                    const guestFunding = await GuestFunding.findOne({
-                                        where: { guest_id: booking.Guest.id }
+                                    // Find the most recent active GuestApproval record for this guest
+                                    const guestApproval = await GuestApproval.findOne({
+                                        where: { 
+                                            guest_id: booking.Guest.id,
+                                            status: 'active'
+                                        },
+                                        order: [['created_at', 'DESC']]
                                     });
                                     
-                                    if (guestFunding) {
+                                    if (guestApproval) {
                                         // Calculate new nights_used
-                                        const currentNightsUsed = guestFunding.nights_used || 0;
+                                        const currentNightsUsed = guestApproval.nights_used || 0;
                                         const newNightsUsed = currentNightsUsed + nightsRequested;
                                         
                                         // Check if it doesn't exceed nights_approved
-                                        if (guestFunding.nights_approved && newNightsUsed > guestFunding.nights_approved) {
-                                            const remainingNights = guestFunding.nights_approved - currentNightsUsed;
+                                        if (guestApproval.nights_approved && newNightsUsed > guestApproval.nights_approved) {
+                                            const remainingNights = guestApproval.nights_approved - currentNightsUsed;
                                             return res.status(400).json({
                                                 error: 'Insufficient approved nights',
-                                                message: `Cannot confirm booking: This booking requires ${nightsRequested} nights, but only ${remainingNights} nights remain in the guest's iCare approval (${currentNightsUsed}/${guestFunding.nights_approved} nights already used).`
+                                                message: `Cannot confirm booking: This booking requires ${nightsRequested} nights, but only ${remainingNights} nights remain in the guest's iCare approval (${currentNightsUsed}/${guestApproval.nights_approved} nights already used).`
                                             });
                                         }
                                         
-                                        if (guestFunding.nights_approved) {
-                                            await GuestFunding.update(
+                                        if (guestApproval.nights_approved) {
+                                            await GuestApproval.update(
                                                 { nights_used: newNightsUsed },
-                                                { where: { id: guestFunding.id } }
+                                                { where: { id: guestApproval.id } }
                                             );
                                             
                                             console.log(`Updated nights_used for guest ${booking.Guest.id}: ${currentNightsUsed} + ${nightsRequested} = ${newNightsUsed}`);
                                             
                                             // Send confirmation email with remaining nights info
-                                            const remainingNights = guestFunding.nights_approved - newNightsUsed;
+                                            const remainingNights = guestApproval.nights_approved - newNightsUsed;
                                             try {
-                                                await sendIcareNightsUpdateEmail(booking.Guest, guestFunding, {
+                                                await sendIcareNightsUpdateEmail(booking.Guest, guestApproval, {
                                                     nightsRequested,
                                                     remainingNights,
                                                     newNightsUsed
@@ -179,7 +183,7 @@ export default async function handler(req, res) {
                                             }
                                         }
                                     } else {
-                                        console.log(`No GuestFunding record found for guest ${booking.Guest.id}`);
+                                        console.log(`No active GuestApproval record found for guest ${booking.Guest.id}`);
                                     }
                                 } catch (fundingError) {
                                     console.error('Error updating nights_used:', fundingError);
@@ -266,35 +270,39 @@ export default async function handler(req, res) {
                             
                             if (nightsToReturn > 0) {
                                 try {
-                                    // Find the GuestFunding record for this guest
-                                    const guestFunding = await GuestFunding.findOne({
-                                        where: { guest_id: booking.Guest.id }
+                                    // Find the most recent active GuestApproval record for this guest
+                                    const guestApproval = await GuestApproval.findOne({
+                                        where: { 
+                                            guest_id: booking.Guest.id,
+                                            status: 'active'
+                                        },
+                                        order: [['created_at', 'DESC']]
                                     });
                                     
-                                    if (guestFunding) {
-                                        const currentNightsUsed = guestFunding.nights_used || 0;
+                                    if (guestApproval) {
+                                        const currentNightsUsed = guestApproval.nights_used || 0;
                                         const newNightsUsed = Math.max(0, currentNightsUsed - nightsToReturn);
                                         
-                                        await GuestFunding.update(
+                                        await GuestApproval.update(
                                             { nights_used: newNightsUsed },
-                                            { where: { id: guestFunding.id } }
+                                            { where: { id: guestApproval.id } }
                                         );
                                         
                                         console.log(`Reversed nights_used for guest ${booking.Guest.id}: ${currentNightsUsed} - ${nightsToReturn} = ${newNightsUsed}`);
                                         
                                         // Send email notification about nights reversal
                                         try {
-                                            await sendIcareCancellationEmail(booking.Guest, guestFunding, {
+                                            await sendIcareCancellationEmail(booking.Guest, guestApproval, {
                                                 nightsReturned: nightsToReturn,
                                                 newNightsUsed,
-                                                remainingNights: guestFunding.nights_approved - newNightsUsed
+                                                remainingNights: guestApproval.nights_approved - newNightsUsed
                                             });
                                         } catch (emailError) {
                                             console.error('Error sending iCare cancellation email:', emailError);
                                             // Don't fail the cancellation if email fails
                                         }
                                     } else {
-                                        console.log(`No GuestFunding record found for guest ${booking.Guest.id}`);
+                                        console.log(`No active GuestApproval record found for guest ${booking.Guest.id}`);
                                     }
                                 } catch (fundingError) {
                                     console.error('Error reversing nights_used:', fundingError);
@@ -385,29 +393,21 @@ export default async function handler(req, res) {
  * @returns {string} - The booking package answer or empty string
  */
 const getBookingPackage = (booking) => {
-    // Get all Q&A pairs from all sections
     const allQaPairs = booking.Sections.map(section => section.QaPairs).flat();
-    
-    // Try to find course package first
     const coursePackageAnswer = getAnswerByQuestionKey(allQaPairs, QUESTION_KEYS.ACCOMMODATION_PACKAGE_COURSES);
     if (coursePackageAnswer) {
         return coursePackageAnswer;
     }
-    
-    // Fallback to full accommodation package
     const fullPackageAnswer = getAnswerByQuestionKey(allQaPairs, QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL);
     if (fullPackageAnswer) {
         return fullPackageAnswer;
     }
-    
-    // Return empty string if no package found
     return '';
 };
 
 const generateNotifications = async (booking, status, adminOnly = false) => {
     const notificationLibs = await NotificationLibrary.findAll({ where: { enabled: true, name: "Booking Status Change" } });
     const notificationService = new NotificationService();
-
     const notificationLink = process.env.APP_URL + '/bookings/' + booking.uuid;
 
     for (let index = 0; index < notificationLibs.length; index++) {
@@ -473,26 +473,24 @@ const updateStatusLogs = (statusLogs, newStatus) => {
     return updatedStatusLogs;
 }
 
-const sendIcareNightsUpdateEmail = async (guest, guestFunding, bookingDetails) => {
+const sendIcareNightsUpdateEmail = async (guest, guestApproval, bookingDetails) => {
     const { nightsRequested, remainingNights, newNightsUsed } = bookingDetails;
     
-    // Calculate template variables
     const templateData = {
         guest_name: `${guest.first_name} ${guest.last_name}`,
-        approval_number: guestFunding.approval_number || 'Not specified',
-        approval_from: guestFunding.approval_from 
-            ? moment(guestFunding.approval_from).format('DD/MM/YYYY') 
+        approval_number: guestApproval.approval_number || 'Not specified',
+        approval_from: guestApproval.approval_from 
+            ? moment(guestApproval.approval_from).format('DD/MM/YYYY') 
             : 'Not specified',
-        approval_to: guestFunding.approval_to 
-            ? moment(guestFunding.approval_to).format('DD/MM/YYYY') 
+        approval_to: guestApproval.approval_to 
+            ? moment(guestApproval.approval_to).format('DD/MM/YYYY') 
             : 'Not specified',
-        nights_approved: guestFunding.nights_approved || 0,
-        nights_used: newNightsUsed, // Updated total after this booking
+        nights_approved: guestApproval.nights_approved || 0,
+        nights_used: newNightsUsed,
         nights_remaining: remainingNights,
-        nights_requested: nightsRequested // Nights used by this specific booking
+        nights_requested: nightsRequested
     };
     
-    // Send email using your existing sendMail function
     await sendMail(
         guest.email,
         'Sargood on Collaroy - iCare Update',
@@ -501,16 +499,16 @@ const sendIcareNightsUpdateEmail = async (guest, guestFunding, bookingDetails) =
     );
 };
 
-const sendIcareCancellationEmail = async (guest, guestFunding, cancellationDetails) => {
+const sendIcareCancellationEmail = async (guest, guestApproval, cancellationDetails) => {
     const { nightsReturned, newNightsUsed, remainingNights } = cancellationDetails;
     
     const templateData = {
         guest_name: `${guest.first_name} ${guest.last_name}`,
-        approval_number: guestFunding.approval_number || 'Not specified',
+        approval_number: guestApproval.approval_number || 'Not specified',
         nights_returned: nightsReturned,
         nights_used: newNightsUsed,
         nights_remaining: remainingNights,
-        nights_approved: guestFunding.nights_approved || 0
+        nights_approved: guestApproval.nights_approved || 0
     };
     
     await sendMail(

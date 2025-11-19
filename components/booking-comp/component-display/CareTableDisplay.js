@@ -5,7 +5,18 @@ const CareTableDisplay = ({ data, oldData }) => {
     return <pre className="whitespace-pre-wrap font-sans text-sm">{String(data)}</pre>;
   }
   
-  const hasChanges = data.detailedChanges && data.detailedChanges.length > 0;
+  let processedData = data;
+  if (data && typeof data === 'object' && !Array.isArray(data)) {
+    if (data.careData && Array.isArray(data.careData)) {
+      processedData = { ...data, formatted: data.careData, dates: data.dates };
+    }
+  }
+  
+  if (!processedData || !processedData.formatted || !processedData.dates) {
+    return <pre className="whitespace-pre-wrap font-sans text-sm">{String(data)}</pre>;
+  }
+  
+  const hasChanges = processedData.detailedChanges && processedData.detailedChanges.length > 0;
   
   if (!hasChanges) {
     return (

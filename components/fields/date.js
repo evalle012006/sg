@@ -49,6 +49,22 @@ const DateField = (props) => {
 
     // Open calendar handler
     const openCalendar = () => {
+        // Special handling for checkout date field
+        if (isBookingField && props.name === 'checkoutDate' && crossValidationValue) {
+            // Set calendar view to check-in date's month (or day after)
+            const checkinDate = new Date(crossValidationValue);
+            checkinDate.setHours(0, 0, 0, 0);
+            
+            // Set to the day after check-in as a starting point
+            const suggestedCheckoutDate = new Date(checkinDate);
+            suggestedCheckoutDate.setDate(suggestedCheckoutDate.getDate() + 1);
+            
+            setDateValue(suggestedCheckoutDate);
+            setShowCalendar(true);
+            return;
+        }
+        
+        // Original logic for other date fields
         if (day && month && year) {
             const currentDate = `${year}-${month}-${day}`;
             if (!allowPrevDate && isDateInPast(currentDate)) {
@@ -162,7 +178,6 @@ const DateField = (props) => {
         return { isValid: true, error: null };
     };
 
-    // Simplified calendar generation - only disable past dates, handle cross-validation on selection
     const generateCalendarDays = useCallback(() => {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
@@ -183,6 +198,13 @@ const DateField = (props) => {
             days.push(null);
         }
         
+        // Parse cross-validation value if it exists
+        let crossValidationDate = null;
+        if (crossValidationValue) {
+            crossValidationDate = new Date(crossValidationValue);
+            crossValidationDate.setHours(0, 0, 0, 0);
+        }
+        
         // Add days of the month
         for (let dayNum = 1; dayNum <= daysInMonth; dayNum++) {
             const date = new Date(currentYear, currentMonth, dayNum);
@@ -191,12 +213,27 @@ const DateField = (props) => {
             const isToday = date.getTime() === today.getTime();
             const isPastDate = date.getTime() < today.getTime();
             const isSelected = dayNum.toString() === day && 
-                              (currentMonth + 1).toString() === month && 
-                              currentYear.toString() === year;
+                            (currentMonth + 1).toString() === month && 
+                            currentYear.toString() === year;
             
-            // SIMPLIFIED: Only disable past dates when allowPrevDate is false
-            // Cross-validation will be handled on selection with error messages
-            const isDisabled = !allowPrevDate && isPastDate;
+            // Enhanced disable logic with cross-validation
+            let isDisabled = false;
+            
+            // 1. Disable past dates if not allowed
+            if (!allowPrevDate && isPastDate) {
+                isDisabled = true;
+            }
+            
+            // 2. Cross-validation for booking dates
+            if (crossValidationDate && isBookingField) {
+                if (props.name === 'checkoutDate') {
+                    // For checkout date: disable dates on or before check-in date
+                    isDisabled = isDisabled || (date.getTime() <= crossValidationDate.getTime());
+                } else if (props.name === 'checkinDate') {
+                    // For check-in date: disable dates on or after check-out date
+                    isDisabled = isDisabled || (date.getTime() >= crossValidationDate.getTime());
+                }
+            }
             
             days.push({
                 day: dayNum,
@@ -209,7 +246,7 @@ const DateField = (props) => {
         }
         
         return days;
-    }, [dateValue, day, month, year, allowPrevDate]);
+    }, [dateValue, day, month, year, allowPrevDate, crossValidationValue, isBookingField, props.name]);
 
     // Handle calendar date selection
     const handleCalendarDateSelect = (selectedDate) => {
