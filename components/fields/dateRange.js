@@ -189,8 +189,8 @@ const DateRangeField = (props) => {
     };
 
     // Validation state helpers
-    const shouldShowError = props.error || (error && dirty);
-    const shouldShowValid = !shouldShowError && isValid && dirty && startDate && endDate;
+    const shouldShowError = props.error || (error && (dirty || props.forceShowErrors));
+    const shouldShowValid = !shouldShowError && isValid && (dirty || props.forceShowErrors) && startDate && endDate;
 
     // Get border and focus colors based on state
     const getBorderClasses = () => {
@@ -377,7 +377,6 @@ const DateRangeField = (props) => {
         notifyParent();
     }, [notifyParent]);
 
-    // SIMPLIFIED: Initialize from props value (same pattern as DateField)
     useEffect(() => {
         if (props.value && props.value.includes(' - ')) {
             const [start, end] = props.value.split(' - ');
@@ -402,6 +401,41 @@ const DateRangeField = (props) => {
             }
         }
     }, [props.value]);
+
+    // Validation effect for required fields
+    useEffect(() => {
+        if (props.required && (dirty || props.forceShowErrors)) {
+            if (!startDate || !endDate) {
+                setError(true);
+                setErrorMessage('Both start and end dates are required');
+                setIsValid(false);
+            } else {
+                // Dates exist, validate the range
+                const startMoment = moment(startDate);
+                const endMoment = moment(endDate);
+                
+                if (!startMoment.isValid() || !endMoment.isValid()) {
+                    setError(true);
+                    setErrorMessage('Invalid date range');
+                    setIsValid(false);
+                } else if (endMoment.isSameOrBefore(startMoment)) {
+                    setError(true);
+                    setErrorMessage('End date must be after start date');
+                    setIsValid(false);
+                } else {
+                    if (!props.error) {  // Only clear if no external error
+                        setError(false);
+                        setErrorMessage('');
+                    }
+                    setIsValid(true);
+                }
+            }
+        } else if (!props.required && !dirty && !props.forceShowErrors) {
+            setError(false);
+            setErrorMessage('');
+            setIsValid(false);
+        }
+    }, [startDate, endDate, props.required, props.forceShowErrors, dirty, props.error]);
 
     // Handle click outside to close calendars and selectors
     useEffect(() => {

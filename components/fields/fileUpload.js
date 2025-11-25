@@ -30,6 +30,7 @@ const FileUploadField = (props) => {
         label,
         error: propsError,
         validateOnMount = true,
+        forceShowErrors = false,
         ...restProps
     } = props;
 
@@ -356,8 +357,8 @@ const FileUploadField = (props) => {
     }, [props.value, props.fileType]);
 
     // Determine if we should show validation error
-    const shouldShowValidationError = propsError || (validationError && dirty);
-    const shouldShowValid = !shouldShowValidationError && isValid && dirty;
+    const shouldShowValidationError = propsError || (validationError && (dirty || forceShowErrors));
+    const shouldShowValid = !shouldShowValidationError && isValid && (dirty || forceShowErrors);
 
     // Get border classes based on validation state
     const getBorderClasses = () => {

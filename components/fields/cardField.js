@@ -2,7 +2,6 @@ import React, { useEffect, useState } from "react";
 import CardSelection from "./cardSelection";
 
 export default function CardField(props) {
-  // Destructure only the props we need, excluding function props that shouldn't go to DOM
   const {
     label,
     required,
@@ -11,10 +10,11 @@ export default function CardField(props) {
     builderMode,
     builder,
     options,
-    option_type, // New prop for option type
+    option_type,
     value,
     onChange,
     error,
+    forceShowErrors = false, 
     updateOptionLabel,
     handleRemoveOption,
     onImageUpload,
@@ -34,10 +34,11 @@ export default function CardField(props) {
         option_type,
         optionsLength: options?.length || 0,
         hasValue: !!value,
-        multi
+        multi,
+        forceShowErrors // ⭐ ADD THIS
       });
     }
-  }, [option_type, options, value, multi]);
+  }, [option_type, options, value, multi, forceShowErrors]); // ⭐ ADD forceShowErrors
 
   // Handle image upload in builder mode
   const handleImageUpload = (index, file) => {
@@ -63,8 +64,8 @@ export default function CardField(props) {
       value: option.value || option.label,
       label: option.label,
       description: option.description || '',
-      imageUrl: option.imageUrl || null, // This will be populated by API on fetch
-      imageFilename: option.imageFilename || null // This is stored in database
+      imageUrl: option.imageUrl || null,
+      imageFilename: option.imageFilename || null
     }));
   };
 
@@ -127,9 +128,8 @@ export default function CardField(props) {
     }
   };
 
-  // Update validation when value changes externally
   useEffect(() => {
-    if (required && userInteracted) {
+    if (required && (userInteracted || forceShowErrors)) {
       let isValidSelection = false;
       const currentValue = getCurrentValue();
       
@@ -142,8 +142,11 @@ export default function CardField(props) {
       setIsValid(isValidSelection);
       setErrorState(!isValidSelection);
       setErrorMessage(isValidSelection ? '' : 'This field is required.');
+    } else if (!required || (!userInteracted && !forceShowErrors)) {
+      setErrorState(false);
+      setErrorMessage('');
     }
-  }, [value, required, userInteracted, multi]);
+  }, [value, required, userInteracted, multi, forceShowErrors]); // ⭐ ADD forceShowErrors to deps
 
   // Set initial validation state based on existing value
   useEffect(() => {
@@ -157,8 +160,10 @@ export default function CardField(props) {
     }
     
     setIsValid(hasValue || !required);
-    setErrorState(required && !hasValue && userInteracted);
-  }, []);
+    setErrorState(required && !hasValue && (userInteracted || forceShowErrors)); // ⭐ UPDATE
+  }, [forceShowErrors]); 
+
+  const shouldShowError = error || (errorState && (userInteracted || forceShowErrors));
 
   return (
     <div className="flex flex-col w-full mt-4">
@@ -170,15 +175,16 @@ export default function CardField(props) {
         multi={multi}
         size={size}
         builderMode={builderMode}
-        optionType={option_type} // ← KEY FIX: Pass option_type as optionType
+        optionType={option_type}
         updateOptionLabel={updateOptionLabel}
         handleRemoveOption={handleRemoveOption}
         onImageUpload={handleImageUpload}
+        error={error || (errorState ? errorMessage : null)}
+        forceShowErrors={forceShowErrors}
         {...restProps}
       />
       
-      {/* Error message display */}
-      {(errorState || error) && (
+      {shouldShowError && (
         <div className="mt-1.5 flex items-center">
           <svg className="h-4 w-4 text-red-500 mr-1.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
             <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />

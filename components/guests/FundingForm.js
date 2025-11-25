@@ -730,7 +730,7 @@ const FundingForm = ({ uuid, onSuccess }) => {
                         isClearable={false}
                         required
                       />
-                      <p className="text-xs text-gray-500 mt-1.5">Choose the type of additional room or select "No" to skip</p>
+                      <p className="text-xs text-gray-500 mt-1.5">Choose the type of additional room or select &quot;No&quot; to skip</p>
                     </div>
 
                     {formData.additional_room_type_id && (

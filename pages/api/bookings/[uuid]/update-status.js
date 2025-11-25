@@ -53,7 +53,7 @@ export default async function handler(req, res) {
             case 'eligible':
                 if (booking.type == 'Enquiry' || BOOKING_TYPES.FIRST_TIME_GUEST) {
                     await Booking.update({ status_logs: JSON.stringify(updateStatusLogs(statusLogs, 'eligible')), type: BOOKING_TYPES.FIRST_TIME_GUEST }, { where: { id: booking.id } });
-                    sendMail(booking.Guest.email, 'Sargood On Collaroy - Booking Enquiry', 'booking-approved',
+                    await sendMail(booking.Guest.email, 'Sargood On Collaroy - Booking Enquiry', 'booking-approved',
                         {
                             guest_name: booking.Guest.first_name,
                             booking_id: booking.id,
@@ -67,7 +67,7 @@ export default async function handler(req, res) {
                 }
                 break;
             case 'ineligible':
-                sendMail(booking.Guest.email, 'Sargood On Collaroy - Booking Enquiry', 'booking-declined',
+                await sendMail(booking.Guest.email, 'Sargood On Collaroy - Booking Enquiry', 'booking-declined',
                     {
                         guest_name: booking.Guest.first_name,
                     });
@@ -213,7 +213,7 @@ export default async function handler(req, res) {
                 // REFACTORED: Get booking package using question keys
                 const bookingPackage = getBookingPackage(booking);
 
-                sendMail(booking.Guest.email, 'Sargood On Collaroy - Booking', 'booking-confirmed',
+                await sendMail(booking.Guest.email, 'Sargood On Collaroy - Booking', 'booking-confirmed',
                     {
                         guest_name: booking.Guest.first_name,
                         arrivalDate: booking.preferred_arrival_date ? moment(booking.preferred_arrival_date).format("DD-MM-YYYY") : '-',
@@ -320,14 +320,14 @@ export default async function handler(req, res) {
                     }, { where: { id: booking.id } });
                     
                     // Send cancellation emails
-                    sendMail(booking.Guest.email, 'Sargood On Collaroy - Booking Enquiry', 'booking-cancelled',
+                    await sendMail(booking.Guest.email, 'Sargood On Collaroy - Booking Enquiry', 'booking-cancelled',
                         {
                             guest_name: booking.Guest.first_name,
                             arrivalDate: booking.preferred_arrival_date ? moment(booking.preferred_arrival_date).format("DD-MM-YYYY") : '-',
                             departureDate: booking.preferred_departure_date ? moment(booking.preferred_departure_date).format("DD-MM-YYYY") : '-'
                         });
                     
-                    sendMail("info@sargoodoncollaroy.com.au", 'Sargood On Collaroy - Booking Enquiry', 'booking-cancelled-admin',
+                    await sendMail("info@sargoodoncollaroy.com.au", 'Sargood On Collaroy - Booking Enquiry', 'booking-cancelled-admin',
                         {
                             guest_name: booking.Guest.first_name + ' ' + booking.Guest.last_name,
                             arrivalDate: booking.preferred_arrival_date ? moment(booking.preferred_arrival_date).format("DD-MM-YYYY") : '-',

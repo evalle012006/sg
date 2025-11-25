@@ -19,6 +19,7 @@ const SelectField = ({
   updateOptionLabel,
   handleRemoveOption,
   validateOnMount = true,
+  forceShowErrors = false,
   ...otherProps
 }) => {
   // Helper function to check if a value is "empty" (but allows 0)
@@ -354,8 +355,8 @@ const SelectField = ({
   }, [isOpen]);
 
   // Visual states
-  const shouldShowError = error && dirty;
-  const shouldShowValid = !shouldShowError && isValid && dirty;
+  const shouldShowError = error && (dirty || forceShowErrors);
+  const shouldShowValid = !shouldShowError && isValid && (dirty || forceShowErrors);
 
   const getBorderClasses = () => {
     if (shouldShowError) return 'border-red-400 focus:border-red-500 focus:ring-2 focus:ring-red-200';

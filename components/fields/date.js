@@ -292,8 +292,8 @@ const DateField = (props) => {
     };
 
     // Validation state helpers
-    const shouldShowError = props.error || (error && dirty);
-    const shouldShowValid = !shouldShowError && isValid && dirty && day && month && year;
+    const shouldShowError = props.error || (error && (dirty || props.forceShowErrors));
+    const shouldShowValid = !shouldShowError && isValid && (dirty || props.forceShowErrors) && day && month && year;
 
     // Styling functions
     const getBorderClasses = () => {
@@ -369,7 +369,6 @@ const DateField = (props) => {
         }
     }, [props.error]);
 
-    // Main validation effect - SIMPLIFIED
     useEffect(() => {
         if (day !== '' && month !== '' && year !== '' && year.length === 4) {
             const selectedDate = `${year}-${month}-${day}`;
@@ -391,14 +390,18 @@ const DateField = (props) => {
                 notifyParent(day, month, year, null);
             }
             setDirty(true);
-        } else if (props.required && dirty) {
+        } else if (props.required && (dirty || props.forceShowErrors)) {
             const requiredError = 'This field is required';
             setError(true);
             setErrorMessage(requiredError);
             setIsValid(false);
             notifyParent(day, month, year, requiredError);
+        } else if (!props.required && !dirty && !props.forceShowErrors) {
+            setError(false);
+            setErrorMessage('');
+            setIsValid(false);
         }
-    }, [day, month, year, allowPrevDate, props.required, props.error]);
+    }, [day, month, year, allowPrevDate, props.required, props.error, props.forceShowErrors]);
 
     // Keyboard and click outside handlers
     const escFunction = useCallback((event) => {

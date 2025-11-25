@@ -32,6 +32,7 @@ const QuestionPage = ({
     selectedCourseOfferId = null,
     validateDatesWithExistingAPI = null,
     infantCareQuantities = {},
+    validationAttempted = false,
 }) => {
     const dispatch = useDispatch();
     const [updatedCurrentPage, setUpdatedCurrentPage] = useState();
@@ -934,14 +935,15 @@ const QuestionPage = ({
 
                                             // Helper function to get validation styling for checkbox containers
                                             const getCheckboxContainerClasses = () => {
-                                                if (q.error) {
+                                                // Show error styling if error exists AND (validation attempted OR user interacted)
+                                                if (q.error && (validationAttempted || hasUserInteracted)) {
                                                     return 'border-red-400 bg-red-50';
                                                 }
                                                 // Only show success state if user has interacted AND there's an answer AND it's required
                                                 if (hasUserInteracted && q.required && q.answer && 
                                                     ((Array.isArray(q.answer) && q.answer.length > 0) || 
-                                                     (typeof q.answer === 'boolean' && q.answer) ||
-                                                     (typeof q.answer === 'string' && q.answer.trim()))) {
+                                                    (typeof q.answer === 'boolean' && q.answer) ||
+                                                    (typeof q.answer === 'string' && q.answer.trim()))) {
                                                     return 'border-green-400 bg-green-50';
                                                 }
                                                 return 'border-gray-300 bg-white';
@@ -1152,7 +1154,7 @@ const QuestionPage = ({
                                                                     <span className="font-bold text-sm">{q.question}</span>
                                                                 </div>
                                                                 <div className="flex align-middle mt-2">
-                                                                    <GetField  key={q.id} type='url' width='100%' url={details.url} error={q.error} label={details.label} />
+                                                                    <GetField  key={q.id} type='url' width='100%' url={details.url} error={q.error} label={details.label} forceShowErrors={validationAttempted} />
                                                                 </div>
                                                             </div>
                                                         </React.Fragment>
@@ -1165,7 +1167,7 @@ const QuestionPage = ({
                                                                     <span className="font-bold text-sm">{q.question}</span>
                                                                 </div>
                                                                 <div className="flex align-middle mt-2">
-                                                                    <GetField key={q.id} type='rich-text' width='100%' description={typeof q.details == 'string' ? JSON.parse(q.details)?.description : q.details.description} />
+                                                                    <GetField key={q.id} type='rich-text' width='100%' description={typeof q.details == 'string' ? JSON.parse(q.details)?.description : q.details.description} forceShowErrors={validationAttempted} />
                                                                 </div>
                                                             </div>
                                                         </React.Fragment>
@@ -1188,6 +1190,7 @@ const QuestionPage = ({
                                                                         name={fieldIdx}
                                                                         id={fieldIdx}
                                                                         autoComplete="on"
+                                                                        forceShowErrors={validationAttempted}
                                                                         onBlur={(e) => handleTextNumberFieldChange(e, idx, index)} 
                                                                         onChange={(e) => handleTextNumberFieldChange(e, idx, index)} />
                                                                 </div>
@@ -1211,6 +1214,7 @@ const QuestionPage = ({
                                                                         placeholder={q.question} 
                                                                         error={q.error} 
                                                                         required={q.required ? true : false} 
+                                                                        forceShowErrors={validationAttempted}
                                                                         onBlur={(value, error) => handleEmailFieldChange(value, error, idx, index)}
                                                                         onChange={(value, error) => handleEmailFieldChange(value, error, idx, index)} 
                                                                     />
@@ -1235,6 +1239,7 @@ const QuestionPage = ({
                                                                         placeholder={q.question} 
                                                                         error={q.error} 
                                                                         required={q.required ? true : false} 
+                                                                        forceShowErrors={validationAttempted}
                                                                         onBlur={(value, error) => handlePhoneNumberFieldChange(value, error, idx, index)}
                                                                         onChange={(value, error) => handlePhoneNumberFieldChange(value, error, idx, index)} 
                                                                     />
@@ -1251,7 +1256,7 @@ const QuestionPage = ({
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
                                                                 </div>
                                                                 <div className="flex align-middle mt-2">
-                                                                    <GetField key={q.id} type='select' value={q.answer} width='100%' required={q.required ? true : false} options={options} error={q.error} onChange={(e) => handleSelectFieldChange(e, idx, index)} />
+                                                                    <GetField key={q.id} type='select' value={q.answer} width='100%' required={q.required ? true : false} options={options} error={q.error} onChange={(e) => handleSelectFieldChange(e, idx, index)} forceShowErrors={validationAttempted} />
                                                                 </div>
                                                             </div>
                                                         </React.Fragment>
@@ -1265,7 +1270,7 @@ const QuestionPage = ({
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
                                                                 </div>
                                                                 <div className="flex align-middle mt-2">
-                                                                    <GetField key={q.id} type='multi-select' value={q.answer} width='100%' placeholder={q.question} required={q.required ? true : false} error={q.error} options={options} onChange={(e) => handleSelectFieldChange(e, idx, index)} />
+                                                                    <GetField key={q.id} type='multi-select' value={q.answer} width='100%' placeholder={q.question} required={q.required ? true : false} error={q.error} options={options} onChange={(e) => handleSelectFieldChange(e, idx, index)} forceShowErrors={validationAttempted} />
                                                                 </div>
                                                             </div>
                                                         </React.Fragment>
@@ -1279,7 +1284,7 @@ const QuestionPage = ({
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
                                                                 </div>
                                                                 <div className="flex align-middle mt-2">
-                                                                    <GetField key={q.id} type='year' defaultValue={q.answer ? q.answer : ''} width='100%' error={q.error} required={q.required ? true : false} onBlur={(e) => handleTextNumberFieldChange(e, idx, index)} />
+                                                                    <GetField key={q.id} type='year' defaultValue={q.answer ? q.answer : ''} width='100%' error={q.error} required={q.required ? true : false} onBlur={(e) => handleTextNumberFieldChange(e, idx, index)} forceShowErrors={validationAttempted} />
                                                                 </div>
                                                             </div>
                                                         </React.Fragment>
@@ -1317,6 +1322,7 @@ const QuestionPage = ({
                                                                         placeholder={q.question} 
                                                                         required={q.required ? true : false} 
                                                                         error={q.error} 
+                                                                        forceShowErrors={validationAttempted}
                                                                         allowPrevDate={QUESTION_KEYS.CHECK_IN_DATE === q.question_key || QUESTION_KEYS.CHECK_OUT_DATE === q.question_key ? false : true}
                                                                         onChange={(e, error) => handleDateFieldChange(e, idx, index, q.question == 'Check In Date', q.question == 'Check Out Date', error)} />
                                                                 </div>
@@ -1338,6 +1344,7 @@ const QuestionPage = ({
                                                                         placeholder={q.question}
                                                                         required={q.required ? true : false}
                                                                         error={q.error}
+                                                                        forceShowErrors={validationAttempted}
                                                                         allowPrevDate={q.question !== "Check In Date and Check Out Date"}
                                                                         onChange={(e, error) => handleDateFieldChange(e, idx, index, false, false, error)} />
                                                                 </div>
@@ -1353,11 +1360,12 @@ const QuestionPage = ({
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
                                                                 </div>
                                                                 <div className="flex align-middle mt-2">
-                                                                    <GetField key={q.id} type='integer' defaultValue={q.answer} width='100%' placeholder={q.question} required={q.required ? true : false} error={'Required field. Please input value.'} onBlur={(e) => handleTextNumberFieldChange(e, idx, index)} />
+                                                                    <GetField key={q.id} type='integer' defaultValue={q.answer} width='100%' placeholder={q.question} required={q.required ? true : false} error={'Required field. Please input value.'} onBlur={(e) => handleTextNumberFieldChange(e, idx, index)} forceShowErrors={validationAttempted} />
                                                                 </div>
                                                             </div>
                                                         </React.Fragment>
                                                     )}
+
                                                     {((q.type === 'checkbox' || q.type === 'simple-checkbox') && !q.hidden) && (
                                                         <React.Fragment>
                                                             <div className="flex flex-col w-full flex-1">
@@ -1365,11 +1373,22 @@ const QuestionPage = ({
                                                                 {options && options.length > 0 ? (
                                                                     <React.Fragment>
                                                                         <div className="text-xs flex flex-row">
-                                                                            <span className="font-bold text-sm">{q.question}</span>
+                                                                            <span className="font-bold text-sm">
+                                                                                {q.question}
+                                                                            </span>
                                                                             {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
                                                                         </div>
-                                                                        {/* Add container styling around the checkbox group with updated validation logic */}
-                                                                        <div className={`flex flex-col align-middle mt-2 rounded-lg border transition-all duration-200 p-3 ${getCheckboxContainerClasses()}`}>
+                                                                        <div className={`
+                                                                            flex flex-col align-middle mt-2 rounded-lg border transition-all duration-200 p-3
+                                                                            ${
+                                                                                !!(q.error || (validationAttempted && q.required && 
+                                                                                    (!q.answer || (Array.isArray(q.answer) && q.answer.length === 0))))
+                                                                                    ? 'border-red-400 bg-red-50'
+                                                                                    : !!(hasUserInteracted && q.required && q.answer && Array.isArray(q.answer) && q.answer.length > 0)
+                                                                                        ? 'border-green-400 bg-green-50'
+                                                                                        : 'border-gray-300 bg-white'
+                                                                            }
+                                                                        `}>
                                                                             {options.map((option, optIdx) => {
                                                                                 const checkboxUuid = uuidv4();
                                                                                 return (
@@ -1378,28 +1397,26 @@ const QuestionPage = ({
                                                                                         type='simple-checkbox'
                                                                                         bold={options.length === 1}
                                                                                         name={`checkbox-${index}-${idx}-${checkboxUuid}`}
-                                                                                        value={
-                                                                                            q.answer && Array.isArray(q.answer)
-                                                                                                ? q.answer.includes(option.label)
-                                                                                                : false
-                                                                                        }
+                                                                                        value={q.answer && Array.isArray(q.answer) ? q.answer.includes(option.label) : false}
                                                                                         label={option.label}
                                                                                         checked={q.answer && Array.isArray(q.answer) ? q.answer.includes(option.label) : false}
                                                                                         required={q.required ? true : false}
                                                                                         notAvailableFlag={option?.notAvailableFlag ? true : false}
-                                                                                        // Remove individual error prop since we handle at group level
+                                                                                        forceShowErrors={validationAttempted}
                                                                                         onChange={(e, s, f) => handleCheckboxFieldChange(e, s, f, idx, index)}
                                                                                     />
                                                                                 )
                                                                             })}
                                                                         </div>
-                                                                        {/* Group-level error message */}
-                                                                        {q.error && (
+                                                                        {!!(q.error || (validationAttempted && q.required && 
+                                                                            (!q.answer || (Array.isArray(q.answer) && q.answer.length === 0)))) && (
                                                                             <div className="mt-1.5 flex items-center">
                                                                                 <svg className="h-4 w-4 text-red-500 mr-1.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                                                                                     <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                                                                                 </svg>
-                                                                                <p className="text-red-600 text-sm font-medium">{q.error}</p>
+                                                                                <p className="text-red-600 text-sm font-medium">
+                                                                                    {q.error || 'Please select at least one option'}
+                                                                                </p>
                                                                             </div>
                                                                         )}
                                                                     </React.Fragment>
@@ -1407,8 +1424,15 @@ const QuestionPage = ({
                                                                     <React.Fragment>
                                                                         <div className="text-xs flex flex-row">
                                                                             {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
-                                                                            {/* Single checkbox with container styling and updated validation logic */}
-                                                                            <div className={`rounded-lg border transition-all duration-200 p-2 ${getCheckboxContainerClasses()}`}>
+                                                                            <div className={`rounded-lg border transition-all duration-200 p-2 
+                                                                                ${
+                                                                                    !!(q.error || (validationAttempted && q.required && !q.answer))
+                                                                                        ? 'border-red-400 bg-red-50'
+                                                                                        : !!(hasUserInteracted && q.required && q.answer)
+                                                                                            ? 'border-green-400 bg-green-50'
+                                                                                            : 'border-gray-300 bg-white'
+                                                                                }
+                                                                            `}>
                                                                                 <GetField 
                                                                                     key={q.id} 
                                                                                     type='simple-checkbox' 
@@ -1417,24 +1441,27 @@ const QuestionPage = ({
                                                                                     checked={q.answer} 
                                                                                     label={q.question} 
                                                                                     required={q.required ? true : false} 
+                                                                                    forceShowErrors={validationAttempted}
                                                                                     onChange={(e, s) => handleCheckboxFieldChange(e, s, false, idx, index, true)} 
                                                                                 />
                                                                             </div>
-                                                                            {/* Group-level error message for single checkbox */}
-                                                                            {q.error && (
-                                                                                <div className="mt-1.5 flex items-center">
-                                                                                    <svg className="h-4 w-4 text-red-500 mr-1.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                                                                                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                                                                                    </svg>
-                                                                                    <p className="text-red-600 text-sm font-medium">{q.error}</p>
-                                                                                </div>
-                                                                            )}
                                                                         </div>
+                                                                        {!!(q.error || (validationAttempted && q.required && !q.answer)) && (
+                                                                            <div className="mt-1.5 flex items-center">
+                                                                                <svg className="h-4 w-4 text-red-500 mr-1.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                                                                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                                                                                </svg>
+                                                                                <p className="text-red-600 text-sm font-medium">
+                                                                                    {q.error || 'This field is required'}
+                                                                                </p>
+                                                                            </div>
+                                                                        )}
                                                                     </React.Fragment>
                                                                 )}
                                                             </div>
                                                         </React.Fragment>
                                                     )}
+
                                                     {((q.type === 'checkbox-button') && !q.hidden) && (
                                                         <React.Fragment>
                                                             <div className="flex flex-col w-full flex-1">
@@ -1442,97 +1469,120 @@ const QuestionPage = ({
                                                                 {options && options.length > 0 ? (
                                                                     <React.Fragment>
                                                                         <div className="text-xs flex flex-row">
-                                                                            <span className="font-bold text-sm">{q.question}</span>
+                                                                            <span className="font-bold text-sm">
+                                                                                {q.question}
+                                                                            </span>
                                                                             {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
                                                                         </div>
-                                                                        {/* Button mode container with flex-wrap for horizontal layout */}
-                                                                        <div className={`flex flex-wrap gap-1 align-middle mt-2 rounded-lg border transition-all duration-200 p-3 ${getCheckboxContainerClasses()}`}>
+                                                                        <div className={`
+                                                                            flex flex-wrap gap-1 align-middle mt-2 rounded-lg border transition-all duration-200 p-3
+                                                                            ${
+                                                                                !!(q.error || (validationAttempted && q.required && 
+                                                                                    (!q.answer || (Array.isArray(q.answer) && q.answer.length === 0))))
+                                                                                    ? 'border-red-400 bg-red-50'
+                                                                                    : !!(hasUserInteracted && q.required && q.answer && Array.isArray(q.answer) && q.answer.length > 0)
+                                                                                        ? 'border-green-400 bg-green-50'
+                                                                                        : 'border-gray-300 bg-white'
+                                                                            }
+                                                                        `}>
                                                                             {options.map((option, optIdx) => {
                                                                                 const checkboxUuid = uuidv4();
                                                                                 return (
                                                                                     <GetField 
                                                                                         key={checkboxUuid} 
                                                                                         type='simple-checkbox'
-                                                                                        mode="button" // Force button mode
-                                                                                        size="small" // Default to small for button mode
+                                                                                        mode="button"
+                                                                                        size="small"
                                                                                         bold={options.length === 1}
                                                                                         name={`checkbox-button-${index}-${idx}-${checkboxUuid}`}
-                                                                                        value={
-                                                                                            q.answer && Array.isArray(q.answer)
-                                                                                                ? q.answer.includes(option.label)
-                                                                                                : false
-                                                                                        }
+                                                                                        value={q.answer && Array.isArray(q.answer) ? q.answer.includes(option.label) : false}
                                                                                         label={option.label}
                                                                                         checked={q.answer && Array.isArray(q.answer) ? q.answer.includes(option.label) : false}
                                                                                         required={q.required ? true : false}
                                                                                         notAvailableFlag={option?.notAvailableFlag ? true : false}
-                                                                                        // Remove individual error prop since we handle at group level
+                                                                                        forceShowErrors={validationAttempted}
                                                                                         onChange={(e, s, f) => handleCheckboxFieldChange(e, s, f, idx, index)}
                                                                                     />
                                                                                 )
                                                                             })}
                                                                         </div>
-                                                                        {/* Group-level error message */}
-                                                                        {q.error && (
+                                                                        {!!(q.error || (validationAttempted && q.required && 
+                                                                            (!q.answer || (Array.isArray(q.answer) && q.answer.length === 0)))) && (
                                                                             <div className="mt-1.5 flex items-center">
                                                                                 <svg className="h-4 w-4 text-red-500 mr-1.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                                                                                     <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                                                                                 </svg>
-                                                                                <p className="text-red-600 text-sm font-medium">{q.error}</p>
+                                                                                <p className="text-red-600 text-sm font-medium">
+                                                                                    {q.error || 'Please select at least one option'}
+                                                                                </p>
                                                                             </div>
                                                                         )}
                                                                     </React.Fragment>
                                                                 ) : (
+                                                                    // Single checkbox-button
                                                                     <React.Fragment>
                                                                         <div className="text-xs flex flex-row">
                                                                             {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
-                                                                            {/* Single checkbox button with container styling */}
-                                                                            <div className={`rounded-lg border transition-all duration-200 p-2 ${getCheckboxContainerClasses()}`}>
+                                                                            <div className={`rounded-lg border transition-all duration-200 p-2 
+                                                                                ${
+                                                                                    !!(q.error || (validationAttempted && q.required && !q.answer))
+                                                                                        ? 'border-red-400 bg-red-50'
+                                                                                        : !!(hasUserInteracted && q.required && q.answer)
+                                                                                            ? 'border-green-400 bg-green-50'
+                                                                                            : 'border-gray-300 bg-white'
+                                                                                }
+                                                                            `}>
                                                                                 <GetField 
                                                                                     key={q.id} 
                                                                                     type='simple-checkbox' 
-                                                                                    mode="button" // Force button mode
-                                                                                    size="medium" // Medium size for single button
+                                                                                    mode="button"
+                                                                                    size="medium"
                                                                                     name={`checkbox-button-${index}-${idx}`} 
                                                                                     value={q.answer} 
                                                                                     checked={q.answer} 
                                                                                     label={q.question} 
                                                                                     required={q.required ? true : false} 
+                                                                                    forceShowErrors={validationAttempted}
                                                                                     onChange={(e, s) => handleCheckboxFieldChange(e, s, false, idx, index, true)} 
                                                                                 />
                                                                             </div>
-                                                                            {/* Group-level error message for single checkbox button */}
-                                                                            {q.error && (
-                                                                                <div className="mt-1.5 flex items-center">
-                                                                                    <svg className="h-4 w-4 text-red-500 mr-1.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                                                                                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                                                                                    </svg>
-                                                                                    <p className="text-red-600 text-sm font-medium">{q.error}</p>
-                                                                                </div>
-                                                                            )}
                                                                         </div>
+                                                                        {!!(q.error || (validationAttempted && q.required && !q.answer)) && (
+                                                                            <div className="mt-1.5 flex items-center">
+                                                                                <svg className="h-4 w-4 text-red-500 mr-1.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                                                                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                                                                                </svg>
+                                                                                <p className="text-red-600 text-sm font-medium">
+                                                                                    {q.error || 'This field is required'}
+                                                                                </p>
+                                                                            </div>
+                                                                        )}
                                                                     </React.Fragment>
                                                                 )}
                                                             </div>
                                                         </React.Fragment>
                                                     )}
+
                                                     {(q.type === 'radio' && !q.hidden) && (
                                                         <React.Fragment>
-                                                            {questionHasKey(q, QUESTION_KEYS.COURSE_OFFER_QUESTION) && console.log('🎓 Rendering course offer question:', {
-                                                                question: q.question,
-                                                                answer: q.answer,
-                                                                prePopulated: q.prePopulated,
-                                                                protected: q.protected,
-                                                                options: options?.map(opt => opt.label)
-                                                            })}
                                                             <div className="flex flex-col w-full flex-1" id={q.id}>
                                                                 {q.label && <span className="font-bold text-sargood-blue text-xl mb-2">{q.label}</span>}
                                                                 <div className="text-xs flex flex-row">
-                                                                    <span className="font-bold text-sm">{q.question}</span>
+                                                                    <span className="font-bold text-sm">
+                                                                        {q.question}
+                                                                    </span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
                                                                 </div>
-                                                                {/* Add container styling around the radio group with success state and updated validation logic */}
-                                                                <div className={`flex flex-col align-middle mt-2 rounded-lg border transition-all duration-200 p-3 ${getCheckboxContainerClasses()}`}>
+                                                                <div className={`
+                                                                    flex flex-col align-middle mt-2 rounded-lg border transition-all duration-200 p-3
+                                                                    ${
+                                                                        !!(q.error || (validationAttempted && q.required && (!q.answer || q.answer === '')))
+                                                                            ? 'border-red-400 bg-red-50' 
+                                                                            : !!(hasUserInteracted && q.required && q.answer)
+                                                                                ? 'border-green-400 bg-green-50'
+                                                                                : 'border-gray-300 bg-white'
+                                                                    }
+                                                                `}>
                                                                     {options && options.map((option, optIdx) => {
                                                                         const radioUuid = uuidv4();
                                                                         return (
@@ -1545,24 +1595,26 @@ const QuestionPage = ({
                                                                                 label={option.label} 
                                                                                 value={option.value} 
                                                                                 required={q.required ? true : false} 
-                                                                                // Remove individual error prop since we handle at group level
+                                                                                forceShowErrors={validationAttempted}
                                                                                 onChange={(e) => handleRadioButtonFieldChange(e, idx, index)} 
                                                                             />
                                                                         )
                                                                     })}
                                                                 </div>
-                                                                {/* Group-level error message */}
-                                                                {q.error && (
+                                                                {!!(q.error || (validationAttempted && q.required && (!q.answer || q.answer === ''))) && (
                                                                     <div className="mt-1.5 flex items-center">
                                                                         <svg className="h-4 w-4 text-red-500 mr-1.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                                                                             <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                                                                         </svg>
-                                                                        <p className="text-red-600 text-sm font-medium">{q.error}</p>
+                                                                        <p className="text-red-600 text-sm font-medium">
+                                                                            {q.error || 'Please select an option'}
+                                                                        </p>
                                                                     </div>
                                                                 )}
                                                             </div>
                                                         </React.Fragment>
                                                     )}
+
                                                     {(q.type === 'time' && !q.hidden) && (
                                                         <React.Fragment>
                                                             <div className="flex flex-col w-full flex-1">
@@ -1572,7 +1624,7 @@ const QuestionPage = ({
                                                                     {q.required && <span className="text-xs text-red-500  ml-1 font-bold">*</span>}
                                                                 </div>
                                                                 <div className="flex align-middle ml-2">
-                                                                    <GetField key={q.id} type='time' value={q.answer} min="14:00" max="18:00" placeholder={q.question} error={q.error} invalidTimeErrorMsg={"Please enter a time between 2pm - 10pm"} required={q.required ? true : false} onChange={(e) => handleDateFieldChange(e, idx, index)} />
+                                                                    <GetField key={q.id} type='time' value={q.answer} min="14:00" max="18:00" placeholder={q.question} error={q.error} invalidTimeErrorMsg={"Please enter a time between 2pm - 10pm"} required={q.required ? true : false} onChange={(e) => handleDateFieldChange(e, idx, index)} forceShowErrors={validationAttempted} />
                                                                 </div>
                                                             </div>
                                                         </React.Fragment>
@@ -1586,7 +1638,7 @@ const QuestionPage = ({
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
                                                                 </div>
                                                                 <div className="flex align-middle mt-2">
-                                                                    <GetField key={q.id} type='file-upload' value={q.answer ? q.answer : ''} url={url} width='100%' error={q.error} required={q.required ? true : false} onChange={(e) => handleFileUploadChange(e, idx, index)} fileType={`booking_request_form/${guest.id}/`} />
+                                                                    <GetField key={q.id} type='file-upload' value={q.answer ? q.answer : ''} url={url} width='100%' error={q.error} required={q.required ? true : false} onChange={(e) => handleFileUploadChange(e, idx, index)} fileType={`booking_request_form/${guest.id}/`} forceShowErrors={validationAttempted} />
                                                                 </div>
                                                             </div>
                                                         </React.Fragment>
@@ -1600,7 +1652,7 @@ const QuestionPage = ({
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
                                                                 </div>
                                                                 <div className="flex align-middle mt-2">
-                                                                    <GetField key={q.id} type='health-info' options={options} width='100%' error="Required field" required={q.required ? true : false} onChange={(label, list) => handleHealthInfoFieldChange(label, list, idx, index)} />
+                                                                    <GetField key={q.id} type='health-info' options={options} width='100%' error="Required field" required={q.required ? true : false} onChange={(label, list) => handleHealthInfoFieldChange(label, list, idx, index)} forceShowErrors={validationAttempted} />
                                                                 </div>
                                                             </div>
                                                         </React.Fragment>
@@ -1617,6 +1669,7 @@ const QuestionPage = ({
                                                                     width='100%' 
                                                                     error={q.error} 
                                                                     required={q.required ? true : false} 
+                                                                    forceShowErrors={validationAttempted}
                                                                     ndis_package_type={localFilterState.ndisPackageType || (typeof q.details === 'string' ? JSON.parse(q.details) : q.details)?.ndis_package_type || 'sta'}
                                                                     onChange={(value, error) => handleRoomFieldChange(value, error, idx, index)} 
                                                                 />
@@ -1633,6 +1686,7 @@ const QuestionPage = ({
                                                             error="Required field" 
                                                             required={q.required ? true : false}
                                                             infantCareQuantities={infantCareQuantities}
+                                                            forceShowErrors={validationAttempted}
                                                             onChange={(isValid, equipmentChanges) => {
                                                                 handleEquipmentFieldChange('', idx, index, equipmentChanges);
                                                             }} 
@@ -1650,7 +1704,7 @@ const QuestionPage = ({
                                                                     {options && options.map((option, optIdx) => {
                                                                         const radioUuid = uuidv4();
                                                                         return (
-                                                                            <GetField key={radioUuid} index={optIdx} type='simple-radio-ndis' id={`radio-${option.value}-${index}`} name={`radio-${index}-${idx}-${radioUuid}`} checked={option.label === q.answer} label={option.label} value={option.value} required={q.required ? true : false} error={q.error} onChange={(e) => handleRadioButtonFieldChange(e, idx, index)} />
+                                                                            <GetField key={radioUuid} index={optIdx} type='simple-radio-ndis' id={`radio-${option.value}-${index}`} name={`radio-${index}-${idx}-${radioUuid}`} checked={option.label === q.answer} label={option.label} value={option.value} required={q.required ? true : false} error={q.error} onChange={(e) => handleRadioButtonFieldChange(e, idx, index)} forceShowErrors={validationAttempted} />
                                                                         )
                                                                     })}
                                                                     {q.error && <p className="mt-1.5 text-red-500 text-xs">{q.error}</p>}
@@ -1671,6 +1725,7 @@ const QuestionPage = ({
                                                                     value={q.answer}
                                                                     required={q.required ? true : false}
                                                                     onChange={(goalSelected, error) => handleGoalTableChange(goalSelected, error, idx, index)}
+                                                                    forceShowErrors={validationAttempted}
                                                                 />
                                                                 {q.error && <p className="mt-1.5 text-red-500 text-xs">{q.error}</p>}
                                                             </div>
@@ -1691,6 +1746,7 @@ const QuestionPage = ({
                                                                     required={q.required ? true : false}
                                                                     stayDates={stayDates} // Add this line
                                                                     onChange={(careData, error) => handleCareTableChange(careData, error, idx, index)}
+                                                                    forceShowErrors={validationAttempted}
                                                                 />
                                                                 {q.error && <p className="mt-1.5 text-red-500 text-xs">{q.error}</p>}
                                                             </div>
@@ -1737,6 +1793,7 @@ const QuestionPage = ({
                                                                     courseOffers={courseOffers}
                                                                     courseOffersLoaded={courseOffersLoaded}
                                                                     localFilterState={localFilterState}
+                                                                    forceShowErrors={validationAttempted}
                                                                     onChange={(value) => handleCardSelectionFieldChange(value, idx, index)} 
                                                                 />
                                                             </div>
@@ -1769,6 +1826,7 @@ const QuestionPage = ({
                                                                     courseOffers={courseOffers}
                                                                     courseOffersLoaded={courseOffersLoaded}
                                                                     localFilterState={localFilterState}
+                                                                    forceShowErrors={validationAttempted}
                                                                     onChange={(value) => handleCardSelectionFieldChange(value, idx, index)} 
                                                                 />
                                                             </div>
@@ -1800,6 +1858,7 @@ const QuestionPage = ({
                                                                     courseOffers={courseOffers}
                                                                     courseOffersLoaded={courseOffersLoaded}
                                                                     localFilterState={localFilterState}
+                                                                    forceShowErrors={validationAttempted}
                                                                     onChange={(value) => handleCardSelectionFieldChange(value, idx, index)} 
                                                                 />
                                                             </div>
@@ -1832,6 +1891,7 @@ const QuestionPage = ({
                                                                     courseOffers={courseOffers}
                                                                     courseOffersLoaded={courseOffersLoaded}
                                                                     localFilterState={localFilterState}
+                                                                    forceShowErrors={validationAttempted}
                                                                     onChange={(value) => handleCardSelectionFieldChange(value, idx, index)} 
                                                                 />
                                                             </div>
@@ -1859,6 +1919,7 @@ const QuestionPage = ({
                                                                     packageFilterCriteria={packageFilterCriteria}
                                                                     formData={enhancedFormData}
                                                                     qaData={getCurrentFormQAData()}
+                                                                    forceShowErrors={validationAttempted}
                                                                     onChange={(value) => handleCardSelectionFieldChange(value, idx, index)} 
                                                                 />
                                                             </div>
@@ -1886,6 +1947,7 @@ const QuestionPage = ({
                                                                     required={q.required ? true : false} 
                                                                     size={q.size || 'medium'}
                                                                     localFilterState={localFilterState}
+                                                                    forceShowErrors={validationAttempted}
                                                                     onChange={(value) => handleCardSelectionFieldChange(value, idx, index)} 
                                                                 />
                                                             </div>
@@ -1911,6 +1973,7 @@ const QuestionPage = ({
                                                                     error={q.error} 
                                                                     required={q.required ? true : false} 
                                                                     size={q.size || 'medium'}
+                                                                    forceShowErrors={validationAttempted}
                                                                     onChange={(value) => handleCardSelectionFieldChange(value, idx, index)} 
                                                                 />
                                                             </div>
@@ -1936,6 +1999,7 @@ const QuestionPage = ({
                                                                     error={q.error} 
                                                                     required={q.required ? true : false} 
                                                                     size={q.size || 'medium'}
+                                                                    forceShowErrors={validationAttempted}
                                                                     onChange={(value) => handleCardSelectionFieldChange(value, idx, index)} 
                                                                 />
                                                             </div>

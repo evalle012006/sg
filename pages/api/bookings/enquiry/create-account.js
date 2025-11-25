@@ -38,7 +38,7 @@ export default async function handler(request, response) {
             }
         }
 
-        sendMail(data.email, 'Sargood On Collaroy - Account Creation', 'create-account',
+        await sendMail(data.email, 'Sargood On Collaroy - Account Creation', 'create-account',
             {
                 guest_name: data.first_name,
                 set_new_password_link: `${process.env.APP_URL}/auth/onboarding/set-new-password?token=${accessToken.token}`

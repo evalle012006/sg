@@ -67,8 +67,8 @@ export default function RadioField(props) {
     const selectedOption = propOptions?.find(option => option.value === true);
     const selectedValue = selectedOption ? selectedOption.label : null;
     
-    const shouldShowError = props.error || (error && dirty);
-    const shouldShowValid = !shouldShowError && isValid && dirty;
+    const shouldShowError = props.error || (error && (dirty || props.forceShowErrors));
+    const shouldShowValid = !shouldShowError && isValid && (dirty || props.forceShowErrors);
                 
     return (
         <div className="mb-2">

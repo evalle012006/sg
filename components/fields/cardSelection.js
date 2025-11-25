@@ -25,6 +25,8 @@ const CardSelection = ({
   courseOffersLoaded = false,
   localFilterState = null,
   bestMatchPackage = null,
+  error = null,
+  forceShowErrors = false, 
   ...restProps
 }) => {
   const [dynamicItems, setDynamicItems] = useState(items);
@@ -612,321 +614,333 @@ const CardSelection = ({
   }
 
   return (
-        <div className={`flex flex-col w-full ${currentSize.container}`}>
-            {builderMode && optionType === 'course' && displayItems.length > 0 && (!items || items.length === 0) && (
-                <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
-                    <div className="flex items-center">
-                        <svg className="h-4 w-4 text-blue-500 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                        </svg>
-                        <span className="text-sm text-blue-700">
-                            Showing {displayItems.length} active courses. Select courses to add them to this question.
-                        </span>
-                    </div>
+    <div className={`flex flex-col w-full ${currentSize.container}`}>
+        {builderMode && optionType === 'course' && displayItems.length > 0 && (!items || items.length === 0) && (
+            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
+                <div className="flex items-center">
+                    <svg className="h-4 w-4 text-blue-500 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                    </svg>
+                    <span className="text-sm text-blue-700">
+                        Showing {displayItems.length} active courses. Select courses to add them to this question.
+                    </span>
                 </div>
-            )}
+            </div>
+        )}
 
-            {/* Updated validation summary for multiple courses */}
-            {!builderMode && optionType === 'course' && displayItems.length > 1 && (
-                <div className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-md">
-                    <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium text-gray-700">
-                            Course Compatibility with Your Stay Dates:
+        {/* Updated validation summary for multiple courses */}
+        {!builderMode && optionType === 'course' && displayItems.length > 1 && (
+            <div className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-md">
+                <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-gray-700">
+                        Course Compatibility with Your Stay Dates:
+                    </span>
+                    <div className="flex gap-4 text-xs">
+                        <span className="flex items-center">
+                            <div className="w-2 h-2 bg-green-500 rounded-full mr-1"></div>
+                            {displayItems.filter(item => item.dateValid).length} Within period
                         </span>
-                        <div className="flex gap-4 text-xs">
-                            <span className="flex items-center">
-                                <div className="w-2 h-2 bg-green-500 rounded-full mr-1"></div>
-                                {displayItems.filter(item => item.dateValid).length} Within period
-                            </span>
-                            <span className="flex items-center">
-                                <div className="w-2 h-2 bg-amber-500 rounded-full mr-1"></div>
-                                {displayItems.filter(item => !item.dateValid).length} Outside period
-                            </span>
-                        </div>
-                    </div>
-                    <div className="mt-2 text-xs text-gray-600">
-                        All courses can be selected. Courses outside the minimum stay period may require extending your stay.
+                        <span className="flex items-center">
+                            <div className="w-2 h-2 bg-amber-500 rounded-full mr-1"></div>
+                            {displayItems.filter(item => !item.dateValid).length} Outside period
+                        </span>
                     </div>
                 </div>
-            )}
-            
-            {displayItems.map((item, index) => (
-                <div
-                    key={item.value || index}
-                    onClick={(e) => handleCardClick(item.value, item, e)}
-                    className={`flex border-2 rounded-xl transition-all duration-200 relative cursor-pointer ${
-                        !builderMode && isSelected(item.value) 
-                            ? 'border-blue-600 bg-blue-50 shadow-md ring-2 ring-blue-200' 
-                            : item.dateValid === false
-                                ? 'border-amber-200 bg-amber-50 hover:border-amber-300 hover:shadow-sm' // Changed styling
-                                : 'border-gray-200 hover:border-gray-300 hover:shadow-sm'
-                    } ${builderMode ? 'cursor-default' : ''} ${currentSize.card}`}
-                >
-                    {/* Updated validation indicator */}
-                    {!builderMode && optionType === 'course' && item.hasOwnProperty('dateValid') && (
-                        <div className={`absolute -top-2 -right-2 w-6 h-6 rounded-full flex items-center justify-center ${
-                            item.dateValid ? 'bg-green-500' : 'bg-amber-500' // Changed to amber
-                        }`}>
-                            {item.dateValid ? (
-                                <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
-                                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                </svg>
+                <div className="mt-2 text-xs text-gray-600">
+                    All courses can be selected. Courses outside the minimum stay period may require extending your stay.
+                </div>
+            </div>
+        )}
+        
+        <div className={`
+            rounded-lg border transition-all duration-200 p-3
+            ${!builderMode && (
+                error || 
+                (forceShowErrors && required && (
+                    (multi && (!value || (Array.isArray(value) && value.length === 0))) ||
+                    (!multi && (!value || value === ''))
+                ))
+            )
+                ? 'border-red-400 bg-red-50'
+                : !builderMode && required && (
+                    (multi && Array.isArray(value) && value.length > 0) ||
+                    (!multi && value && value !== '')
+                )
+                    ? 'border-green-400 bg-green-50'
+                    : 'border-gray-300 bg-white'
+            }
+        `}>
+            <div className={currentSize.container}>
+                {displayItems.map((item, index) => (
+                    <div
+                        key={item.value || index}
+                        onClick={(e) => handleCardClick(item.value, item, e)}
+                        className={`flex border-2 rounded-xl transition-all duration-200 relative cursor-pointer ${
+                            !builderMode && isSelected(item.value) 
+                                ? 'border-blue-600 bg-blue-50 shadow-md ring-2 ring-blue-200' 
+                                : item.dateValid === false
+                                    ? 'border-amber-200 bg-amber-50 hover:border-amber-300 hover:shadow-sm'
+                                    : 'border-gray-200 hover:border-gray-300 hover:shadow-sm'
+                        } ${builderMode ? 'cursor-default' : ''} ${currentSize.card}`}
+                    >
+                        {/* Rest of card content stays the same... */}
+                        {/* Updated validation indicator */}
+                        {!builderMode && optionType === 'course' && item.hasOwnProperty('dateValid') && (
+                            <div className={`absolute -top-2 -right-2 w-6 h-6 rounded-full flex items-center justify-center ${
+                                item.dateValid ? 'bg-green-500' : 'bg-amber-500'
+                            }`}>
+                                {item.dateValid ? (
+                                    <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                    </svg>
+                                ) : (
+                                    <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                                    </svg>
+                                )}
+                            </div>
+                        )}
+
+                        {/* ENHANCED Image Section with Error Handling */}
+                        <div className="flex-shrink-0 mr-4">
+                            {shouldShowPlaceholder(item, index) ? (
+                                builderMode ? (
+                                    <div className={`${currentSize.image} border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center bg-gray-50`}>
+                                        <label className="cursor-pointer text-center">
+                                            <input
+                                                type="file"
+                                                accept="image/*"
+                                                className="hidden"
+                                                onChange={(e) => {
+                                                    if (e.target.files[0]) {
+                                                        setBrokenImages(prev => {
+                                                            const newSet = new Set(prev);
+                                                            newSet.delete(index);
+                                                            return newSet;
+                                                        });
+                                                        handleImageUpload(index, e.target.files[0]);
+                                                    }
+                                                }}
+                                            />
+                                            <div className="text-gray-400 text-xs text-center">
+                                                <svg className="w-6 h-6 mx-auto mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 002 2z" />
+                                                </svg>
+                                                {brokenImages.has(index) ? 'Replace Image' : getPlaceholderText().addLabel}
+                                            </div>
+                                        </label>
+                                    </div>
+                                ) : (
+                                    <div className={`${currentSize.image} bg-gray-100 rounded-lg flex items-center justify-center`}>
+                                        <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 002 2z" />
+                                        </svg>
+                                    </div>
+                                )
                             ) : (
-                                <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
-                                    <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                                </svg>
+                                <div className="relative">
+                                    <img
+                                        src={item.imageUrl}
+                                        alt={item.label || 'Image'}
+                                        className={`${currentSize.image} object-cover rounded-lg`}
+                                        onError={() => handleImageError(index)}
+                                        onLoad={() => {
+                                            setBrokenImages(prev => {
+                                                const newSet = new Set(prev);
+                                                newSet.delete(index);
+                                                return newSet;
+                                            });
+                                        }}
+                                    />
+                                    {builderMode && (
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleImageRemove(index);
+                                            }}
+                                            className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-red-600 transition-colors"
+                                            title="Remove image"
+                                        >
+                                            ×
+                                        </button>
+                                    )}
+                                </div>
                             )}
                         </div>
-                    )}
 
-                    {/* ENHANCED Image Section with Error Handling */}
-                    <div className="flex-shrink-0 mr-4">
-                        {shouldShowPlaceholder(item, index) ? (
-                            // Show placeholder or upload area
-                            builderMode ? (
-                                <div className={`${currentSize.image} border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center bg-gray-50`}>
-                                    <label className="cursor-pointer text-center">
-                                        <input
-                                            type="file"
-                                            accept="image/*"
-                                            className="hidden"
-                                            onChange={(e) => {
-                                                if (e.target.files[0]) {
-                                                    // Remove from broken images set when new image is uploaded
-                                                    setBrokenImages(prev => {
-                                                        const newSet = new Set(prev);
-                                                        newSet.delete(index);
-                                                        return newSet;
-                                                    });
-                                                    handleImageUpload(index, e.target.files[0]);
-                                                }
-                                            }}
-                                        />
-                                        <div className="text-gray-400 text-xs text-center">
-                                            <svg className="w-6 h-6 mx-auto mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 002 2z" />
-                                            </svg>
-                                            {brokenImages.has(index) ? 'Replace Image' : getPlaceholderText().addLabel}
-                                        </div>
-                                    </label>
+                        {/* Content Section */}
+                        <div className="flex-1 min-w-0">
+                            {builderMode ? (
+                                <div className="space-y-2">
+                                    <input
+                                        type="text"
+                                        value={localInputValues[`${index}-label`] || ''}
+                                        placeholder={getPlaceholderText('title')}
+                                        className={`w-full bg-transparent border-none outline-none ${currentSize.title} text-gray-900`}
+                                        onChange={(e) => {
+                                            const newValue = e.target.value;
+                                            setLocalInputValues(prev => ({
+                                                ...prev,
+                                                [`${index}-label`]: newValue
+                                            }));
+                                            debouncedUpdate(index, 'label', newValue);
+                                        }}
+                                        onClick={(e) => e.stopPropagation()}
+                                    />
+                                    <textarea
+                                        value={localInputValues[`${index}-description`] || ''}
+                                        placeholder={getPlaceholderText('description')}
+                                        className={`w-full bg-transparent border-none outline-none ${currentSize.description} text-gray-600 resize-none`}
+                                        rows="2"
+                                        onChange={(e) => {
+                                            const newValue = e.target.value;
+                                            setLocalInputValues(prev => ({
+                                                ...prev,
+                                                [`${index}-description`]: newValue
+                                            }));
+                                            debouncedUpdate(index, 'description', newValue);
+                                        }}
+                                        onClick={(e) => e.stopPropagation()}
+                                    />
                                 </div>
                             ) : (
-                                // Non-builder mode placeholder
-                                <div className={`${currentSize.image} bg-gray-100 rounded-lg flex items-center justify-center`}>
-                                    <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 002 2z" />
-                                    </svg>
-                                </div>
-                            )
-                        ) : (
-                            // Show actual image with error handling
-                            <div className="relative">
-                                <img
-                                    src={item.imageUrl}
-                                    alt={item.label || 'Image'}
-                                    className={`${currentSize.image} object-cover rounded-lg`}
-                                    onError={() => handleImageError(index)}
-                                    onLoad={() => {
-                                        // Remove from broken images set if image loads successfully
-                                        setBrokenImages(prev => {
-                                            const newSet = new Set(prev);
-                                            newSet.delete(index);
-                                            return newSet;
-                                        });
-                                    }}
-                                />
-                                {builderMode && (
-                                    <button
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleImageRemove(index);
-                                        }}
-                                        className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-red-600 transition-colors"
-                                        title="Remove image"
-                                    >
-                                        ×
-                                    </button>
-                                )}
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Content Section */}
-                    <div className="flex-1 min-w-0">
-                        {builderMode ? (
-                            <div className="space-y-2">
-                                <input
-                                    type="text"
-                                    value={localInputValues[`${index}-label`] || ''}
-                                    placeholder={getPlaceholderText('title')}
-                                    className={`w-full bg-transparent border-none outline-none ${currentSize.title} text-gray-900`}
-                                    onChange={(e) => {
-                                        const newValue = e.target.value;
-                                        setLocalInputValues(prev => ({
-                                            ...prev,
-                                            [`${index}-label`]: newValue
-                                        }));
-                                        debouncedUpdate(index, 'label', newValue);
-                                    }}
-                                    onClick={(e) => e.stopPropagation()}
-                                />
-                                <textarea
-                                    value={localInputValues[`${index}-description`] || ''}
-                                    placeholder={getPlaceholderText('description')}
-                                    className={`w-full bg-transparent border-none outline-none ${currentSize.description} text-gray-600 resize-none`}
-                                    rows="2"
-                                    onChange={(e) => {
-                                        const newValue = e.target.value;
-                                        setLocalInputValues(prev => ({
-                                            ...prev,
-                                            [`${index}-description`]: newValue
-                                        }));
-                                        debouncedUpdate(index, 'description', newValue);
-                                    }}
-                                    onClick={(e) => e.stopPropagation()}
-                                />
-                            </div>
-                        ) : (
-                            <div>
-                                <h3 className={`${currentSize.title} text-gray-900 mb-1`}>
-                                    {item.label || 'Untitled'}
-                                </h3>
-                                
-                                {/* Course dates display */}
-                                {optionType === 'course' && (item.minStartDate || item.minEndDate) && (
-                                    <div className="mb-2">
-                                        <div className="flex items-center gap-2 text-sm text-gray-600">
-                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                                            </svg>
-                                            <span>
-                                                Minimum stay: {formatDate(item.minStartDate)} - {formatDate(item.minEndDate)}
+                                <div>
+                                    <h3 className={`${currentSize.title} text-gray-900 mb-1`}>
+                                        {item.label || 'Untitled'}
+                                    </h3>
+                                    
+                                    {optionType === 'course' && (item.minStartDate || item.minEndDate) && (
+                                        <div className="mb-2">
+                                            <div className="flex items-center gap-2 text-sm text-gray-600">
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                                </svg>
+                                                <span>
+                                                    Minimum stay: {formatDate(item.minStartDate)} - {formatDate(item.minEndDate)}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    )}
+                                    
+                                    {!builderMode && optionType === 'course' && item.hasOwnProperty('dateValid') && (
+                                        <div className="mt-2">
+                                            <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                                                item.dateValid 
+                                                    ? 'bg-green-100 text-green-800' 
+                                                    : 'bg-amber-100 text-amber-800'
+                                            }`}>
+                                                {item.statusText}
                                             </span>
-                                        </div>
-                                    </div>
-                                )}
-                                
-                                {/* Updated course-specific validation info */}
-                                {!builderMode && optionType === 'course' && item.hasOwnProperty('dateValid') && (
-                                    <div className="mt-2">
-                                        <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                                            item.dateValid 
-                                                ? 'bg-green-100 text-green-800' 
-                                                : 'bg-amber-100 text-amber-800' // Changed to amber
-                                        }`}>
-                                            {item.statusText}
-                                        </span>
-                                        {!item.dateValid && (
-                                            <p className="text-xs text-amber-600 mt-1"> {/* Changed to amber */}
-                                                You can still select this course but may need to extend your stay dates to meet the minimum requirements.
-                                            </p>
-                                        )}
-                                    </div>
-                                )}
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Control Section - REMOVED disabled state logic */}
-                    <div className="flex-shrink-0 ml-4 flex items-center justify-center">
-                        {builderMode ? (
-                            // Builder mode controls...
-                            <>
-                                {!(optionType === 'course' && (!items || items.length === 0)) && (
-                                    <button
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleOptionRemoval(index);
-                                        }}
-                                        className="text-red-500 hover:text-red-700 transition-colors p-1 rounded hover:bg-red-50"
-                                        title="Remove option"
-                                    >
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                        </svg>
-                                    </button>
-                                )}
-                            </>
-                        ) : (
-                            // Selection controls - REMOVED disabled state
-                            <>
-                                {multi ? (
-                                    // Checkbox for multi-selection
-                                    <label className="cursor-pointer" onClick={(e) => e.stopPropagation()}>
-                                        <div className={`${currentSize.control} rounded-full border-2 flex items-center justify-center ${
-                                            isSelected(item.value) 
-                                                ? 'border-blue-600 bg-blue-600' 
-                                                : 'border-gray-300'
-                                        }`}>
-                                            {isSelected(item.value) && (
-                                                <svg xmlns="http://www.w3.org/2000/svg" className={currentSize.controlIcon + " text-white"} viewBox="0 0 20 20" fill="currentColor">
-                                                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                                </svg>
+                                            {!item.dateValid && (
+                                                <p className="text-xs text-amber-600 mt-1">
+                                                    You can still select this course but may need to extend your stay dates to meet the minimum requirements.
+                                                </p>
                                             )}
-                                            <input
-                                                type="checkbox"
-                                                className="sr-only" 
-                                                value={item.value}
-                                                checked={isSelected(item.value)}
-                                                onChange={() => handleCheckboxChange(item.value)}
-                                                required={required && (!Array.isArray(value) || value.length === 0)}
-                                            />
                                         </div>
-                                    </label>
-                                ) : (
-                                    // Radio button for single selection
-                                    <label className="cursor-pointer" onClick={(e) => e.stopPropagation()}>
-                                        <div className={`${currentSize.control} rounded-full border-2 flex items-center justify-center ${
-                                            isSelected(item.value) 
-                                                ? 'border-blue-600 bg-blue-600' 
-                                                : 'border-gray-300'
-                                        }`}>
-                                            {isSelected(item.value) && (
-                                                <svg xmlns="http://www.w3.org/2000/svg" className={currentSize.controlIcon + " text-white"} viewBox="0 0 20 20" fill="currentColor">
-                                                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                                </svg>
-                                            )}
-                                            <input
-                                                type="radio"
-                                                className="sr-only"
-                                                name={`card-selection-${Math.random()}`}
-                                                value={item.value}
-                                                checked={isSelected(item.value)}
-                                                onChange={() => handleChange(item.value)}
-                                                required={required}
-                                            />
-                                        </div>
-                                    </label>
-                                )}
-                            </>
-                        )}
-                    </div>
-                </div>
-            ))}
+                                    )}
+                                </div>
+                            )}
+                        </div>
 
-            {displayItems.length === 0 && !coursesLoading && !coursesFetching && (
-                <div className="text-center py-8 text-gray-500">
-                    <p>
-                        {optionType === 'course' 
-                            ? (builderMode 
-                                ? 'No active courses available' 
-                                : 'No course offers available for this guest'
-                            )
-                            : 'No options available'
+                        {/* Control Section */}
+                        <div className="flex-shrink-0 ml-4 flex items-center justify-center">
+                            {builderMode ? (
+                                <>
+                                    {!(optionType === 'course' && (!items || items.length === 0)) && (
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleOptionRemoval(index);
+                                            }}
+                                            className="text-red-500 hover:text-red-700 transition-colors p-1 rounded hover:bg-red-50"
+                                            title="Remove option"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                            </svg>
+                                        </button>
+                                    )}
+                                </>
+                            ) : (
+                                <>
+                                    {multi ? (
+                                        <label className="cursor-pointer" onClick={(e) => e.stopPropagation()}>
+                                            <div className={`${currentSize.control} rounded-full border-2 flex items-center justify-center ${
+                                                isSelected(item.value) 
+                                                    ? 'border-blue-600 bg-blue-600' 
+                                                    : 'border-gray-300'
+                                            }`}>
+                                                {isSelected(item.value) && (
+                                                    <svg xmlns="http://www.w3.org/2000/svg" className={currentSize.controlIcon + " text-white"} viewBox="0 0 20 20" fill="currentColor">
+                                                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                                    </svg>
+                                                )}
+                                                <input
+                                                    type="checkbox"
+                                                    className="sr-only" 
+                                                    value={item.value}
+                                                    checked={isSelected(item.value)}
+                                                    onChange={() => handleCheckboxChange(item.value)}
+                                                    required={required && (!Array.isArray(value) || value.length === 0)}
+                                                />
+                                            </div>
+                                        </label>
+                                    ) : (
+                                        <label className="cursor-pointer" onClick={(e) => e.stopPropagation()}>
+                                            <div className={`${currentSize.control} rounded-full border-2 flex items-center justify-center ${
+                                                isSelected(item.value) 
+                                                    ? 'border-blue-600 bg-blue-600' 
+                                                    : 'border-gray-300'
+                                            }`}>
+                                                {isSelected(item.value) && (
+                                                    <svg xmlns="http://www.w3.org/2000/svg" className={currentSize.controlIcon + " text-white"} viewBox="0 0 20 20" fill="currentColor">
+                                                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                                    </svg>
+                                                )}
+                                                <input
+                                                    type="radio"
+                                                    className="sr-only"
+                                                    name={`card-selection-${Math.random()}`}
+                                                    value={item.value}
+                                                    checked={isSelected(item.value)}
+                                                    onChange={() => handleChange(item.value)}
+                                                    required={required}
+                                                />
+                                            </div>
+                                        </label>
+                                    )}
+                                </>
+                            )}
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+        {/* ⭐ END of validation-styled container wrapper */}
+
+        {displayItems.length === 0 && !coursesLoading && !coursesFetching && (
+            <div className="text-center py-8 text-gray-500">
+                <p>
+                    {optionType === 'course' 
+                        ? (builderMode 
+                            ? 'No active courses available' 
+                            : 'No course offers available for this guest'
+                        )
+                        : 'No options available'
+                    }
+                </p>
+                {optionType === 'course' && (
+                    <p className="text-sm mt-2">
+                        {builderMode 
+                            ? 'Make sure there are active courses in the system.'
+                            : 'Course offers are managed by administrators and will appear here when available.'
                         }
                     </p>
-                    {optionType === 'course' && (
-                        <p className="text-sm mt-2">
-                            {builderMode 
-                                ? 'Make sure there are active courses in the system.'
-                                : 'Course offers are managed by administrators and will appear here when available.'
-                            }
-                        </p>
-                    )}
-                </div>
-            )}
-        </div>
-    );
+                )}
+            </div>
+        )}
+    </div>
+  );
 };
 
 export default CardSelection;

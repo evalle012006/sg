@@ -11,7 +11,7 @@ export function UpdateForm({ selectedCategory, closeModal, refreshCategories }) 
 
     const updateCategory = async () => {
         const response = await fetch('/api/equipments/categories/' + selectedCategory.id, {
-            method: 'PUT',
+            method: 'POST',
             body: JSON.stringify({ 
                 ...formState, 
                 name: _.lowerCase(formState.name.trim()).split(' ').join('_'),

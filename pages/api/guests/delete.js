@@ -31,7 +31,7 @@ export default async function handler(req, res) {
         await Comment.destroy({ where: { guest_id: data.id } });
 
         if (guest) {
-            sendMail(guest.email, 'Sargood On Collaroy - Account Termination', 'email-account-termination', { guest_name: guest.first_name });
+            await sendMail(guest.email, 'Sargood On Collaroy - Account Termination', 'email-account-termination', { guest_name: guest.first_name });
         }
 
         return res.status(200).end(JSON.stringify({ success: true }));

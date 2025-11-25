@@ -14,6 +14,7 @@ const YearField = (props) => {
         disabled = false,
         placeholder = "YYYY",
         size = "medium",
+        forceShowErrors = false,
         ...otherProps
     } = props;
     
@@ -107,7 +108,6 @@ const YearField = (props) => {
         }
     }, [defaultValue]);
 
-    // Handle year changes - EXACTLY like original, but WITHOUT onBlur in dependencies
     useEffect(() => {
         if (year !== '' && year.toString().length === 4) {
             if (onBlur) {
@@ -116,13 +116,16 @@ const YearField = (props) => {
             setError(false);
             setDirty(true);
             setIsValid(true);
-        } else if (required && dirty) {
+        } else if (required && (dirty || forceShowErrors)) {
             setError(true);
             setErrorMessage('This field is required');
             setIsValid(false);
+        } else if (!required || (!dirty && !forceShowErrors)) {
+            setError(false);
+            setErrorMessage('');
+            setIsValid(false);
         }
-    }, [year, required, dirty]); // REMOVED onBlur from dependencies
-
+    }, [year, required, dirty, forceShowErrors]); 
     // Handle prop error
     useEffect(() => {
         if (propsError) {
@@ -182,8 +185,8 @@ const YearField = (props) => {
         setIsFocused(false);
     };
 
-    const shouldShowError = propsError || (error && dirty);
-    const shouldShowValid = !shouldShowError && isValid && dirty && year && year.length === 4;
+    const shouldShowError = propsError || (error && (dirty || forceShowErrors));
+    const shouldShowValid = !shouldShowError && isValid && (dirty || forceShowErrors) && year && year.length === 4;
 
     // Get border and focus colors based on state
     const getBorderClasses = () => {

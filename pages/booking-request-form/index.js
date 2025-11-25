@@ -2701,6 +2701,7 @@ const BookingRequestForm = () => {
                         selectedCourseOfferId={selectedCourseOfferId}
                         validateDatesWithExistingAPI={validateDatesWithExistingAPI}
                         infantCareQuantities={extractInfantCareQuantities()}
+                        validationAttempted={currentPage?.validationAttempted || false} 
                     />
                 )
             };
@@ -2761,7 +2762,11 @@ const BookingRequestForm = () => {
                     
                     const updatedPages = stableProcessedFormData.map(page => {
                         if (page.id === pageToValidate.id) {
-                            return { ...page, completed: false };
+                            return { 
+                                ...page, 
+                                completed: false,
+                                validationAttempted: true
+                            };
                         }
                         return page;
                     });
@@ -3439,7 +3444,6 @@ const BookingRequestForm = () => {
     const validateAllPages = () => {
         const validatingPages = stableProcessedFormData.filter(page => !page.title.includes('Equipment'));
         
-        // Pass courseOffers to the validate function and ensure we have the latest offers
         const allErrors = validate(validatingPages, courseOffers);
         
         console.log(`Total validation errors found across all pages: ${allErrors.length}`, allErrors);
@@ -3468,7 +3472,8 @@ const BookingRequestForm = () => {
                 let p = {...page};
 
                 if (errorsByPage[page.id]) {
-                    p.completed = false; // Force completion to false
+                    p.completed = false;
+                    p.validationAttempted = true;
                     
                     p.Sections = p.Sections.map(section => ({
                         ...section,
@@ -3486,6 +3491,8 @@ const BookingRequestForm = () => {
                     if (!firstErrorPage) {
                         firstErrorPage = page;
                     }
+                } else {
+                    p.validationAttempted = false;
                 }
 
                 return p;
@@ -3501,7 +3508,7 @@ const BookingRequestForm = () => {
                 dispatch(bookingRequestFormActions.setCurrentPage(firstErrorPage));
             }
 
-            // IMPROVED: Create user-friendly error message
+            // Create user-friendly error message
             const createErrorMessage = () => {
                 if (allErrors.length === 1) {
                     return `Please complete the required field: "${allErrors[0].question}"`;

@@ -58,8 +58,8 @@ export default function CheckBoxField(props) {
   }, [props.error, props.required, props.options]);
 
   const propOptions = typeof props.options === 'string' ? JSON.parse(props.options) : props.options;
-  const shouldShowError = props.error || (error && userInteracted);
-  const shouldShowValid = !shouldShowError && isValid && userInteracted;
+  const shouldShowError = props.error || (error && (userInteracted || props.forceShowErrors));
+  const shouldShowValid = !shouldShowError && isValid && (userInteracted || props.forceShowErrors);
   
   // Determine container layout based on mode
   const isButtonMode = props.mode === 'button';

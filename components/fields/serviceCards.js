@@ -1,9 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { Check, Plus, X, Upload, Trash2 } from 'lucide-react';
 
-// ============================================
-// ServiceCards Component (Display + Builder)
-// ============================================
 const ServiceCards = ({
   items = [],
   value = {},
@@ -12,7 +9,8 @@ const ServiceCards = ({
   updateOptionLabel,
   handleRemoveOption,
   onImageUpload,
-  optionType = 'service'
+  optionType = 'service',
+  forceShowErrors = false,
 }) => {
   const [localValue, setLocalValue] = useState(value || {});
   const [brokenImages, setBrokenImages] = useState(new Set());
@@ -922,6 +920,14 @@ const ServiceCardsField = ({
 
   const items = convertOptionsToItems(options);
 
+  const hasValue = value && Object.keys(value).some(key => value[key]?.selected);
+  const shouldShowError = !builderMode && required && (
+    error || 
+    (forceShowErrors && !hasValue)
+  );
+  const shouldShowValid = !builderMode && required && !shouldShowError && hasValue;
+
+
   return (
     <div className="mb-6">
       {label && !builderMode && (
@@ -930,20 +936,37 @@ const ServiceCardsField = ({
           {required && <span className="text-red-500 ml-1">*</span>}
         </label>
       )}
+
+      <div className={`
+        rounded-lg border transition-all duration-200 p-3
+        ${shouldShowError
+            ? 'border-red-400 bg-red-50'
+            : shouldShowValid
+                ? 'border-green-400 bg-green-50'
+                : 'border-gray-300 bg-white'
+        }
+      `}>
+        <ServiceCards
+          items={items}
+          value={value}
+          onChange={onChange}
+          builderMode={builderMode}
+          updateOptionLabel={updateOptionLabel}
+          handleRemoveOption={handleRemoveOption}
+          onImageUpload={onImageUpload}
+          optionType={option_type}
+        />
+      </div>
       
-      <ServiceCards
-        items={items}
-        value={value}
-        onChange={onChange}
-        builderMode={builderMode}
-        updateOptionLabel={updateOptionLabel}
-        handleRemoveOption={handleRemoveOption}
-        onImageUpload={onImageUpload}
-        optionType={option_type}
-      />
-      
-      {error && (
-        <p className="mt-2 text-sm text-red-600">{error}</p>
+      {shouldShowError && (
+        <div className="mt-1.5 flex items-center">
+          <svg className="h-4 w-4 text-red-500 mr-1.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+          </svg>
+          <p className="text-red-600 text-sm font-medium">
+            {error || 'Please select at least one service'}
+          </p>
+        </div>
       )}
     </div>
   );

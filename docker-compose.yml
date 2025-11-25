@@ -10,4 +10,9 @@ services:
       - NODE_ENV=production
       # Add other environment variables as needed
     volumes:
-      - .env:/app/.env  # For environment file if needed
+      - .env:/app/.env
+      - ./services/credentials:/app/credentials
+      - ./templates:/app/templates
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4

@@ -54,6 +54,7 @@ const PackageSelection = ({
   // Add props to help with course detection
   allBookingData = null, // Complete booking data with all sections
   currentPage = null, // Current page data for context
+  forceShowErrors = false,
   ...restProps
 }) => {
   const [packages, setPackages] = useState([]);
@@ -65,6 +66,15 @@ const PackageSelection = ({
   const [lastCriteriaHash, setLastCriteriaHash] = useState(null);
   const previousValueRef = useRef(value);
   const lastFetchCriteriaRef = useRef(null);
+
+  const shouldShowError = !builderMode && required && (
+    error || 
+    (forceShowErrors && (!value || (Array.isArray(value) && value.length === 0)))
+  );
+
+  const shouldShowValid = !builderMode && required && !shouldShowError && value && (
+    Array.isArray(value) ? value.length > 0 : true
+  );
 
   // New function to extract requirements ONLY from stable QaPairs data
   const extractGuestRequirementsFromStableData = () => {
@@ -1357,94 +1367,106 @@ const PackageSelection = ({
       <div className="flex flex-col lg:flex-row gap-3">
         {/* Package Display - Main Content */}
         <div className="flex-1 min-w-0">
-          <div className="space-y-6">
-            {Object.entries(groupedPackages).map(([funderType, funderPackages]) => {
-              if (funderPackages.length === 0) return null;
-              
-              return (
-                <div key={funderType} className="space-y-4">
-                  {!builderMode && (
-                    <div className="mb-4">
-                      <p className="text-gray-700 text-sm">
-                        Based on the information provided, the following {funderPackages.length === 1 ? 'package is' : 'packages are'} available to you:
-                      </p>
-                    </div>
-                  )}
-
-                  {/* Category Header (only show in builder mode or when multiple packages) */}
-                  {(builderMode || funderPackages.length > 1) && (
-                    <div className="mb-4">
-                      <div className="flex items-center gap-3 mb-2">
-                        <h2 className="text-lg font-semibold text-gray-900">
-                          {funderType} Packages
-                        </h2>
-                        <span className="px-2 py-1 bg-gray-100 text-gray-600 text-sm rounded">
-                          {funderPackages.length} available
-                        </span>
-                      </div>
-                      {!builderMode && funderPackages.length > 1 && (
-                        <p className="text-sm text-gray-600">
-                          Please select the package that best suits your accommodation and support needs.
+          <div className={`
+            rounded-lg border transition-all duration-200 p-3
+            ${shouldShowError
+                ? 'border-red-400 bg-red-50'
+                : shouldShowValid
+                    ? 'border-green-400 bg-green-50'
+                    : 'border-gray-300 bg-white'
+            }
+          `}>
+            <div className="space-y-6">
+              {Object.entries(groupedPackages).map(([funderType, funderPackages]) => {
+                if (funderPackages.length === 0) return null;
+                
+                return (
+                  <div key={funderType} className="space-y-4">
+                    {!builderMode && (
+                      <div className="mb-4">
+                        <p className="text-gray-700 text-sm">
+                          Based on the information provided, the following {funderPackages.length === 1 ? 'package is' : 'packages are'} available to you:
                         </p>
-                      )}
-                    </div>
-                  )}
+                      </div>
+                    )}
 
-                  {/* Selection Status (only for multi-package scenarios) */}
-                  {!builderMode && funderPackages.length > 1 && (
-                    <div className="mb-4">
-                      {!funderPackages.some(pkg => isPackageSelected(pkg)) ? (
-                        <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                          <div className="flex items-center gap-2">
-                            <div className="w-4 h-4 border-2 border-blue-400 rounded-full"></div>
-                            <span className="text-sm text-blue-700">
-                              Please select a package to continue
-                            </span>
-                          </div>
+                    {/* Category Header (only show in builder mode or when multiple packages) */}
+                    {(builderMode || funderPackages.length > 1) && (
+                      <div className="mb-4">
+                        <div className="flex items-center gap-3 mb-2">
+                          <h2 className="text-lg font-semibold text-gray-900">
+                            {funderType} Packages
+                          </h2>
+                          <span className="px-2 py-1 bg-gray-100 text-gray-600 text-sm rounded">
+                            {funderPackages.length} available
+                          </span>
                         </div>
-                      ) : (
-                        <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
-                          <div className="flex items-center gap-2">
-                            <div className="w-4 h-4 bg-green-500 rounded-full flex items-center justify-center">
-                              <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
-                              </svg>
+                        {!builderMode && funderPackages.length > 1 && (
+                          <p className="text-sm text-gray-600">
+                            Please select the package that best suits your accommodation and support needs.
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Selection Status (only for multi-package scenarios) */}
+                    {!builderMode && funderPackages.length > 1 && (
+                      <div className="mb-4">
+                        {!funderPackages.some(pkg => isPackageSelected(pkg)) ? (
+                          <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                            <div className="flex items-center gap-2">
+                              <div className="w-4 h-4 border-2 border-blue-400 rounded-full"></div>
+                              <span className="text-sm text-blue-700">
+                                Please select a package to continue
+                              </span>
                             </div>
-                            <span className="text-sm text-green-700">
-                              Package selected: {(() => {
-                                const selectedPkg = funderPackages.find(pkg => isPackageSelected(pkg));
-                                return selectedPkg?.name || 'Package';
-                              })()}
-                            </span>
                           </div>
-                        </div>
-                      )}
+                        ) : (
+                          <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                            <div className="flex items-center gap-2">
+                              <div className="w-4 h-4 bg-green-500 rounded-full flex items-center justify-center">
+                                <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
+                                </svg>
+                              </div>
+                              <span className="text-sm text-green-700">
+                                Package selected: {(() => {
+                                  const selectedPkg = funderPackages.find(pkg => isPackageSelected(pkg));
+                                  return selectedPkg?.name || 'Package';
+                                })()}
+                              </span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Package Cards Grid */}
+                    <div className={`grid gap-6 ${
+                      builderMode 
+                        ? 'grid-cols-1 lg:grid-cols-2 xl:grid-cols-3'
+                        : funderPackages.length === 1 
+                          ? 'grid-cols-1 max-w-lg'
+                          : 'grid-cols-1 lg:grid-cols-2'
+                    }`}>
+                      {funderPackages.map((pkg) => (
+                        <ErrorBoundary key={pkg.id}>
+                          {renderPackageCard(pkg)}
+                        </ErrorBoundary>
+                      ))}
                     </div>
-                  )}
-
-                  {/* Package Cards Grid */}
-                  <div className={`grid gap-6 ${
-                    builderMode 
-                      ? 'grid-cols-1 lg:grid-cols-2 xl:grid-cols-3'
-                      : funderPackages.length === 1 
-                        ? 'grid-cols-1 max-w-lg'
-                        : 'grid-cols-1 lg:grid-cols-2'
-                  }`}>
-                    {funderPackages.map((pkg) => (
-                      <ErrorBoundary key={pkg.id}>
-                        {renderPackageCard(pkg)}
-                      </ErrorBoundary>
-                    ))}
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
-
           {/* Error indicator */}
-          {error && (
-            <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded text-red-600 text-sm">
-              {error}
+          {shouldShowError && (
+            <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded text-red-600 text-sm flex items-center">
+              <svg className="h-4 w-4 text-red-500 mr-1.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+              </svg>
+              {error || 'Please select a package to continue'}
             </div>
           )}
         </div>

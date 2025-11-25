@@ -77,12 +77,12 @@ const initializeTransporter = async () => {
       pass: mailPassword,
     },
     tls: {
-      ciphers: 'SSLv3'
+      rejectUnauthorized: false
     },
     pool: true,
-    maxConnections: 1,  // ✨ CHANGED: Only 1 connection at a time to respect rate limits
+    maxConnections: 1,
     rateDelta: rateLimitConfig.delayBetweenEmails,
-    rateLimit: 1,  // ✨ CHANGED: 1 email per rateDelta
+    rateLimit: 1,
   });
   
   return transporter;

@@ -22,6 +22,7 @@ const InputField = (props) => {
         question, // For builder mode
         builder = false, // Legacy prop for builder mode
         validateOnMount = true, // New prop to control initial validation
+        forceShowErrors = false,
         ...otherProps
     } = props;
 
@@ -332,8 +333,8 @@ const InputField = (props) => {
         }
     };
 
-    const shouldShowError = propsError || (error && dirty);
-    const shouldShowValid = !shouldShowError && isValid && dirty;
+    const shouldShowError = propsError || (error && (dirty || forceShowErrors));
+    const shouldShowValid = !shouldShowError && isValid && (dirty || forceShowErrors);
 
     // Get border and focus colors based on state
     const getBorderClasses = () => {

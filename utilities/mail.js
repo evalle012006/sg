@@ -60,12 +60,12 @@ const initializeTransporter = async () => {
       pass: mailPassword,
     },
     tls: {
-      ciphers: 'SSLv3'
+      rejectUnauthorized: false
     },
-    pool: true, // Use connection pooling
-    maxConnections: maxConcurrent, // Limit concurrent connections
-    rateDelta: 1000, // Minimum time between messages in ms
-    rateLimit: 10, // Max messages per rateDelta
+    pool: true,
+    maxConnections: maxConcurrent,
+    rateDelta: 1000,
+    rateLimit: 10,
   });
 
   transporter.use('compile', hbs(options));
