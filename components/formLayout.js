@@ -6,11 +6,25 @@ function FormLayout(props) {
   const { children } = props;
 
   return (
-    <div className="flex h-screen au overflow-hidden">
-      <div className="relative w-0 lg:w-[65%] lg:p-5 flex items-center justify-center bg-teal-50">
-        <Image alt="Sargood on Collaroy" layout="fill" priority={true} objectFit="fill" src={HeroImage.src} />
+    <div className="flex h-screen overflow-hidden">
+      {/* Left side - Hero Image (hidden on mobile, visible on large screens) */}
+      <div className="hidden lg:block lg:w-[65%] relative overflow-hidden">
+        <Image 
+          alt="Sargood on Collaroy" 
+          layout="fill" 
+          priority={true} 
+          objectFit="cover" 
+          src={HeroImage.src} 
+          className="object-cover"
+        />
       </div>
-      <div className="w-full lg:w-[35%] p-5 flex items-center">{children}</div>
+
+      {/* Right side - Form Area with Blue Background */}
+      <div className="w-full lg:w-[35%] bg-[#00467F] flex items-center justify-center p-5 overflow-y-auto">
+        <div className="w-full max-w-md">
+          {children}
+        </div>
+      </div>
     </div>
   );
 }

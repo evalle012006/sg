@@ -3751,7 +3751,9 @@ const BookingRequestForm = () => {
                             delete: true,
                             guestId: guest?.id
                         });
-                    })
+                    });
+                
+                questions = questions.filter(q => !q.excludeFromSave);
 
                 // UPDATED: Use question key to filter package questions
                 const updatedQuestions = questions.filter(q => {

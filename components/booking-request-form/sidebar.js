@@ -41,26 +41,67 @@ export default function RequestFormSidebar({ setBookingSubmittedState, prevBooki
             // Extract page ID from URL
             const urlPageId = paths[1].split('=')[1];
             
-            // Simply try to find the page - if it exists in data, it should be accessible
-            let foundPage = bookingRequestFormData.find(r => r.url === "&&" + paths[1]);
+            // ✅ CRITICAL FIX: Try multiple strategies to find the page
+            let foundPage = null;
             
-            // If not found by URL, try to find by ID
+            // Strategy 1: Try exact URL match
+            foundPage = bookingRequestFormData.find(r => r.url === "&&" + paths[1]);
+            
+            // Strategy 2: Try by ID (handling both string and numeric IDs)
             if (!foundPage && urlPageId) {
-                foundPage = bookingRequestFormData.find(r => r.id === urlPageId);
+                // Try string ID match (for dynamic pages like 'ndis_packages_page')
+                foundPage = bookingRequestFormData.find(r => 
+                    String(r.id) === String(urlPageId)
+                );
+                
+                // Try numeric ID match (for regular pages)
+                if (!foundPage) {
+                    const numericId = parseInt(urlPageId);
+                    if (!isNaN(numericId)) {
+                        foundPage = bookingRequestFormData.find(r => r.id === numericId);
+                    }
+                }
+                
                 if (foundPage) {
-                    console.log(`Found page by ID: ${foundPage.title}, updating URL`);
-                    // Update URL to match the found page's URL format
-                    handleRouterChange(router.asPath.split('&&')[0] + foundPage.url);
+                    console.log(`✅ Found page by ID: ${foundPage.title} (ID: ${foundPage.id})`);
                 }
             }
             
-            // If page doesn't exist in data, redirect to first page
-            if (!foundPage) {
-                console.log(`Page not found for URL: ${paths[1]}, available pages:`, 
-                    bookingRequestFormData.map(p => ({ id: p.id, title: p.title, url: p.url })));
+            // Strategy 3: Check if this is a special NDIS page
+            if (!foundPage && urlPageId === 'ndis_packages_page') {
+                foundPage = bookingRequestFormData.find(r => 
+                    r.id === 'ndis_packages_page' || r.title === 'NDIS Requirements'
+                );
                 
+                if (foundPage) {
+                    console.log(`✅ Found NDIS Requirements page by special lookup`);
+                }
+            }
+            
+            // If page doesn't exist in data, log warning but DON'T redirect immediately
+            if (!foundPage) {
+                console.warn(`⚠️ Page not found for URL: ${paths[1]}`, {
+                    urlPageId,
+                    urlPageIdType: typeof urlPageId,
+                    availablePages: bookingRequestFormData.map(p => ({ 
+                        id: p.id, 
+                        title: p.title, 
+                        url: p.url,
+                        idType: typeof p.id
+                    }))
+                });
+                
+                // LAST RESORT: If it's supposed to be the NDIS page but we can't find it,
+                // it might not have been created yet. Return null to let the system handle it.
+                if (urlPageId === 'ndis_packages_page') {
+                    console.log('🔄 NDIS page not found but requested - may be pending creation');
+                    return null;
+                }
+                
+                // For other missing pages, redirect to first page
                 if (bookingRequestFormData.length > 0) {
                     const firstPage = bookingRequestFormData[0];
+                    console.log(`⚠️ Redirecting to first page: ${firstPage.title}`);
                     handleRouterChange(router.asPath.split('&&')[0] + firstPage.url);
                     return firstPage;
                 }
@@ -73,9 +114,9 @@ export default function RequestFormSidebar({ setBookingSubmittedState, prevBooki
             }
         }
 
-        // Safety check before scrolling
+        // Safety check before scrolling - using String() for comparison
         const pageId = currentUrl ? currentUrl.split('=')[1] : null;
-        if (currentPage && pageId && pageId !== currentPage.id) {
+        if (currentPage && pageId && String(pageId) !== String(currentPage.id)) {
             window.scrollTo(0, 0);
         }
 

@@ -10,7 +10,6 @@ const ServiceCards = ({
   handleRemoveOption,
   onImageUpload,
   optionType = 'service',
-  forceShowErrors = false,
 }) => {
   const [localValue, setLocalValue] = useState(value || {});
   const [brokenImages, setBrokenImages] = useState(new Set());
@@ -898,6 +897,7 @@ const ServiceCardsField = ({
   updateOptionLabel,
   handleRemoveOption,
   onImageUpload,
+  forceShowErrors = false,
   ...restProps
 }) => {
   const convertOptionsToItems = (options) => {
