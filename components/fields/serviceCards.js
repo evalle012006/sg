@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { Check, Plus, X, Upload, Trash2 } from 'lucide-react';
+import { getDefaultImage } from '../../lib/defaultImages';
 
 const ServiceCards = ({
   items = [],
@@ -15,7 +16,7 @@ const ServiceCards = ({
   const [brokenImages, setBrokenImages] = useState(new Set());
   const [brokenSubOptionImages, setBrokenSubOptionImages] = useState(new Set());
   const [editingFields, setEditingFields] = useState({});
-  const [localInputValues, setLocalInputValues] = useState({}); // FIXED: Added missing state
+  const [localInputValues, setLocalInputValues] = useState({});
   const [refreshedImageUrls, setRefreshedImageUrls] = useState(new Map());
   const updateTimeoutRef = useRef({});
   const prevValueRef = useRef(value);
@@ -26,10 +27,8 @@ const ServiceCards = ({
           return currentValue || {};
       }
       
-      // Start with current value or empty object
       const initialized = { ...(currentValue || {}) };
       
-      // Ensure every service in items exists in the value
       serviceItems.forEach(item => {
           if (!initialized[item.value]) {
               initialized[item.value] = {
@@ -42,21 +41,18 @@ const ServiceCards = ({
       return initialized;
   }, []);
 
-  // Only update localValue when value actually changes (deep comparison)
   useEffect(() => {
     const newValueStr = JSON.stringify(value);
     const prevValueStr = JSON.stringify(prevValueRef.current);
     
     if (newValueStr !== prevValueStr) {        
-        // IMPORTANT: Ensure ALL services are initialized in the value
         const initializedValue = initializeAllServices(value, items);
         
         setLocalValue(initializedValue);
         prevValueRef.current = initializedValue;
     }
-}, [value, items]);
+}, [value, items, initializeAllServices]);
 
-  // Refresh signed URLs ONCE on mount - don't update parent to avoid infinite loop
   useEffect(() => {
     const refreshImageUrls = async () => {
       if (!items || items.length === 0 || hasRefreshedUrls.current) return;
@@ -67,7 +63,6 @@ const ServiceCards = ({
       for (let i = 0; i < items.length; i++) {
         const item = items[i];
 
-        // Refresh main service image
         if (item.imageFilename && item.imageUrl) {
           try {
             const fileType = optionType || 'service';
@@ -85,7 +80,6 @@ const ServiceCards = ({
           }
         }
 
-        // Refresh sub-option images
         if (item.subOptions && item.subOptions.length > 0) {
           for (let subIndex = 0; subIndex < item.subOptions.length; subIndex++) {
             const subOption = item.subOptions[subIndex];
@@ -113,9 +107,8 @@ const ServiceCards = ({
     };
 
     refreshImageUrls();
-  }, []);
+  }, [items, optionType]);
 
-  // Cleanup timeouts on unmount
   useEffect(() => {
     return () => {
       Object.values(updateTimeoutRef.current).forEach(timeout => {
@@ -124,50 +117,45 @@ const ServiceCards = ({
     };
   }, []);
 
-  // Get the current image URL (refreshed if available, otherwise original)
+  // Get the current image URL (refreshed if available, otherwise original, or default)
   const getImageUrl = (index, originalUrl) => {
     const refreshedUrl = refreshedImageUrls.get(`service-${index}`);
-    return refreshedUrl || originalUrl;
+    return refreshedUrl || originalUrl || getDefaultImage('service');
   };
 
-  // Get the current sub-option image URL
+  // Get the current sub-option image URL (with default fallback)
   const getSubOptionImageUrl = (serviceIndex, subOptionIndex, originalUrl) => {
     const refreshedUrl = refreshedImageUrls.get(`suboption-${serviceIndex}-${subOptionIndex}`);
-    return refreshedUrl || originalUrl;
+    return refreshedUrl || originalUrl || getDefaultImage('subOption');
   };
 
-  // Handle image error for services
   const handleImageError = (index) => {
+    // Mark image as broken so we can show default
     setBrokenImages(prev => new Set([...prev, index]));
   };
 
-  // Handle image error for sub-options
   const handleSubOptionImageError = (serviceIndex, subOptionIndex) => {
     const key = `${serviceIndex}-${subOptionIndex}`;
     setBrokenSubOptionImages(prev => new Set([...prev, key]));
   };
 
-  // FIXED: Handle immediate local update and debounced parent update
   const handleFieldChange = useCallback((index, field, value) => {
     const key = `${index}-${field}`;
     
-    // Update local state immediately
     setLocalInputValues(prev => ({
       ...prev,
       [key]: value
     }));
     
-    // Clear existing timeout
     if (updateTimeoutRef.current[key]) {
       clearTimeout(updateTimeoutRef.current[key]);
     }
     
-    // Debounce the parent update
     updateTimeoutRef.current[key] = setTimeout(() => {
       if (updateOptionLabel) {
         updateOptionLabel(
           { target: { value }, stopPropagation: () => {} },
-          { index, field, label: value }, // FIXED: Added 'label' property
+          { index, field, label: value },
           'service-card'
         );
       }
@@ -175,22 +163,18 @@ const ServiceCards = ({
     }, 500);
   }, [updateOptionLabel]);
 
-  // NEW: Handle sub-option label changes with debouncing
   const handleSubOptionLabelChange = useCallback((serviceIndex, subIndex, newLabel) => {
     const key = `${serviceIndex}-${subIndex}-subOptionLabel`;
     
-    // Update local state immediately
     setLocalInputValues(prev => ({
       ...prev,
       [key]: newLabel
     }));
     
-    // Clear existing timeout
     if (updateTimeoutRef.current[key]) {
       clearTimeout(updateTimeoutRef.current[key]);
     }
     
-    // Debounce the parent update
     updateTimeoutRef.current[key] = setTimeout(() => {
       const service = items[serviceIndex];
       const newValue = newLabel.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') || service.subOptions[subIndex].value;
@@ -213,27 +197,22 @@ const ServiceCards = ({
     }, 500);
   }, [items, updateOptionLabel]);
 
-  // Get the display value for a field (from local state or items prop)
   const getFieldValue = (index, field) => {
     const key = `${index}-${field}`;
-    // First check local input values, then fall back to items prop
     if (localInputValues && localInputValues[key] !== undefined) {
       return localInputValues[key];
     }
     return items[index]?.[field] || '';
   };
 
-  // NEW: Get the display value for sub-option label
   const getSubOptionLabelValue = (serviceIndex, subIndex) => {
     const key = `${serviceIndex}-${subIndex}-subOptionLabel`;
-    // First check local input values, then fall back to items prop
     if (localInputValues && localInputValues[key] !== undefined) {
       return localInputValues[key];
     }
     return items[serviceIndex]?.subOptions?.[subIndex]?.label || '';
   };
 
-  // Initialize local input values when items change
   useEffect(() => {
     const initialValues = {};
     items.forEach((item, index) => {
@@ -243,7 +222,6 @@ const ServiceCards = ({
       initialValues[`${index}-subOptionsTitle`] = item.subOptionsTitle || '';
       initialValues[`${index}-subOptionsNote`] = item.subOptionsNote || '';
       
-      // Initialize sub-option labels
       if (item.subOptions && item.subOptions.length > 0) {
         item.subOptions.forEach((subOption, subIndex) => {
           initialValues[`${index}-${subIndex}-subOptionLabel`] = subOption.label || '';
@@ -253,13 +231,11 @@ const ServiceCards = ({
     setLocalInputValues(initialValues);
   }, [items]);
 
-  // Handle service Yes/No selection
   const handleServiceToggle = (serviceValue, isSelected) => {
-      // Ensure we start with all services initialized
       const baseValue = initializeAllServices(localValue, items);
       
       const newValue = {
-          ...baseValue, // Spread ALL services first
+          ...baseValue,
           [serviceValue]: {
               selected: isSelected,
               subOptions: isSelected ? (baseValue[serviceValue]?.subOptions || []) : []
@@ -270,9 +246,7 @@ const ServiceCards = ({
       onChange?.(newValue);
   };
 
-    // Handle sub-option checkbox toggle
-    const handleSubOptionToggle = (serviceValue, subOptionValue) => {
-      // Ensure we start with all services initialized
+  const handleSubOptionToggle = (serviceValue, subOptionValue) => {
       const baseValue = initializeAllServices(localValue, items);
       
       const currentSubOptions = baseValue[serviceValue]?.subOptions || [];
@@ -281,7 +255,7 @@ const ServiceCards = ({
           : [...currentSubOptions, subOptionValue];
       
       const newValue = {
-          ...baseValue, // Spread ALL services first
+          ...baseValue,
           [serviceValue]: {
               ...baseValue[serviceValue],
               subOptions: newSubOptions
@@ -292,14 +266,12 @@ const ServiceCards = ({
       onChange?.(newValue);
   };
 
-  // Handle image upload for services
   const handleServiceImageUpload = (index, file) => {
     if (onImageUpload) {
       onImageUpload(index, file);
     }
   };
 
-  // Handle image upload for sub-options
   const handleSubOptionImageUpload = (serviceIndex, subOptionIndex, file) => {
     if (onImageUpload) {
       const service = items[serviceIndex];
@@ -327,27 +299,26 @@ const ServiceCards = ({
   };
 
   useEffect(() => {
-      // Initialize all services when component first mounts or items change
       if (items && items.length > 0) {
           const initialized = initializeAllServices(localValue, items);
           
-          // Only update if there were missing services
           if (JSON.stringify(initialized) !== JSON.stringify(localValue)) {
               setLocalValue(initialized);
               
-              // Also notify parent if starting from null/undefined
               if (!value || Object.keys(value).length === 0) {
                   onChange?.(initialized);
               }
           }
       }
-  }, [items, initializeAllServices]);
+  }, [items, initializeAllServices, localValue, onChange, value]);
 
   return (
     <div className="space-y-6">
       {items.map((service, serviceIndex) => {
         const isSelected = localValue[service.value]?.selected || false;
         const currentImageUrl = getImageUrl(serviceIndex, service.imageUrl);
+        const hasCustomImage = Boolean(service.imageUrl);
+        const isBroken = brokenImages.has(serviceIndex);
         
         return (
           <div key={service.value || serviceIndex} className="space-y-4">
@@ -363,44 +334,45 @@ const ServiceCards = ({
               onClick={() => !builderMode && handleServiceToggle(service.value, !isSelected)}
             >
               <div className="flex items-start gap-6">
-                {/* Image Section */}
                 <div className="flex-shrink-0">
                   {builderMode ? (
                     <div className="w-24 h-24">
-                      {currentImageUrl && !brokenImages.has(serviceIndex) ? (
-                        <div className="relative w-24 h-24 group">
-                          <img
-                            src={currentImageUrl}
-                            alt={service.label}
-                            className="w-full h-full object-cover rounded-lg"
-                            onError={() => handleImageError(serviceIndex)}
-                            onLoad={() => {
-                              setBrokenImages(prev => {
-                                const newSet = new Set(prev);
-                                newSet.delete(serviceIndex);
-                                return newSet;
-                              });
+                      <div className="relative w-24 h-24 group">
+                        <img
+                          src={isBroken ? getDefaultImage('service') : currentImageUrl}
+                          alt={service.label || 'Service'}
+                          className={`w-full h-full object-cover rounded-lg ${
+                            !hasCustomImage || isBroken ? 'opacity-60' : ''
+                          }`}
+                          onError={(e) => {
+                            // Prevent infinite loop - only set broken once
+                            if (hasCustomImage && !isBroken) {
+                              handleImageError(serviceIndex);
+                            }
+                          }}
+                        />
+                        <label className="absolute inset-0 bg-black bg-opacity-50 rounded-lg flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(e) => {
+                              if (e.target.files[0]) {
+                                setBrokenImages(prev => {
+                                  const newSet = new Set(prev);
+                                  newSet.delete(serviceIndex);
+                                  return newSet;
+                                });
+                                handleServiceImageUpload(serviceIndex, e.target.files[0]);
+                              }
                             }}
                           />
-                          <label className="absolute inset-0 bg-black bg-opacity-50 rounded-lg flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
-                            <input
-                              type="file"
-                              accept="image/*"
-                              className="hidden"
-                              onChange={(e) => {
-                                if (e.target.files[0]) {
-                                  setBrokenImages(prev => {
-                                    const newSet = new Set(prev);
-                                    newSet.delete(serviceIndex);
-                                    return newSet;
-                                  });
-                                  handleServiceImageUpload(serviceIndex, e.target.files[0]);
-                                }
-                              }}
-                            />
-                            <Upload className="w-5 h-5 text-white mb-1" />
-                            <span className="text-xs text-white">Replace</span>
-                          </label>
+                          <Upload className="w-5 h-5 text-white mb-1" />
+                          <span className="text-xs text-white">
+                            {hasCustomImage && !isBroken ? 'Replace' : 'Upload'}
+                          </span>
+                        </label>
+                        {hasCustomImage && !isBroken && (
                           <button
                             type="button"
                             onClick={(e) => {
@@ -420,67 +392,26 @@ const ServiceCards = ({
                           >
                             <X className="w-3 h-3" />
                           </button>
-                        </div>
-                      ) : (
-                        <label className="w-24 h-24 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center bg-gray-50 cursor-pointer hover:border-gray-400">
-                          <input
-                            type="file"
-                            accept="image/*"
-                            className="hidden"
-                            onChange={(e) => {
-                              if (e.target.files[0]) {
-                                setBrokenImages(prev => {
-                                  const newSet = new Set(prev);
-                                  newSet.delete(serviceIndex);
-                                  return newSet;
-                                });
-                                handleServiceImageUpload(serviceIndex, e.target.files[0]);
-                              }
-                            }}
-                          />
-                          {brokenImages.has(serviceIndex) ? (
-                            <>
-                              <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                              </svg>
-                              <span className="text-xs text-gray-500 mt-1">Failed</span>
-                              <span className="text-xs text-gray-500">Click to retry</span>
-                            </>
-                          ) : (
-                            <>
-                              <Upload className="w-6 h-6 text-gray-400" />
-                              <span className="text-xs text-gray-500 mt-1">Upload</span>
-                            </>
-                          )}
-                        </label>
-                      )}
-                    </div>
-                  ) : (
-                    currentImageUrl && (
-                      <div className="w-24 h-24">
-                        {!brokenImages.has(serviceIndex) ? (
-                          <img
-                            src={currentImageUrl}
-                            alt={service.label}
-                            className="w-24 h-24 object-cover rounded-lg"
-                            onError={() => handleImageError(serviceIndex)}
-                            onLoad={() => {
-                              setBrokenImages(prev => {
-                                const newSet = new Set(prev);
-                                newSet.delete(serviceIndex);
-                                return newSet;
-                              });
-                            }}
-                          />
-                        ) : (
-                          <div className="w-24 h-24 bg-gray-100 rounded-lg flex items-center justify-center">
-                            <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 002 2z" />
-                            </svg>
-                          </div>
                         )}
                       </div>
-                    )
+                    </div>
+                  ) : (
+                    // Non-builder mode service image
+                    <div className="w-24 h-24">
+                      <img
+                        src={isBroken ? getDefaultImage('service') : currentImageUrl}
+                        alt={service.label || 'Service'}
+                        className={`w-24 h-24 object-cover rounded-lg ${
+                          !hasCustomImage || isBroken ? 'opacity-60' : ''
+                        }`}
+                        onError={(e) => {
+                          // Prevent infinite loop - only set broken once
+                          if (hasCustomImage && !isBroken) {
+                            handleImageError(serviceIndex);
+                          }
+                        }}
+                      />
+                    </div>
                   )}
                 </div>
                 
@@ -635,123 +566,86 @@ const ServiceCards = ({
                   {service.subOptions.map((subOption, subIndex) => {
                     const isSubOptionSelected = localValue[service.value]?.subOptions?.includes(subOption.value) || false;
                     const currentSubImageUrl = getSubOptionImageUrl(serviceIndex, subIndex, subOption.imageUrl);
+                    const hasCustomSubImage = Boolean(subOption.imageUrl);
+                    const isSubBroken = brokenSubOptionImages.has(`${serviceIndex}-${subIndex}`);
                     
                     return (
                       <div key={subOption.value || subIndex} className="flex items-start gap-3">
-                        {(builderMode || currentSubImageUrl) && (
-                          <div className="flex-shrink-0">
-                            {builderMode ? (
-                              <>
-                                {currentSubImageUrl && !brokenSubOptionImages.has(`${serviceIndex}-${subIndex}`) ? (
-                                  <div className="relative w-12 h-12 group">
-                                    <img
-                                      src={currentSubImageUrl}
-                                      alt={subOption.label}
-                                      className="w-full h-full object-cover rounded"
-                                      onError={() => handleSubOptionImageError(serviceIndex, subIndex)}
-                                      onLoad={() => {
-                                        setBrokenSubOptionImages(prev => {
-                                          const newSet = new Set(prev);
-                                          newSet.delete(`${serviceIndex}-${subIndex}`);
-                                          return newSet;
-                                        });
-                                      }}
-                                    />
-                                    <label className="absolute inset-0 bg-black bg-opacity-50 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
-                                      <input
-                                        type="file"
-                                        accept="image/*"
-                                        className="hidden"
-                                        onChange={(e) => {
-                                          if (e.target.files[0]) {
-                                            setBrokenSubOptionImages(prev => {
-                                              const newSet = new Set(prev);
-                                              newSet.delete(`${serviceIndex}-${subIndex}`);
-                                              return newSet;
-                                            });
-                                            handleSubOptionImageUpload(serviceIndex, subIndex, e.target.files[0]);
-                                          }
-                                        }}
-                                      />
-                                      <Upload className="w-3 h-3 text-white" />
-                                    </label>
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        const updatedSubOptions = [...service.subOptions];
-                                        updatedSubOptions[subIndex] = {
-                                          ...updatedSubOptions[subIndex],
-                                          imageFilename: null,
-                                          imageUrl: null
-                                        };
-                                        updateOptionLabel?.(
-                                          { target: { value: JSON.stringify(updatedSubOptions) }, stopPropagation: () => {} },
-                                          { index: serviceIndex, field: 'subOptions', label: JSON.stringify(updatedSubOptions) },
-                                          'service-card'
-                                        );
-                                      }}
-                                      className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center hover:bg-red-600 z-10"
-                                    >
-                                      <X className="w-2 h-2" />
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <label className="w-12 h-12 border border-dashed border-gray-300 rounded flex flex-col items-center justify-center bg-white cursor-pointer hover:border-gray-400">
-                                    <input
-                                      type="file"
-                                      accept="image/*"
-                                      className="hidden"
-                                      onChange={(e) => {
-                                        if (e.target.files[0]) {
-                                          setBrokenSubOptionImages(prev => {
-                                            const newSet = new Set(prev);
-                                            newSet.delete(`${serviceIndex}-${subIndex}`);
-                                            return newSet;
-                                          });
-                                          handleSubOptionImageUpload(serviceIndex, subIndex, e.target.files[0]);
-                                        }
-                                      }}
-                                    />
-                                    {brokenSubOptionImages.has(`${serviceIndex}-${subIndex}`) ? (
-                                      <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                                      </svg>
-                                    ) : (
-                                      <Upload className="w-4 h-4 text-gray-400" />
-                                    )}
-                                  </label>
-                                )}
-                              </>
-                            ) : (
-                              currentSubImageUrl && (
-                                <div className="w-12 h-12">
-                                  {!brokenSubOptionImages.has(`${serviceIndex}-${subIndex}`) ? (
-                                    <img
-                                      src={currentSubImageUrl}
-                                      alt={subOption.label}
-                                      className="w-12 h-12 object-cover rounded"
-                                      onError={() => handleSubOptionImageError(serviceIndex, subIndex)}
-                                      onLoad={() => {
-                                        setBrokenSubOptionImages(prev => {
-                                          const newSet = new Set(prev);
-                                          newSet.delete(`${serviceIndex}-${subIndex}`);
-                                          return newSet;
-                                        });
-                                      }}
-                                    />
-                                  ) : (
-                                    <div className="w-12 h-12 bg-gray-100 rounded flex items-center justify-center">
-                                      <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                                      </svg>
-                                    </div>
-                                  )}
-                                </div>
-                              )
-                            )}
-                          </div>
-                        )}
+                        <div className="flex-shrink-0">
+                          {builderMode ? (
+                            <div className="relative w-12 h-12 group">
+                              <img
+                                src={isSubBroken ? getDefaultImage('subOption') : currentSubImageUrl}
+                                alt={subOption.label || 'Sub-option'}
+                                className={`w-full h-full object-cover rounded ${
+                                  !hasCustomSubImage || isSubBroken ? 'opacity-60' : ''
+                                }`}
+                                onError={(e) => {
+                                  // Prevent infinite loop - only set broken once
+                                  if (hasCustomSubImage && !isSubBroken) {
+                                    handleSubOptionImageError(serviceIndex, subIndex);
+                                  }
+                                }}
+                              />
+                              <label className="absolute inset-0 bg-black bg-opacity-50 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  className="hidden"
+                                  onChange={(e) => {
+                                    if (e.target.files[0]) {
+                                      setBrokenSubOptionImages(prev => {
+                                        const newSet = new Set(prev);
+                                        newSet.delete(`${serviceIndex}-${subIndex}`);
+                                        return newSet;
+                                      });
+                                      handleSubOptionImageUpload(serviceIndex, subIndex, e.target.files[0]);
+                                    }
+                                  }}
+                                />
+                                <Upload className="w-3 h-3 text-white" />
+                              </label>
+                              {hasCustomSubImage && !isSubBroken && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const updatedSubOptions = [...service.subOptions];
+                                    updatedSubOptions[subIndex] = {
+                                      ...updatedSubOptions[subIndex],
+                                      imageFilename: null,
+                                      imageUrl: null
+                                    };
+                                    updateOptionLabel?.(
+                                      { target: { value: JSON.stringify(updatedSubOptions) }, stopPropagation: () => {} },
+                                      { index: serviceIndex, field: 'subOptions', label: JSON.stringify(updatedSubOptions) },
+                                      'service-card'
+                                    );
+                                  }}
+                                  className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center hover:bg-red-600 z-10"
+                                >
+                                  <X className="w-2 h-2" />
+                                </button>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="w-12 h-12">
+                              <img
+                                src={isSubBroken ? getDefaultImage('subOption') : currentSubImageUrl}
+                                alt={subOption.label || 'Sub-option'}
+                                className={`w-12 h-12 object-cover rounded ${
+                                  !hasCustomSubImage || isSubBroken ? 'opacity-60' : ''
+                                }`}
+                                onError={(e) => {
+                                  // Prevent infinite loop - only set broken once
+                                  if (hasCustomSubImage && !isSubBroken) {
+                                    handleSubOptionImageError(serviceIndex, subIndex);
+                                  }
+                                }}
+                              />
+                            </div>
+                          )}
+                        </div>
                         
                         {builderMode ? (
                           <div className="flex-1 flex items-center gap-2">
@@ -824,7 +718,6 @@ const ServiceCards = ({
                       };
                       const updatedSubOptions = [...(service.subOptions || []), newSubOption];
                       
-                      // Update local state for the new sub-option
                       const newSubIndex = updatedSubOptions.length - 1;
                       setLocalInputValues(prev => ({
                         ...prev,
@@ -857,7 +750,6 @@ const ServiceCards = ({
                     imageFilename: null
                   };
                   
-                  // Initialize local state for the new sub-option
                   setLocalInputValues(prev => ({
                     ...prev,
                     [`${serviceIndex}-0-subOptionLabel`]: ''
@@ -881,9 +773,7 @@ const ServiceCards = ({
   );
 };
 
-// ============================================
-// ServiceCardsField Wrapper Component
-// ============================================
+// ServiceCardsField Wrapper Component remains the same
 const ServiceCardsField = ({
   label,
   required,
@@ -926,7 +816,6 @@ const ServiceCardsField = ({
     (forceShowErrors && !hasValue)
   );
   const shouldShowValid = !builderMode && required && !shouldShowError && hasValue;
-
 
   return (
     <div className="mb-6">

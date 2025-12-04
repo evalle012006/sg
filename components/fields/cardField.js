@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import CardSelection from "./cardSelection";
 
 export default function CardField(props) {
@@ -27,18 +27,11 @@ export default function CardField(props) {
   const [userInteracted, setUserInteracted] = useState(false);
   const [isValid, setIsValid] = useState(false);
 
-  // Add debugging for development
-  useEffect(() => {
-    if (process.env.NODE_ENV === 'development') {
-      console.log('CardField received props:', {
-        option_type,
-        optionsLength: options?.length || 0,
-        hasValue: !!value,
-        multi,
-        forceShowErrors // ⭐ ADD THIS
-      });
-    }
-  }, [option_type, options, value, multi, forceShowErrors]); // ⭐ ADD forceShowErrors
+  const isValueInOptions = useCallback((val, optionsArray) => {
+    if (!optionsArray || optionsArray.length === 0) return false;
+    const opts = typeof optionsArray === 'string' ? JSON.parse(optionsArray) : optionsArray;
+    return opts.some(opt => (opt.value || opt.label) === val);
+  }, []);
 
   // Handle image upload in builder mode
   const handleImageUpload = (index, file) => {
@@ -134,9 +127,14 @@ export default function CardField(props) {
       const currentValue = getCurrentValue();
       
       if (multi) {
-        isValidSelection = Array.isArray(currentValue) && currentValue.length > 0;
+        isValidSelection = Array.isArray(currentValue) && 
+                          currentValue.length > 0 &&
+                          currentValue.every(val => isValueInOptions(val, options));
       } else {
-        isValidSelection = currentValue !== null && currentValue !== undefined && currentValue !== '';
+        isValidSelection = currentValue !== null && 
+                          currentValue !== undefined && 
+                          currentValue !== '' &&
+                          isValueInOptions(currentValue, options);  // <-- ADD THIS CHECK
       }
       
       setIsValid(isValidSelection);

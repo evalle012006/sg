@@ -19,6 +19,11 @@ import { notificationLibraryReducer } from "./notificationLibrarySlice";
 const persistConfig = {
     key: 'root',
     storage,
+    // ADD: Blacklist slices that should NOT be persisted across sessions
+    blacklist: [
+        'bookingRequestForm',  // Prevents stale form data from previous sessions
+        'global',              // Loading states shouldn't persist
+    ]
 }
 
 // combine reducers

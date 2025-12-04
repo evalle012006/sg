@@ -4,6 +4,8 @@ import { globalActions } from "../../store/globalSlice";
 import { useDispatch, useSelector } from "react-redux";
 import { toast } from "react-toastify";
 import ProfileImage from "../../components/my-profile/ProfileImage";
+import { ChevronLeft } from "lucide-react";
+import { useRouter } from "next/router";
 
 const Layout = dynamic(() => import('../../components/layout'));
 const Spinner = dynamic(() => import('../../components/ui/spinner'));
@@ -17,6 +19,7 @@ const SelectComponent = dynamic(() => import('../../components/ui/select'));
 
 export default function GuestProfilePage() {
     const dispatch = useDispatch();
+    const router = useRouter();
     const user = useSelector((state) => state.user.user);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -27,6 +30,14 @@ export default function GuestProfilePage() {
     // Package options state
     const [packageOptions, setPackageOptions] = useState([]);
     const [loadingPackages, setLoadingPackages] = useState(false);
+
+    const handleBack = () => {
+       if (window.history.length > 1) {
+           router.back();
+       } else {
+           router.push('/bookings');
+       }
+   };
     
     // Guest basic information state
     const [guestInfo, setGuestInfo] = useState({
@@ -714,11 +725,21 @@ export default function GuestProfilePage() {
                                 boxShadow: '0px 3px 12px 0px #0000001A'
                             }}
                         >
-                            {/* Header Section with Title Only */}
+                            {/* Header Section with Back Button and Title */}
                             <div className="mb-8 pb-6 border-b border-gray-200">
-                                <h1 className="text-2xl font-bold text-gray-800">MY PROFILE</h1>
+                                <div className="flex items-center gap-4">
+                                    <button
+                                        onClick={handleBack}
+                                        className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors group"
+                                        type="button"
+                                    >
+                                        <ChevronLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
+                                        <span className="text-sm font-medium">Back</span>
+                                    </button>
+                                    <h1 className="text-2xl font-bold text-gray-800">MY PROFILE</h1>
+                                </div>
                             </div>
-                            
+
                             <form onSubmit={handleSubmit} className="space-y-8">
                                 {/* Personal Information Section with Profile Image */}
                                 <div>

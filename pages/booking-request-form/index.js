@@ -553,6 +553,44 @@ const BookingRequestForm = () => {
             return;
         }
 
+        // CRITICAL FIX: For returning guests, only run if user has visited the Packages page
+        // or if there's a real saved QaPair (not just prefilled temporary data)
+        if (prevBookingId) {
+            // Find the Packages page
+            const packagesPage = stableProcessedFormData.find(page => 
+                page.title === 'Packages' || 
+                page.Sections?.some(section =>
+                    section.Questions?.some(question =>
+                        question.type === 'package-selection' || 
+                        question.type === 'package-selection-multi'
+                    )
+                )
+            );
+            
+            if (packagesPage) {
+                const hasVisitedPackagesPage = visitedPages.has(packagesPage.id);
+                const hasSavedPackagesData = pagesWithSavedData.has(packagesPage.id);
+                
+                // Check if there's a real saved QaPair for package selection (not just prefilled)
+                const hasRealSavedPackageQaPair = packagesPage.Sections?.some(section =>
+                    section.QaPairs?.some(qaPair => {
+                        const isPackageQuestion = qaPair.Question?.type === 'package-selection' || 
+                                                qaPair.Question?.type === 'package-selection-multi';
+                        // Check if it's a real save (has createdAt/updatedAt) and not temporary prefill
+                        const isRealSave = isPackageQuestion && 
+                                        (qaPair.createdAt || qaPair.updatedAt) && 
+                                        !qaPair.temporaryFromPreviousBooking;
+                        return isRealSave;
+                    })
+                );
+                
+                if (!hasVisitedPackagesPage && !hasSavedPackagesData && !hasRealSavedPackageQaPair) {
+                    console.log('⏸️ Skipping package auto-update - user has not visited Packages page yet and no real saved QaPair');
+                    return;
+                }
+            }
+        }
+
         try {
             // Create a stable key for checking if we need to run this update
             const currentCheckKey = JSON.stringify({
@@ -675,7 +713,10 @@ const BookingRequestForm = () => {
         packageAutoUpdateInProgress,
         updateAndDispatchPageDataImmediate,
         setProcessedFormData,
-        savePackageSelection
+        savePackageSelection,
+        prevBookingId, 
+        visitedPages,  
+        pagesWithSavedData
     ]);
 
     const cleanReduxStateBeforeDispatch = useCallback((pages, isNdisFunded) => {
@@ -1555,7 +1596,15 @@ const BookingRequestForm = () => {
 
     const fetchProfileData = async (guestId) => {
         try {
-            const response = await fetch(`/api/my-profile/${guestId}`);
+            const timestamp = Date.now();
+            const response = await fetch(`/api/my-profile/${guestId}?_t=${timestamp}`, {
+                // ADD: Prevent browser caching
+                cache: 'no-store',
+                headers: {
+                    'Cache-Control': 'no-cache',
+                    'Pragma': 'no-cache'
+                }
+            });
             if (response.ok) {
                 const profileData = await response.json();
                 return profileData;
@@ -1625,40 +1674,54 @@ const BookingRequestForm = () => {
             return;
         }
 
-        if (profileDataLoaded || profilePreloadInProgressRef.current) {
-            console.log('⏸️ Profile already loaded or in progress');
+        // ADD: More robust guard - check if we're loading for the CORRECT guest
+        if (profileDataLoaded && guest?.id === guestId) {
+            console.log('⏸️ Profile already loaded for this guest');
+            return;
+        }
+        
+        // ADD: Reset if guest changed
+        if (guest?.id && guest.id !== guestId) {
+            console.log('🔄 Guest changed, resetting profile data');
+            profilePreloadInProgressRef.current = false;
+            setProfileDataLoaded(false);
+        }
+
+        if (profilePreloadInProgressRef.current) {
+            console.log('⏸️ Profile load already in progress');
             return;
         }
 
         profilePreloadInProgressRef.current = true;
-        // console.log(`🔄 Loading profile data for guest ${guestId} after template completion`);
+        console.log(`🔄 Loading profile data for guest ${guestId}`);
 
         try {
             const profileData = await fetchProfileData(guestId);
-            if (profileData) {
-                // console.log('✅ Profile data fetched successfully:', {
-                //     guestId,
-                //     hasHealthInfo: !!profileData.HealthInfo,
-                //     firstName: profileData.first_name,
-                //     lastName: profileData.last_name,
-                //     email: profileData.email,
-                //     healthInfoFields: profileData.HealthInfo ? Object.keys(profileData.HealthInfo) : []
-                // });
-
-                // Apply profile data to the template pages
-                const updatedPages = mapProfileDataToQuestions(profileData, templatePages);
-                const finalPages = applyQuestionDependencies(updatedPages);
-
-                // Update both processed and Redux state
-                setProcessedFormData(finalPages);
-                safeDispatchData(finalPages, 'Profile data applied after template load');
-                setProfileDataLoaded(true);
-                
-                // console.log('✅ Profile data successfully applied to all form fields');
-            } else {
+            
+            // ADD: Verify we're still mounted and guest hasn't changed
+            if (!profileData) {
                 console.log('⚠️ No profile data found for guest:', guestId);
                 setProfileDataLoaded(true);
+                return;
             }
+            
+            // ADD: Double-check guest ID matches to prevent race conditions
+            const currentGuestId = getGuestId();
+            if (currentGuestId !== guestId) {
+                console.log('⚠️ Guest changed during profile load, discarding stale data');
+                profilePreloadInProgressRef.current = false;
+                return;
+            }
+
+            console.log('✅ Profile data fetched successfully for guest:', guestId);
+
+            const updatedPages = mapProfileDataToQuestions(profileData, templatePages);
+            const finalPages = applyQuestionDependencies(updatedPages);
+
+            setProcessedFormData(finalPages);
+            safeDispatchData(finalPages, 'Profile data applied after template load');
+            setProfileDataLoaded(true);
+            
         } catch (error) {
             console.error('❌ Error loading profile data:', error);
             setProfileDataLoaded(true);
@@ -2280,19 +2343,25 @@ const BookingRequestForm = () => {
         }
     }, 2000);
 
-    const getGuestId = () => {
+    const getGuestId = useCallback(() => {
         // Priority: booking.Guest.id > booking.guest_id > currentUser.id
-        if (booking?.Guest?.id) {
-            return booking.Guest.id;
+        const isGuestUser = currentUser.type === 'guest';
+
+        // For admin viewing a guest's booking, prioritize booking.Guest.id
+        if (!isGuestUser) {
+            if (booking?.Guest?.id) {
+                return booking.Guest.id;
+            }
+            if (booking?.guest_id) {
+                return booking.guest_id;
+            }
         }
-        if (booking?.guest_id) {
-            return booking.guest_id;
-        }
+
         if (currentUser?.id) {
             return currentUser.id;
         }
         return null;
-    };
+    }, [currentUser?.id, currentUser?.type, booking?.Guest?.id, booking?.guest_id]);
 
     const calculateNdisPageCompletion = useCallback((page) => {
         if (!page || !page.Sections || page.id !== 'ndis_packages_page') {
@@ -4200,7 +4269,22 @@ const BookingRequestForm = () => {
                         questionDependencies.map(qd => {
                             if (qd.answer !== null) {
                                 if (multipleAnswersQuestion.includes(question.type)) {
-                                    answer = (typeof answer === 'string') ? JSON.parse(answer) : answer;
+                                    if (typeof answer === 'string') {
+                                        if (answer.startsWith('[') || answer.startsWith('{')) {
+                                            try {
+                                                answer = JSON.parse(answer);
+                                            } catch (e) {
+                                                console.warn('Failed to parse answer as JSON, keeping as string:', answer);
+                                                // Keep answer as-is if parsing fails
+                                                answer = Array.isArray(answer) ? answer : [];
+                                            }
+                                        } else {
+                                            // Plain string answer from old template - convert to empty array for checkbox/multi-select
+                                            console.log(`Converting non-JSON string answer to array for ${question.type}: "${answer}"`);
+                                            answer = [];
+                                        }
+                                    }
+
                                     if (answer && answer.length > 0 && answer.find(a => a === qd.answer)) {
                                         hiddenQuestions.push({ id: qd.id, qId: qd.question_id, dId: qd.dependence_id, hidden: false });
                                     } else {
@@ -4219,7 +4303,22 @@ const BookingRequestForm = () => {
                                 }
                             } else {
                                 if (multipleAnswersQuestion.includes(question.type)) {
-                                    answer = typeof answer === 'string' ? JSON.parse(answer) : answer;
+                                    if (typeof answer === 'string') {
+                                        if (answer.startsWith('[') || answer.startsWith('{')) {
+                                            try {
+                                                answer = JSON.parse(answer);
+                                            } catch (e) {
+                                                console.warn('Failed to parse answer as JSON, keeping as string:', answer);
+                                                // Keep answer as-is if parsing fails
+                                                answer = Array.isArray(answer) ? answer : [];
+                                            }
+                                        } else {
+                                            // Plain string answer from old template - convert to empty array for checkbox/multi-select
+                                            console.log(`Converting non-JSON string answer to array for ${question.type}: "${answer}"`);
+                                            answer = [];
+                                        }
+                                    }
+
                                     if (answer && answer.length > 0) {
                                         hiddenQuestions.push({ id: qd.id, qId: qd.question_id, dId: qd.dependence_id, hidden: false });
                                     } else {
@@ -5144,6 +5243,25 @@ const BookingRequestForm = () => {
             dispatch(bookingRequestFormActions.clearEquipmentChanges());
             dispatch(bookingRequestFormActions.setRooms([]));
 
+             // ADD: Clear guest and booking state
+            setGuest(null);
+            setBooking(null);
+            setBookingData(null);
+            
+            // ADD: Reset all refs to prevent stale data
+            profilePreloadInProgressRef.current = false;
+            profileSaveInProgressRef.current = false;
+            lastDispatchedDataRef.current = null;
+            prevFormDataRef.current = null;
+            prevIsNdisFundedRef.current = null;
+            lastFetchParamsRef.current = null;
+            lastAutoUpdateCheckRef.current = null;
+            lastCareQuestionUpdateRef.current = 0;
+            lastProcessingTimeRef.current = 0;
+            
+            // ADD: Clear processed form data
+            setProcessedFormData([]);
+
             const isSubmitted = router.asPath.includes('&submit=true');
             dispatch(bookingRequestFormActions.setBookingSubmitted(isSubmitted));
 
@@ -5173,6 +5291,33 @@ const BookingRequestForm = () => {
             mounted = false;
         });
     }, [uuid, prevBookingId, router.asPath]);
+
+    // Full cleanup on unmount
+    useEffect(() => {
+        return () => {
+            console.log('🧹 BookingRequestForm unmounting - full cleanup');
+            
+            // Clear Redux state
+            dispatch(bookingRequestFormActions.setData([]));
+            dispatch(bookingRequestFormActions.clearEquipmentChanges());
+            dispatch(bookingRequestFormActions.setRooms([]));
+            dispatch(bookingRequestFormActions.setIsNdisFunded(false));
+            dispatch(bookingRequestFormActions.setFunder(null));
+            dispatch(bookingRequestFormActions.setCheckinDate(null));
+            dispatch(bookingRequestFormActions.setCheckoutDate(null));
+            dispatch(bookingRequestFormActions.setBookingSubmitted(false));
+            
+            // Reset all refs
+            profilePreloadInProgressRef.current = false;
+            profileSaveInProgressRef.current = false;
+            lastDispatchedDataRef.current = null;
+            
+            // Clear timeouts
+            if (processingTimeoutRef.current) clearTimeout(processingTimeoutRef.current);
+            if (autoUpdateTimeoutRef.current) clearTimeout(autoUpdateTimeoutRef.current);
+            if (careQuestionUpdateRef.current) clearTimeout(careQuestionUpdateRef.current);
+        };
+    }, [dispatch]);
 
     useEffect(() => {
         if (stableProcessedFormData && stableProcessedFormData.length > 0) {

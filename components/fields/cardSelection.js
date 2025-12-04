@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 
 // Simple global flag to prevent multiple API calls
 let coursesFetched = false;
@@ -39,6 +39,25 @@ const CardSelection = ({
   
   // Track if this component instance has been initialized
   const [initialized, setInitialized] = useState(false);
+
+  const isValueInDisplayItems = useCallback((val) => {
+    if (!val || !displayItems || displayItems.length === 0) return false;
+    return displayItems.some(item => item.value === val || item.label === val);
+  }, [displayItems]);
+
+  const hasValidSelection = useMemo(() => {
+    if (multi) {
+      return Array.isArray(value) && value.length > 0 && value.some(v => isValueInDisplayItems(v));
+    }
+    return value && value !== '' && isValueInDisplayItems(value);
+  }, [value, multi, isValueInDisplayItems]);
+
+  const hasNoValidSelection = useMemo(() => {
+    if (multi) {
+      return !value || !Array.isArray(value) || value.length === 0 || !value.some(v => isValueInDisplayItems(v));
+    }
+    return !value || value === '' || !isValueInDisplayItems(value);
+  }, [value, multi, isValueInDisplayItems]);
 
   const getGuestId = () => {
     // Priority: explicit guestId prop > bookingId > currentUser.id
@@ -654,18 +673,9 @@ const CardSelection = ({
         
         <div className={`
             rounded-lg border transition-all duration-200 p-3
-            ${!builderMode && (
-                error || 
-                (forceShowErrors && required && (
-                    (multi && (!value || (Array.isArray(value) && value.length === 0))) ||
-                    (!multi && (!value || value === ''))
-                ))
-            )
+            ${!builderMode && (error || (forceShowErrors && required && hasNoValidSelection))
                 ? 'border-red-400 bg-red-50'
-                : !builderMode && required && (
-                    (multi && Array.isArray(value) && value.length > 0) ||
-                    (!multi && value && value !== '')
-                )
+                : !builderMode && required && hasValidSelection
                     ? 'border-green-400 bg-green-50'
                     : 'border-gray-300 bg-white'
             }
