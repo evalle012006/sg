@@ -1,6 +1,7 @@
 import { Booking } from "../../../models";
 import { BookingService } from "../../../services/booking/booking";
 import moment from "moment";
+import { EmailTriggerService } from "../../../services/booking/emailTriggerService";
 
 export default async function handler(req, res) {
 

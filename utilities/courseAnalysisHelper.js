@@ -25,7 +25,7 @@ export function extractCourseInformation(allQAPairs = [], formData = {}) {
 
   try {
     // ✅ STRICT STRATEGY: Only look for specific question keys
-    console.log('🎓 Starting STRICT course analysis (question key only)...');
+    // console.log('🎓 Starting STRICT course analysis (question key only)...');
     
     let courseOfferQA = null;
     let whichCourseQA = null;
@@ -35,7 +35,7 @@ export function extractCourseInformation(allQAPairs = [], formData = {}) {
       const questionKey = qa.question_key || qa.Question?.question_key;
       if (questionKey === 'have-you-been-offered-a-place-in-a-course-for-this-stay') {
         courseOfferQA = qa;
-        console.log('✅ Found course offer question:', questionKey, '→', qa.answer);
+        // console.log('✅ Found course offer question:', questionKey, '→', qa.answer);
         courseAnalysis.rawData.foundBy = `course-offer-key`;
         break;
       }
@@ -48,7 +48,7 @@ export function extractCourseInformation(allQAPairs = [], formData = {}) {
       
       if (questionKey === 'which-course' && optionType === 'course') {
         whichCourseQA = qa;
-        console.log('✅ Found which course question:', questionKey, '→', qa.answer);
+        // console.log('✅ Found which course question:', questionKey, '→', qa.answer);
         if (!courseAnalysis.rawData.foundBy) {
           courseAnalysis.rawData.foundBy = `which-course-key`;
         }
@@ -61,7 +61,7 @@ export function extractCourseInformation(allQAPairs = [], formData = {}) {
       courseAnalysis.courseOfferAnswer = courseOfferQA.answer;
       const answerStr = safeAnswerToLowerCase(courseOfferQA.answer);
       courseAnalysis.courseOffered = answerStr === 'yes';
-      console.log('📋 Course offer answer:', courseOfferQA.answer, '→ offered:', courseAnalysis.courseOffered);
+      // console.log('📋 Course offer answer:', courseOfferQA.answer, '→ offered:', courseAnalysis.courseOffered);
     }
 
     // Process which course answer - MUST have valid content
@@ -76,7 +76,7 @@ export function extractCourseInformation(allQAPairs = [], formData = {}) {
         if (answerStr !== 'no' && answerStr !== 'none' && answerStr !== 'false') {
           courseAnalysis.courseId = safeAnswerToString(whichCourseQA.answer);
           courseAnalysis.hasCourse = true;
-          console.log('✅ Valid course selection found:', whichCourseQA.answer);
+          // console.log('✅ Valid course selection found:', whichCourseQA.answer);
         }
       }
     }
@@ -86,13 +86,13 @@ export function extractCourseInformation(allQAPairs = [], formData = {}) {
     // 2. Which course question has a valid answer
     if (courseAnalysis.courseOffered && courseAnalysis.courseId) {
       courseAnalysis.hasCourse = true;
-      console.log('✅ Both course conditions met - hasCourse = true');
+      // console.log('✅ Both course conditions met - hasCourse = true');
     } else {
       courseAnalysis.hasCourse = false;
-      console.log('❌ Course conditions not fully met:', {
-        courseOffered: courseAnalysis.courseOffered,
-        hasCourseId: !!courseAnalysis.courseId
-      });
+      // console.log('❌ Course conditions not fully met:', {
+      //   courseOffered: courseAnalysis.courseOffered,
+      //   hasCourseId: !!courseAnalysis.courseId
+      // });
     }
 
     // Validate course ID if present
@@ -107,14 +107,14 @@ export function extractCourseInformation(allQAPairs = [], formData = {}) {
     }
 
     // Final logging
-    console.log('🎓 STRICT Course analysis complete:', {
-      hasCourse: courseAnalysis.hasCourse,
-      courseId: courseAnalysis.courseId,
-      courseOffered: courseAnalysis.courseOffered,
-      courseOfferAnswer: courseAnalysis.courseOfferAnswer,
-      whichCourseAnswer: courseAnalysis.whichCourseAnswer,
-      foundBy: courseAnalysis.rawData.foundBy
-    });
+    // console.log('🎓 STRICT Course analysis complete:', {
+    //   hasCourse: courseAnalysis.hasCourse,
+    //   courseId: courseAnalysis.courseId,
+    //   courseOffered: courseAnalysis.courseOffered,
+    //   courseOfferAnswer: courseAnalysis.courseOfferAnswer,
+    //   whichCourseAnswer: courseAnalysis.whichCourseAnswer,
+    //   foundBy: courseAnalysis.rawData.foundBy
+    // });
 
     return courseAnalysis;
 
@@ -159,7 +159,7 @@ export function analyzeCourseFromBookingData({
   allQAPairs = []        // Pre-collected all QA pairs
 } = {}) {
   
-  console.log('🎓 Analyzing course from booking data (STRICT mode)...');
+  // console.log('🎓 Analyzing course from booking data (STRICT mode)...');
   
   // Collect all available QA pairs from different sources
   let collectedQAPairs = [...(allQAPairs || [])];
@@ -254,7 +254,7 @@ export function analyzeCourseFromBookingData({
     return !isDuplicate;
   });
   
-  console.log(`📊 Collected ${uniqueQAPairs.length} unique QA pairs for STRICT course analysis`);
+  // console.log(`📊 Collected ${uniqueQAPairs.length} unique QA pairs for STRICT course analysis`);
   
   return extractCourseInformation(uniqueQAPairs, formData);
 }

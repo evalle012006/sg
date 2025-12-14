@@ -219,18 +219,36 @@ const calculateEquipmentPageCompletion = (page, context) => {
 const calculateNdisPageCompletionForReturningGuest = (page, context) => {
     const { visitedPages, pagesWithSavedData } = context;
     
+    // ✅ ADD: Extra safety check for NDIS page existence
+    if (!page || !page.Sections || page.Sections.length === 0) {
+        console.log('⚠️ NDIS page not fully initialized yet, returning false');
+        return false;
+    }
+    
     // Check real interaction indicators
     const hasBeenVisited = visitedPages.has(page.id);
     const hasSavedData = pagesWithSavedData.has(page.id);
     const hasRealQaPairs = hasRealUserInteractionQaPairs(page);
     
+    console.log(`📋 NDIS Page completion check:`, {
+        pageId: page.id,
+        hasBeenVisited,
+        hasSavedData,
+        hasRealQaPairs,
+        sectionsCount: page.Sections.length,
+        totalQuestions: page.Sections.reduce((sum, s) => sum + (s.Questions?.length || 0), 0)
+    });
+    
     // Must have some form of real interaction
     if (!hasBeenVisited && !hasSavedData && !hasRealQaPairs) {
+        console.log('❌ NDIS page has no interaction indicators');
         return false;
     }
 
     // Check if all required questions are answered with corresponding QaPairs
-    return checkAllRequiredQuestionsAnsweredWithQaPairs(page);
+    const result = checkAllRequiredQuestionsAnsweredWithQaPairs(page);
+    console.log(`✅ NDIS page completion result: ${result}`);
+    return result;
 };
 
 /**
@@ -251,28 +269,86 @@ const calculateStandardPageCompletionForReturningGuest = (page, context) => {
 
     // If page has saved data, check if questions are answered (with or without QaPairs)
     if (hasSavedData) {
-        return checkAllRequiredQuestionsAnswered(page);
+        const allRequiredAnswered = checkAllRequiredQuestionsAnswered(page);
+        // console.log(`📋 Page "${page.title}" completion result:`, {
+        //     pageId: page.id,
+        //     hasSavedData,
+        //     hasBeenVisited,
+        //     hasRealQaPairs,
+        //     allRequiredAnsweredWithQaPairs,
+        //     finalCompletion: allRequiredAnswered
+        // });
+        return allRequiredAnswered;
     }
 
+    const allRequiredAnsweredWithQaPairs = checkAllRequiredQuestionsAnsweredWithQaPairs(page);
+    // console.log(`📋 Page "${page.title}" completion result:`, {
+    //     pageId: page.id,
+    //     hasSavedData,
+    //     hasBeenVisited,
+    //     hasRealQaPairs,
+    //     allRequiredAnsweredWithQaPairs,
+    //     finalCompletion: allRequiredAnsweredWithQaPairs
+    // });
     // If page was visited or has real QaPairs, require QaPairs backing
-    return checkAllRequiredQuestionsAnsweredWithQaPairs(page);
+    return allRequiredAnsweredWithQaPairs;
 };
 
 /**
  * Check if page has real user interaction QaPairs (not just prefilled data)
  */
 const hasRealUserInteractionQaPairs = (page) => {
-    return page.Sections?.some(section => 
-        section.QaPairs && section.QaPairs.length > 0 && 
-        section.QaPairs.some(qaPair => 
-            // Real interaction indicators
-            qaPair.createdAt || 
-            qaPair.updatedAt || 
-            qaPair.dirty || 
-            // NOT temporary prefill data
-            (!qaPair.temporaryFromPreviousBooking && !qaPair.prefill)
-        )
-    ) || false;
+    return page.Sections?.some(section => {
+        // Check 1: Traditional QaPairs array
+        const hasQaPairsWithData = section.QaPairs && section.QaPairs.length > 0 && 
+            section.QaPairs.some(qaPair => 
+                qaPair.createdAt || 
+                qaPair.updatedAt || 
+                qaPair.dirty || 
+                (!qaPair.temporaryFromPreviousBooking && !qaPair.prefill)
+            );
+        
+        if (hasQaPairsWithData) return true;
+        
+        // Check 2: Questions with fromQa flag (answers loaded from saved QaPairs)
+        const hasQuestionsFromQa = section.Questions?.some(question =>
+            question.fromQa === true && 
+            question.answer !== null && 
+            question.answer !== undefined && 
+            question.answer !== '' &&
+            !question.temporaryFromPreviousBooking &&
+            !question.prefill
+        );
+        
+        if (hasQuestionsFromQa) return true;
+        
+        // ✅ Check 3: NEW - Recently answered questions (dirty but not yet saved as QaPairs)
+        // This is critical for NDIS page and other dynamic pages where users answer
+        // questions that haven't been saved to QaPairs yet
+        const hasDirtyAnsweredQuestions = section.Questions?.some(question =>
+            question.dirty === true && 
+            question.answer !== null && 
+            question.answer !== undefined && 
+            question.answer !== '' &&
+            !question.temporaryFromPreviousBooking &&
+            !question.prefill
+        );
+        
+        if (hasDirtyAnsweredQuestions) {
+            // console.log('✅ Found dirty answered questions:', {
+            //     sectionId: section.id,
+            //     dirtyQuestions: section.Questions?.filter(q => q.dirty).map(q => ({
+            //         id: q.id,
+            //         question: q.question,
+            //         answer: q.answer,
+            //         dirty: q.dirty
+            //     }))
+            // });
+            return true;
+        }
+        
+        return false;
+    }) || false;
 };
 
 /**
@@ -301,6 +377,7 @@ const checkAllRequiredQuestionsAnswered = (page) => {
 
 /**
  * Check if all required questions are answered AND have corresponding QaPairs
+ * RELAXED for NDIS page: Accept dirty answered questions even without QaPairs
  */
 const checkAllRequiredQuestionsAnsweredWithQaPairs = (page) => {
     let totalRequired = 0;
@@ -316,15 +393,43 @@ const checkAllRequiredQuestionsAnsweredWithQaPairs = (page) => {
 
             const isAnswered = isQuestionAnswered(question);
             const hasQaPair = questionHasSavedQaPairs(question, section);
+            
+            // ✅ NEW: For NDIS page specifically, also accept dirty answered questions
+            // This allows completion before save, since NDIS questions are moved dynamically
+            const isDirtyAnswered = page.id === 'ndis_packages_page' && 
+                                   question.dirty === true && 
+                                   isAnswered;
 
-            // For returning guests, both answer AND QaPair are required
-            if (isAnswered && hasQaPair) {
+            // For returning guests, require QaPair OR (for NDIS page) dirty answered
+            if (isAnswered && (hasQaPair || isDirtyAnswered)) {
                 answeredWithQaPairs++;
             }
         }
     }
 
-    return totalRequired > 0 && answeredWithQaPairs === totalRequired;
+    const result = totalRequired > 0 && answeredWithQaPairs === totalRequired;
+    
+    if (page.id === 'ndis_packages_page') {
+        console.log('📋 NDIS page detailed check:', {
+            totalRequired,
+            answeredWithQaPairs,
+            result,
+            sections: page.Sections?.map(s => ({
+                sectionId: s.id,
+                hidden: s.hidden,
+                questions: s.Questions?.map(q => ({
+                    question: q.question?.substring(0, 50),
+                    required: q.required,
+                    hidden: q.hidden,
+                    answered: isQuestionAnswered(q),
+                    hasQaPair: questionHasSavedQaPairs(q, s),
+                    dirty: q.dirty
+                }))
+            }))
+        });
+    }
+    
+    return result;
 };
 
 /**
@@ -365,12 +470,28 @@ const isQuestionAnswered = (question) => {
  * Check if question has corresponding saved QaPairs
  */
 const questionHasSavedQaPairs = (question, section) => {
+    // console.log(`🔍 Checking QaPairs for question:`, {
+    //     questionId: question.id,
+    //     questionKey: question.question_key,
+    //     sectionId: section.id,
+    //     questionFromQa: question.fromQa,
+    //     questionAnswer: question.answer,
+    //     sectionQaPairsCount: section.QaPairs ? section.QaPairs.length : 0
+    // });
+    // Check 1: Question itself has fromQa flag (loaded from QaPair during template load)
+    if (question.fromQa === true && 
+        question.answer !== null && 
+        question.answer !== undefined && 
+        question.answer !== '') {
+        return true;
+    }
+    
+    // Check 2: Traditional QaPairs array lookup
     if (!section.QaPairs || section.QaPairs.length === 0) {
         return false;
     }
     
     return section.QaPairs.some(qaPair => {
-        // Match by question text, question_id, or question_key
         return qaPair.question === question.question ||
                qaPair.question_id === question.id ||
                qaPair.question_id === question.question_id ||

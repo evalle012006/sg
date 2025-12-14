@@ -241,11 +241,11 @@ export class BookingService extends EntityBuilder {
         // ✅ NEW: Determine if course questions should be excluded
         const shouldExcludeCourseQuestions = !hasFutureCourseOffers && !hasExistingCourseSelection;
         
-        console.log('Course validation context:', {
-            hasFutureCourseOffers,
-            hasExistingCourseSelection,
-            shouldExcludeCourseQuestions
-        });
+        // console.log('Course validation context:', {
+        //     hasFutureCourseOffers,
+        //     hasExistingCourseSelection,
+        //     shouldExcludeCourseQuestions
+        // });
         
         // calculating required questions
         const requiredTemplateQuestions = templateQuestions

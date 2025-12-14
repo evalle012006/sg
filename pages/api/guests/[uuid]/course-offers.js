@@ -21,12 +21,12 @@ export default async function handler(req, res) {
         const guestCheckIn = checkInDate ? moment.utc(checkInDate, 'YYYY-MM-DD').startOf('day') : null;
         const now = moment.utc().startOf('day');
 
-        console.log('Fetching course offers for guest:', uuid, {
-            checkInDate,
-            checkOutDate,
-            guestCheckInParsed: guestCheckIn?.format('YYYY-MM-DD'),
-            currentDate: now.format('YYYY-MM-DD')
-        });
+        // console.log('Fetching course offers for guest:', uuid, {
+        //     checkInDate,
+        //     checkOutDate,
+        //     guestCheckInParsed: guestCheckIn?.format('YYYY-MM-DD'),
+        //     currentDate: now.format('YYYY-MM-DD')
+        // });
 
         // Build course filter conditions
         const courseWhereConditions = {
@@ -213,7 +213,7 @@ export default async function handler(req, res) {
             withPricing: transformedOffers.filter(offer => offer.pricing.hasPricing).length
         };
 
-        console.log(`Course offers for guest ${uuid}:`, summary);
+        // console.log(`Course offers for guest ${uuid}:`, summary);
 
         return res.status(200).json({
             success: true,

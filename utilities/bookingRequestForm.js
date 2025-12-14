@@ -1585,9 +1585,10 @@ export const checkAnswerMatch = (actualAnswer, expectedAnswer) => {
 
 
 /**
- * Clear answers from questions that are now hidden to prevent them from affecting dependencies
+ * Mark hidden questions for exclusion during save, but preserve their answers in memory
+ * This allows answers to be restored if questions become visible again
  * @param {Array} pages - All form pages
- * @returns {Array} - Updated pages with cleared answers for hidden questions
+ * @returns {Array} - Updated pages with hidden questions marked for exclusion
  */
 export const clearHiddenQuestionAnswers = (pages) => {
     return pages.map(page => {
@@ -1596,21 +1597,27 @@ export const clearHiddenQuestionAnswers = (pages) => {
         updatedPage.Sections = page.Sections.map(section => {
             const updatedSection = { ...section };
             
-            // STEP 1: Clear answers from hidden Questions
+            // STEP 1: Mark hidden Questions for exclusion but PRESERVE their answers
             updatedSection.Questions = section.Questions.map(question => {
                 let q = { ...question };
                 
-                // Clear answer if question is hidden to prevent it from affecting other dependencies
+                // Mark hidden questions for exclusion during save, but keep the answer in memory
                 if (q.hidden && q.answer !== null && q.answer !== undefined && q.answer !== '') {
-                    // console.log(`🧹 Clearing answer from hidden question: "${q.question}"`);
-                    q.answer = null;
-                    q.dirty = true; // Mark as dirty so it gets saved
+                    q.excludeFromSave = true; // Mark for exclusion during save
+                    // DON'T clear the answer - preserve it in case question becomes visible again
+                    // The answer will be ignored by dependency logic because the question is hidden
+                }
+                
+                // If question becomes visible again, remove the exclusion flag
+                if (!q.hidden && q.excludeFromSave) {
+                    q.excludeFromSave = false;
+                    // Answer is already there, no need to restore it
                 }
                 
                 return q;
             });
             
-            // STEP 2: Also clear answers from QaPairs for hidden questions
+            // STEP 2: Mark QaPairs for exclusion but PRESERVE their answers
             updatedSection.QaPairs = section.QaPairs?.map(qaPair => {
                 // Find the corresponding question to check if it's hidden
                 const correspondingQuestion = updatedSection.Questions.find(q => {
@@ -1623,11 +1630,18 @@ export const clearHiddenQuestionAnswers = (pages) => {
                 });
                 
                 if (correspondingQuestion && correspondingQuestion.hidden) {
-                    // console.log(`🧹 Clearing QaPair answer for hidden question: "${qaPair.question}"`);
                     return {
                         ...qaPair,
-                        answer: null,
-                        dirty: true
+                        excludeFromSave: true // Mark for exclusion during save
+                        // Keep the answer intact
+                    };
+                }
+                
+                // If question is visible again, remove exclusion flag
+                if (correspondingQuestion && !correspondingQuestion.hidden && qaPair.excludeFromSave) {
+                    return {
+                        ...qaPair,
+                        excludeFromSave: false
                     };
                 }
                 

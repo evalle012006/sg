@@ -19,9 +19,9 @@ export default async function handler(req, res) {
     try {
         const now = moment.utc().startOf('day');
 
-        console.log('Fetching all future course offers for guest:', uuid, {
-            currentDate: now.format('YYYY-MM-DD')
-        });
+        // console.log('Fetching all future course offers for guest:', uuid, {
+        //     currentDate: now.format('YYYY-MM-DD')
+        // });
 
         // Build course filter conditions - only get courses that haven't ended yet
         const courseWhereConditions = {

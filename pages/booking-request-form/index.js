@@ -152,6 +152,34 @@ const BookingRequestForm = () => {
     const [futureCourseOffersChecked, setFutureCourseOffersChecked] = useState(false);
     const courseValidationRef = useRef(false);
 
+    const initialDatesExtractedRef = useRef(false);
+    const stayDatesRef = useRef(stayDates);
+
+    // Callback to immediately update stay dates when changed in child component
+    const updateStayDatesImmediate = useCallback((newDates) => {
+        if (newDates.checkInDate || newDates.checkOutDate) {
+            // console.log('📅 Immediate stay dates update:', newDates);
+            
+            const updatedDates = {
+                checkInDate: newDates.checkInDate || stayDatesRef.current?.checkInDate || null,
+                checkOutDate: newDates.checkOutDate || stayDatesRef.current?.checkOutDate || null
+            };
+            
+            // console.log('📅 Final updated dates:', updatedDates);
+            
+            // Update both state and ref immediately
+            stayDatesRef.current = updatedDates;
+            setStayDates(updatedDates);
+            
+            if (updatedDates.checkInDate) {
+                dispatch(bookingRequestFormActions.setCheckinDate(updatedDates.checkInDate));
+            }
+            if (updatedDates.checkOutDate) {
+                dispatch(bookingRequestFormActions.setCheckoutDate(updatedDates.checkOutDate));
+            }
+        }
+    }, [dispatch]);
+
     const fetchAllFutureCourseOffers = useCallback(async () => {
         const guestId = getGuestId();
         if (!guestId) {
@@ -1383,6 +1411,10 @@ const BookingRequestForm = () => {
         return baseFormData;
     }, [funder, isNdisFunded, careAnalysisData, courseAnalysisData, packageFilterCriteria]);
 
+    useEffect(() => {
+        stayDatesRef.current = stayDates;
+    }, [stayDates]);
+
     const fetchCourseOffers = useCallback(
         _.debounce(async () => {
             const guestId = getGuestId();
@@ -1392,28 +1424,34 @@ const BookingRequestForm = () => {
                 return;
             }
 
+            // Use ref for latest values instead of closure
+            const currentStayDates = stayDatesRef.current;
+            
             // CRITICAL FIX: Only fetch if both dates are available
-            if (!stayDates?.checkInDate || !stayDates?.checkOutDate) {
+            if (!currentStayDates?.checkInDate || !currentStayDates?.checkOutDate) {
+                // console.log('📅 fetchCourseOffers: Missing dates', currentStayDates);
                 setCourseOffers([]);
-                setCourseOffersLoaded(false); // Keep as loading until dates are available
+                setCourseOffersLoaded(false);
                 return;
             }
 
             const apiParams = {
                 guestId,
-                checkInDate: stayDates.checkInDate,
-                checkOutDate: stayDates.checkOutDate
+                checkInDate: currentStayDates.checkInDate,
+                checkOutDate: currentStayDates.checkOutDate
             };
             
             const paramString = JSON.stringify(apiParams);
-            if (lastFetchParamsRef.current === paramString) {
+            if (lastFetchParamsRef.current === paramString && courseOffers.length > 0) {
+                // console.log('📅 Using cached course offers - params unchanged');
                 return;
             }
             lastFetchParamsRef.current = paramString;
 
             try {
-                // Always include date parameters now
-                const apiUrl = `/api/guests/${guestId}/course-offers?checkInDate=${encodeURIComponent(stayDates.checkInDate)}&checkOutDate=${encodeURIComponent(stayDates.checkOutDate)}`;
+                // console.log('📅 fetchCourseOffers with dates:', currentStayDates);
+                
+                const apiUrl = `/api/guests/${guestId}/course-offers?checkInDate=${encodeURIComponent(currentStayDates.checkInDate)}&checkOutDate=${encodeURIComponent(currentStayDates.checkOutDate)}`;
                 
                 const response = await fetch(apiUrl);
                 if (response.ok) {
@@ -1429,7 +1467,7 @@ const BookingRequestForm = () => {
             
             setCourseOffersLoaded(true);
         }, 500),
-        [getGuestId, stayDates?.checkInDate, stayDates?.checkOutDate]
+        [getGuestId]
     );
 
     const lastFetchParamsRef = useRef(null);
@@ -1518,11 +1556,10 @@ const BookingRequestForm = () => {
                             bookingRequestFormActions.setIsNdisFunded(true);
                         } else {
                             funderType = 'Non-NDIS';
-                            // FIXED: Explicitly clear NDIS package type for Non-NDIS funding
                             ndisPackageType = null;
                             bookingRequestFormActions.setIsNdisFunded(false);
                             bookingRequestFormActions.setFunder(question?.answer?.toLowerCase())
-                            break; // Exit early since we know it's Non-NDIS
+                            break;
                         }
                     }
 
@@ -1547,17 +1584,12 @@ const BookingRequestForm = () => {
                             isHolidayType = true;
                             console.log('✅ Holiday type detected: Lives in SIL');
                         }
-
-                        // if (questionHasKey(question, QUESTION_KEYS.ARE_YOU_STAYING_WITH_INFORMAL_SUPPORTS) &&
-                        //     question.answer === 'Yes') {
-                        //     isHolidayType = true;
-                        //     console.log('✅ Holiday type detected: Staying with informal supports');
-                        // }
                         
-                        // NEW: If holiday type, check care requirements to determine holiday vs holiday-plus
+                        // ✅ FIX: Calculate care hours from the CURRENT formData instead of relying on currentCareAnalysis
                         if (isHolidayType) {
-                            const careHours = currentCareAnalysis?.totalHoursPerDay || 0;
-                            const requiresCare = currentCareAnalysis?.requiresCare && careHours > 0;
+                            // Extract care hours directly from this formData
+                            const careHours = extractCareHoursFromFormData(formData);
+                            const requiresCare = careHours > 0;
                             
                             if (requiresCare) {
                                 ndisPackageType = 'holiday-plus';
@@ -1569,10 +1601,8 @@ const BookingRequestForm = () => {
                         }
                     }
                 }
-                // FIXED: Break out of section loop if Non-NDIS detected
                 if (funderType === 'Non-NDIS') break;
             }
-            // FIXED: Break out of page loop if Non-NDIS detected
             if (funderType === 'Non-NDIS') break;
         }
 
@@ -1583,9 +1613,8 @@ const BookingRequestForm = () => {
 
         const newFilters = {
             funderType: funderType,
-            ndisPackageType: funderType === 'NDIS' ? ndisPackageType : null, // FIXED: Ensure null for Non-NDIS
+            ndisPackageType: funderType === 'NDIS' ? ndisPackageType : null,
             additionalFilters: {
-                // Keep existing additional filters
                 ...ndisFormFilters.additionalFilters
             }
         };
@@ -1593,6 +1622,61 @@ const BookingRequestForm = () => {
         console.log('Calculated NDIS filters:', newFilters);
         return newFilters;
     }, [ndisFormFilters.additionalFilters]);
+
+    // ✅ NEW HELPER FUNCTION: Extract care hours directly from form data
+    const extractCareHoursFromFormData = (formData) => {
+        try {
+            // Find the care schedule question
+            for (const page of formData) {
+                for (const section of page.Sections || []) {
+                    // Check Questions array first
+                    for (const question of section.Questions || []) {
+                        if (questionHasKey(question, QUESTION_KEYS.WHEN_DO_YOU_REQUIRE_CARE) && question.answer) {
+                            return calculateCareHoursFromAnswer(question.answer);
+                        }
+                    }
+                    
+                    // Check QaPairs as fallback
+                    for (const qaPair of section.QaPairs || []) {
+                        if (questionHasKey(qaPair.Question, QUESTION_KEYS.WHEN_DO_YOU_REQUIRE_CARE) && qaPair.answer) {
+                            return calculateCareHoursFromAnswer(qaPair.answer);
+                        }
+                    }
+                }
+            }
+            
+            return 0; // No care data found
+        } catch (error) {
+            console.error('Error extracting care hours:', error);
+            return 0;
+        }
+    };
+
+    // ✅ NEW HELPER FUNCTION: Calculate care hours from answer data
+    const calculateCareHoursFromAnswer = (answer) => {
+        try {
+            let careData = typeof answer === 'string' ? JSON.parse(answer) : answer;
+            
+            // Handle nested structure
+            let careDataArray = careData;
+            if (careData && typeof careData === 'object' && !Array.isArray(careData)) {
+                if (Array.isArray(careData.careData)) {
+                    careDataArray = careData.careData;
+                }
+            }
+            
+            if (!Array.isArray(careDataArray) || careDataArray.length === 0) {
+                return 0;
+            }
+            
+            // Calculate using the imported utility
+            const analysis = calculateCareHours(careDataArray);
+            return analysis.totalHoursPerDay || 0;
+        } catch (error) {
+            console.error('Error calculating care hours from answer:', error);
+            return 0;
+        }
+    };
 
     const fetchProfileData = async (guestId) => {
         try {
@@ -2402,9 +2486,11 @@ const BookingRequestForm = () => {
             return false;
         }
 
+        // console.log(`Calculating completion for page: ${page.id}`, {currentBookingType: currentBookingType, prevBookingId: prevBookingId});
+
         // FOR RETURNING GUESTS: Use dedicated helper (unchanged)
         if (currentBookingType === BOOKING_TYPES.RETURNING_GUEST && prevBookingId) {
-            return calculateReturningGuestPageCompletion(page, {
+            const completed = calculateReturningGuestPageCompletion(page, {
                 visitedPages: currentVisitedPages,
                 pagesWithSavedData: currentSavedPages,
                 equipmentPageCompleted,
@@ -2412,6 +2498,7 @@ const BookingRequestForm = () => {
                 prevBookingId,
                 currentBookingType
             });
+            return completed;
         }
         
         // FOR FIRST-TIME GUESTS: Use new helper
@@ -2540,21 +2627,66 @@ const BookingRequestForm = () => {
                 if (!prev.has(pageId)) {
                     console.log(`💾 Marking page as having saved data: ${pageId}`);
                     const newSavedPages = new Set([...prev, pageId]);
-                    
-                    // FOR RETURNING GUESTS: Immediate completion update
-                    if (currentBookingType === BOOKING_TYPES.RETURNING_GUEST) {
-                        // Use timeout to ensure state update completes first
-                        setTimeout(() => {
-                            forcePageCompletionUpdate(pageId, visitedPages, newSavedPages);
-                        }, 0);
-                    }
-                    
                     return newSavedPages;
                 }
                 return prev;
             });
+            
+            // FOR RETURNING GUESTS: Synchronous completion update
+            if (currentBookingType === BOOKING_TYPES.RETURNING_GUEST) {
+                const newSavedPages = new Set([...pagesWithSavedData, pageId]);
+                
+                // ✅ ADD: Verify page exists before updating
+                if (stableProcessedFormData && stableProcessedFormData.length > 0) {
+                    const pageIndex = stableProcessedFormData.findIndex(p => p.id === pageId);
+                    
+                    if (pageIndex === -1) {
+                        console.warn(`⚠️ Page ${pageId} not found in stableProcessedFormData during save - deferring completion update`);
+                        // Defer the update until the page is in the array
+                        setTimeout(() => {
+                            const laterPageIndex = stableProcessedFormData.findIndex(p => p.id === pageId);
+                            if (laterPageIndex !== -1) {
+                                console.log(`✅ Found page ${pageId} after defer, updating now`);
+                                forcePageCompletionUpdate(pageId, visitedPages, newSavedPages);
+                            }
+                        }, 100);
+                        return;
+                    }
+                    
+                    console.log(`🎯 Forcing completion update for page ${pageId} at index ${pageIndex}`);
+                    const updatedPages = forceUpdateReturningGuestPageCompletion(
+                        stableProcessedFormData,
+                        pageId,
+                        {
+                            visitedPages,
+                            pagesWithSavedData: newSavedPages,
+                            equipmentPageCompleted,
+                            equipmentChangesState,
+                            prevBookingId,
+                            currentBookingType
+                        }
+                    );
+                    
+                    if (updatedPages !== stableProcessedFormData) {
+                        console.log(`✅ Completion updated for ${pageId}, dispatching...`);
+                        setProcessedFormData(updatedPages);
+                        safeDispatchData(updatedPages, `forced completion for ${pageId}`);
+                    } else {
+                        console.log(`ℹ️ No changes needed for ${pageId}`);
+                    }
+                }
+            }
         }
-    }, [prevBookingId, currentBookingType, forcePageCompletionUpdate, visitedPages]);
+    }, [
+        prevBookingId, 
+        currentBookingType, 
+        visitedPages, 
+        pagesWithSavedData,
+        stableProcessedFormData,
+        equipmentPageCompleted,
+        equipmentChangesState,
+        safeDispatchData
+    ]);
 
     const forcePageCompletionUpdate = useCallback((pageId, newVisitedSet = null, newSavedSet = null) => {
         if (!stableProcessedFormData || stableProcessedFormData.length === 0) return false;
@@ -2732,6 +2864,8 @@ const BookingRequestForm = () => {
         return stableProcessedFormData.map((page, index) => {
             const questionCount = page.Sections?.reduce((count, section) => 
                 count + (section.Questions?.length || 0), 0) || 0;
+
+            // console.log(`Preparing accordion item for page: ${page.id}`, { pageTitle: page.title, completed: page.completed });
             
             // Stable key that doesn't change unnecessarily
             const contentKey = `page-${page.id}-${questionCount}-${profileDataLoaded}`;
@@ -2771,6 +2905,7 @@ const BookingRequestForm = () => {
                         validateDatesWithExistingAPI={validateDatesWithExistingAPI}
                         infantCareQuantities={extractInfantCareQuantities()}
                         validationAttempted={currentPage?.validationAttempted || false} 
+                        onStayDatesUpdate={updateStayDatesImmediate}
                     />
                 )
             };
@@ -2812,7 +2947,7 @@ const BookingRequestForm = () => {
 
         if (action === 'submit') {
             if (validateAllPages()) {
-                return false; // Block if validation fails
+                throw new Error('Validation failed'); 
             }
             showWarningReturningBookingNotSave(currentBookingType, currentBookingStatus, targetPage, true);
             return;
@@ -2855,16 +2990,38 @@ const BookingRequestForm = () => {
                     };
                     
                     toast.error(createNavigationErrorMessage());
-                    return; // Block navigation
+                    throw new Error('Validation failed');
                 }
                 
                 // If validation passes, save the page
                 await saveCurrentPage(pageToValidate, false);
+
+                if (prevBookingId && currentBookingType === BOOKING_TYPES.RETURNING_GUEST && pageToValidate?.id) {
+                    console.log(`🔄 Synchronously updating completion for page "${pageToValidate.title}"`);
+                    
+                    const newSavedPages = new Set([...pagesWithSavedData, pageToValidate.id]);
+                    setPagesWithSavedData(newSavedPages);
+                    
+                    const updatedPages = batchUpdateReturningGuestCompletions(
+                        stableProcessedFormData,
+                        {
+                            visitedPages,
+                            pagesWithSavedData: newSavedPages,
+                            equipmentPageCompleted,
+                            equipmentChangesState,
+                            prevBookingId,
+                            currentBookingType
+                        }
+                    );
+                    
+                    setProcessedFormData(updatedPages);
+                    safeDispatchData(updatedPages, 'completion update before navigation');
+                }
                 
             } catch (error) {
                 console.error('Error validating/saving page:', error);
-                toast.error('Error saving your progress. Please try again.');
-                return; // Block navigation
+                // toast.error('Error saving your progress. Please try again.');
+                throw error;
             }
         }
 
@@ -3106,10 +3263,17 @@ const BookingRequestForm = () => {
                     currentBookingType
                 });
             } else {
-                // For regular updates, refresh dependencies first but don't calculate completion
+                // For regular updates, refresh dependencies first
                 console.log('🔄 Refreshing dependencies for returning guest...');
                 updatedPages = forceRefreshAllDependencies(updatedPages, bookingFormRoomSelected);
                 updatedPages = clearHiddenQuestionAnswers(updatedPages);
+                
+                // ✅ ADD: Second pass specifically for NDIS page to ensure moved questions have dependencies applied
+                if (pageId === 'ndis_packages_page') {
+                    console.log('🔄 Second dependency refresh for NDIS page...');
+                    updatedPages = forceRefreshAllDependencies(updatedPages, bookingFormRoomSelected);
+                }
+                
                 updatedPages = forceRefreshAllDependencies(updatedPages, bookingFormRoomSelected);
 
                 // Then use batch helper update for completion
@@ -3871,7 +4035,8 @@ const BookingRequestForm = () => {
                                 question: question.question,
                                 answer: answer,
                                 question_type: question.type,
-                                question_id: question.fromQa ? question.question_id : question.id,
+                                // ✅ Don't send question_id for existing QaPairs - let the DB keep its correct value
+                                // question_id: question.fromQa ? question.question_id : question.id,
                                 section_id: section.id,
                                 submit: submit,
                                 updatedAt: new Date(),
@@ -3880,6 +4045,11 @@ const BookingRequestForm = () => {
                                 oldAnswer: question.oldAnswer,
                                 question_key: question.question_key
                             };
+
+                            // ✅ Only set question_id for NEW qa_pairs (when fromQa is false)
+                            if (!question.fromQa) {
+                                qap.question_id = question.id;
+                            }
 
                             qa_pairs.push(qap);
 
@@ -3891,7 +4061,8 @@ const BookingRequestForm = () => {
                                     question: question.question,
                                     answer: answer,
                                     question_type: question.type,
-                                    question_id: question.fromQa ? question.question_id : question.id,
+                                    // ✅ Don't send question_id for existing QaPairs - let the DB keep its correct value
+                                    // question_id: question.fromQa ? question.question_id : question.id,
                                     section_id: section.id,
                                     submit: submit,
                                     updatedAt: new Date(),
@@ -3900,6 +4071,11 @@ const BookingRequestForm = () => {
                                     oldAnswer: question.oldAnswer,
                                     question_key: question.question_key
                                 };
+
+                                // ✅ Only set question_id for NEW qa_pairs (when fromQa is false)
+                                if (!question.fromQa) {
+                                    qap.question_id = question.id;
+                                }
 
                                 qa_pairs.push(qap);
                             }
@@ -4542,6 +4718,7 @@ const BookingRequestForm = () => {
         const finalPages = list.map(page => {
             // ✅ CRITICAL FIX: Don't calculate completion here for returning guests
             if (isReturningGuestWithHelper) {
+                console.log(`🔄 Skipping completion calculation for returning guest on page: ${page.id} "${page.title}"`);
                 return page; // Keep existing completion, helper will handle it
             }
             
@@ -5029,6 +5206,7 @@ const BookingRequestForm = () => {
                     // Pass a guarded completion function
                     (page) => {
                         if (bookingType === BOOKING_TYPES.RETURNING_GUEST && prevBookingId) {
+                            console.log(`🔄 Skipping completion calculation for returning guest on page: ${page.id} "${page.title}"`);
                             return false; // Let the helper handle it later
                         }
                         return calculatePageCompletion(page);
@@ -5290,7 +5468,7 @@ const BookingRequestForm = () => {
         return (() => {
             mounted = false;
         });
-    }, [uuid, prevBookingId, router.asPath]);
+    }, [uuid, prevBookingId]);
 
     // Full cleanup on unmount
     useEffect(() => {
@@ -5320,24 +5498,39 @@ const BookingRequestForm = () => {
     }, [dispatch]);
 
     useEffect(() => {
-        if (stableProcessedFormData && stableProcessedFormData.length > 0) {
+        if (stableProcessedFormData && 
+            stableProcessedFormData.length > 0 && 
+            !initialDatesExtractedRef.current) {
+            
             const extractedDates = getStayDatesFromForm(stableProcessedFormData);
-            console.log('📅 Extracted stay dates:', extractedDates); // Debug log
-            dispatch(bookingRequestFormActions.setCheckinDate(extractedDates.checkInDate));
-            dispatch(bookingRequestFormActions.setCheckoutDate(extractedDates.checkOutDate));
-            setStayDates(extractedDates);
-        } else {
-            console.log('📅 No form data available for date extraction'); // Debug log
-            setStayDates({ checkInDate: null, checkOutDate: null });
+            
+            // Only set if we found dates and haven't set them yet
+            if (extractedDates.checkInDate || extractedDates.checkOutDate) {
+                console.log('📅 Initial stay dates extraction:', extractedDates);
+                setStayDates(extractedDates);
+                
+                if (extractedDates.checkInDate) {
+                    dispatch(bookingRequestFormActions.setCheckinDate(extractedDates.checkInDate));
+                }
+                if (extractedDates.checkOutDate) {
+                    dispatch(bookingRequestFormActions.setCheckoutDate(extractedDates.checkOutDate));
+                }
+                
+                initialDatesExtractedRef.current = true;
+            }
         }
-    }, [stableProcessedFormData]);
+    }, [stableProcessedFormData, dispatch]);
+
+    useEffect(() => {
+        initialDatesExtractedRef.current = false;
+    }, [uuid, prevBookingId]);
 
     useEffect(() => {
         if (equipmentPageCompleted && stableProcessedFormData && stableProcessedFormData.length > 0) {
             const equipmentPage = stableProcessedFormData.find(page => page.title === 'Equipment');
             
             if (equipmentPage && !equipmentPage.completed) {
-                console.log('✅ Equipment page completion update');
+                // console.log('✅ Equipment page completion update');
                 
                 // FOR RETURNING GUESTS: Use the helper
                 if (currentBookingType === BOOKING_TYPES.RETURNING_GUEST && prevBookingId) {
@@ -5446,12 +5639,12 @@ const BookingRequestForm = () => {
     useEffect(() => {
         // If booking type changes and we have form data, force profile reload
         if (stableBookingRequestFormData?.length > 0 && currentBookingType) {
-            console.log(`📋 Booking type detected: ${currentBookingType} - ensuring profile data takes precedence`);
+            // console.log(`📋 Booking type detected: ${currentBookingType} - ensuring profile data takes precedence`);
             
             // Reset profile loaded flag to force reload
             if (profileDataLoaded) {
                 setProfileDataLoaded(false);
-                console.log('🔄 Resetting profile data flag to ensure it loads for this booking type');
+                // console.log('🔄 Resetting profile data flag to ensure it loads for this booking type');
             }
         }
     }, [currentBookingType, stableBookingRequestFormData?.length]);
@@ -5742,9 +5935,11 @@ const BookingRequestForm = () => {
     useEffect(() => {
         // Re-fetch course offers when stay dates change (for validation)
         if (guest || booking || currentUser) {
+            // Clear the cache to force re-fetch with new dates
+            lastFetchParamsRef.current = null;
             fetchCourseOffers();
         }
-    }, [stayDates?.checkInDate, stayDates?.checkOutDate, fetchCourseOffers]);
+    }, [stayDates?.checkInDate, stayDates?.checkOutDate, guest, booking, currentUser, fetchCourseOffers]);
 
     // Mark current page as visited on load (only when prevBookingId exists)
     useEffect(() => {
@@ -5889,7 +6084,9 @@ const BookingRequestForm = () => {
                         
                         // Check if the selected course exists in available course offers
                         const courseStillExists = courseOffers.some(offer => 
-                            offer.course_id === selectedCourseId || offer.id === selectedCourseId
+                            offer.courseId === selectedCourseId || 
+                            offer.courseId?.toString() === selectedCourseId.toString() ||
+                            offer.id === selectedCourseId
                         );
 
                         if (!courseStillExists) {
