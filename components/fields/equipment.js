@@ -610,30 +610,29 @@ const EquipmentField = memo((props) => {
         return null;
     };
 
-    // FIXED: Validation with user interaction awareness
+    // FIXED: Validation that properly checks ALL required fields for validity
+    // while only displaying errors for touched fields (better UX)
     const validateSelections = () => {
         const categories = Object.keys(groupedEquipments);
         let allValid = true;
-        const errors = {};
+        const errors = {};        // All validation errors (for allValid calculation)
+        const displayErrors = {}; // Only errors to display (touched fields)
 
         categories.forEach(categoryName => {
             if (!categoryName || categoryName === 'null') return;
             
             const categoryType = categoryTypes[categoryName];
             const isRequired = isRequiredCategory(categoryName, categoryType);
-            
-            // FIXED: Only validate if user has interacted with the category OR if it's marked as touched
             const hasUserInteraction = categoryTouched[categoryName] || categoryTouched[`confirm_${categoryName}`];
             
-            // Skip validation if user hasn't interacted with this category yet
-            if (!hasUserInteraction && !isRequired) {
+            // Skip non-required fields that haven't been interacted with
+            if (!isRequired && !hasUserInteraction) {
                 return;
             }
             
             if (categoryType === 'special') {
-                // Handle special category validation
+                // Handle special category validation (e.g., infant_care)
                 if (categoryName === 'infant_care') {
-                    // Validate infant_care equipment with direct quantities
                     const categoryEquipments = groupedEquipments[categoryName] || [];
                     categoryEquipments.forEach(equipment => {
                         const equipmentKey = getEquipmentKey(equipment.name);
@@ -641,122 +640,150 @@ const EquipmentField = memo((props) => {
                             const hasInteracted = categoryTouched[`${equipmentKey}_quantity`];
                             const quantity = equipmentMetaData[equipmentKey]?.quantity;
                             
-                            // Only validate if user has interacted or if there's an actual value
-                            if (!hasInteracted && (quantity === undefined || quantity === 0)) {
-                                return; // Skip validation for untouched fields
-                            }
-                            
                             // Validate quantity is within acceptable range (0-2)
                             if (quantity !== undefined && (quantity < 0 || quantity > 2)) {
-                                errors[`${equipmentKey}_quantity`] = `${equipment.name} quantity must be between 0 and 2`;
+                                const errorMsg = `${equipment.name} quantity must be between 0 and 2`;
+                                errors[`${equipmentKey}_quantity`] = errorMsg;
                                 allValid = false;
+                                if (hasInteracted) {
+                                    displayErrors[`${equipmentKey}_quantity`] = errorMsg;
+                                }
                             }
                             
-                            // Only validate if required and no quantity specified AND user has interacted
-                            if (isRequired && hasInteracted && (quantity === undefined || quantity === null)) {
-                                errors[`${equipmentKey}_quantity`] = `Please specify quantity for ${equipment.name.toLowerCase()}`;
+                            // For required infant_care fields
+                            if (isRequired && (quantity === undefined || quantity === null)) {
+                                const errorMsg = `Please specify quantity for ${equipment.name.toLowerCase()}`;
+                                errors[`${equipmentKey}_quantity`] = errorMsg;
                                 allValid = false;
+                                if (hasInteracted) {
+                                    displayErrors[`${equipmentKey}_quantity`] = errorMsg;
+                                }
                             }
                         }
                     });
                 }
-            } else {
-                // Handle other category types
-                const hasUserSelection = categorySelections[categoryName] !== null && 
-                                        categorySelections[categoryName] !== undefined &&
-                                        categorySelections[categoryName] !== '';
+            } else if (categoryType === 'binary') {
+                // Binary categories (yes/no questions)
+                const hasSelection = categorySelections[categoryName] !== null && 
+                                    categorySelections[categoryName] !== undefined;
                 
-                // FIXED: Only validate required fields that have been interacted with
-                const shouldValidate = (isRequired && hasUserInteraction) || hasUserSelection;
+                if (isRequired && !hasSelection) {
+                    const errorMsg = `Please select an option for ${getBinaryQuestionLabel(categoryName)}`;
+                    errors[categoryName] = errorMsg;
+                    allValid = false;
+                    if (hasUserInteraction) {
+                        displayErrors[categoryName] = errorMsg;
+                    }
+                }
+            } else if (categoryType === 'confirmation_multi' || categoryType === 'confirmation_single') {
+                // Confirmation categories
+                const confirmationKey = `confirm_${categoryName}`;
+                const confirmSelection = categorySelections[confirmationKey];
+                const confirmInteracted = categoryTouched[confirmationKey];
                 
-                if (shouldValidate) {
-                    if (categoryType === 'binary') {
-                        if (!categorySelections[categoryName]) {
-                            if (isRequired && hasUserInteraction) {
-                                errors[categoryName] = `Please select an option for ${getBinaryQuestionLabel(categoryName)}`;
-                                allValid = false;
-                            }
-                        }
-                    } else if (categoryType === 'confirmation_multi' || categoryType === 'confirmation_single') {
-                        const confirmationKey = `confirm_${categoryName}`;
-                        const confirmSelection = categorySelections[confirmationKey];
-                        const confirmInteracted = categoryTouched[confirmationKey];
-                        
-                        if (!confirmSelection && confirmInteracted) {
-                            if (isRequired) {
-                                errors[confirmationKey] = `Please select an option for ${getConfirmationQuestionLabel(categoryName)}`;
-                                allValid = false;
-                            }
-                        }
-                        
-                        if (confirmSelection === 'yes') {
-                            if (categoryType === 'confirmation_single') {
-                                if (!categorySelections[categoryName]) {
-                                    errors[categoryName] = `Please select an option from ${formatCategoryName(categoryName)}`;
-                                    allValid = false;
-                                }
-                            } else {
-                                if (!categorySelections[categoryName] || 
-                                    (Array.isArray(categorySelections[categoryName]) && categorySelections[categoryName].length === 0)) {
-                                    errors[categoryName] = `Please select at least one option from ${formatCategoryName(categoryName)}`;
-                                    allValid = false;
-                                }
-                            }
-                        }
-                    } else if (categoryType === 'single_select') {
-                        if (!categorySelections[categoryName] && hasUserInteraction) {
-                            if (isRequired) {
-                                const fieldName = categoryName === 'mattress_options' ? 'Mattress Options' :
-                                                categoryName === 'sling' ? 'Sling' :
-                                                formatCategoryName(categoryName);
-                                errors[categoryName] = `Please select a ${fieldName}`;
-                                allValid = false;
-                            }
-                        }
-                    } else if (categoryType === 'multi_select') {
-                        // For multi_select that's not required (like adaptive_bathroom_options), skip validation
-                        if (isRequired && (!categorySelections[categoryName] || 
-                            (Array.isArray(categorySelections[categoryName]) && categorySelections[categoryName].length === 0))) {
-                            errors[categoryName] = `Please select at least one option from ${formatCategoryName(categoryName)}`;
-                            allValid = false;
-                        }
+                // Check if confirmation question is answered
+                if (isRequired && !confirmSelection) {
+                    const errorMsg = `Please select an option for ${getConfirmationQuestionLabel(categoryName)}`;
+                    errors[confirmationKey] = errorMsg;
+                    allValid = false;
+                    if (confirmInteracted) {
+                        displayErrors[confirmationKey] = errorMsg;
                     }
                 }
                 
-                // Special validation for sling when ceiling hoist is yes
-                if (categoryName === 'sling' && categorySelections['ceiling_hoist'] === 'yes' && !categorySelections['sling']) {
-                    errors['sling'] = 'Please select a sling option when using ceiling hoist';
+                // If confirmed 'yes', check equipment selection
+                if (confirmSelection === 'yes') {
+                    if (categoryType === 'confirmation_single') {
+                        if (!categorySelections[categoryName]) {
+                            const errorMsg = `Please select an option from ${formatCategoryName(categoryName)}`;
+                            errors[categoryName] = errorMsg;
+                            allValid = false;
+                            // Always show this error if they said yes but didn't select
+                            displayErrors[categoryName] = errorMsg;
+                        }
+                    } else {
+                        if (!categorySelections[categoryName] || 
+                            (Array.isArray(categorySelections[categoryName]) && categorySelections[categoryName].length === 0)) {
+                            const errorMsg = `Please select at least one option from ${formatCategoryName(categoryName)}`;
+                            errors[categoryName] = errorMsg;
+                            allValid = false;
+                            displayErrors[categoryName] = errorMsg;
+                        }
+                    }
+                }
+            } else if (categoryType === 'single_select') {
+                // Single select categories
+                const hasSelection = categorySelections[categoryName] !== null && 
+                                    categorySelections[categoryName] !== undefined;
+                
+                if (isRequired && !hasSelection) {
+                    const fieldName = categoryName === 'mattress_options' ? 'Mattress Options' :
+                                    categoryName === 'sling' ? 'Sling' :
+                                    formatCategoryName(categoryName);
+                    const errorMsg = `Please select a ${fieldName}`;
+                    errors[categoryName] = errorMsg;
                     allValid = false;
+                    if (hasUserInteraction) {
+                        displayErrors[categoryName] = errorMsg;
+                    }
+                }
+            } else if (categoryType === 'multi_select') {
+                // Multi-select categories
+                const hasSelection = categorySelections[categoryName] && 
+                                    Array.isArray(categorySelections[categoryName]) && 
+                                    categorySelections[categoryName].length > 0;
+                
+                if (isRequired && !hasSelection) {
+                    const errorMsg = `Please select at least one option from ${formatCategoryName(categoryName)}`;
+                    errors[categoryName] = errorMsg;
+                    allValid = false;
+                    if (hasUserInteraction) {
+                        displayErrors[categoryName] = errorMsg;
+                    }
                 }
             }
-        });
-
-        // Special validation for tilt question - only if user has interacted
-        if (showTiltQuestion && categoryTouched['need_tilt_over_toilet'] && !categorySelections['need_tilt_over_toilet']) {
-            errors['need_tilt_over_toilet'] = 'Please select an option for tilt commode question';
-            allValid = false;
-        }
-
-        // Check acknowledgement for non-first-time guests - only if form has been interacted with
-        const hasAnyInteraction = Object.keys(categoryTouched).length > 0;
-        if (bookingType !== BOOKING_TYPES.FIRST_TIME_GUEST && !acknowledgementChecked && hasAnyInteraction) {
-            errors['acknowledgement'] = 'Please acknowledge that the information is true and updated';
-            allValid = false;
-        }
-
-        // Only show errors for fields that have been touched
-        const touchedErrors = {};
-        Object.keys(errors).forEach(key => {
-            if (categoryTouched[key]) {
-                touchedErrors[key] = errors[key];
+            
+            // Special validation for sling when ceiling hoist is yes
+            if (categoryName === 'sling' && categorySelections['ceiling_hoist'] === 'yes' && !categorySelections['sling']) {
+                const errorMsg = 'Please select a sling option when using ceiling hoist';
+                errors['sling'] = errorMsg;
+                allValid = false;
+                // Always show this error since it's conditionally required
+                displayErrors['sling'] = errorMsg;
             }
         });
-        
-        setCategoryErrors(touchedErrors);
 
-        console.log(allValid ? '✅ All selections valid' : '❌ Validation errors:', touchedErrors);
+        // Special validation for tilt question when visible
+        if (showTiltQuestion && !categorySelections['need_tilt_over_toilet']) {
+            const errorMsg = 'Please select an option for tilt commode question';
+            errors['need_tilt_over_toilet'] = errorMsg;
+            allValid = false;
+            if (categoryTouched['need_tilt_over_toilet']) {
+                displayErrors['need_tilt_over_toilet'] = errorMsg;
+            }
+        }
+
+        // Check acknowledgement for non-first-time guests
+        if (bookingType !== BOOKING_TYPES.FIRST_TIME_GUEST && !acknowledgementChecked) {
+            const errorMsg = 'Please acknowledge that the information is true and updated';
+            errors['acknowledgement'] = errorMsg;
+            allValid = false;
+            // Only display if user has interacted with the form at all
+            const hasAnyInteraction = Object.keys(categoryTouched).length > 0;
+            if (hasAnyInteraction) {
+                displayErrors['acknowledgement'] = errorMsg;
+            }
+        }
         
-        return { allValid, errors: touchedErrors };
+        // Update displayed errors (only touched fields)
+        setCategoryErrors(displayErrors);
+
+        console.log(allValid ? '✅ All selections valid' : '❌ Validation errors:', {
+            allErrors: errors,
+            displayedErrors: displayErrors
+        });
+        
+        return { allValid, errors: displayErrors, allErrors: errors };
     };
 
     const isRequiredCategory = (categoryName, categoryType) => {
@@ -1452,12 +1479,15 @@ const EquipmentField = memo((props) => {
         const isRequired = isRequiredCategory(categoryName, categoryType) || 
                         (categoryName === 'sling' && categorySelections['ceiling_hoist'] === 'yes');
 
-        if (hasImages) {
+        // Categories that should always use HorizontalCardSelection
+        const useCardSelection = hasImages || categoryName === 'mattress_options';
+
+        if (useCardSelection) {
             const cards = equipments.map(eq => ({
                 value: eq.id,
                 label: eq.name,
-                description: eq.serial_number || 'No serial number',
-                imageUrl: eq.image_url
+                description: eq.serial_number || eq.description || '',
+                imageUrl: eq.image_url || getDefaultImage('equipment')
             }));
 
             return (

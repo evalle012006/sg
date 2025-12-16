@@ -5,6 +5,7 @@ import SignatureInput from './signature-pad';
 import { getNSWHolidaysV2 } from '../../services/booking/create-summary-data';
 import { serializePackage } from '../../utilities/common';
 import { findByQuestionKey, QUESTION_KEYS } from '../../services/booking/question-helper';
+import { scroller, Element } from 'react-scroll';
 
 const SummaryOfStay = ({ 
   bookingData, 
@@ -41,7 +42,27 @@ const SummaryOfStay = ({
   const [resolvedPackageData, setResolvedPackageData] = useState(null);
   const [isResolvingPackage, setIsResolvingPackage] = useState(false);
 
-  // Helper to check if package is NDIS Support Holiday Package
+  const summaryContainerRef = useRef();
+
+  // ✅ Auto-scroll to top when Summary of Stay is displayed
+  useEffect(() => {
+    // Use double requestAnimationFrame to ensure DOM is fully painted
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        scroller.scrollTo('summary-of-stay-top', {
+          duration: 350,
+          delay: 0,
+          smooth: 'easeInOutQuart',
+          containerId: 'main-content-container',
+          offset: -20,
+          isDynamic: true,
+          ignoreCancelEvents: false
+        });
+      });
+    });
+  }, []);
+
+  // Helper to check if package is NDIS Support Holiday Package (any type)
   const isSupportHolidayPackage = () => {
     // ✅ FIX: Check if package data is available first
     if (!resolvedPackageData && !summary?.data) {
@@ -63,6 +84,27 @@ const SummaryOfStay = ({
     // Fallback: Check package name
     const packageName = summary?.data?.ndisPackage || summary?.data?.packageTypeAnswer || '';
     return packageName.includes('Holiday Support');
+  };
+
+  // Helper to check if package is specifically HOLIDAY_SUPPORT_PLUS (requires custom quote)
+  const isHolidaySupportPlusPackage = () => {
+    if (!resolvedPackageData && !summary?.data) {
+      return false;
+    }
+    
+    // Check from resolved package data API response first (most reliable)
+    if (resolvedPackageData?.package_code) {
+      return resolvedPackageData.package_code === 'HOLIDAY_SUPPORT_PLUS';
+    }
+    
+    // Fallback: Check from summary data
+    if (summary?.data?.packageCode) {
+      return summary.data.packageCode === 'HOLIDAY_SUPPORT_PLUS';
+    }
+    
+    // Fallback: Check package name for "Plus" variant
+    const packageName = summary?.data?.ndisPackage || summary?.data?.packageTypeAnswer || '';
+    return packageName.includes('Holiday Support Plus') || packageName.includes('Holiday Support+');
   };
 
   // NEW: Extract care and course data from summary if not provided as props
@@ -353,27 +395,67 @@ const SummaryOfStay = ({
       summaryData.data.packageType = serializePackage(summaryData.data.ndisPackage);
     }
 
-    if (selectedRooms.length > 0) {
-      summaryData.rooms = selectedRooms;
-    }
-    summaryData.rooms = summaryData.rooms.filter(room => room.type !== 'studio');
+    // ✅ FIX: Properly handle rooms - check both selectedRooms and bookingData.rooms
+    let roomsToUse = [];
     
+    if (selectedRooms && selectedRooms.length > 0) {
+      roomsToUse = selectedRooms;
+    } else if (summaryData.rooms && summaryData.rooms.length > 0) {
+      roomsToUse = summaryData.rooms;
+    } else if (bookingData?.rooms && bookingData.rooms.length > 0) {
+      roomsToUse = bookingData.rooms;
+    }
+    
+    // Don't filter out studio rooms - they are valid selections
+    // Only filter for room upgrade/additional room calculations
+    summaryData.rooms = roomsToUse;
+    
+    // Calculate room costs
     const nights = summaryData.data?.nights || 0;
-    if (summaryData.rooms.length > 0) {
-      const roomUpgradePerNight = summaryData.rooms[0].price || 0;
-      summaryData.roomUpgrade = roomUpgradePerNight;
+    
+    if (roomsToUse && roomsToUse.length > 0) {
+      // For room cost calculations, we need to identify:
+      // 1. Base room (included in package - typically studio for NDIS)
+      // 2. Room upgrade (if first room is not studio)
+      // 3. Additional rooms (any rooms beyond the first)
       
+      // Find the first non-studio room for upgrade calculation
+      const nonStudioRooms = roomsToUse.filter(room => room.type !== 'studio');
+      
+      let roomUpgradePerNight = 0;
       let additionalRoomPerNight = 0;
-      if (summaryData.rooms.length > 1) {
-        additionalRoomPerNight = summaryData.rooms
-          .filter((room, index) => index > 0)
-          .reduce((total, room) => total + (room.price || 0), 0);
+      
+      if (nonStudioRooms.length > 0) {
+        // First non-studio room is the upgrade
+        roomUpgradePerNight = nonStudioRooms[0].price || nonStudioRooms[0].price_per_night || 0;
+        summaryData.roomUpgrade = roomUpgradePerNight;
+        
+        // Additional rooms are any non-studio rooms after the first
+        if (nonStudioRooms.length > 1) {
+          additionalRoomPerNight = nonStudioRooms
+            .slice(1)
+            .reduce((total, room) => total + (room.price || room.price_per_night || 0), 0);
+        }
+        summaryData.additionalRoom = additionalRoomPerNight;
+      } else {
+        // All rooms are studio - no upgrade costs
+        summaryData.roomUpgrade = 0;
+        summaryData.additionalRoom = 0;
       }
-      summaryData.additionalRoom = additionalRoomPerNight;
 
       setTotalRoomCosts({
         roomUpgrade: roomUpgradePerNight * nights,
         additionalRoom: additionalRoomPerNight * nights
+      });
+      
+      console.log('🏨 Room costs calculated:', {
+        totalRooms: roomsToUse.length,
+        nonStudioRooms: nonStudioRooms.length,
+        roomUpgradePerNight,
+        additionalRoomPerNight,
+        nights,
+        totalRoomUpgrade: roomUpgradePerNight * nights,
+        totalAdditionalRoom: additionalRoomPerNight * nights
       });
     }
 
@@ -404,12 +486,15 @@ const SummaryOfStay = ({
   }, [bookingData, selectedRooms, resolvedPackageData, packageResolved]);
 
   const getTotalOutOfPocketExpenses = () => {
+    // For HOLIDAY_SUPPORT_PLUS, room costs are handled differently
+    // but out of pocket expenses should still be calculated
+    
     if (summary?.data?.isNDISFunder && 
         ndisFormFilters?.ndisPackageType === 'sta' && 
         summary?.rooms?.length > 0 && 
         summary.rooms[0]?.type === 'ocean_view') {
       
-      const oceanViewCost = summary.rooms[0].price * (summary?.data?.nights || 0);
+      const oceanViewCost = (summary.rooms[0].price || summary.rooms[0].price_per_night || 0) * (summary?.data?.nights || 0);
       const additionalRoomCost = totalRoomCosts.additionalRoom;
       return oceanViewCost + additionalRoomCost;
     }
@@ -418,6 +503,11 @@ const SummaryOfStay = ({
   };
 
   const getGrandTotal = () => {
+    // For HOLIDAY_SUPPORT_PLUS, don't include package cost in grand total
+    // since it will be quoted separately
+    if (isHolidaySupportPlusPackage()) {
+      return getTotalOutOfPocketExpenses();
+    }
     return totalPackageCost + getTotalOutOfPocketExpenses();
   };
 
@@ -448,8 +538,56 @@ const SummaryOfStay = ({
     );
   }
 
+  // Helper to get room display info
+  const getRoomDisplayInfo = () => {
+    const rooms = summary?.rooms || [];
+    const nonStudioRooms = rooms.filter(room => room.type !== 'studio');
+    const nights = summary?.data?.nights || 0;
+    
+    // Check if this is STA package with ocean view special handling
+    const isStaWithOceanView = summary?.data?.isNDISFunder && 
+                               ndisFormFilters?.ndisPackageType === 'sta' && 
+                               nonStudioRooms.length > 0 && 
+                               nonStudioRooms[0]?.type === 'ocean_view';
+    
+    let roomUpgradeDisplay = 'N/A';
+    let additionalRoomDisplay = 'N/A';
+    
+    if (isStaWithOceanView) {
+      // For STA with ocean view: upgrade shows N/A, ocean view cost goes to additional
+      roomUpgradeDisplay = 'N/A';
+      const oceanViewPrice = nonStudioRooms[0].price || nonStudioRooms[0].price_per_night || 0;
+      if (oceanViewPrice > 0) {
+        additionalRoomDisplay = `AUD ${formatPrice(oceanViewPrice)} per night (AUD ${formatPrice(oceanViewPrice * nights)} total)`;
+      }
+    } else {
+      // Standard display logic
+      if (nonStudioRooms.length > 0) {
+        const upgradePrice = nonStudioRooms[0].price || nonStudioRooms[0].price_per_night || 0;
+        if (upgradePrice > 0) {
+          roomUpgradeDisplay = `AUD ${formatPrice(upgradePrice)} per night (AUD ${formatPrice(upgradePrice * nights)} total)`;
+        }
+        
+        // Additional rooms (beyond the first non-studio)
+        if (nonStudioRooms.length > 1) {
+          const additionalPrice = nonStudioRooms
+            .slice(1)
+            .reduce((total, room) => total + (room.price || room.price_per_night || 0), 0);
+          if (additionalPrice > 0) {
+            additionalRoomDisplay = `AUD ${formatPrice(additionalPrice)} per night (AUD ${formatPrice(additionalPrice * nights)} total)`;
+          }
+        }
+      }
+    }
+    
+    return { roomUpgradeDisplay, additionalRoomDisplay };
+  };
+
+  const { roomUpgradeDisplay, additionalRoomDisplay } = getRoomDisplayInfo();
+
   return (
-    <div className="max-w-4xl mx-auto p-6 space-y-6">
+    <Element name="summary-of-stay-top">
+      <div ref={summaryContainerRef} className="max-w-4xl mx-auto p-6 space-y-6">
       <div className="flex justify-between items-start mb-6 flex-col sm:flex-row sm:items-center">
         <h1 className="text-2xl font-bold text-slate-700">Summary of Your Stay</h1>
         {origin != 'admin' && (
@@ -502,19 +640,41 @@ const SummaryOfStay = ({
         <div className="mt-8">
           <h2 className="text-lg font-semibold mb-4 text-slate-700">Package - cost to be charged to your funder:</h2>
           <p className="text-slate-700 mb-2 p-2">Package Name: { summary.data.ndisPackage }</p>
-          <PricingTable 
-            option={summary?.data?.packageType} 
-            datesOfStay={summary?.data?.datesOfStay} 
-            nights={summary?.data?.nights} 
-            setTotalPackageCost={setTotalPackageCost}
-            packageData={resolvedPackageData}
-            careAnalysisData={getAnalysisDataFromSummary().careData}
-            courseAnalysisData={getAnalysisDataFromSummary().courseData}
-            isSupportHolidayPackage={isSupportHolidayPackage()}
-          />
-          <div className="mt-2 text-right">
-            <p className="font-semibold text-slate-700">Total Package Cost: ${formatPrice(totalPackageCost)}</p>
-          </div>
+          
+          {/* ✅ For HOLIDAY_SUPPORT_PLUS: Show quote message instead of pricing table */}
+          {isHolidaySupportPlusPackage() ? (
+            <div className="mt-4 p-6 bg-amber-50 border-2 border-amber-400 rounded-lg shadow-sm">
+              <div className="flex items-start space-x-3">
+                <div className="flex-shrink-0">
+                  <svg className="h-6 w-6 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-amber-800 mb-2">Custom Quote Required</h3>
+                  <p className="text-base text-amber-900">
+                    Our bookings team will send you a quote for NDIS services for this stay based on the information you have provided.
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <>
+              <PricingTable 
+                option={summary?.data?.packageType} 
+                datesOfStay={summary?.data?.datesOfStay} 
+                nights={summary?.data?.nights} 
+                setTotalPackageCost={setTotalPackageCost}
+                packageData={resolvedPackageData}
+                careAnalysisData={getAnalysisDataFromSummary().careData}
+                courseAnalysisData={getAnalysisDataFromSummary().courseData}
+                isSupportHolidayPackage={isSupportHolidayPackage()}
+              />
+              <div className="mt-2 text-right">
+                <p className="font-semibold text-slate-700">Total Package Cost: ${formatPrice(totalPackageCost)}</p>
+              </div>
+            </>
+          )}
         </div>
       ): (
         <div className="mt-8">
@@ -528,31 +688,11 @@ const SummaryOfStay = ({
         <div className="grid grid-cols-2 gap-6">
           <div>
             <h3 className="font-semibold text-slate-700 mb-1">Room Upgrade</h3>
-            <p className="text-gray-900 p-2">
-              {summary?.data?.isNDISFunder && 
-               ndisFormFilters?.ndisPackageType === 'sta' && 
-               summary?.rooms?.length > 0 && 
-               summary.rooms[0]?.type === 'ocean_view' ? 
-                'N/A' :
-                (summary?.roomUpgrade ? 
-                  `AUD ${formatPrice(summary.roomUpgrade)} per night (AUD ${formatPrice(totalRoomCosts.roomUpgrade)} total)` : 
-                  'N/A')
-              }
-            </p>
+            <p className="text-gray-900 p-2">{roomUpgradeDisplay}</p>
           </div>
           <div>
             <h3 className="font-semibold text-slate-700 mb-1">Additional Room</h3>
-            <p className="text-gray-900 p-2">
-              {summary?.data?.isNDISFunder && 
-               ndisFormFilters?.ndisPackageType === 'sta' && 
-               summary?.rooms?.length > 0 && 
-               summary.rooms[0]?.type === 'ocean_view' ? 
-                `AUD ${formatPrice(summary.rooms[0].price)} per night (AUD ${formatPrice(summary.rooms[0].price * (summary?.data?.nights || 0))} total)` :
-                (summary?.additionalRoom ? 
-                  `AUD ${formatPrice(summary.additionalRoom)} per night (AUD ${formatPrice(totalRoomCosts.additionalRoom)} total)` : 
-                  'N/A')
-              }
-            </p>
+            <p className="text-gray-900 p-2">{additionalRoomDisplay}</p>
           </div>
         </div>
         <div className="text-right">
@@ -563,16 +703,25 @@ const SummaryOfStay = ({
       <div className="mt-8 p-4 bg-gray-50 rounded-lg">
         <h2 className="text-lg font-semibold text-slate-700 mb-4">Cost Summary</h2>
         <div className="space-y-2">
-          <div className="flex justify-between">
-            <span>Package Costs{<i> {`${summary?.data?.isNDISFunder ? "(To be billed to your funder)" : "(To be paid for by your funder)"}`}</i>}:</span>
-            <span>${formatPrice(totalPackageCost)}</span>
-          </div>
+          {isHolidaySupportPlusPackage() ? (
+            <>
+              <div className="flex justify-between">
+                <span>Package Costs <i>(Quote to be provided by bookings team)</i>:</span>
+                <span className="text-amber-600 font-medium">TBD</span>
+              </div>
+            </>
+          ) : (
+            <div className="flex justify-between">
+              <span>Package Costs{<i> {`${summary?.data?.isNDISFunder ? "(To be billed to your funder)" : "(To be paid for by your funder)"}`}</i>}:</span>
+              <span>${formatPrice(totalPackageCost)}</span>
+            </div>
+          )}
           <div className="flex justify-between">
             <span>Accommodation <i>(To be paid privately by you)</i>:</span>
             <span>${formatPrice(getTotalOutOfPocketExpenses())}</span>
           </div>
           <div className="flex justify-between pt-2 border-t border-gray-200 font-semibold">
-            <span>Grand Total:</span>
+            <span>Grand Total{isHolidaySupportPlusPackage() ? ' (excluding package costs)' : ''}:</span>
             <span>${formatPrice(getGrandTotal())}</span>
           </div>
         </div>
@@ -680,6 +829,7 @@ const SummaryOfStay = ({
         </div>
       </div>
     </div>
+    </Element>
   );
 };
 

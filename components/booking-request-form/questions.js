@@ -7,6 +7,7 @@ import { bookingRequestFormActions } from '../../store/bookingRequestFormSlice';
 import { findByQuestionKey, generateQuestionKey, QUESTION_KEYS, questionHasKey } from "../../services/booking/question-helper";
 import { getCrossValidationValue } from "../../utilities/dateUtils";
 import { getInfantCareQuestionMapping } from "../../utilities/bookingRequestForm";
+import { useAutofillDetection } from '../../hooks/useAutofillDetection';
 
 const QuestionPage = ({ 
     currentPage, 
@@ -33,6 +34,7 @@ const QuestionPage = ({
     validateDatesWithExistingAPI = null,
     infantCareQuantities = {},
     validationAttempted = false,
+    onStayDatesUpdate = null,
 }) => {
     const dispatch = useDispatch();
     const [updatedCurrentPage, setUpdatedCurrentPage] = useState();
@@ -46,6 +48,49 @@ const QuestionPage = ({
         ndisPackageType: ndisPackageType,
         additionalFilters: additionalFilters
     });
+
+    const handleAutofillDetected = useCallback((fieldId, value, fieldData) => {
+        // console.log('📝 Autofill callback - marking question as interacted:', {
+        //     fieldId,
+        //     sectionIndex: fieldData.sectionIndex,
+        //     questionIndex: fieldData.questionIndex
+        // });
+        
+        const interactionKey = `${fieldData.sectionIndex}-${fieldData.questionIndex}`;
+        
+        setQuestionInteractions(prev => {
+            if (prev[interactionKey]) return prev;
+            // console.log('✅ Marking autofilled field as interacted:', interactionKey);
+            return { ...prev, [interactionKey]: true };
+        });
+    }, []);
+
+    // Initialize autofill detection with callback
+    useAutofillDetection({
+        onAutofillDetected: handleAutofillDetected
+    });
+
+    const questionInteractionsRef = useRef({});
+    const lastPageIdRef = useRef(currentPage?.id);
+
+    // Sync ref with state
+    useEffect(() => {
+        questionInteractionsRef.current = questionInteractions;
+    }, [questionInteractions]);
+
+    // Reset interactions only when page ID actually changes
+    useEffect(() => {
+        if (currentPage?.id && lastPageIdRef.current !== currentPage.id) {
+            console.log('📄 Page changed from', lastPageIdRef.current, 'to', currentPage.id, '- resetting interactions');
+            setQuestionInteractions({});
+            questionInteractionsRef.current = {};
+            lastPageIdRef.current = currentPage.id;
+        } else if (currentPage?.id && Object.keys(questionInteractionsRef.current).length > 0 && Object.keys(questionInteractions).length === 0) {
+            // Restore interactions if they were lost due to remount but page is the same
+            console.log('🔄 Restoring questionInteractions from ref:', questionInteractionsRef.current);
+            setQuestionInteractions({...questionInteractionsRef.current});
+        }
+    }, [currentPage?.id, questionInteractions]);
 
     useEffect(() => {
         setLocalFilterState({
@@ -305,9 +350,11 @@ const QuestionPage = ({
     };
 
     const updateSections = async (value, field, secIdx, qIdx, equipments = [], error = false) => {
-        const currentValue = currentPage.Sections[secIdx]?.Questions[qIdx]?.[field];
-        const currentError = currentPage.Sections[secIdx]?.Questions[qIdx]?.error;
-        const question = currentPage.Sections[secIdx]?.Questions[qIdx];
+        const pageToUpdate = updatedCurrentPage || currentPage;
+    
+        const currentValue = pageToUpdate.Sections[secIdx]?.Questions[qIdx]?.[field];
+        const currentError = pageToUpdate.Sections[secIdx]?.Questions[qIdx]?.error;
+        const question = pageToUpdate.Sections[secIdx]?.Questions[qIdx];
         
         const isSameValue = 
             (currentValue === value) || 
@@ -322,8 +369,8 @@ const QuestionPage = ({
             let questionId = question.question_id || question.id;
             
             // For moved questions (fromQa = true), find the original question ID from QaPairs
-            if (question.fromQa && currentPage.Sections) {
-                const currentSection = currentPage.Sections[secIdx];
+            if (question.fromQa && pageToUpdate.Sections) {
+                const currentSection = pageToUpdate.Sections[secIdx];
                 if (currentSection && currentSection.QaPairs) {
                     const correspondingQaPair = currentSection.QaPairs.find(qa => qa.id === question.id);
                     if (correspondingQaPair && correspondingQaPair.question_id) {
@@ -425,7 +472,7 @@ const QuestionPage = ({
             return;
         }
 
-        let list = currentPage.Sections.map((section, index) => {
+        let list = pageToUpdate.Sections.map((section, index) => {
             let sTemp = { ...section };
             sTemp.dirty = true;
             sTemp.questionDependencies = [];
@@ -746,7 +793,7 @@ const QuestionPage = ({
         const timer = setTimeout(detectAutofill, 500);
         
         return () => clearTimeout(timer);
-    }, [currentPage]);
+    }, [currentPage?.id]);
 
     useEffect(() => {
         return () => {
@@ -964,9 +1011,30 @@ const QuestionPage = ({
                                                 
                                                 if (checkInQuestion) {
                                                     dispatch(bookingRequestFormActions.setCheckinDate(e))
+                                                    onStayDatesUpdate?.({ checkInDate: e, checkOutDate: null });
                                                 }
                                                 if (checkOutQuestion) {
                                                     dispatch(bookingRequestFormActions.setCheckoutDate(e))
+                                                    onStayDatesUpdate?.({ checkInDate: null, checkOutDate: e });
+                                                }
+
+                                                // Handle date-range type (combined check-in/check-out)
+                                                if (question?.type === 'date-range' && e && typeof e === 'string' && e.includes(' - ')) {
+                                                    const dates = e.split(' - ');
+                                                    const checkIn = dates[0]?.trim();
+                                                    const checkOut = dates[1]?.trim();
+                                                    
+                                                    console.log('📅 Date range updated:', { checkIn, checkOut });
+                                                    
+                                                    if (checkIn) {
+                                                        dispatch(bookingRequestFormActions.setCheckinDate(checkIn));
+                                                    }
+                                                    if (checkOut) {
+                                                        dispatch(bookingRequestFormActions.setCheckoutDate(checkOut));
+                                                    }
+                                                    
+                                                    // Immediately update parent's stayDates state
+                                                    onStayDatesUpdate?.({ checkInDate: checkIn, checkOutDate: checkOut });
                                                 }
 
                                                 // Pass the error to updateSections - it will handle setting the error state

@@ -127,14 +127,18 @@ export default function CardField(props) {
       const currentValue = getCurrentValue();
       
       if (multi) {
+        // For multi-select: check if array has values
+        // For courses, skip the isValueInOptions check since options are loaded dynamically
         isValidSelection = Array.isArray(currentValue) && 
                           currentValue.length > 0 &&
-                          currentValue.every(val => isValueInOptions(val, options));
+                          (option_type === 'course' || currentValue.every(val => isValueInOptions(val, options)));
       } else {
+        // For single select: check if value exists
+        // For courses, skip the isValueInOptions check since options are loaded dynamically
         isValidSelection = currentValue !== null && 
                           currentValue !== undefined && 
                           currentValue !== '' &&
-                          isValueInOptions(currentValue, options);  // <-- ADD THIS CHECK
+                          (option_type === 'course' || isValueInOptions(currentValue, options));
       }
       
       setIsValid(isValidSelection);
@@ -144,7 +148,7 @@ export default function CardField(props) {
       setErrorState(false);
       setErrorMessage('');
     }
-  }, [value, required, userInteracted, multi, forceShowErrors]); // ⭐ ADD forceShowErrors to deps
+  }, [value, required, userInteracted, multi, forceShowErrors, option_type, options, isValueInOptions]); // ⭐ Added option_type and options to deps
 
   // Set initial validation state based on existing value
   useEffect(() => {
@@ -158,7 +162,7 @@ export default function CardField(props) {
     }
     
     setIsValid(hasValue || !required);
-    setErrorState(required && !hasValue && (userInteracted || forceShowErrors)); // ⭐ UPDATE
+    setErrorState(required && !hasValue && (userInteracted || forceShowErrors));
   }, [forceShowErrors]); 
 
   const shouldShowError = error || (errorState && (userInteracted || forceShowErrors));

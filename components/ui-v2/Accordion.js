@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { ChevronDown, ChevronRight, Check, AlertCircle } from 'lucide-react';
-import { Element } from 'react-scroll'; // Add this import
+import { ChevronDown, ChevronRight, Check, AlertCircle, Loader2 } from 'lucide-react';
+import { Element } from 'react-scroll';
 import StatusBadge from './StatusBadge';
 import Button from './Button';
 
@@ -18,7 +18,9 @@ const AccordionItem = ({
   canGoNext,
   canGoBack,
   isLastItem,
-  origin
+  origin,
+  isNavigating,
+  activeButton // 'next', 'back', 'submit', or null
 }) => {
 
   const getStatusBadgeType = () => {
@@ -51,6 +53,12 @@ const AccordionItem = ({
   const handleHeaderClick = (e) => {
     e.preventDefault();
     e.stopPropagation();
+    
+    // Prevent clicking during navigation
+    if (isNavigating) {
+      return;
+    }
+    
     if (onHeaderClick) {
       onHeaderClick(index);
     }
@@ -71,7 +79,7 @@ const AccordionItem = ({
       >
         {/* Header - Now clickable */}
         <div 
-          className={`flex items-center justify-between py-4 px-8 ${isOpen ? 'bg-gray-50' : 'bg-white'} transition-colors cursor-pointer hover:bg-gray-50`}
+          className={`flex items-center justify-between py-4 px-8 ${isOpen ? 'bg-gray-50' : 'bg-white'} transition-colors ${isNavigating ? 'cursor-not-allowed opacity-75' : 'cursor-pointer hover:bg-gray-50'}`}
           onClick={handleHeaderClick}
         >
           <div className="flex items-center space-x-4 flex-1">
@@ -116,12 +124,22 @@ const AccordionItem = ({
                   <Button
                     color="outline"
                     size="medium"
-                    label="PREVIOUS"
+                    label={
+                      <span className="flex items-center gap-2">
+                        {isNavigating && activeButton === 'back' && (
+                          <Loader2 className="animate-spin" size={16} />
+                        )}
+                        PREVIOUS
+                      </span>
+                    }
                     onClick={(e) => {
                       e.stopPropagation();
-                      onBack && onBack(index);
+                      if (!isNavigating) {
+                        onBack && onBack(index);
+                      }
                     }}
                     outlineBorderColor="#10b981"
+                    disabled={isNavigating}
                   />
                 )}
 
@@ -130,21 +148,41 @@ const AccordionItem = ({
                   <Button
                     color="secondary"
                     size="medium"
-                    label="NEXT"
+                    label={
+                      <span className="flex items-center gap-2">
+                        {isNavigating && activeButton === 'next' && (
+                          <Loader2 className="animate-spin" size={16} />
+                        )}
+                        NEXT
+                      </span>
+                    }
                     onClick={(e) => {
                       e.stopPropagation();
-                      onNext && onNext(index);
+                      if (!isNavigating) {
+                        onNext && onNext(index);
+                      }
                     }}
+                    disabled={isNavigating}
                   />
                 ) : isLastItem ? (
                   <Button
                     color="secondary"
                     size="medium"
-                    label="SUBMIT"
+                    label={
+                      <span className="flex items-center gap-2">
+                        {isNavigating && activeButton === 'submit' && (
+                          <Loader2 className="animate-spin" size={16} />
+                        )}
+                        SUBMIT
+                      </span>
+                    }
                     onClick={(e) => {
                       e.stopPropagation();
-                      onNext && onNext(index, true);
+                      if (!isNavigating) {
+                        onNext && onNext(index, true);
+                      }
                     }}
+                    disabled={isNavigating}
                   />
                 ) : null}
               </div>
@@ -169,6 +207,7 @@ const Accordion = ({
     defaultOpenIndex !== null ? [defaultOpenIndex] : []
   );
   const [isNavigating, setIsNavigating] = useState(false);
+  const [activeButton, setActiveButton] = useState(null); // 'next', 'back', 'submit', or null
 
   // Update open items when defaultOpenIndex changes (controlled from parent)
   useEffect(() => {
@@ -180,7 +219,8 @@ const Accordion = ({
       // Reset navigating state after transition
       const timer = setTimeout(() => {
         setIsNavigating(false);
-      }, 300);
+        setActiveButton(null);
+      }, 800); // Slightly longer to ensure all async operations complete
       
       return () => clearTimeout(timer);
     }
@@ -190,27 +230,87 @@ const Accordion = ({
     return openItems.includes(index);
   };
 
-  const handleNext = (currentIndex, isSubmit = false) => {
-    if (isSubmit) {
-      onNavigate && onNavigate(currentIndex, 'submit');
-    } else if (currentIndex < items.length - 1) {
-      const nextIndex = currentIndex + 1;
-      onNavigate && onNavigate(nextIndex, 'next');
+  const handleNext = async (currentIndex, isSubmit = false) => {
+    // Prevent double-click
+    if (isNavigating) {
+      console.log('⏸️ Navigation already in progress, ignoring click');
+      return;
+    }
+
+    // Set loading state
+    setIsNavigating(true);
+    setActiveButton(isSubmit ? 'submit' : 'next');
+    
+    try {
+      if (isSubmit) {
+        await onNavigate?.(currentIndex, 'submit');
+      } else if (currentIndex < items.length - 1) {
+        const nextIndex = currentIndex + 1;
+        await onNavigate?.(nextIndex, 'next');
+      }
+    } catch (error) {
+      console.error('Navigation error:', error);
+      // Reset state even if navigation fails
+      setIsNavigating(false);
+      setActiveButton(null);
     }
   };
 
-  const handleBack = (currentIndex) => {
-    if (currentIndex > 0) {
-      const prevIndex = currentIndex - 1;
-      onNavigate && onNavigate(prevIndex, 'back');
+  const handleBack = async (currentIndex) => {
+    // Prevent double-click
+    if (isNavigating) {
+      console.log('⏸️ Navigation already in progress, ignoring click');
+      return;
+    }
+
+    // Set loading state
+    setIsNavigating(true);
+    setActiveButton('back');
+    
+    try {
+      if (currentIndex > 0) {
+        const prevIndex = currentIndex - 1;
+        await onNavigate?.(prevIndex, 'back');
+      }
+    } catch (error) {
+      console.error('Navigation error:', error);
+      // Reset state even if navigation fails
+      setIsNavigating(false);
+      setActiveButton(null);
     }
   };
 
-  const handleItemHeaderClick = (clickedIndex) => {
-    if (onHeaderClick) {
-      onHeaderClick(clickedIndex);
-    } else if (onNavigate) {
-      onNavigate(clickedIndex, 'header-click');
+  const handleItemHeaderClick = async (clickedIndex) => {
+    // Prevent double-click
+    if (isNavigating) {
+      console.log('⏸️ Navigation already in progress, ignoring header click');
+      return;
+    }
+
+    // If clicking on the already open item, do nothing (no need to navigate)
+    if (openItems.includes(clickedIndex)) {
+      console.log('ℹ️ Clicked on already open accordion item, ignoring');
+      return;
+    }
+
+    setIsNavigating(true);
+    setActiveButton(null); // No specific button for header clicks
+    
+    try {
+      if (onHeaderClick) {
+        await onHeaderClick(clickedIndex);
+      } else if (onNavigate) {
+        await onNavigate(clickedIndex, 'header-click');
+      }
+    } catch (error) {
+      console.error('Header click navigation error:', error);
+    } finally {
+      // Reset navigating state after a short delay to allow for state updates
+      // This handles cases where the parent doesn't change the index (e.g., validation failure)
+      setTimeout(() => {
+        setIsNavigating(false);
+        setActiveButton(null);
+      }, 100);
     }
   };
 
@@ -240,6 +340,8 @@ const Accordion = ({
             canGoBack={index > 0}
             isLastItem={index === items.length - 1}
             origin={origin}
+            isNavigating={isNavigating}
+            activeButton={activeButton}
           />
         ))}
       </div>

@@ -69,10 +69,15 @@ const SignatureInput = ({
               const ctx = canvas.getContext('2d');
               ctx.clearRect(0, 0, canvas.width, canvas.height);
               
+              // ✅ FIX: Better scaling with max dimensions to prevent oversized signatures
+              const maxWidth = canvas.width * 0.85;  // Use 85% of canvas width
+              const maxHeight = canvas.height * 0.75; // Use 75% of canvas height
+              
               const scale = Math.min(
-                canvas.width / image.width,
-                canvas.height / image.height
-              ) * 0.9;
+                maxWidth / image.width,
+                maxHeight / image.height,
+                1 // Never scale up, only down
+              );
               
               const scaledWidth = image.width * scale;
               const scaledHeight = image.height * scale;
@@ -116,10 +121,15 @@ const SignatureInput = ({
             
             ctx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
             
+            // ✅ FIX: Better scaling with max dimensions to prevent oversized signatures
+            const maxWidth = tempCanvas.width * 0.85;  // Use 85% of canvas width
+            const maxHeight = tempCanvas.height * 0.75; // Use 75% of canvas height
+            
             const scale = Math.min(
-                tempCanvas.width / img.width,
-                tempCanvas.height / img.height
-            ) * 0.9;
+                maxWidth / img.width,
+                maxHeight / img.height,
+                1 // Never scale up, only down
+            );
             
             const scaledWidth = img.width * scale;
             const scaledHeight = img.height * scale;
@@ -320,58 +330,59 @@ const SignatureInput = ({
                         className: 'signature-canvas',
                         width: canvasDimensions.width,
                         height: canvasDimensions.height,
-                        style: { 
-                            cursor: 'crosshair',
-                            touchAction: 'none',
-                            width: '100%',
-                            height: '100%'
-                        }
+                        style: {
+                          width: '100%',
+                          height: '100%',
+                        },
                     }}
                 />
               )}
-            </div>
-            <div className="flex justify-end mt-2">
-              <button 
-                onClick={handleClear}
-                className="px-3 py-1 text-sm text-gray-600 hover:text-gray-800"
-              >
-                Clear
-              </button>
+              {hasSignature && (
+                <div className="absolute bottom-2 right-2">
+                  <button 
+                    onClick={handleClear}
+                    className="px-3 py-1 text-sm text-gray-600 hover:text-gray-800 bg-white rounded"
+                  >
+                    Clear
+                  </button>
+                </div>
+              )}
             </div>
           </TabPanel>
 
           <TabPanel hidden={selectedTab !== 'upload'}>
-            <div className="space-y-4">
-              <div className="border rounded-lg p-4 bg-white">
-                <label 
-                  htmlFor="signature-upload" 
-                  className="block mb-2 text-sm font-medium text-gray-900"
-                >
-                  Upload your digital signature (PNG, JPG, or JPEG)
-                </label>
-                <input
-                  id="signature-upload"
-                  type="file"
-                  accept="image/png,image/jpeg,image/jpg"
-                  onChange={handleFileUpload}
-                  className="block w-full text-sm text-slate-500
-                    file:mr-4 file:py-2 file:px-4
-                    file:rounded-full file:border-0
-                    file:text-sm file:font-semibold
-                    file:bg-blue-50 file:text-blue-700
-                    hover:file:bg-blue-100"
-                />
-              </div>
+            <div 
+              className="border rounded-lg p-2 bg-white"
+              style={{
+                height: '200px',
+                width: '100%',
+                position: 'relative'
+              }}
+            >
+              {!uploadedSignature && (
+                <div className="flex flex-col items-center justify-center h-full">
+                  <label 
+                    htmlFor="signature-upload" 
+                    className="px-4 py-2 bg-blue-600 text-white rounded cursor-pointer hover:bg-blue-700"
+                  >
+                    Choose File
+                  </label>
+                  <input
+                    id="signature-upload"
+                    type="file"
+                    accept="image/*"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                  />
+                  <p className="mt-2 text-sm text-gray-500">
+                    Upload a signature image (PNG, JPG, etc.)
+                  </p>
+                </div>
+              )}
               
               {uploadedSignature && (
-                <div className="relative">
-                  <div 
-                    className="border rounded-lg p-2 bg-white"
-                    style={{
-                      height: '200px',
-                      width: '100%'
-                    }}
-                  >
+                <div className="relative h-full">
+                  <div className="h-full flex items-center justify-center">
                     <img 
                       src={uploadedSignature} 
                       alt="Uploaded signature" 

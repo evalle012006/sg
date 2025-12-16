@@ -137,6 +137,11 @@ export default function RequestFormSidebar({ setBookingSubmittedState, prevBooki
         const stablePages = bookingRequestFormData.filter(page => page.id && page.title);
 
         return stablePages.map((page, index) => {
+            // console.log(`Preparing step for sidebar:`, {
+            //     pageId: page.id,
+            //     pageTitle: page.title,
+            //     completed: page.completed
+            // });
             // Determine the step state based on page properties
             let stepState = StepState.NOT_SELECTED;
             let status = null;

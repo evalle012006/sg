@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
-import { bookingRequestFormActions } from "../../store/bookingRequestFormSlice";
+import { bookingRequestFormActions } from '../../store/bookingRequestFormSlice';
 import ordinal from "ordinal";
 import HorizontalCardSelection from "../ui-v2/HorizontalCardSelection";
 
@@ -36,7 +36,6 @@ const useRoomData = (isNdisFunded) => {
       setLoading(true);
       const response = await fetch("/api/manage-room");
       const data = await response.json();
-      // console.log(data, 'Fetched Room Types Data');
       const processedRooms = data
         .map(room => ({
           ...room.data,
@@ -51,7 +50,6 @@ const useRoomData = (isNdisFunded) => {
           return true;
         })
         .sort((a, b) => a.id - b.id);
-        // console.log(processedRooms, 'Processed Rooms Data');
       setRoomTypes(processedRooms);
     } catch (error) {
       console.error('Error fetching room types:', error);
@@ -70,8 +68,6 @@ const useRoomData = (isNdisFunded) => {
 const RoomsField = (props) => {
   const dispatch = useDispatch();
   const isNdisFunded = useSelector(state => state.bookingRequestForm.isNdisFunded);
-
-  // console.log(isNdisFunded, 'isNdisFunded in RoomsField');
   
   // Initialize selected rooms
   const [selectedRooms, setSelectedRooms] = useState(() => {
@@ -87,10 +83,26 @@ const RoomsField = (props) => {
   const [additionalRooms, setAdditionalRooms] = useState([]);
   const [showUpgrades, setShowUpgrades] = useState(false);
   const [additionalRoomErrors, setAdditionalRoomErrors] = useState({});
+  const [touched, setTouched] = useState(false);
+  const [touchedAdditionalRooms, setTouchedAdditionalRooms] = useState({}); 
+  const [validatedRoomIndexes, setValidatedRoomIndexes] = useState(new Set());
 
   // Custom hooks
   const { roomTypes, setRoomTypes, loading } = useRoomData(isNdisFunded);
   const { error, validateRooms } = useRoomValidation(selectedRooms, props.required);
+
+  // Track previous forceShowErrors value
+  const prevForceShowErrorsRef = useRef(false);
+
+  // When forceShowErrors transitions to true, mark all current additional rooms as "validated"
+  useEffect(() => {
+    if (props.forceShowErrors && !prevForceShowErrorsRef.current) {
+      // forceShowErrors just became true - mark all current rooms as validated
+      const currentRoomIndexes = new Set(additionalRooms.map((_, idx) => idx));
+      setValidatedRoomIndexes(currentRoomIndexes);
+    }
+    prevForceShowErrorsRef.current = props.forceShowErrors;
+  }, [props.forceShowErrors, additionalRooms.length]);
 
   // Extract additional rooms from selected rooms
   useEffect(() => {
@@ -105,31 +117,6 @@ const RoomsField = (props) => {
     }
   }, [selectedRooms]);
 
-  // Notify parent of changes with proper validation
-  const notifyParent = useCallback((rooms, hasError = false) => {
-    if (props.onChange) {
-      const value = JSON.stringify(rooms);
-      const errorMessage = hasError ? error : null;
-      
-      if (props.onChange.length > 1) {
-        props.onChange(value, errorMessage);
-      } else {
-        props.onChange(value);
-      }
-    }
-  }, [props.onChange, error]);
-
-  // Get validation styling for room selection containers (similar to QuestionPage)
-  const getRoomContainerClasses = (hasError = false, hasSelection = false) => {
-    if (hasError) {
-      return 'border-2 border-red-200 rounded-xl p-4 bg-red-50';
-    }
-    if (hasSelection && props.required) {
-      return 'border-2 border-green-200 rounded-xl p-4 bg-green-50';
-    }
-    return 'border-2 border-gray-200 rounded-xl p-4 bg-white';
-  };
-
   // Enhanced validation with better error messages
   const validateRoomsEnhanced = useCallback((rooms = selectedRooms) => {
     if (!props.required) {
@@ -142,6 +129,14 @@ const RoomsField = (props) => {
       return { isValid: false, errorMessage: `${fieldName} is required` };
     }
 
+    // Check all additional rooms
+    const additionalRoomsData = rooms.slice(1);
+    const hasIncompleteAdditionalRoom = additionalRoomsData.some(room => !room?.name || room.name.trim() === '');
+    
+    if (hasIncompleteAdditionalRoom) {
+      return { isValid: false, errorMessage: 'Please select a room for all additional room slots or remove them' };
+    }
+
     return { isValid: true, errorMessage: '' };
   }, [selectedRooms, props.required, props.label]);
 
@@ -149,14 +144,60 @@ const RoomsField = (props) => {
   const customValidateRooms = useCallback((rooms = selectedRooms) => {
     const { isValid, errorMessage } = validateRoomsEnhanced(rooms);
     if (!isValid) {
-      // Update error state through the hook
       validateRooms(rooms);
       return false;
     }
-    // Clear error state
     validateRooms(rooms);
     return true;
   }, [selectedRooms, validateRoomsEnhanced, validateRooms]);
+
+  // Notify parent of changes with proper validation
+  const notifyParent = useCallback((rooms, hasError = false) => {
+    if (props.onChange) {
+      const value = JSON.stringify(rooms);
+      
+      // Check main room first
+      const hasMainRoom = rooms?.length > 0 && rooms[0]?.name && rooms[0].name.trim() !== '';
+      
+      // If no main room and it's required, that's an error
+      if (props.required && !hasMainRoom) {
+        if (props.onChange.length > 1) {
+          props.onChange(value, 'Please select a room.');
+        } else {
+          props.onChange(value);
+        }
+        return;
+      }
+      
+      // Check for incomplete additional rooms (rooms beyond the first one)
+      const additionalRooms = rooms.slice(1);
+      const hasIncompleteAdditionalRooms = additionalRooms.some(room => !room?.name || room.name.trim() === '');
+      
+      // CRITICAL FIX: Only send error if there are ACTUALLY incomplete additional rooms
+      // If we only have a main room (rooms.length === 1), there's no error
+      let finalError = null;
+      if (additionalRooms.length > 0 && hasIncompleteAdditionalRooms) {
+        finalError = 'Please complete all room selections';
+      }
+      
+      if (props.onChange.length > 1) {
+        props.onChange(value, finalError);
+      } else {
+        props.onChange(value);
+      }
+    }
+  }, [props.onChange, props.required]);
+
+  // Get validation styling for room selection containers
+  const getRoomContainerClasses = (hasError = false, hasSelection = false) => {
+    if (hasError) {
+      return 'border-2 border-red-200 rounded-xl p-4 bg-red-50';
+    }
+    if (hasSelection && props.required) {
+      return 'border-2 border-green-200 rounded-xl p-4 bg-green-50';
+    }
+    return 'border-2 border-gray-200 rounded-xl p-4 bg-white';
+  };
 
   // Update Redux store with selected rooms
   const updateReduxStore = useCallback((rooms) => {
@@ -176,12 +217,12 @@ const RoomsField = (props) => {
     dispatch(bookingRequestFormActions.setRooms(selectedRoomData));
   }, [roomTypes, dispatch]);
 
-  // Transform room data for HorizontalCardSelection with UPDATED PRICING LOGIC
+  // Transform room data for HorizontalCardSelection
   const transformRoomData = useCallback((rooms, isAdditional = false) => {
     return rooms.map((room, index) => {
       let priceLabel = '';
       
-      // NEW PRICING LOGIC based on requirements
+      // Pricing logic based on requirements
       if (isAdditional) {
         // Additional rooms logic
         if (isNdisFunded) {
@@ -196,14 +237,16 @@ const RoomsField = (props) => {
         if (isNdisFunded) {
           // NDIS funded: Studio is included, Ocean view has additional cost
           if (room.type === 'studio') {
-            priceLabel = 'Included in your package price';
+            priceLabel = '';
+            // priceLabel = 'Included in your package price';
           } else if (room.type === 'ocean_view') {
             priceLabel = `Your package price + AUD ${room.price_per_night}/night`;
           }
         } else {
           // Non-NDIS funded: Studio is included, others have additional cost
           if (room.type === 'studio') {
-            priceLabel = 'Included in your package price';
+            priceLabel = '';
+            // priceLabel = 'Included in your package price';
           } else {
             priceLabel = `Your package price + AUD ${room.price_per_night}/night`;
             
@@ -222,7 +265,7 @@ const RoomsField = (props) => {
           <div className="w-full grid grid-cols-12 gap-3">
             <div className="col-span-12">
               <div className="grid grid-cols-3 gap-x-4 gap-y-3">
-                {/* Bedrooms - First */}
+                {/* Bedrooms */}
                 <div className="text-left">
                   <div className="flex items-center gap-2 mb-1">
                     <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -233,7 +276,7 @@ const RoomsField = (props) => {
                   <p className="mt-1 text-base">{room.bedrooms}</p>
                 </div>
                 
-                {/* Bathrooms - Second, under bedrooms */}
+                {/* Bathrooms */}
                 <div className="text-left">
                   <div className="flex items-center gap-2 mb-1">
                     <svg className="w-4 h-4 text-blue-600" fill="currentColor" viewBox="0 0 24 24">
@@ -244,7 +287,7 @@ const RoomsField = (props) => {
                   <p className="mt-1 text-base">{room.bathrooms}</p>
                 </div>
 
-                {/* Max Guests - Third position */}
+                {/* Max Guests */}
                 <div className="text-left">
                   <div className="flex items-center gap-2 mb-1">
                     <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -255,7 +298,6 @@ const RoomsField = (props) => {
                   <p className="mt-1 text-base">{room.max_guests}</p>
                 </div>
 
-                {/* Bed types grouped together - Second row */}
                 {/* Ergonomic King Beds */}
                 <div className="text-left">
                   <div className="flex items-center gap-2 mb-1">
@@ -310,6 +352,7 @@ const RoomsField = (props) => {
 
   // Handle main room selection
   const handleMainRoomChange = useCallback((selectedRoomName) => {
+    setTouched(true);
     const newRooms = [
       { name: selectedRoomName, order: 1 },
       ...additionalRooms
@@ -324,6 +367,7 @@ const RoomsField = (props) => {
 
   // Handle additional room changes
   const handleAdditionalRoomChange = useCallback((roomName, roomIndex) => {
+    setTouchedAdditionalRooms(prev => ({ ...prev, [roomIndex]: true }));
     const newAdditionalRooms = [...additionalRooms];
     newAdditionalRooms[roomIndex] = {
       name: roomName,
@@ -344,21 +388,31 @@ const RoomsField = (props) => {
     }
     setAdditionalRoomErrors(newErrors);
 
-    // Update if no errors
-    if (!errorMsg && Object.keys(newErrors).length === 0) {
-      const newRooms = [selectedRooms[0], ...newAdditionalRooms].filter(Boolean);
-      setSelectedRooms(newRooms);
-      updateReduxStore(newRooms);
-      
-      const isValid = customValidateRooms(newRooms);
-      notifyParent(newRooms, !isValid);
-    }
+    // Update rooms
+    const newRooms = [selectedRooms[0], ...newAdditionalRooms].filter(room => room && room.name !== undefined);
+    setSelectedRooms(newRooms);
+    updateReduxStore(newRooms);
+    
+    // Check if ALL additional rooms are valid
+    const allAdditionalRoomsValid = newAdditionalRooms.every(room => room.name && room.name.trim() !== '');
+    const hasAnyErrors = Object.keys(newErrors).length > 0;
+    
+    // Notify parent immediately
+    const isValid = customValidateRooms(newRooms) && allAdditionalRoomsValid && !hasAnyErrors;
+    notifyParent(newRooms, !isValid);
   }, [additionalRooms, additionalRoomErrors, selectedRooms, customValidateRooms, notifyParent, updateReduxStore]);
 
   // Add additional room
   const addAdditionalRoom = useCallback(() => {
+    const newRoomIndex = additionalRooms.length;
     setAdditionalRooms(prev => [...prev, { name: '', order: prev.length + 2 }]);
-  }, []);
+    
+    // Immediately notify parent about the incomplete state
+    setTimeout(() => {
+      const currentRooms = selectedRooms[0] ? [selectedRooms[0], ...additionalRooms, { name: '', order: newRoomIndex + 2 }] : [];
+      notifyParent(currentRooms, true);
+    }, 0);
+  }, [additionalRooms, selectedRooms, notifyParent]);
 
   // Remove additional room
   const removeAdditionalRoom = useCallback((index) => {
@@ -368,6 +422,29 @@ const RoomsField = (props) => {
     const newRooms = selectedRooms[0] ? [selectedRooms[0], ...newAdditionalRooms] : [];
     setSelectedRooms(newRooms);
     updateReduxStore(newRooms);
+
+    // Clean up touched state and reindex
+    const newTouched = {};
+    Object.entries(touchedAdditionalRooms).forEach(([key, value]) => {
+      const keyInt = parseInt(key);
+      if (keyInt < index) {
+        newTouched[key] = value;
+      } else if (keyInt > index) {
+        newTouched[keyInt - 1] = value;
+      }
+    });
+    setTouchedAdditionalRooms(newTouched);
+    
+    // Clean up validated indexes and reindex
+    const newValidated = new Set();
+    validatedRoomIndexes.forEach(idx => {
+      if (idx < index) {
+        newValidated.add(idx);
+      } else if (idx > index) {
+        newValidated.add(idx - 1);
+      }
+    });
+    setValidatedRoomIndexes(newValidated);
     
     // Clear errors for removed room and reindex
     const newErrors = {};
@@ -383,9 +460,9 @@ const RoomsField = (props) => {
     
     const isValid = customValidateRooms(newRooms);
     notifyParent(newRooms, !isValid);
-  }, [additionalRooms, selectedRooms, additionalRoomErrors, customValidateRooms, notifyParent, updateReduxStore]);
+  }, [additionalRooms, selectedRooms, additionalRoomErrors, touchedAdditionalRooms, validatedRoomIndexes, customValidateRooms, notifyParent, updateReduxStore]);
 
-  // Handle main room click - simplified since we no longer separate rooms for NDIS users
+  // Handle main room click
   const handleMainRoomClick = useCallback((roomName) => {
     handleMainRoomChange(roomName);
   }, [handleMainRoomChange]);
@@ -394,27 +471,30 @@ const RoomsField = (props) => {
     return <div className="mb-2">Loading rooms...</div>;
   }
 
-  const displayError = props.error || error;
-  
-  // NEW: Conditional room grouping based on NDIS funding status
-  const shouldSeparateRooms = false; // We don't need to separate rooms for NDIS users anymore
-  
-  // For NDIS funded: show studio and ocean_view together
-  // For non-NDIS funded: show all rooms together
-  const mainRoomsForNdis = roomTypes.filter(room => room.type === 'studio' || room.type === 'ocean_view');
-  const studioRooms = roomTypes.filter(room => room.type === 'studio'); // Only used for additional rooms
-  const upgradeRooms = roomTypes.filter(room => room.type !== 'studio' && room.type !== 'ocean_view');
-  const allRooms = roomTypes; // All rooms for non-NDIS users
-
   // Get currently selected main room
   const selectedMainRoom = selectedRooms[0]?.name || null;
+
+  // Validate ONLY the main room - don't use props.error which contains overall form errors
+  const mainRoomHasError = props.required && (!selectedMainRoom || selectedMainRoom.trim() === '');
+  const mainRoomError = mainRoomHasError ? 'Please select a room.' : null;
+
+  // Only show error if user has interacted OR parent has triggered validation via props.error
+  const showMainRoomError = (touched || props.forceShowErrors) && mainRoomError;
+  
+  // Room grouping based on NDIS funding status
+  const shouldSeparateRooms = false;
+  
+  const mainRoomsForNdis = roomTypes.filter(room => room.type === 'studio' || room.type === 'ocean_view');
+  const studioRooms = roomTypes.filter(room => room.type === 'studio');
+  const upgradeRooms = roomTypes.filter(room => room.type !== 'studio' && room.type !== 'ocean_view');
+  const allRooms = roomTypes;
 
   return (
     <div className="mb-2">
       {/* Main room selection */}
       <div className="mb-6">
         {props.label && (
-          <label className={`font-semibold form-label inline-block mb-1.5 ${displayError ? 'text-red-700' : 'text-slate-700'}`}>
+          <label className={`font-semibold form-label inline-block mb-1.5 ${showMainRoomError ? 'text-red-700' : 'text-slate-700'}`}>
             {props.label}
             {props.required && <span className="text-red-500 ml-1">*</span>}
           </label>
@@ -422,7 +502,7 @@ const RoomsField = (props) => {
         
         {isNdisFunded ? (
           // NDIS funded: Show studio and ocean_view rooms together
-          <div className={`mt-4 ${getRoomContainerClasses(displayError, selectedMainRoom)}`}>
+          <div className={`mt-4 ${getRoomContainerClasses(showMainRoomError, selectedMainRoom)}`}>
             <HorizontalCardSelection
               items={transformRoomData(mainRoomsForNdis)}
               value={selectedMainRoom}
@@ -434,7 +514,7 @@ const RoomsField = (props) => {
           </div>
         ) : (
           // Non-NDIS funded: Show all rooms together
-          <div className={`mt-4 ${getRoomContainerClasses(displayError, selectedMainRoom)}`}>
+          <div className={`mt-4 ${getRoomContainerClasses(showMainRoomError, selectedMainRoom)}`}>
             <HorizontalCardSelection
               items={transformRoomData(allRooms)}
               value={selectedMainRoom}
@@ -446,12 +526,13 @@ const RoomsField = (props) => {
           </div>
         )}
         
-        {displayError && (
+        {/* ONLY show error if the MAIN room itself has an error */}
+        {showMainRoomError && (
           <div className="mt-1.5 flex items-center">
             <svg className="h-4 w-4 text-red-500 mr-1.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
             </svg>
-            <p className="text-red-600 text-sm font-medium">{displayError}</p>
+            <p className="text-red-600 text-sm font-medium">{showMainRoomError}</p>
           </div>
         )}
       </div>
@@ -472,10 +553,19 @@ const RoomsField = (props) => {
       {/* Additional rooms */}
       <div className="mt-4">
         {additionalRooms.map((room, roomIndex) => {
-          // For additional rooms, always use studio rooms only regardless of NDIS status
-          // This maintains the existing business logic for additional room selections
-          const additionalRoomTypes = studioRooms; // Use studioRooms array defined above
+          const additionalRoomTypes = studioRooms;
           const selectedAdditionalRoom = room.name || null;
+
+          // Compute the error state dynamically
+          const hasEmptySelection = !selectedAdditionalRoom || selectedAdditionalRoom.trim() === '';
+          const computedError = hasEmptySelection ? 'Please select a room.' : null;
+          
+          // Only show error if:
+          // 1. User has interacted with this specific room (touched), OR
+          // 2. This room existed when forceShowErrors was triggered (validated)
+          // AND there's actually an error
+          const wasValidated = validatedRoomIndexes.has(roomIndex);
+          const shouldShowError = (touchedAdditionalRooms[roomIndex] || (props.forceShowErrors && wasValidated)) && computedError;
 
           return (
             <div key={roomIndex} className="mb-6 border-t pt-4">
@@ -496,10 +586,10 @@ const RoomsField = (props) => {
                 </button>
               </div>
 
-              {/* Additional room selection */}
-              <div className={`mb-4 ${getRoomContainerClasses(additionalRoomErrors[roomIndex], selectedAdditionalRoom)}`}>
+              {/* Additional room selection - USE shouldShowError for styling */}
+              <div className={`mb-4 ${getRoomContainerClasses(shouldShowError, selectedAdditionalRoom)}`}>
                 <HorizontalCardSelection
-                  items={transformRoomData(additionalRoomTypes, true)} // Pass true for isAdditional
+                  items={transformRoomData(additionalRoomTypes, true)}
                   value={selectedAdditionalRoom}
                   onChange={(roomName) => handleAdditionalRoomChange(roomName, roomIndex)}
                   required={true}
@@ -508,13 +598,13 @@ const RoomsField = (props) => {
                 />
               </div>
 
-              {/* Additional room error */}
-              {additionalRoomErrors[roomIndex] && (
+              {/* Additional room error - USE shouldShowError and computedError */}
+              {shouldShowError && (
                 <div className="mt-1.5 flex items-center">
                   <svg className="h-4 w-4 text-red-500 mr-1.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                   </svg>
-                  <p className="text-red-600 text-sm font-medium">{additionalRoomErrors[roomIndex]}</p>
+                  <p className="text-red-600 text-sm font-medium">{computedError}</p>
                 </div>
               )}
 

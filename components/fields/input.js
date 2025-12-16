@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { validateEmail, validatePhoneNumber } from "../../utilities/common";
 
 const InputField = (props) => {
@@ -19,10 +19,14 @@ const InputField = (props) => {
         size = "medium",
         width,
         builderMode = false,
-        question, // For builder mode
-        builder = false, // Legacy prop for builder mode
-        validateOnMount = true, // New prop to control initial validation
+        question,
+        builder = false,
+        validateOnMount = true,
         forceShowErrors = false,
+        // NEW: Callback to notify parent when autofill is detected
+        onAutofillDetected = null,
+        // NEW: External dirty state (from parent/Redux)
+        externalDirty = null,
         ...otherProps
     } = props;
 
@@ -33,7 +37,13 @@ const InputField = (props) => {
     const [isValid, setIsValid] = useState(false);
     const [isFocused, setIsFocused] = useState(false);
     const [isInitialized, setIsInitialized] = useState(false);
+    const [isAutofilled, setIsAutofilled] = useState(false);
     const inputRef = useRef(null);
+    const lastProcessedAutofillRef = useRef(null);
+    const autofillCheckIntervalRef = useRef(null);
+
+    // Use external dirty state if provided, otherwise use local
+    const effectiveDirty = externalDirty !== null ? externalDirty : dirty;
 
     // Determine actual field type based on props
     const getFieldType = () => {
@@ -44,7 +54,7 @@ const InputField = (props) => {
     };
 
     // Enhanced validation logic with user-friendly messages
-    const validateInput = (inputValue, shouldSetDirty = false) => {
+    const validateInput = useCallback((inputValue, shouldSetDirty = false) => {
         if (propsError) {
             setError(true);
             setErrorMessage(propsError);
@@ -100,18 +110,196 @@ const InputField = (props) => {
         
         setError(false);
         setErrorMessage('');
-        // Set valid state for non-empty, non-required fields or valid required fields
         setIsValid(inputValue && inputValue.trim() !== '');
         if (shouldSetDirty) setDirty(true);
-    };
+    }, [propsError, required, label, type]);
 
-    // Initial setup effect - handles pre-populated data validation
+    // Process autofill value and notify parent
+    const processAutofillValue = useCallback((newValue, source = 'unknown') => {
+        if (!newValue || newValue === value) return;
+        if (lastProcessedAutofillRef.current === newValue) return;
+        
+        lastProcessedAutofillRef.current = newValue;
+        
+        console.log(`🔄 InputField autofill [${source}]:`, {
+            field: name || id || label,
+            value: newValue.substring(0, 20) + (newValue.length > 20 ? '...' : ''),
+            type
+        });
+        
+        setValue(newValue);
+        setDirty(true);
+        setIsAutofilled(true);
+        validateInput(newValue, true);
+        
+        // Notify parent
+        if (onChange) {
+            if (type === 'phone-number') {
+                let errorMsg = null;
+                if (required && newValue && !validatePhoneNumber(newValue)) {
+                    const digitCount = newValue.replace(/\D/g, '').length;
+                    errorMsg = digitCount < 10 
+                        ? 'Phone number must be at least 10 digits'
+                        : 'Please enter a valid phone number';
+                }
+                onChange(newValue, errorMsg);
+            } else if (type === 'email') {
+                let errorMsg = null;
+                if (required && newValue && !validateEmail(newValue)) {
+                    errorMsg = 'Please enter a valid email address';
+                }
+                onChange(newValue, errorMsg);
+            } else {
+                onChange(newValue);
+            }
+        }
+        
+        // Call autofill callback if provided
+        if (onAutofillDetected) {
+            onAutofillDetected(name || id, newValue, { type, source });
+        }
+    }, [value, name, id, label, type, onChange, onAutofillDetected, required, validateInput]);
+
+    // ENHANCED: Comprehensive autofill detection
+    useEffect(() => {
+        if (!inputRef.current) return;
+        const input = inputRef.current;
+        
+        // METHOD 1: Check for :-webkit-autofill pseudo-class
+        const checkAutofillPseudoClass = () => {
+            try {
+                const isAutofillActive = input.matches(':-webkit-autofill');
+                if (isAutofillActive && input.value && input.value !== value) {
+                    processAutofillValue(input.value, 'pseudo-class');
+                }
+            } catch (e) {
+                // Pseudo-class not supported
+            }
+        };
+        
+        // METHOD 2: Background color detection (Chrome shows yellow bg for autofill)
+        const checkBackgroundColor = () => {
+            const computedStyle = window.getComputedStyle(input);
+            const bgColor = computedStyle.backgroundColor;
+            // Chrome autofill typically uses rgb(232, 240, 254) or similar
+            if (bgColor && (
+                bgColor.includes('232, 240, 254') || // Chrome
+                bgColor.includes('250, 255, 189') || // Some browsers use yellow
+                bgColor !== 'rgba(0, 0, 0, 0)' && bgColor !== 'rgb(255, 255, 255)' && bgColor !== 'transparent'
+            )) {
+                if (input.value && input.value !== value) {
+                    processAutofillValue(input.value, 'bg-color');
+                }
+            }
+        };
+        
+        // METHOD 3: Direct value check
+        const checkValue = () => {
+            if (input.value && input.value !== value && !dirty) {
+                processAutofillValue(input.value, 'value-check');
+            }
+        };
+        
+        // METHOD 4: Animation event handler
+        const handleAnimationStart = (e) => {
+            if (e.animationName === 'onAutoFillStart' || e.animationName === 'autofill') {
+                setTimeout(() => {
+                    if (input.value && input.value !== value) {
+                        processAutofillValue(input.value, 'animation');
+                    }
+                }, 10);
+            }
+        };
+        
+        // METHOD 5: Input event without inputType (indicates programmatic change)
+        const handleInput = (e) => {
+            if (!e.inputType && input.value && input.value !== value) {
+                processAutofillValue(input.value, 'input-no-type');
+            }
+        };
+        
+        // METHOD 6: Focus event (Edge shows autofill on focus)
+        const handleFocus = () => {
+            setTimeout(() => {
+                if (input.value && input.value !== value && !dirty) {
+                    processAutofillValue(input.value, 'focus');
+                }
+            }, 50);
+        };
+        
+        // METHOD 7: Change event without user interaction
+        const handleChange = (e) => {
+            if (!input.dataset.userTyping && input.value && input.value !== value) {
+                processAutofillValue(input.value, 'change');
+            }
+        };
+        
+        // Track user typing to differentiate from autofill
+        const handleKeydown = () => {
+            input.dataset.userTyping = 'true';
+            setTimeout(() => {
+                delete input.dataset.userTyping;
+            }, 100);
+        };
+        
+        // Attach listeners
+        input.addEventListener('animationstart', handleAnimationStart);
+        input.addEventListener('input', handleInput);
+        input.addEventListener('focus', handleFocus);
+        input.addEventListener('change', handleChange);
+        input.addEventListener('keydown', handleKeydown);
+        
+        // Run immediate checks
+        checkValue();
+        checkAutofillPseudoClass();
+        checkBackgroundColor();
+        
+        // Schedule delayed checks for different browser timing
+        const timeouts = [
+            setTimeout(checkValue, 100),
+            setTimeout(checkValue, 300),
+            setTimeout(checkValue, 500),
+            setTimeout(checkValue, 1000),
+            setTimeout(checkValue, 2000), // Edge needs longer
+            setTimeout(checkAutofillPseudoClass, 200),
+            setTimeout(checkAutofillPseudoClass, 1000),
+            setTimeout(checkBackgroundColor, 300),
+            setTimeout(checkBackgroundColor, 1000),
+        ];
+        
+        // Periodic check for Edge (which may autofill later)
+        autofillCheckIntervalRef.current = setInterval(() => {
+            checkValue();
+            checkAutofillPseudoClass();
+        }, 2000);
+        
+        // Stop periodic checks after 10 seconds
+        setTimeout(() => {
+            if (autofillCheckIntervalRef.current) {
+                clearInterval(autofillCheckIntervalRef.current);
+            }
+        }, 10000);
+        
+        return () => {
+            input.removeEventListener('animationstart', handleAnimationStart);
+            input.removeEventListener('input', handleInput);
+            input.removeEventListener('focus', handleFocus);
+            input.removeEventListener('change', handleChange);
+            input.removeEventListener('keydown', handleKeydown);
+            timeouts.forEach(t => clearTimeout(t));
+            if (autofillCheckIntervalRef.current) {
+                clearInterval(autofillCheckIntervalRef.current);
+            }
+        };
+    }, [processAutofillValue, value, dirty]);
+
+    // Initial setup effect
     useEffect(() => {
         const initialValue = propsValue || defaultValue || "";
         
         if (initialValue && validateOnMount) {
             setValue(initialValue);
-            setDirty(true); // Mark as dirty to show validation feedback
+            setDirty(true);
             validateInput(initialValue);
         } else if (initialValue) {
             setValue(initialValue);
@@ -119,7 +307,7 @@ const InputField = (props) => {
         }
         
         setIsInitialized(true);
-    }, []); // Only run on mount
+    }, []);
 
     // Handle builder mode initialization
     useEffect(() => {
@@ -131,9 +319,9 @@ const InputField = (props) => {
                 validateInput(questionValue);
             }
         }
-    }, [builderMode, builder, question]);
+    }, [builderMode, builder, question, validateOnMount, validateInput]);
 
-    // Sync with external value changes (after initial mount)
+    // Sync with external value changes
     useEffect(() => {
         if (isInitialized && propsValue !== undefined && propsValue !== value) {
             setValue(propsValue);
@@ -142,145 +330,55 @@ const InputField = (props) => {
             }
             validateInput(propsValue, propsValue && validateOnMount);
         }
-    }, [propsValue, isInitialized]);
+    }, [propsValue, isInitialized, value, validateOnMount, validateInput]);
 
-    // Validation effect - runs when dependencies change
+    // Validation effect
     useEffect(() => {
         if (isInitialized) {
             validateInput(value);
         }
-    }, [propsError, required, type, isInitialized]);
+    }, [propsError, required, type, isInitialized, validateInput, value]);
 
-    // Autofill detection
+    // Sync external dirty state
     useEffect(() => {
-        if (!inputRef.current) return;
-
-        // Function to process autofilled value
-        const processAutofillValue = (newValue) => {
-            if (newValue !== value) {
-                setValue(newValue);
-                setDirty(true);
-                onChange && onChange(newValue);
-                validateInput(newValue, true);
-            }
-        };
-
-        // Method 1: CSS background-image detection (Chrome/Safari)
-        const detectAutofill = () => {
-            if (
-                inputRef.current && 
-                window.getComputedStyle(inputRef.current, null).getPropertyValue('background-image') !== 'none' &&
-                inputRef.current.value !== value
-            ) {
-                processAutofillValue(inputRef.current.value);
-            }
-        };
-
-        // Method 2: Input event listener (Edge compatibility)
-        const handleInput = (e) => {
-            processAutofillValue(e.target.value);
-        };
-
-        // Method 3: Focus event listener (catches when user clicks autofilled field in Edge)
-        const handleFocus = (e) => {
-            // Small delay to ensure autofill has completed
-            setTimeout(() => {
-                if (e.target.value && e.target.value !== value) {
-                    processAutofillValue(e.target.value);
-                }
-            }, 50);
-        };
-
-        // Method 4: Change event listener (backup detection)
-        const handleChange = (e) => {
-            processAutofillValue(e.target.value);
-        };
-
-        // Run initial detection
-        detectAutofill();
-        
-        // Run detection with delays for slower autofill
-        const timeout1 = setTimeout(detectAutofill, 100);
-        const timeout2 = setTimeout(detectAutofill, 500);
-        const timeout3 = setTimeout(detectAutofill, 1500); // Extra delay for Edge
-        
-        // Add event listeners
-        const inputElement = inputRef.current;
-        inputElement.addEventListener('input', handleInput);
-        inputElement.addEventListener('focus', handleFocus);
-        inputElement.addEventListener('change', handleChange);
-        inputElement.classList.add('autofill-monitor');
-        
-        // Cleanup
-        return () => {
-            clearTimeout(timeout1);
-            clearTimeout(timeout2);
-            clearTimeout(timeout3);
-            if (inputElement) {
-                inputElement.removeEventListener('input', handleInput);
-                inputElement.removeEventListener('focus', handleFocus);
-                inputElement.removeEventListener('change', handleChange);
-            }
-        };
-    }, [onChange, value]);
-
-    const handleOnAnimationStart = (e) => {
-        if (e.animationName === 'onAutoFillStart') {
-            const newValue = inputRef.current.value;
-            if (newValue !== value) {
-                setValue(newValue);
-                setDirty(true);
-                onChange && onChange(newValue);
-                validateInput(newValue, true);
-            }
+        if (externalDirty !== null && externalDirty !== dirty) {
+            setDirty(externalDirty);
         }
-    };
-    
+    }, [externalDirty, dirty]);
+
     // Add CSS for autofill detection
     useEffect(() => {
-        // Check if style already exists to avoid duplicates
         if (document.getElementById('autofill-detection-styles')) return;
         
         const styleEl = document.createElement('style');
         styleEl.id = 'autofill-detection-styles';
         styleEl.textContent = `
             @keyframes onAutoFillStart {
-                from {/**/}
-                to {/**/}
+                from { opacity: 1; }
+                to { opacity: 1; }
             }
             
             @keyframes onAutoFillCancel {
-                from {/**/}
-                to {/**/}
+                from { opacity: 1; }
+                to { opacity: 1; }
             }
             
             input:-webkit-autofill {
-                animation-name: onAutoFillStart;
-                transition: background-color 50000s ease-in-out 0s;
+                animation-name: onAutoFillStart !important;
+                animation-duration: 0.001s !important;
             }
             
             input:not(:-webkit-autofill) {
-                animation-name: onAutoFillCancel;
+                animation-name: onAutoFillCancel !important;
             }
         `;
         document.head.appendChild(styleEl);
         
         return () => {
-            const existingStyle = document.getElementById('autofill-detection-styles');
-            if (existingStyle) {
-                document.head.removeChild(existingStyle);
-            }
+            // Don't remove - other inputs may need it
         };
     }, []);
 
-    useEffect(() => {
-        // Update internal value when external value prop changes
-        if (props.value !== undefined && props.value !== value) {
-            setValue(props.value);
-        }
-    }, [props.value]);
-
-    // MODIFIED: handleOnBlur - only change for phone-number
     const handleOnBlur = (e) => {
         const val = e.target.value;
         setValue(val);
@@ -288,7 +386,6 @@ const InputField = (props) => {
         setIsFocused(false);
         validateInput(val, true);
         
-        // PHONE-NUMBER SPECIFIC: Pass error to parent using imported validation
         if (onBlur) {
             if (type === 'phone-number') {
                 let errorMsg = null;
@@ -299,24 +396,47 @@ const InputField = (props) => {
                         : 'Please enter a valid phone number (e.g., (555) 123-4567)';
                 }
                 onBlur(val, errorMsg);
+            } else if (type === 'email') {
+                let errorMsg = null;
+                if (required && val && !validateEmail(val)) {
+                    errorMsg = 'Please enter a valid email address';
+                }
+                onBlur(val, errorMsg);
             } else {
                 onBlur(val);
             }
         }
     };
 
-    const handleOnFocus = (e) => {
+    const handleOnFocus = () => {
         setIsFocused(true);
+        
+        // Check for autofill on focus (Edge behavior)
+        setTimeout(() => {
+            if (inputRef.current && inputRef.current.value && inputRef.current.value !== value && !dirty) {
+                processAutofillValue(inputRef.current.value, 'focus-delayed');
+            }
+        }, 50);
     };
 
-    // MODIFIED: handleOnChange - only change for phone-number
     const handleOnChange = (e) => {
         const val = e.target.value;
+        
+        // Mark as user typing
+        if (inputRef.current) {
+            inputRef.current.dataset.userTyping = 'true';
+            setTimeout(() => {
+                if (inputRef.current) {
+                    delete inputRef.current.dataset.userTyping;
+                }
+            }, 100);
+        }
+        
         setValue(val);
         setDirty(true);
+        setIsAutofilled(false); // User is now typing, not autofill
         validateInput(val, true);
         
-        // PHONE-NUMBER SPECIFIC: Pass error to parent using imported validation
         if (onChange) {
             if (type === 'phone-number') {
                 let errorMsg = null;
@@ -327,16 +447,21 @@ const InputField = (props) => {
                         : 'Please enter a valid phone number (e.g., (555) 123-4567)';
                 }
                 onChange(val, errorMsg);
+            } else if (type === 'email') {
+                let errorMsg = null;
+                if (required && val && !validateEmail(val)) {
+                    errorMsg = 'Please enter a valid email address';
+                }
+                onChange(val, errorMsg);
             } else {
                 onChange(val);
             }
         }
     };
 
-    const shouldShowError = propsError || (error && (dirty || forceShowErrors));
-    const shouldShowValid = !shouldShowError && isValid && (dirty || forceShowErrors);
+    const shouldShowError = propsError || (error && (effectiveDirty || forceShowErrors));
+    const shouldShowValid = !shouldShowError && isValid && (effectiveDirty || forceShowErrors);
 
-    // Get border and focus colors based on state
     const getBorderClasses = () => {
         if (shouldShowError) {
             return 'border-red-400 focus:border-red-500 focus:ring-2 focus:ring-red-200';
@@ -350,7 +475,6 @@ const InputField = (props) => {
         return 'border-gray-300 focus:border-blue-400 focus:ring-2 focus:ring-blue-200';
     };
 
-    // Get background color based on state
     const getBackgroundClasses = () => {
         if (shouldShowError) {
             return 'bg-red-50 focus:bg-white';
@@ -358,10 +482,12 @@ const InputField = (props) => {
         if (shouldShowValid) {
             return 'bg-green-50 focus:bg-white';
         }
+        if (isAutofilled) {
+            return 'bg-blue-50 focus:bg-white'; // Indicate autofilled state
+        }
         return 'bg-white';
     };
 
-    // Status icon component
     const StatusIcon = () => {
         if (shouldShowError) {
             return (
@@ -384,7 +510,6 @@ const InputField = (props) => {
         return null;
     };
 
-    // Size classes
     const getSizeClasses = () => {
         switch (size) {
             case "small":
@@ -397,12 +522,11 @@ const InputField = (props) => {
         }
     };
 
-    // Container width style
     const containerStyle = {
         width: width || "100%"
     };
 
-    // Builder mode rendering - simplified for template builder
+    // Builder mode rendering
     if (builderMode || builder) {
         return (
             <div className="w-full">
@@ -426,8 +550,6 @@ const InputField = (props) => {
                         onBlur={handleOnBlur}
                         onFocus={handleOnFocus}
                         onChange={handleOnChange}
-                        onAnimationStart={handleOnAnimationStart}
-                        onInput={(e) => handleOnChange(e)}
                         {...otherProps}
                     />
                     <StatusIcon />
@@ -467,6 +589,7 @@ const InputField = (props) => {
                         required={required}
                         placeholder={placeholder}
                         type={getFieldType()}
+                        data-autofilled={isAutofilled ? 'true' : 'false'}
                         className={`
                             block w-full font-normal text-gray-700 bg-clip-padding 
                             border border-solid rounded-lg shadow-sm transition-all ease-in-out duration-200
@@ -479,8 +602,6 @@ const InputField = (props) => {
                         onBlur={handleOnBlur}
                         onFocus={handleOnFocus}
                         onChange={handleOnChange}
-                        onAnimationStart={handleOnAnimationStart}
-                        onInput={(e) => handleOnChange(e)}
                         {...otherProps}
                     />
                     <StatusIcon />
