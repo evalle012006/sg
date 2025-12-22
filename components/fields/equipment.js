@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef, memo } from "react";
+import { useEffect, useState, useCallback, useRef, memo, forwardRef, useImperativeHandle } from "react";
 import _ from "lodash";
 import RadioField from "./radioField";
 import CheckBoxField from "./checkboxField";
@@ -10,7 +10,7 @@ import HorizontalCardSelection from "../ui-v2/HorizontalCardSelection";
 import ImageModal from "../ui-v2/ImageModal";
 import { getDefaultImage } from "../../lib/defaultImages";
 
-const EquipmentField = memo((props) => {
+const EquipmentField = memo(forwardRef((props, ref) => {
     const bookingType = useSelector(state => state.bookingRequestForm.bookingType);
     
     // State management
@@ -49,6 +49,18 @@ const EquipmentField = memo((props) => {
 
     const [imageModalOpen, setImageModalOpen] = useState(false);
     const [selectedImage, setSelectedImage] = useState({ url: '', alt: '' });
+
+    useImperativeHandle(ref, () => ({
+        validate: (forceShowAllErrors = true) => {
+            console.log('🔴 FORCING EQUIPMENT VALIDATION');
+            const result = validateSelections(forceShowAllErrors);
+            console.log('🔴 Validation result:', result.allValid ? 'VALID ✅' : 'INVALID ❌');
+            return result.allValid;
+        },
+        getChanges: () => equipmentChanges,
+        clearErrors: () => setCategoryErrors({}),
+        getValidationDetails: () => validateSelections(false)
+    }));
 
     // Cleanup on unmount
     useEffect(() => {
@@ -610,13 +622,11 @@ const EquipmentField = memo((props) => {
         return null;
     };
 
-    // FIXED: Validation that properly checks ALL required fields for validity
-    // while only displaying errors for touched fields (better UX)
-    const validateSelections = () => {
+    const validateSelections = (forceShowAllErrors = false) => {
         const categories = Object.keys(groupedEquipments);
         let allValid = true;
         const errors = {};        // All validation errors (for allValid calculation)
-        const displayErrors = {}; // Only errors to display (touched fields)
+        const displayErrors = {}; // Only errors to display (touched or forced)
 
         categories.forEach(categoryName => {
             if (!categoryName || categoryName === 'null') return;
@@ -640,147 +650,116 @@ const EquipmentField = memo((props) => {
                             const hasInteracted = categoryTouched[`${equipmentKey}_quantity`];
                             const quantity = equipmentMetaData[equipmentKey]?.quantity;
                             
-                            // Validate quantity is within acceptable range (0-2)
-                            if (quantity !== undefined && (quantity < 0 || quantity > 2)) {
-                                const errorMsg = `${equipment.name} quantity must be between 0 and 2`;
-                                errors[`${equipmentKey}_quantity`] = errorMsg;
-                                allValid = false;
-                                if (hasInteracted) {
-                                    displayErrors[`${equipmentKey}_quantity`] = errorMsg;
-                                }
+                            // Only validate if user has interacted or if there's an actual value
+                            if (!hasInteracted && (quantity === undefined || quantity === 0)) {
+                                return; // Skip validation for untouched fields
                             }
                             
-                            // For required infant_care fields
-                            if (isRequired && (quantity === undefined || quantity === null)) {
-                                const errorMsg = `Please specify quantity for ${equipment.name.toLowerCase()}`;
-                                errors[`${equipmentKey}_quantity`] = errorMsg;
+                            // Validate quantity is within acceptable range (0-2)
+                            if (quantity !== undefined && (quantity < 0 || quantity > 2)) {
+                                errors[`${equipmentKey}_quantity`] = `${equipment.name} quantity must be between 0 and 2`;
                                 allValid = false;
-                                if (hasInteracted) {
-                                    displayErrors[`${equipmentKey}_quantity`] = errorMsg;
-                                }
+                            }
+                            
+                            // Only validate if required and no quantity specified AND user has interacted
+                            if (isRequired && hasInteracted && (quantity === undefined || quantity === null)) {
+                                errors[`${equipmentKey}_quantity`] = `Please specify quantity for ${equipment.name.toLowerCase()}`;
+                                allValid = false;
                             }
                         }
                     });
                 }
-            } else if (categoryType === 'binary') {
-                // Binary categories (yes/no questions)
-                const hasSelection = categorySelections[categoryName] !== null && 
-                                    categorySelections[categoryName] !== undefined;
-                
-                if (isRequired && !hasSelection) {
-                    const errorMsg = `Please select an option for ${getBinaryQuestionLabel(categoryName)}`;
-                    errors[categoryName] = errorMsg;
-                    allValid = false;
-                    if (hasUserInteraction) {
-                        displayErrors[categoryName] = errorMsg;
+            } else {
+                // Handle other category types
+                if (categoryType === 'binary') {
+                    // FIXED: Check required fields regardless of user interaction for allValid
+                    if (!categorySelections[categoryName] && isRequired) {
+                        errors[categoryName] = `Please select an option for ${getBinaryQuestionLabel(categoryName)}`;
+                        allValid = false;
                     }
-                }
-            } else if (categoryType === 'confirmation_multi' || categoryType === 'confirmation_single') {
-                // Confirmation categories
-                const confirmationKey = `confirm_${categoryName}`;
-                const confirmSelection = categorySelections[confirmationKey];
-                const confirmInteracted = categoryTouched[confirmationKey];
-                
-                // Check if confirmation question is answered
-                if (isRequired && !confirmSelection) {
-                    const errorMsg = `Please select an option for ${getConfirmationQuestionLabel(categoryName)}`;
-                    errors[confirmationKey] = errorMsg;
-                    allValid = false;
-                    if (confirmInteracted) {
-                        displayErrors[confirmationKey] = errorMsg;
+                } else if (categoryType === 'confirmation_multi' || categoryType === 'confirmation_single') {
+                    const confirmationKey = `confirm_${categoryName}`;
+                    const confirmSelection = categorySelections[confirmationKey];
+                    
+                    // FIXED: Check if confirmation question is unanswered (regardless of interaction)
+                    if (!confirmSelection && isRequired) {
+                        errors[confirmationKey] = `Please select an option for ${getConfirmationQuestionLabel(categoryName)}`;
+                        allValid = false;
                     }
-                }
-                
-                // If confirmed 'yes', check equipment selection
-                if (confirmSelection === 'yes') {
-                    if (categoryType === 'confirmation_single') {
-                        if (!categorySelections[categoryName]) {
-                            const errorMsg = `Please select an option from ${formatCategoryName(categoryName)}`;
-                            errors[categoryName] = errorMsg;
-                            allValid = false;
-                            // Always show this error if they said yes but didn't select
-                            displayErrors[categoryName] = errorMsg;
-                        }
-                    } else {
-                        if (!categorySelections[categoryName] || 
-                            (Array.isArray(categorySelections[categoryName]) && categorySelections[categoryName].length === 0)) {
-                            const errorMsg = `Please select at least one option from ${formatCategoryName(categoryName)}`;
-                            errors[categoryName] = errorMsg;
-                            allValid = false;
-                            displayErrors[categoryName] = errorMsg;
+                    
+                    // If user said "yes", validate the actual selection
+                    if (confirmSelection === 'yes') {
+                        if (categoryType === 'confirmation_single') {
+                            if (!categorySelections[categoryName]) {
+                                errors[categoryName] = `Please select an option from ${formatCategoryName(categoryName)}`;
+                                allValid = false;
+                            }
+                        } else {
+                            if (!categorySelections[categoryName] || 
+                                (Array.isArray(categorySelections[categoryName]) && categorySelections[categoryName].length === 0)) {
+                                errors[categoryName] = `Please select at least one option from ${formatCategoryName(categoryName)}`;
+                                allValid = false;
+                            }
                         }
                     }
-                }
-            } else if (categoryType === 'single_select') {
-                // Single select categories
-                const hasSelection = categorySelections[categoryName] !== null && 
-                                    categorySelections[categoryName] !== undefined;
-                
-                if (isRequired && !hasSelection) {
-                    const fieldName = categoryName === 'mattress_options' ? 'Mattress Options' :
-                                    categoryName === 'sling' ? 'Sling' :
-                                    formatCategoryName(categoryName);
-                    const errorMsg = `Please select a ${fieldName}`;
-                    errors[categoryName] = errorMsg;
-                    allValid = false;
-                    if (hasUserInteraction) {
-                        displayErrors[categoryName] = errorMsg;
+                } else if (categoryType === 'single_select') {
+                    // FIXED: Check required single_select fields regardless of user interaction
+                    if (!categorySelections[categoryName] && isRequired) {
+                        const fieldName = categoryName === 'mattress_options' ? 'Mattress Options' :
+                                        categoryName === 'sling' ? 'Sling' :
+                                        formatCategoryName(categoryName);
+                        errors[categoryName] = `Please select a ${fieldName}`;
+                        allValid = false;
+                    }
+                } else if (categoryType === 'multi_select') {
+                    // For multi_select that's required, validate selection exists
+                    if (isRequired && (!categorySelections[categoryName] || 
+                        (Array.isArray(categorySelections[categoryName]) && categorySelections[categoryName].length === 0))) {
+                        errors[categoryName] = `Please select at least one option from ${formatCategoryName(categoryName)}`;
+                        allValid = false;
                     }
                 }
-            } else if (categoryType === 'multi_select') {
-                // Multi-select categories
-                const hasSelection = categorySelections[categoryName] && 
-                                    Array.isArray(categorySelections[categoryName]) && 
-                                    categorySelections[categoryName].length > 0;
                 
-                if (isRequired && !hasSelection) {
-                    const errorMsg = `Please select at least one option from ${formatCategoryName(categoryName)}`;
-                    errors[categoryName] = errorMsg;
+                // Special validation for sling when ceiling hoist is yes
+                if (categoryName === 'sling' && categorySelections['ceiling_hoist'] === 'yes' && !categorySelections['sling']) {
+                    errors['sling'] = 'Please select a sling option when using ceiling hoist';
                     allValid = false;
-                    if (hasUserInteraction) {
-                        displayErrors[categoryName] = errorMsg;
-                    }
                 }
-            }
-            
-            // Special validation for sling when ceiling hoist is yes
-            if (categoryName === 'sling' && categorySelections['ceiling_hoist'] === 'yes' && !categorySelections['sling']) {
-                const errorMsg = 'Please select a sling option when using ceiling hoist';
-                errors['sling'] = errorMsg;
-                allValid = false;
-                // Always show this error since it's conditionally required
-                displayErrors['sling'] = errorMsg;
             }
         });
 
-        // Special validation for tilt question when visible
+        // Special validation for tilt question
         if (showTiltQuestion && !categorySelections['need_tilt_over_toilet']) {
-            const errorMsg = 'Please select an option for tilt commode question';
-            errors['need_tilt_over_toilet'] = errorMsg;
+            errors['need_tilt_over_toilet'] = 'Please select an option for tilt commode question';
             allValid = false;
-            if (categoryTouched['need_tilt_over_toilet']) {
-                displayErrors['need_tilt_over_toilet'] = errorMsg;
-            }
         }
 
         // Check acknowledgement for non-first-time guests
         if (bookingType !== BOOKING_TYPES.FIRST_TIME_GUEST && !acknowledgementChecked) {
-            const errorMsg = 'Please acknowledge that the information is true and updated';
-            errors['acknowledgement'] = errorMsg;
+            errors['acknowledgement'] = 'Please acknowledge that the information is true and updated';
             allValid = false;
-            // Only display if user has interacted with the form at all
-            const hasAnyInteraction = Object.keys(categoryTouched).length > 0;
-            if (hasAnyInteraction) {
-                displayErrors['acknowledgement'] = errorMsg;
-            }
         }
+
+        // FIXED: Determine which errors to display based on forceShowAllErrors
+        // If forceShowAllErrors is true (form submission), show ALL errors
+        // Otherwise, only show errors for touched fields (better UX during normal interaction)
+        Object.keys(errors).forEach(key => {
+            const shouldDisplay = forceShowAllErrors || 
+                                categoryTouched[key] || 
+                                categoryTouched[`confirm_${key}`] ||
+                                categoryTouched[`${key}_quantity`];
+            if (shouldDisplay) {
+                displayErrors[key] = errors[key];
+            }
+        });
         
-        // Update displayed errors (only touched fields)
+        // Only update displayed errors (categoryErrors state)
         setCategoryErrors(displayErrors);
 
         console.log(allValid ? '✅ All selections valid' : '❌ Validation errors:', {
             allErrors: errors,
-            displayedErrors: displayErrors
+            displayedErrors: displayErrors,
+            forceShowAllErrors
         });
         
         return { allValid, errors: displayErrors, allErrors: errors };
@@ -1827,7 +1806,7 @@ const EquipmentField = memo((props) => {
             />
         </div>
     );
-});
+}));
 
 EquipmentField.displayName = 'EquipmentField';
 

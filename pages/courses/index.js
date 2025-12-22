@@ -4,6 +4,7 @@ import { useRouter } from 'next/router';
 import { Eye, Edit, Trash2, Users, Calendar, List } from 'lucide-react';
 import { toast } from 'react-toastify';
 import moment from 'moment';
+import { formatAUD } from '../../utilities/priceUtil';
 
 const Layout = dynamic(() => import('../../components/layout'));
 const Table = dynamic(() => import('../../components/ui-v2/Table'));
@@ -133,8 +134,8 @@ export default function ManageCourses() {
                     
                     // Use stored pricing
                     if (course.holiday_price !== null && course.sta_price !== null) {
-                        temp.formattedHolidayPrice = `${parseFloat(course.holiday_price).toFixed(2)}`;
-                        temp.formattedSTAPrice = `${parseFloat(course.sta_price).toFixed(2)}`;
+                        temp.formattedHolidayPrice = formatAUD(parseFloat(course.holiday_price));
+                        temp.formattedSTAPrice = formatAUD(parseFloat(course.sta_price));
                         temp.pricingCalculated = true;
                         temp.priceCalculatedAt = course.price_calculated_at;
                     } else {

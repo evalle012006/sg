@@ -176,6 +176,12 @@ const extractGuestRequirementsFromFormData = (formData) => {
     return requirements;
   }
 
+  // Track holiday-indicating answers for NDIS package type determination
+  let liveAlone = false;
+  let liveInSil = false;
+  let informalSupports = false;
+  let staStatedSupport = false;
+
   // Look through all pages for answered questions
   for (const page of formData) {
     if (!page.Sections) continue;
@@ -191,11 +197,29 @@ const extractGuestRequirementsFromFormData = (formData) => {
           }
           
           if (questionHasKey(question, QUESTION_KEYS.IS_STA_STATED_SUPPORT)) {
-            requirements.sta_in_plan = question.answer.toLowerCase().includes('yes');
+            staStatedSupport = question.answer.toLowerCase().includes('yes');
+            requirements.sta_in_plan = staStatedSupport;
           }
           
           if (questionHasKey(question, QUESTION_KEYS.COURSE_OFFER_QUESTION)) {
             requirements.has_course = question.answer.toLowerCase().includes('yes');
+          }
+
+          // ✅ NEW: Check holiday-indicating questions
+          if (questionHasKey(question, QUESTION_KEYS.DO_YOU_LIVE_ALONE) && 
+              question.answer.toLowerCase().includes('yes')) {
+            liveAlone = true;
+          }
+          
+          if (questionHasKey(question, QUESTION_KEYS.DO_YOU_LIVE_IN_SIL) && 
+              question.answer.toLowerCase().includes('yes')) {
+            liveInSil = true;
+          }
+          
+          if ((questionHasKey(question, QUESTION_KEYS.ARE_YOU_STAYING_WITH_INFORMAL_SUPPORTS) ||
+               questionHasKey(question, QUESTION_KEYS.ARE_YOU_TRAVELLING_WITH_INFORMAL_SUPPORTS)) && 
+              question.answer.toLowerCase().includes('yes')) {
+            informalSupports = true;
           }
         }
       }
@@ -210,14 +234,49 @@ const extractGuestRequirementsFromFormData = (formData) => {
           }
           
           if (questionHasKey(qaPair.Question, QUESTION_KEYS.IS_STA_STATED_SUPPORT)) {
-            requirements.sta_in_plan = qaPair.answer.toLowerCase().includes('yes');
+            staStatedSupport = qaPair.answer.toLowerCase().includes('yes');
+            requirements.sta_in_plan = staStatedSupport;
           }
           
           if (questionHasKey(qaPair.Question, QUESTION_KEYS.COURSE_OFFER_QUESTION)) {
             requirements.has_course = qaPair.answer.toLowerCase().includes('yes');
           }
+
+          // ✅ NEW: Check holiday-indicating questions from QaPairs
+          if (questionHasKey(qaPair.Question, QUESTION_KEYS.DO_YOU_LIVE_ALONE) && 
+              qaPair.answer.toLowerCase().includes('yes')) {
+            liveAlone = true;
+          }
+          
+          if (questionHasKey(qaPair.Question, QUESTION_KEYS.DO_YOU_LIVE_IN_SIL) && 
+              qaPair.answer.toLowerCase().includes('yes')) {
+            liveInSil = true;
+          }
+          
+          if ((questionHasKey(qaPair.Question, QUESTION_KEYS.ARE_YOU_STAYING_WITH_INFORMAL_SUPPORTS) ||
+               questionHasKey(qaPair.Question, QUESTION_KEYS.ARE_YOU_TRAVELLING_WITH_INFORMAL_SUPPORTS)) && 
+              qaPair.answer.toLowerCase().includes('yes')) {
+            informalSupports = true;
+          }
         }
       }
+    }
+  }
+  
+  // ✅ NEW: Determine NDIS package type based on flowchart logic
+  if (requirements.funder_type === 'NDIS') {
+    // According to flowchart:
+    // If live alone OR SIL OR informal supports = YES → Holiday packages
+    // Otherwise check STA → STA packages
+    const isHolidayType = liveAlone || liveInSil || informalSupports;
+    
+    if (isHolidayType) {
+      // For now default to 'holiday' - care hours will determine 'holiday-plus' later
+      requirements.ndis_package_type = 'holiday';
+      console.log('🏖️ Holiday package type detected:', { liveAlone, liveInSil, informalSupports });
+    } else {
+      requirements.ndis_package_type = 'sta';
+      console.log('🏛️ STA package type (no holiday conditions met)');
     }
   }
   

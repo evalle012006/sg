@@ -3,6 +3,7 @@ import { GetField } from "../../../components/fields"
 import { useDebouncedCallback } from 'use-debounce';
 import { useDispatch, useSelector } from "react-redux";
 import { fetchTemplate, templateActions } from "./../../../store/templateSlice";
+import { HelpCircle, X } from 'lucide-react';
 
 export default function FieldBuilder(props) {
     const [question, setQuestion] = useState(props.question || undefined);
@@ -11,6 +12,7 @@ export default function FieldBuilder(props) {
     const dispatch = useDispatch();
     const template_uuid = useSelector(state => state.builder.template.uuid);
     const nonRequiredFields = ['url', 'rich-text'];
+    const [tooltipValue, setTooltipValue] = useState(props.question?.tooltip || '');
 
     const labelSelector = [
         { label: "", value: "" },
@@ -353,6 +355,28 @@ export default function FieldBuilder(props) {
             setOptionSyncStatus(false);
         }
     }
+
+    useEffect(() => {
+        setTooltipValue(props.question?.tooltip || '');
+    }, [props.question?.tooltip]);
+
+    // Update function
+    const updateTooltip = async (value) => {
+        const updatedQuestion = { ...question, tooltip: value || null };
+        setQuestion(updatedQuestion);
+        
+        const response = await fetch('/api/booking-templates/questions/' + question.id, {
+            method: 'POST',
+            body: JSON.stringify(updatedQuestion),
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        if (response.status == 200) {
+            dispatch(fetchTemplate(template_uuid));
+        }
+    };
+
+    const debounceUpdateTooltip = useDebouncedCallback((value) => updateTooltip(value), 1000);
 
     const addOption = async () => {
         const currentOptions = typeof question.options === 'string' ? 
@@ -725,6 +749,35 @@ export default function FieldBuilder(props) {
                     debounceHandleQuestionChanges(updatedQuestion);
                 }}
             />
+
+            {/* Tooltip Field */}
+            <div className="mt-4 mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Tooltip / Help Text
+                    {question.tooltip && <span className="ml-2 text-green-600 text-xs">(active)</span>}
+                </label>
+                <div className="flex items-start gap-2">
+                    <textarea
+                        className="flex-1 p-2 border border-gray-300 rounded-md text-sm resize-y min-h-[60px]"
+                        placeholder="Enter additional help information for this question"
+                        value={tooltipValue}
+                        onChange={(e) => {
+                            setTooltipValue(e.target.value);
+                            debounceUpdateTooltip(e.target.value);
+                        }}
+                    />
+                    {tooltipValue && (
+                        <button
+                            type="button"
+                            className="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded"
+                            onClick={() => { setTooltipValue(''); updateTooltip(''); }}
+                            title="Clear tooltip"
+                        >
+                            <X size={16} />
+                        </button>
+                    )}
+                </div>
+            </div>
             
             {/* Option Type Selector for Card Selection Fields */}
             {isCardSelectionField && (

@@ -673,31 +673,34 @@ export const applyQuestionDependenciesAcrossPages = (targetPage, allPages, booki
         return false;
     };
 
-    // Calculate NDIS funding status from form data
-    const calculateNdisFundingStatus = (pages) => {
+    const getCurrentFunder = (pages) => {
         for (const page of pages) {
             for (const section of page.Sections || []) {
                 for (const question of section.Questions || []) {
                     if (questionHasKey(question, QUESTION_KEYS.FUNDING_SOURCE) &&
-                        question.answer &&
-                        (question.answer?.toLowerCase().includes('ndis') || question.answer?.toLowerCase().includes('ndia'))) {
-                        return true;
+                        question.answer) {
+                        return question.answer;
                     }
                 }
                 // Also check QaPairs
                 for (const qaPair of section.QaPairs || []) {
                     if (questionHasKey(qaPair.Question, QUESTION_KEYS.FUNDING_SOURCE) && qaPair.answer) {
-                        if (qaPair.answer?.toLowerCase().includes('ndis') || qaPair.answer?.toLowerCase().includes('ndia')) {
-                            return true;
-                        }
+                        return qaPair.answer;
                     }
                 }
             }
         }
-        return false;
+        return null;
     };
 
-    const currentIsNdisFunded = calculateNdisFundingStatus(allPages);
+    const currentFunder = getCurrentFunder(pages);
+    let currentIsNdisFunded = false;
+    let currentIsIcareFunded = false;
+    if (currentFunder && (currentFunder.toLowerCase().includes('ndis') || currentFunder.toLowerCase().includes('ndia'))) {
+        currentIsNdisFunded = true;
+    } else if (currentFunder && currentFunder.toLowerCase().includes('icare')) {
+        currentIsIcareFunded = true;
+    }
 
     let updatedPage = { ...targetPage };
     updatedPage.Sections = targetPage.Sections.map(section => {
@@ -716,7 +719,27 @@ export const applyQuestionDependenciesAcrossPages = (targetPage, allPages, booki
                 updatedSection.hidden = true;
 
                 // Show if NDIS funded (simplified logic without room checking for consistency)
-                if (currentIsNdisFunded) {
+                if (currentIsNdisFunded && bookingFormRoomSelected.length > 0 && (bookingFormRoomSelected[0]?.type != 'studio' || bookingFormRoomSelected.length > 1)) {
+                    question.hidden = false;
+                    updatedSection.hidden = false;
+                }
+
+                // Only update if visibility actually changed to avoid infinite renders
+                if (wasHidden !== question.hidden) {
+                    updatedSection.Questions = [{ ...question }];
+                }
+
+                return updatedSection;
+            }
+
+            if (question.question_key === 'i-acknowledge-additional-costs-icare') {
+                const wasHidden = question.hidden;
+                
+                // Default to hidden
+                question.hidden = true;
+                updatedSection.hidden = true;
+                // Show if NDIS funded (simplified logic without room checking for consistency)
+                if (currentIsIcareFunded && bookingFormRoomSelected.length > 0 && bookingFormRoomSelected[0]?.type === 'ocean_view') {
                     question.hidden = false;
                     updatedSection.hidden = false;
                 }
@@ -1227,36 +1250,17 @@ export const convertQAtoQuestionWithNdisFilter = (qa_pairs, sectionId, returnee,
  * @returns {Array} - Updated pages with refreshed dependencies
  */
 export const forceRefreshAllDependencies = (allPages, bookingFormRoomSelected = []) => {
-    // console.log('🔄 Starting comprehensive dependency refresh with cascade support...');
-    
     // Create a working copy of all pages
     let workingPages = structuredClone(allPages);
     
-    // Calculate NDIS funding status from form data
-    const calculateNdisFundingStatus = (pages) => {
-        for (const page of pages) {
-            for (const section of page.Sections || []) {
-                for (const question of section.Questions || []) {
-                    if (questionHasKey(question, QUESTION_KEYS.FUNDING_SOURCE) &&
-                        question.answer &&
-                        (question.answer?.toLowerCase().includes('ndis') || question.answer?.toLowerCase().includes('ndia'))) {
-                        return true;
-                    }
-                }
-                // Also check QaPairs
-                for (const qaPair of section.QaPairs || []) {
-                    if (questionHasKey(qaPair.Question, QUESTION_KEYS.FUNDING_SOURCE) && qaPair.answer) {
-                        if (qaPair.answer?.toLowerCase().includes('ndis') || qaPair.answer?.toLowerCase().includes('ndia')) {
-                            return true;
-                        }
-                    }
-                }
-            }
-        }
-        return false;
-    };
-
-    const currentIsNdisFunded = calculateNdisFundingStatus(workingPages);
+    const currentFunder = getCurrentFunder(workingPages);
+    let currentIsNdisFunded = false;
+    let currentIsIcareFunded = false;
+    if (currentFunder && (currentFunder.toLowerCase().includes('ndis') || currentFunder.toLowerCase().includes('ndia'))) {
+        currentIsNdisFunded = true;
+    } else if (currentFunder && currentFunder.toLowerCase().includes('icare')) {
+        currentIsIcareFunded = true;
+    }
     
     // Build the initial answer map from current question states
     const buildAnswerMap = (pages) => {
@@ -1397,7 +1401,28 @@ export const forceRefreshAllDependencies = (allPages, bookingFormRoomSelected = 
                         // Check if visibility actually changed to track changes
                         if (wasHidden !== question.hidden || wasSectionHidden !== updatedSection.hidden) {
                             hasChanges = true;
-                            // console.log(`  📋 Pass ${passCount}: "I acknowledge additional charges" visibility changed: ${wasHidden ? 'hidden' : 'visible'} → ${question.hidden ? 'hidden' : 'visible'}`);
+                        }
+
+                        updatedSection.Questions = [{ ...question }];
+                        return updatedSection;
+                    }
+
+                    if (question.question_key === 'i-acknowledge-additional-costs-icare') {
+                        const wasHidden = question.hidden;
+                        const wasSectionHidden = updatedSection.hidden;
+                        
+                        // Default to hidden
+                        question.hidden = true;
+                        updatedSection.hidden = true;
+                        // Show if ICare funded AND ocean_view room selected
+                        if (currentIsIcareFunded && bookingFormRoomSelected.length > 0 && bookingFormRoomSelected[0]?.type === 'ocean_view') {
+                            question.hidden = false;
+                            updatedSection.hidden = false;
+                        }
+
+                        // Check if visibility actually changed to track changes
+                        if (wasHidden !== question.hidden || wasSectionHidden !== updatedSection.hidden) {
+                            hasChanges = true;
                         }
 
                         updatedSection.Questions = [{ ...question }];
@@ -1447,7 +1472,7 @@ export const forceRefreshAllDependencies = (allPages, bookingFormRoomSelected = 
                     // Check if visibility changed
                     if (wasHidden !== q.hidden) {
                         hasChanges = true;
-                        // console.log(`  📋 Pass ${passCount}: Question "${q.question}" visibility changed: ${wasHidden ? 'hidden' : 'visible'} → ${q.hidden ? 'hidden' : 'visible'}`);
+                        console.log(`  📋 Pass ${passCount}: Question "${q.question}" visibility changed: ${wasHidden ? 'hidden' : 'visible'} → ${q.hidden ? 'hidden' : 'visible'}`);
                     }
                     
                     return q;
@@ -1902,4 +1927,24 @@ export const getInfantCareQuestionMapping = (equipmentName) => {
         questionKey: generateInfantCareQuestionKey(equipmentName),
         questionText: generateInfantCareQuestionText(equipmentName)
     };
+};
+
+export const getCurrentFunder = (pages) => {
+    for (const page of pages) {
+        for (const section of page.Sections || []) {
+            for (const question of section.Questions || []) {
+                if (questionHasKey(question, QUESTION_KEYS.FUNDING_SOURCE) &&
+                    question.answer) {
+                    return question.answer;
+                }
+            }
+            // Also check QaPairs
+            for (const qaPair of section.QaPairs || []) {
+                if (questionHasKey(qaPair.Question, QUESTION_KEYS.FUNDING_SOURCE) && qaPair.answer) {
+                    return qaPair.answer;
+                }
+            }
+        }
+    }
+    return null;
 };

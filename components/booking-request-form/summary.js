@@ -6,6 +6,7 @@ import { getNSWHolidaysV2 } from '../../services/booking/create-summary-data';
 import { serializePackage } from '../../utilities/common';
 import { findByQuestionKey, QUESTION_KEYS } from '../../services/booking/question-helper';
 import { scroller, Element } from 'react-scroll';
+import { formatAUD } from '../../utilities/priceUtil';
 
 const SummaryOfStay = ({ 
   bookingData, 
@@ -28,7 +29,8 @@ const SummaryOfStay = ({
   const [totalPackageCost, setTotalPackageCost] = useState(0);
   const [totalRoomCosts, setTotalRoomCosts] = useState({
     roomUpgrade: 0,
-    additionalRoom: 0
+    additionalRoom: 0,
+    hspAccommodation: 0 // For HSP packages - all rooms use hsp_pricing
   });
   const [verbalConsent, setVerbalConsent] = useState({ 
     checked: false, 
@@ -46,9 +48,10 @@ const SummaryOfStay = ({
 
   // ✅ Auto-scroll to top when Summary of Stay is displayed
   useEffect(() => {
-    // Use double requestAnimationFrame to ensure DOM is fully painted
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
+    // Use multiple approaches to ensure scrolling works
+    const scrollToTop = () => {
+      // Approach 1: Try react-scroll's scroller
+      try {
         scroller.scrollTo('summary-of-stay-top', {
           duration: 350,
           delay: 0,
@@ -58,8 +61,47 @@ const SummaryOfStay = ({
           isDynamic: true,
           ignoreCancelEvents: false
         });
+      } catch (e) {
+        console.log('react-scroll failed, trying fallback');
+      }
+
+      // Approach 2: Direct DOM scroll on the container
+      const mainContainer = document.getElementById('main-content-container');
+      if (mainContainer) {
+        mainContainer.scrollTo({
+          top: 0,
+          behavior: 'smooth'
+        });
+      }
+
+      // Approach 3: Scroll the summary container into view
+      if (summaryContainerRef.current) {
+        summaryContainerRef.current.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start'
+        });
+      }
+
+      // Approach 4: Window scroll as last resort
+      window.scrollTo({
+        top: 0,
+        behavior: 'smooth'
+      });
+    };
+
+    // Use double requestAnimationFrame to ensure DOM is fully painted
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        scrollToTop();
       });
     });
+
+    // Also try after a small delay in case the DOM isn't ready
+    const timeoutId = setTimeout(() => {
+      scrollToTop();
+    }, 100);
+
+    return () => clearTimeout(timeoutId);
   }, []);
 
   // Helper to check if package is NDIS Support Holiday Package (any type)
@@ -370,6 +412,16 @@ const SummaryOfStay = ({
     }
   };
 
+  // ✅ NEW: Helper to get room price based on package type
+  const getRoomPrice = (room, isHSP) => {
+    if (isHSP) {
+      // For HSP packages, use hsp_pricing if available, otherwise fall back to regular price
+      return room.hsp_pricing || room.price || room.price_per_night || 0;
+    }
+    // For non-HSP packages, use regular pricing
+    return room.price || room.price_per_night || 0;
+  };
+
   useEffect(() => {
     let summaryData = { ...bookingData };
 
@@ -413,50 +465,94 @@ const SummaryOfStay = ({
     // Calculate room costs
     const nights = summaryData.data?.nights || 0;
     
+    // ✅ Determine if this is an HSP package for pricing logic
+    const packageCode = resolvedPackageData?.package_code || summaryData?.data?.packageCode || '';
+    const isHSP = packageCode === 'HOLIDAY_SUPPORT_PLUS' || packageCode === 'HOLIDAY_SUPPORT';
+    
     if (roomsToUse && roomsToUse.length > 0) {
-      // For room cost calculations, we need to identify:
-      // 1. Base room (included in package - typically studio for NDIS)
-      // 2. Room upgrade (if first room is not studio)
-      // 3. Additional rooms (any rooms beyond the first)
-      
-      // Find the first non-studio room for upgrade calculation
-      const nonStudioRooms = roomsToUse.filter(room => room.type !== 'studio');
-      
-      let roomUpgradePerNight = 0;
-      let additionalRoomPerNight = 0;
-      
-      if (nonStudioRooms.length > 0) {
-        // First non-studio room is the upgrade
-        roomUpgradePerNight = nonStudioRooms[0].price || nonStudioRooms[0].price_per_night || 0;
-        summaryData.roomUpgrade = roomUpgradePerNight;
+      if (isHSP) {
+        // ✅ HSP PACKAGE LOGIC: All rooms use hsp_pricing, including main room
+        console.log('🏨 Calculating HSP room costs using hsp_pricing...');
         
-        // Additional rooms are any non-studio rooms after the first
-        if (nonStudioRooms.length > 1) {
-          additionalRoomPerNight = nonStudioRooms
-            .slice(1)
-            .reduce((total, room) => total + (room.price || room.price_per_night || 0), 0);
-        }
-        summaryData.additionalRoom = additionalRoomPerNight;
+        let totalHspCostPerNight = 0;
+        const hspRoomBreakdown = [];
+        
+        roomsToUse.forEach((room, index) => {
+          const roomPrice = getRoomPrice(room, true); // Use HSP pricing
+          totalHspCostPerNight += roomPrice;
+          
+          hspRoomBreakdown.push({
+            name: room.room || room.name || room.label || `Room ${index + 1}`,
+            type: room.type,
+            pricePerNight: roomPrice,
+            isMainRoom: index === 0
+          });
+          
+          console.log(`  Room ${index + 1} (${room.type}): $${roomPrice}/night (hsp_pricing)`);
+        });
+        
+        summaryData.hspRoomBreakdown = hspRoomBreakdown;
+        summaryData.hspTotalPerNight = totalHspCostPerNight;
+        
+        setTotalRoomCosts({
+          roomUpgrade: 0,
+          additionalRoom: 0,
+          hspAccommodation: totalHspCostPerNight * nights
+        });
+        
+        console.log('🏨 HSP Room costs calculated:', {
+          totalRooms: roomsToUse.length,
+          totalPerNight: totalHspCostPerNight,
+          nights,
+          totalHspAccommodation: totalHspCostPerNight * nights
+        });
       } else {
-        // All rooms are studio - no upgrade costs
-        summaryData.roomUpgrade = 0;
-        summaryData.additionalRoom = 0;
-      }
+        // ✅ NON-HSP PACKAGE LOGIC: Standard room upgrade/additional room calculations
+        // For room cost calculations, we need to identify:
+        // 1. Base room (included in package - typically studio for NDIS)
+        // 2. Room upgrade (if first room is not studio)
+        // 3. Additional rooms (any rooms beyond the first)
+        
+        // Find the first non-studio room for upgrade calculation
+        const nonStudioRooms = roomsToUse.filter(room => room.type !== 'studio');
+        
+        let roomUpgradePerNight = 0;
+        let additionalRoomPerNight = 0;
+        
+        if (nonStudioRooms.length > 0) {
+          // First non-studio room is the upgrade
+          roomUpgradePerNight = getRoomPrice(nonStudioRooms[0], false);
+          summaryData.roomUpgrade = roomUpgradePerNight;
+          
+          // Additional rooms are any non-studio rooms after the first
+          if (nonStudioRooms.length > 1) {
+            additionalRoomPerNight = nonStudioRooms
+              .slice(1)
+              .reduce((total, room) => total + getRoomPrice(room, false), 0);
+          }
+          summaryData.additionalRoom = additionalRoomPerNight;
+        } else {
+          // All rooms are studio - no upgrade costs
+          summaryData.roomUpgrade = 0;
+          summaryData.additionalRoom = 0;
+        }
 
-      setTotalRoomCosts({
-        roomUpgrade: roomUpgradePerNight * nights,
-        additionalRoom: additionalRoomPerNight * nights
-      });
-      
-      console.log('🏨 Room costs calculated:', {
-        totalRooms: roomsToUse.length,
-        nonStudioRooms: nonStudioRooms.length,
-        roomUpgradePerNight,
-        additionalRoomPerNight,
-        nights,
-        totalRoomUpgrade: roomUpgradePerNight * nights,
-        totalAdditionalRoom: additionalRoomPerNight * nights
-      });
+        setTotalRoomCosts({
+          roomUpgrade: roomUpgradePerNight * nights,
+          additionalRoom: additionalRoomPerNight * nights,
+          hspAccommodation: 0
+        });
+        
+        console.log('🏨 Standard Room costs calculated:', {
+          totalRooms: roomsToUse.length,
+          nonStudioRooms: nonStudioRooms.length,
+          roomUpgradePerNight,
+          additionalRoomPerNight,
+          nights,
+          totalRoomUpgrade: roomUpgradePerNight * nights,
+          totalAdditionalRoom: additionalRoomPerNight * nights
+        });
+      }
     }
 
     if (!summary?.data?.isNDISFunder) {
@@ -486,9 +582,12 @@ const SummaryOfStay = ({
   }, [bookingData, selectedRooms, resolvedPackageData, packageResolved]);
 
   const getTotalOutOfPocketExpenses = () => {
-    // For HOLIDAY_SUPPORT_PLUS, room costs are handled differently
-    // but out of pocket expenses should still be calculated
+    // ✅ For HSP packages, use the HSP accommodation cost
+    if (isHolidaySupportPlusPackage() || isSupportHolidayPackage()) {
+      return totalRoomCosts.hspAccommodation;
+    }
     
+    // For STA with ocean view special handling
     if (summary?.data?.isNDISFunder && 
         ndisFormFilters?.ndisPackageType === 'sta' && 
         summary?.rooms?.length > 0 && 
@@ -541,8 +640,29 @@ const SummaryOfStay = ({
   // Helper to get room display info
   const getRoomDisplayInfo = () => {
     const rooms = summary?.rooms || [];
-    const nonStudioRooms = rooms.filter(room => room.type !== 'studio');
     const nights = summary?.data?.nights || 0;
+    
+    // ✅ Check if HSP package first
+    const packageCode = resolvedPackageData?.package_code || summary?.data?.packageCode || '';
+    const isHSP = packageCode === 'HOLIDAY_SUPPORT_PLUS' || packageCode === 'HOLIDAY_SUPPORT';
+    
+    if (isHSP) {
+      // For HSP packages, return the breakdown with hsp_pricing
+      const hspBreakdown = summary?.hspRoomBreakdown || [];
+      const totalPerNight = summary?.hspTotalPerNight || 0;
+      
+      return {
+        isHSP: true,
+        hspBreakdown: hspBreakdown,
+        totalPerNight: totalPerNight,
+        totalAccommodation: totalRoomCosts.hspAccommodation,
+        roomUpgradeDisplay: 'N/A',
+        additionalRoomDisplay: 'N/A'
+      };
+    }
+    
+    // Non-HSP logic
+    const nonStudioRooms = rooms.filter(room => room.type !== 'studio');
     
     // Check if this is STA package with ocean view special handling
     const isStaWithOceanView = summary?.data?.isNDISFunder && 
@@ -558,14 +678,14 @@ const SummaryOfStay = ({
       roomUpgradeDisplay = 'N/A';
       const oceanViewPrice = nonStudioRooms[0].price || nonStudioRooms[0].price_per_night || 0;
       if (oceanViewPrice > 0) {
-        additionalRoomDisplay = `AUD ${formatPrice(oceanViewPrice)} per night (AUD ${formatPrice(oceanViewPrice * nights)} total)`;
+        additionalRoomDisplay = `${formatAUD(oceanViewPrice)} per night (${formatAUD(oceanViewPrice * nights)} total)`;
       }
     } else {
       // Standard display logic
       if (nonStudioRooms.length > 0) {
         const upgradePrice = nonStudioRooms[0].price || nonStudioRooms[0].price_per_night || 0;
         if (upgradePrice > 0) {
-          roomUpgradeDisplay = `AUD ${formatPrice(upgradePrice)} per night (AUD ${formatPrice(upgradePrice * nights)} total)`;
+          roomUpgradeDisplay = `${formatAUD(upgradePrice)} per night (${formatAUD(upgradePrice * nights)} total)`;
         }
         
         // Additional rooms (beyond the first non-studio)
@@ -574,16 +694,16 @@ const SummaryOfStay = ({
             .slice(1)
             .reduce((total, room) => total + (room.price || room.price_per_night || 0), 0);
           if (additionalPrice > 0) {
-            additionalRoomDisplay = `AUD ${formatPrice(additionalPrice)} per night (AUD ${formatPrice(additionalPrice * nights)} total)`;
+            additionalRoomDisplay = `${formatAUD(additionalPrice)} per night (${formatAUD(additionalPrice * nights)} total)`;
           }
         }
       }
     }
     
-    return { roomUpgradeDisplay, additionalRoomDisplay };
+    return { isHSP: false, roomUpgradeDisplay, additionalRoomDisplay };
   };
 
-  const { roomUpgradeDisplay, additionalRoomDisplay } = getRoomDisplayInfo();
+  const roomDisplayInfo = getRoomDisplayInfo();
 
   return (
     <Element name="summary-of-stay-top">
@@ -671,7 +791,7 @@ const SummaryOfStay = ({
                 isSupportHolidayPackage={isSupportHolidayPackage()}
               />
               <div className="mt-2 text-right">
-                <p className="font-semibold text-slate-700">Total Package Cost: ${formatPrice(totalPackageCost)}</p>
+                <p className="font-semibold text-slate-700">Total Package Cost: {formatAUD(totalPackageCost)}</p>
               </div>
             </>
           )}
@@ -679,25 +799,96 @@ const SummaryOfStay = ({
       ): (
         <div className="mt-8">
           <h2 className="text-lg font-semibold mb-4 text-slate-700">Package to be paid for by your funder:</h2>
-          <p className="text-slate-700">{` ${summary?.data?.packageType} - AUD ${formatPrice(summary?.data?.packageCost || 0)} per night`}</p>
+          <p className="text-slate-700">{` ${summary?.data?.packageType} - ${formatAUD(summary?.data?.packageCost || 0)} per night`}</p>
         </div>
       )}
 
+      {/* ✅ UPDATED: Accommodation section with HSP pricing support */}
       <div className="mt-8 space-y-4">
-        <h2 className="text-lg font-semibold text-slate-700">Accommodation (to be paid privately by you)</h2>
-        <div className="grid grid-cols-2 gap-6">
-          <div>
-            <h3 className="font-semibold text-slate-700 mb-1">Room Upgrade</h3>
-            <p className="text-gray-900 p-2">{roomUpgradeDisplay}</p>
+        <h2 className="text-lg font-semibold text-slate-700">
+          Accommodation (to be paid privately by you)
+        </h2>
+        
+        {roomDisplayInfo.isHSP ? (
+          // ✅ HSP Package: Show detailed room breakdown with hsp_pricing
+          <div className="space-y-4">
+            <div className="bg-gray-50 rounded-lg p-4">
+              <h3 className="font-semibold text-slate-700 mb-3">Room Breakdown</h3>
+              <div className="space-y-2">
+                {roomDisplayInfo.hspBreakdown.map((room, index) => (
+                  <div key={index} className="flex justify-between items-center py-2 border-b border-gray-200 last:border-0">
+                    <div>
+                      <span className="font-medium text-gray-900">{room.name}</span>
+                      {room.isMainRoom && (
+                        <span className="ml-2 text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded">Primary Room</span>
+                      )}
+                    </div>
+                    <span className="text-gray-900">
+                      {formatAUD(room.pricePerNight)} per night
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-4 pt-3 border-t border-gray-300">
+                <div className="flex justify-between items-center">
+                  <span className="font-semibold text-slate-700">Total per night:</span>
+                  <span className="font-semibold text-gray-900">
+                    {formatAUD(roomDisplayInfo.totalPerNight)}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center mt-2">
+                  <span className="text-slate-600">
+                    {summary?.data?.nights} nights
+                  </span>
+                  <span className="font-bold text-gray-900">
+                    {formatAUD(roomDisplayInfo.totalAccommodation)}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div className="text-right">
+              <p className="font-semibold text-slate-700">
+                Total Accommodation: {formatAUD(roomDisplayInfo.totalAccommodation)}
+              </p>
+            </div>
           </div>
-          <div>
-            <h3 className="font-semibold text-slate-700 mb-1">Additional Room</h3>
-            <p className="text-gray-900 p-2">{additionalRoomDisplay}</p>
+        ) : (
+          // Non-HSP Package: Standard room upgrade/additional room display
+          <>
+            <div className="grid grid-cols-2 gap-6">
+              <div>
+                <h3 className="font-semibold text-slate-700 mb-1">Room Upgrade</h3>
+                <p className="text-gray-900 p-2">{roomDisplayInfo.roomUpgradeDisplay}</p>
+              </div>
+              <div>
+                <h3 className="font-semibold text-slate-700 mb-1">Additional Room</h3>
+                <p className="text-gray-900 p-2">{roomDisplayInfo.additionalRoomDisplay}</p>
+              </div>
+            </div>
+            <div className="text-right">
+              <p className="font-semibold text-slate-700">Total Out of Pocket: {formatAUD(getTotalOutOfPocketExpenses())}</p>
+            </div>
+          </>
+        )}
+
+        {/* ✅ MOVED: Funding assistance disclaimer - now under accommodation section */}
+        {isSupportHolidayPackage() && (
+          <div className="mt-4 p-6 bg-amber-50 border-2 border-amber-400 rounded-lg shadow-sm">
+            <div className="flex items-start space-x-3">
+              <div className="flex-shrink-0">
+                <svg className="h-6 w-6 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-amber-800 mb-2">Funding Assistance Available</h3>
+                <p className="text-base text-amber-900">
+                  Funding assistance of {formatAUD(319)} per night for up to 5 nights may be available to you. Our bookings team will provide more information when processing your booking.
+                </p>
+              </div>
+            </div>
           </div>
-        </div>
-        <div className="text-right">
-          <p className="font-semibold text-slate-700">Total Out of Pocket: ${formatPrice(getTotalOutOfPocketExpenses())}</p>
-        </div>
+        )}
       </div>
 
       <div className="mt-8 p-4 bg-gray-50 rounded-lg">
@@ -713,28 +904,19 @@ const SummaryOfStay = ({
           ) : (
             <div className="flex justify-between">
               <span>Package Costs{<i> {`${summary?.data?.isNDISFunder ? "(To be billed to your funder)" : "(To be paid for by your funder)"}`}</i>}:</span>
-              <span>${formatPrice(totalPackageCost)}</span>
+              <span>{formatAUD(totalPackageCost)}</span>
             </div>
           )}
           <div className="flex justify-between">
             <span>Accommodation <i>(To be paid privately by you)</i>:</span>
-            <span>${formatPrice(getTotalOutOfPocketExpenses())}</span>
+            <span>{formatAUD(getTotalOutOfPocketExpenses())}</span>
           </div>
           <div className="flex justify-between pt-2 border-t border-gray-200 font-semibold">
             <span>Grand Total{isHolidaySupportPlusPackage() ? ' (excluding package costs)' : ''}:</span>
-            <span>${formatPrice(getGrandTotal())}</span>
+            <span>{formatAUD(getGrandTotal())}</span>
           </div>
         </div>
       </div>
-
-      {/* Funding assistance disclaimer for Support Holiday Packages */}
-      {isSupportHolidayPackage() && (
-        <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-          <p className="text-sm text-slate-700">
-            Funding assistance of $319 per nights for up to 5 nights may be available to you. Our bookings team will provide more information when processing your booking.
-          </p>
-        </div>
-      )}
 
       {((summary?.data?.funder?.includes('NDIS') || summary?.data?.funder?.includes('NDIA')) && summary?.data?.ndisQuestions?.length > 0) && (
         <div className="mt-8">
@@ -1337,7 +1519,7 @@ const PricingTable = ({
               </td>
               <td className="p-3 border border-gray-300">{row.lineItem}</td>
               <td className="p-3 border border-gray-300">
-                ${formatPrice(row.rate)}
+                {formatAUD(row.rate)}
                 {shouldUseApiLogic && (
                   <div className="text-sm text-gray-600">
                     {row.rateCategoryLabel}
@@ -1356,7 +1538,7 @@ const PricingTable = ({
                   row.quantity.toFixed(0)
                 )}
               </td>
-              <td className="p-3 border border-gray-300">${formatPrice(row.total)}</td>
+              <td className="p-3 border border-gray-300">{formatAUD(row.total)}</td>
               {showFunderColumn && (
                 <td className="p-3 border border-gray-300">
                   <span className={`px-2 py-1 rounded text-sm ${
@@ -1446,12 +1628,5 @@ const formatAUDate = (dateStr) => {
     day: 'numeric',
     hour: '2-digit',
     minute: '2-digit'
-  });
-};
-
-const formatPrice = (price) => {
-  return parseFloat(price || 0).toLocaleString('en-AU', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
   });
 };

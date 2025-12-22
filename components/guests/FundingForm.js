@@ -187,7 +187,7 @@ const FundingForm = ({ uuid, onSuccess }) => {
                   </span>
                 )}
                 {isExpired && (
-                  <span className="px-2 py-0.5 bg-gray-400 text-white text-xs font-medium rounded">
+                  <span className="px-2 py-0.5 bg-red-400 text-white text-xs font-medium rounded">
                     Expired
                   </span>
                 )}
@@ -368,13 +368,13 @@ const FundingForm = ({ uuid, onSuccess }) => {
       approval_name: '',
       approval_number: '',
       nights_approved: '',
-      nights_used: 0,
+      nights_used: '',
       package_id: null,
       approval_from: '',
       approval_to: '',
       additional_room_type_id: null,
       additional_room_nights_approved: '',
-      additional_room_nights_used: 0,
+      additional_room_nights_used: '',
       status: 'active',
       notes: ''
     });
@@ -386,14 +386,14 @@ const FundingForm = ({ uuid, onSuccess }) => {
         setFormData({
           approval_name: editingApproval.approval_name || '',
           approval_number: editingApproval.approval_number || '',
-          nights_approved: editingApproval.nights_approved || '',
-          nights_used: editingApproval.nights_used || 0,
+          nights_approved: editingApproval.nights_approved ?? '',
+          nights_used: editingApproval.nights_used ?? '',
           package_id: editingApproval.package_id || null,
           approval_from: editingApproval.approval_from || '',
           approval_to: editingApproval.approval_to || '',
           additional_room_type_id: editingApproval.additional_room_type_id || null,
-          additional_room_nights_approved: editingApproval.additional_room_nights_approved || '',
-          additional_room_nights_used: editingApproval.additional_room_nights_used || 0,
+          additional_room_nights_approved: editingApproval.additional_room_nights_approved ?? '',
+          additional_room_nights_used: editingApproval.additional_room_nights_used ?? '',
           status: editingApproval.status || 'active',
           notes: editingApproval.notes || ''
         });
@@ -402,13 +402,13 @@ const FundingForm = ({ uuid, onSuccess }) => {
           approval_name: '',
           approval_number: '',
           nights_approved: '',
-          nights_used: 0,
+          nights_used: '',
           package_id: null,
           approval_from: '',
           approval_to: '',
           additional_room_type_id: null,
           additional_room_nights_approved: '',
-          additional_room_nights_used: 0,
+          additional_room_nights_used: '',
           status: 'active',
           notes: ''
         });
@@ -434,27 +434,8 @@ const FundingForm = ({ uuid, onSuccess }) => {
       return 'No';
     };
 
+    // Only validate date range if both dates are provided
     const validateForm = () => {
-      if (!formData.approval_name.trim()) {
-        toast.error('Please enter an approval name');
-        return false;
-      }
-
-      if (!formData.approval_number.trim()) {
-        toast.error('Please enter an approval number');
-        return false;
-      }
-
-      if (!formData.approval_from) {
-        toast.error('Please select a start date');
-        return false;
-      }
-
-      if (!formData.approval_to) {
-        toast.error('Please select an end date');
-        return false;
-      }
-
       if (formData.approval_from && formData.approval_to) {
         const fromDate = moment(formData.approval_from);
         const toDate = moment(formData.approval_to);
@@ -463,31 +444,6 @@ const FundingForm = ({ uuid, onSuccess }) => {
           toast.error('Approval end date must be after start date');
           return false;
         }
-      }
-
-      if (!formData.package_id) {
-        toast.error('Please select a package');
-        return false;
-      }
-
-      if (!formData.nights_approved || parseInt(formData.nights_approved) < 0) {
-        toast.error('Please enter a valid number of nights approved');
-        return false;
-      }
-
-      if (formData.nights_used === '' || formData.nights_used === null || parseInt(formData.nights_used) < 0) {
-        toast.error('Please enter a valid number of nights used');
-        return false;
-      }
-
-      if (formData.additional_room_type_id && !formData.additional_room_nights_approved) {
-        toast.error('Please enter nights approved for the additional room');
-        return false;
-      }
-
-      if (formData.additional_room_type_id && (formData.additional_room_nights_used === '' || formData.additional_room_nights_used === null)) {
-        toast.error('Please enter nights used for the additional room');
-        return false;
       }
 
       return true;
@@ -505,21 +461,21 @@ const FundingForm = ({ uuid, onSuccess }) => {
         const method = editingApproval ? 'PUT' : 'POST';
 
         const payload = {
-          approval_name: formData.approval_name,
+          approval_name: formData.approval_name || null,
           approval_number: formData.approval_number || null,
-          nights_approved: parseInt(formData.nights_approved),
-          nights_used: parseInt(formData.nights_used) || 0,
-          package_id: formData.package_id,
+          nights_approved: formData.nights_approved !== '' ? parseInt(formData.nights_approved) : null,
+          nights_used: formData.nights_used !== '' ? parseInt(formData.nights_used) : null,
+          package_id: formData.package_id || null,
           approval_from: formData.approval_from || null,
           approval_to: formData.approval_to || null,
-          additional_room_type_id: formData.additional_room_type_id,
-          additional_room_nights_approved: formData.additional_room_type_id 
-            ? parseInt(formData.additional_room_nights_approved) || 0 
-            : 0,
-          additional_room_nights_used: formData.additional_room_type_id 
-            ? parseInt(formData.additional_room_nights_used) || 0 
-            : 0,
-          status: formData.status,
+          additional_room_type_id: formData.additional_room_type_id || null,
+          additional_room_nights_approved: formData.additional_room_nights_approved !== '' 
+            ? parseInt(formData.additional_room_nights_approved) 
+            : null,
+          additional_room_nights_used: formData.additional_room_nights_used !== '' 
+            ? parseInt(formData.additional_room_nights_used) 
+            : null,
+          status: formData.status || 'active',
           notes: formData.notes || null
         };
 
@@ -583,7 +539,6 @@ const FundingForm = ({ uuid, onSuccess }) => {
                     value={formData.approval_name}
                     onChange={(value) => setFormData(prev => ({ ...prev, approval_name: value }))}
                     placeholder="e.g., iCare Winter 2024"
-                    required
                   />
 
                   <TextField
@@ -591,7 +546,6 @@ const FundingForm = ({ uuid, onSuccess }) => {
                     value={formData.approval_number}
                     onChange={(value) => setFormData(prev => ({ ...prev, approval_number: value }))}
                     placeholder="Enter approval reference number"
-                    required
                   />
                 </div>
               </div>
@@ -608,14 +562,12 @@ const FundingForm = ({ uuid, onSuccess }) => {
                     label="Start date"
                     value={formData.approval_from}
                     onChange={(value) => setFormData(prev => ({ ...prev, approval_from: value }))}
-                    required
                   />
 
                   <DateComponent
                     label="End date"
                     value={formData.approval_to}
                     onChange={(value) => setFormData(prev => ({ ...prev, approval_to: value }))}
-                    required
                   />
                 </div>
                 
@@ -639,7 +591,7 @@ const FundingForm = ({ uuid, onSuccess }) => {
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
                     <div className="lg:col-span-2">
                       <label className="block text-sm font-medium mb-2 text-gray-700">
-                        Package approved <span className='text-red-600 font-semibold'>*</span>
+                        Package approved
                         {loadingPackages && <span className="text-xs text-gray-500 ml-2">(Loading...)</span>}
                       </label>
                       <SelectComponent
@@ -651,7 +603,6 @@ const FundingForm = ({ uuid, onSuccess }) => {
                         placeholder={loadingPackages ? "Loading packages..." : "Select package type"}
                         disabled={loadingPackages}
                         isClearable={true}
-                        required
                       />
                       <p className="text-xs text-gray-500 mt-1.5">Select the iCare package associated with this approval</p>
                     </div>
@@ -664,7 +615,6 @@ const FundingForm = ({ uuid, onSuccess }) => {
                         onChange={(value) => setFormData(prev => ({ ...prev, nights_approved: value }))}
                         placeholder="0"
                         min="0"
-                        required
                       />
                       <p className="text-xs text-gray-500 mt-1.5">Total nights allocated in this approval</p>
                     </div>
@@ -677,7 +627,6 @@ const FundingForm = ({ uuid, onSuccess }) => {
                         onChange={(value) => setFormData(prev => ({ ...prev, nights_used: value }))}
                         placeholder="0"
                         min="0"
-                        required
                       />
                       <p className="text-xs text-gray-500 mt-1.5">Nights already consumed from this approval</p>
                     </div>
@@ -707,7 +656,7 @@ const FundingForm = ({ uuid, onSuccess }) => {
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
                     <div className="lg:col-span-2">
                       <label className="block text-sm font-medium mb-2 text-gray-700">
-                        Additional room type <span className='text-red-600 font-semibold'>*</span>
+                        Additional room type
                         {loadingRoomTypes && <span className="text-xs text-gray-500 ml-2">(Loading...)</span>}
                       </label>
                       <SelectComponent
@@ -719,7 +668,7 @@ const FundingForm = ({ uuid, onSuccess }) => {
                               ...prev, 
                               additional_room_type_id: null,
                               additional_room_nights_approved: '',
-                              additional_room_nights_used: 0
+                              additional_room_nights_used: ''
                             }));
                           } else {
                             setFormData(prev => ({ ...prev, additional_room_type_id: selected?.value || null }));
@@ -728,7 +677,6 @@ const FundingForm = ({ uuid, onSuccess }) => {
                         placeholder={loadingRoomTypes ? "Loading room types..." : "Select additional room type"}
                         disabled={loadingRoomTypes}
                         isClearable={false}
-                        required
                       />
                       <p className="text-xs text-gray-500 mt-1.5">Choose the type of additional room or select &quot;No&quot; to skip</p>
                     </div>
@@ -744,7 +692,6 @@ const FundingForm = ({ uuid, onSuccess }) => {
                             placeholder="0"
                             min="0"
                             disabled={!formData.additional_room_type_id}
-                            required
                           />
                           <p className="text-xs text-gray-500 mt-1.5">Total additional room nights allocated</p>
                         </div>
@@ -758,7 +705,6 @@ const FundingForm = ({ uuid, onSuccess }) => {
                             placeholder="0"
                             min="0"
                             disabled={!formData.additional_room_type_id}
-                            required
                           />
                           <p className="text-xs text-gray-500 mt-1.5">Additional room nights already consumed</p>
                         </div>
@@ -790,7 +736,7 @@ const FundingForm = ({ uuid, onSuccess }) => {
                 
                 <div>
                   <label className="block text-sm font-medium mb-2 text-gray-700">
-                    Notes <span className="text-gray-400 font-normal">(Optional)</span>
+                    Notes
                   </label>
                   <textarea
                     value={formData.notes}
@@ -859,7 +805,7 @@ const FundingForm = ({ uuid, onSuccess }) => {
 
       {/* Summary Cards */}
       {fundingApprovals.length > 0 && (
-        <div className="grid grid-cols-3 gap-4 mb-6">
+        <div className="grid grid-cols-2 gap-4 mb-6">
           <div className="bg-white border border-gray-200 rounded-lg p-4">
             <p className="text-xs text-gray-500 mb-1">Total allocated</p>
             <p className="text-2xl font-bold text-gray-800">{totals.totalAllocated}</p>
@@ -870,11 +816,11 @@ const FundingForm = ({ uuid, onSuccess }) => {
             <p className="text-2xl font-bold text-gray-800">{totals.totalUsed}</p>
             <p className="text-xs text-gray-500">nights</p>
           </div>
-          <div className="bg-white border border-gray-200 rounded-lg p-4">
+          {/* <div className="bg-white border border-gray-200 rounded-lg p-4">
             <p className="text-xs text-gray-500 mb-1">Total remaining</p>
             <p className="text-2xl font-bold text-gray-800">{totals.totalRemaining}</p>
             <p className="text-xs text-gray-500">nights</p>
-          </div>
+          </div> */}
         </div>
       )}
 

@@ -1,6 +1,7 @@
 import { Course, CourseRate } from '../../../models'
 import { v4 as uuidv4 } from 'uuid'
 import { calculateCoursePrice } from '../../../services/courses/server-course-calculator';
+import moment from 'moment';
 
 export default async function handler(req, res) {
   // Only allow POST and PUT methods
@@ -35,42 +36,46 @@ export default async function handler(req, res) {
       });
     }
 
-    // Validate and parse dates with proper normalization
-    const parsedStartDate = new Date(start_date + 'T00:00:00');
-    const parsedEndDate = new Date(end_date + 'T00:00:00');
-    const parsedMinStartDate = new Date(min_start_date + 'T00:00:00');
-    const parsedMinEndDate = new Date(min_end_date + 'T00:00:00');
+    // Simple date format validation (YYYY-MM-DD)
+    const isValidDateFormat = (dateString) => {
+      if (!dateString) return false;
+      const regex = /^\d{4}-\d{2}-\d{2}$/;
+      if (!regex.test(dateString)) return false;
+      const date = moment(dateString, 'YYYY-MM-DD', true);
+      return date.isValid();
+    };
 
-    // Normalize all dates to avoid time component issues
-    [parsedStartDate, parsedEndDate, parsedMinStartDate, parsedMinEndDate].forEach(date => {
-      date.setHours(0, 0, 0, 0);
-    });
-
-    // Check if dates are valid
-    if (isNaN(parsedStartDate.getTime()) || isNaN(parsedEndDate.getTime()) || 
-        isNaN(parsedMinStartDate.getTime()) || isNaN(parsedMinEndDate.getTime())) {
+    // Validate date formats
+    if (!isValidDateFormat(start_date) || !isValidDateFormat(end_date) || 
+        !isValidDateFormat(min_start_date) || !isValidDateFormat(min_end_date)) {
       return res.status(400).json({
         error: 'Validation error',
-        message: 'All date fields must be valid dates'
+        message: 'All date fields must be valid dates in YYYY-MM-DD format'
       });
     }
 
-    // Date validation logic (same as before)
-    if (parsedStartDate > parsedEndDate) {
+    // Use moment for date comparisons
+    const startMoment = moment(start_date);
+    const endMoment = moment(end_date);
+    const minStartMoment = moment(min_start_date);
+    const minEndMoment = moment(min_end_date);
+
+    // Date validation logic
+    if (startMoment.isAfter(endMoment)) {
       return res.status(400).json({
         error: 'Validation error',
         message: 'End date must be after or same as start date'
       });
     }
 
-    if (parsedMinStartDate > parsedMinEndDate) {
+    if (minStartMoment.isAfter(minEndMoment)) {
       return res.status(400).json({
         error: 'Validation error',
         message: 'Minimum end date must be after or same as minimum start date'
       });
     }
 
-    if (parsedMinStartDate > parsedStartDate) {
+    if (minStartMoment.isAfter(startMoment)) {
       return res.status(400).json({
         error: 'Validation error',
         message: 'Minimum start date must be before or on the course start date'
@@ -88,20 +93,20 @@ export default async function handler(req, res) {
       }
     }
 
-    // Prepare base course data
+    // Prepare base course data - pass date strings directly (no conversion)
     const courseData = {
       title: title.trim(),
       description: description?.trim() || null,
-      start_date: parsedStartDate,
-      end_date: parsedEndDate,
-      min_start_date: parsedMinStartDate,
-      min_end_date: parsedMinEndDate,
+      start_date: start_date,
+      end_date: end_date,
+      min_start_date: min_start_date,
+      min_end_date: min_end_date,
       duration_hours: duration_hours?.trim() || null,
       image_filename: image_filename?.trim() || null,
       status: status || 'pending'
     };
 
-    // Calculate pricing if requested and dates are provided
+    // Calculate pricing if requested, otherwise use prices from request body
     let priceData = {
       holiday_price: null,
       sta_price: null,
@@ -126,13 +131,22 @@ export default async function handler(req, res) {
         console.log('Price calculation result:', priceData);
       } catch (error) {
         console.error('Error calculating prices during save:', error);
-        // Don't fail the save if price calculation fails
         priceData.price_calculated_at = new Date();
         priceData.rate_snapshot = {
           calculated_at: new Date().toISOString(),
           error: error.message
         };
       }
+    } else {
+      // Use prices from the request body (already calculated on frontend)
+      const { holiday_price, sta_price, price_calculated_at, rate_snapshot } = req.body;
+      priceData = {
+        holiday_price: holiday_price ?? null,
+        sta_price: sta_price ?? null,
+        price_calculated_at: price_calculated_at ?? null,
+        rate_snapshot: rate_snapshot ?? null
+      };
+      console.log('Using prices from request body:', priceData);
     }
 
     // Merge course data with price data
@@ -153,10 +167,11 @@ export default async function handler(req, res) {
         });
       }
 
-      // Check if dates changed and force price recalculation
-      const datesChanged = 
-        existingCourse.start_date.getTime() !== parsedStartDate.getTime() ||
-        existingCourse.end_date.getTime() !== parsedEndDate.getTime();
+      // Check if dates changed using moment for comparison
+      const existingStartDate = moment(existingCourse.start_date).format('YYYY-MM-DD');
+      const existingEndDate = moment(existingCourse.end_date).format('YYYY-MM-DD');
+      
+      const datesChanged = existingStartDate !== start_date || existingEndDate !== end_date;
 
       if (datesChanged && !recalculate_prices) {
         console.log('Course dates changed, forcing price recalculation');

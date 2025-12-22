@@ -7,6 +7,7 @@ import {
     QUESTION_KEYS, 
     getAnswerByQuestionKey 
 } from "../../../../services/booking/question-helper";
+import { ApprovalTrackingService } from "../../../../services/approvalTracking";
 const jwt = require('jsonwebtoken');
 import moment from 'moment';
 import { Op } from "sequelize";
@@ -14,7 +15,7 @@ import { Op } from "sequelize";
 export default async function handler(req, res) {
     try {
         const { uuid } = req.query;
-        const { status, eligibility } = req.body;
+        const { status, eligibility, isFullChargeCancellation } = req.body;
 
         if (!uuid) {
             return res.status(400).json({ 
@@ -77,7 +78,8 @@ export default async function handler(req, res) {
                 await booking.update({ 
                     status: bookingCanceledStatus.value, 
                     status_name: bookingCanceledStatus.name, 
-                    status_logs: JSON.stringify(updateStatusLogs(statusLogs, 'canceled')) });
+                    status_logs: JSON.stringify(updateStatusLogs(statusLogs, 'canceled')) 
+                });
                 generateNotifications(booking, 'ineligible', true);
                 break;
             default:
@@ -112,40 +114,37 @@ export default async function handler(req, res) {
                         const dateRange = getAnswerByQuestionKey(allQaPairs, QUESTION_KEYS.CHECK_IN_OUT_DATE);
                         if (dateRange) {
                             // Handle various date range formats
-                            let dates = [];
-                            if (dateRange.includes(' to ')) {
-                                dates = dateRange.split(' to ');
-                            } else if (dateRange.includes(' - ')) {
-                                dates = dateRange.split(' - ');
+                            if (dateRange.includes(' - ')) {
+                                const [start, end] = dateRange.split(' - ');
+                                checkInDate = moment(start, ['DD/MM/YYYY', 'YYYY-MM-DD']).toDate();
+                                checkOutDate = moment(end, ['DD/MM/YYYY', 'YYYY-MM-DD']).toDate();
+                            } else if (dateRange.includes(' to ')) {
+                                const [start, end] = dateRange.split(' to ');
+                                checkInDate = moment(start, ['DD/MM/YYYY', 'YYYY-MM-DD']).toDate();
+                                checkOutDate = moment(end, ['DD/MM/YYYY', 'YYYY-MM-DD']).toDate();
                             }
-                            
-                            if (dates.length === 2) {
-                                checkInDate = moment(dates[0].trim());
-                                checkOutDate = moment(dates[1].trim());
-                            }
-                        } else {
-                            // Try individual date fields
-                            const checkInAnswer = getAnswerByQuestionKey(allQaPairs, QUESTION_KEYS.CHECK_IN_DATE);
-                            const checkOutAnswer = getAnswerByQuestionKey(allQaPairs, QUESTION_KEYS.CHECK_OUT_DATE);
-                            
-                            if (checkInAnswer) checkInDate = moment(checkInAnswer);
-                            if (checkOutAnswer) checkOutDate = moment(checkOutAnswer);
                         }
                         
-                        // Calculate nights if both dates are available and valid
-                        if (checkInDate && checkOutDate && checkInDate.isValid() && checkOutDate.isValid()) {
-                            const nightsRequested = checkOutDate.diff(checkInDate, 'days');
+                        // Fallback to separate fields or booking preferred dates
+                        if (!checkInDate) {
+                            checkInDate = booking.preferred_arrival_date;
+                        }
+                        if (!checkOutDate) {
+                            checkOutDate = booking.preferred_departure_date;
+                        }
+                        
+                        if (checkInDate && checkOutDate) {
+                            // Calculate number of nights
+                            const nightsRequested = moment(checkOutDate).diff(moment(checkInDate), 'days');
                             
                             if (nightsRequested > 0) {
                                 try {
-                                    // Find the most recent active GuestApproval record for this guest
-                                    const guestApproval = await GuestApproval.findOne({
-                                        where: { 
-                                            guest_id: booking.Guest.id,
-                                            status: 'active'
-                                        },
-                                        order: [['created_at', 'DESC']]
-                                    });
+                                    // Use ApprovalTrackingService to find the appropriate approval based on booking dates
+                                    const guestApproval = await ApprovalTrackingService.findAvailableApproval(
+                                        booking.Guest.id,
+                                        nightsRequested,
+                                        checkInDate
+                                    );
                                     
                                     if (guestApproval) {
                                         // Calculate new nights_used
@@ -157,7 +156,7 @@ export default async function handler(req, res) {
                                             const remainingNights = guestApproval.nights_approved - currentNightsUsed;
                                             return res.status(400).json({
                                                 error: 'Insufficient approved nights',
-                                                message: `Cannot confirm booking: This booking requires ${nightsRequested} nights, but only ${remainingNights} nights remain in the guest's iCare approval (${currentNightsUsed}/${guestApproval.nights_approved} nights already used).`
+                                                message: `Cannot confirm booking: This booking requires ${nightsRequested} nights, but only ${remainingNights} nights remain in the guest's iCare approval (${currentNightsUsed}/${guestApproval.nights_approved} nights already used). Approval period: ${moment(guestApproval.approval_from).format('DD/MM/YYYY')} - ${moment(guestApproval.approval_to).format('DD/MM/YYYY')}`
                                             });
                                         }
                                         
@@ -167,7 +166,7 @@ export default async function handler(req, res) {
                                                 { where: { id: guestApproval.id } }
                                             );
                                             
-                                            console.log(`Updated nights_used for guest ${booking.Guest.id}: ${currentNightsUsed} + ${nightsRequested} = ${newNightsUsed}`);
+                                            console.log(`Updated nights_used for guest ${booking.Guest.id} on approval ${guestApproval.id}: ${currentNightsUsed} + ${nightsRequested} = ${newNightsUsed}`);
                                             
                                             // Send confirmation email with remaining nights info
                                             const remainingNights = guestApproval.nights_approved - newNightsUsed;
@@ -183,7 +182,7 @@ export default async function handler(req, res) {
                                             }
                                         }
                                     } else {
-                                        console.log(`No active GuestApproval record found for guest ${booking.Guest.id}`);
+                                        console.log(`No matching GuestApproval record found for guest ${booking.Guest.id} with booking dates ${moment(checkInDate).format('DD/MM/YYYY')} - ${moment(checkOutDate).format('DD/MM/YYYY')}`);
                                     }
                                 } catch (fundingError) {
                                     console.error('Error updating nights_used:', fundingError);
@@ -204,31 +203,43 @@ export default async function handler(req, res) {
                     } else {
                         const unique = new Set();
                         booking.Rooms.map((room, index) => {
-                            unique.add(`${index + 1}. ${room.label}`);
-                        });
-                        roomTypes = Array.from(unique).join(', ');
+                            unique.add(`${index + 1}. ${room.RoomType?.name}`);
+                        })
+                        roomTypes = [...unique].join(', ');
                     }
                 }
 
-                // REFACTORED: Get booking package using question keys
+                // Get package info
                 const bookingPackage = getBookingPackage(booking);
 
-                await sendMail(booking.Guest.email, 'Sargood On Collaroy - Booking', 'booking-confirmed',
+                // Generate PDF and upload to GCS
+                const bookingPDFUrl = await dispatchHttpTaskHandler(`${process.env.APP_URL}/api/bookings/${booking.id}/generate-and-upload-pdf`, { booking_id: booking.id });
+
+                await sendMail(booking.Guest.email, 'Sargood On Collaroy - Booking Confirmed', 'booking-confirmed',
                     {
                         guest_name: booking.Guest.first_name,
                         arrivalDate: booking.preferred_arrival_date ? moment(booking.preferred_arrival_date).format("DD-MM-YYYY") : '-',
                         departureDate: booking.preferred_departure_date ? moment(booking.preferred_departure_date).format("DD-MM-YYYY") : '-',
-                        roomTypes: roomTypes,
-                        packages: bookingPackage
+                        accommodation: roomTypes || '-',
+                        booking_package: bookingPackage || '-',
+                        booking_id: booking.reference_id
                     });
-                generateNotifications(booking, 'confirmed');
-                dispatchHttpTaskHandler('booking', { type: 'triggerEmailsOnBookingConfirmed', payload: { booking_id: booking.id } });
+
+                await sendMail("info@sargoodoncollaroy.com.au", 'Sargood On Collaroy - Booking Confirmed', 'booking-confirmed-admin',
+                    {
+                        guest_name: booking.Guest.first_name + ' ' + booking.Guest.last_name,
+                        arrivalDate: booking.preferred_arrival_date ? moment(booking.preferred_arrival_date).format("DD-MM-YYYY") : '-',
+                        departureDate: booking.preferred_departure_date ? moment(booking.preferred_departure_date).format("DD-MM-YYYY") : '-',
+                        accommodation: roomTypes || '-',
+                        booking_package: bookingPackage || '-',
+                        booking_id: booking.reference_id
+                    });
+
+                generateNotifications(booking, 'confirmed', true);
                 break;
-            case 'guest_cancelled':
             case 'booking_cancelled':
-                // Handle guest funding reversal for full charge cancellations
-                const isFullChargeCancellation = req.body.isFullChargeCancellation;
-                
+            case 'guest_cancelled':
+                // Handle night reversal for Full Charge Cancellation
                 if (isFullChargeCancellation) {
                     // Get all Q&A pairs from all sections
                     const allQaPairs = booking.Sections.map(section => section.QaPairs).flat();
@@ -237,47 +248,36 @@ export default async function handler(req, res) {
                     const fundingSource = getAnswerByQuestionKey(allQaPairs, QUESTION_KEYS.FUNDING_SOURCE);
                     
                     if (fundingSource && fundingSource.toLowerCase().includes('icare')) {
-                        // Get check-in and check-out dates
-                        let checkInDate = null;
-                        let checkOutDate = null;
+                        // Get check-in and check-out dates for finding the right approval
+                        let checkInDate = booking.preferred_arrival_date;
+                        let checkOutDate = booking.preferred_departure_date;
                         
-                        // Try combined date range first
+                        // Try to get from Q&A if available
                         const dateRange = getAnswerByQuestionKey(allQaPairs, QUESTION_KEYS.CHECK_IN_OUT_DATE);
                         if (dateRange) {
-                            let dates = [];
-                            if (dateRange.includes(' to ')) {
-                                dates = dateRange.split(' to ');
-                            } else if (dateRange.includes(' - ')) {
-                                dates = dateRange.split(' - ');
+                            if (dateRange.includes(' - ')) {
+                                const [start, end] = dateRange.split(' - ');
+                                checkInDate = moment(start, ['DD/MM/YYYY', 'YYYY-MM-DD']).toDate();
+                                checkOutDate = moment(end, ['DD/MM/YYYY', 'YYYY-MM-DD']).toDate();
+                            } else if (dateRange.includes(' to ')) {
+                                const [start, end] = dateRange.split(' to ');
+                                checkInDate = moment(start, ['DD/MM/YYYY', 'YYYY-MM-DD']).toDate();
+                                checkOutDate = moment(end, ['DD/MM/YYYY', 'YYYY-MM-DD']).toDate();
                             }
-                            
-                            if (dates.length === 2) {
-                                checkInDate = moment(dates[0].trim());
-                                checkOutDate = moment(dates[1].trim());
-                            }
-                        } else {
-                            // Try individual date fields
-                            const checkInAnswer = getAnswerByQuestionKey(allQaPairs, QUESTION_KEYS.CHECK_IN_DATE);
-                            const checkOutAnswer = getAnswerByQuestionKey(allQaPairs, QUESTION_KEYS.CHECK_OUT_DATE);
-                            
-                            if (checkInAnswer) checkInDate = moment(checkInAnswer);
-                            if (checkOutAnswer) checkOutDate = moment(checkOutAnswer);
                         }
                         
-                        // Calculate nights if both dates are available and valid
-                        if (checkInDate && checkOutDate && checkInDate.isValid() && checkOutDate.isValid()) {
-                            const nightsToReturn = checkOutDate.diff(checkInDate, 'days');
+                        if (checkInDate && checkOutDate) {
+                            const nightsToReturn = moment(checkOutDate).diff(moment(checkInDate), 'days');
                             
                             if (nightsToReturn > 0) {
                                 try {
-                                    // Find the most recent active GuestApproval record for this guest
-                                    const guestApproval = await GuestApproval.findOne({
-                                        where: { 
-                                            guest_id: booking.Guest.id,
-                                            status: 'active'
-                                        },
-                                        order: [['created_at', 'DESC']]
-                                    });
+                                    // Use ApprovalTrackingService to find the approval that was used for this booking
+                                    // Pass 0 for nightsNeeded since we're returning nights, not checking availability
+                                    const guestApproval = await ApprovalTrackingService.findAvailableApproval(
+                                        booking.Guest.id,
+                                        0,
+                                        checkInDate
+                                    );
                                     
                                     if (guestApproval) {
                                         const currentNightsUsed = guestApproval.nights_used || 0;
@@ -288,7 +288,7 @@ export default async function handler(req, res) {
                                             { where: { id: guestApproval.id } }
                                         );
                                         
-                                        console.log(`Reversed nights_used for guest ${booking.Guest.id}: ${currentNightsUsed} - ${nightsToReturn} = ${newNightsUsed}`);
+                                        console.log(`Reversed nights_used for guest ${booking.Guest.id} on approval ${guestApproval.id}: ${currentNightsUsed} - ${nightsToReturn} = ${newNightsUsed}`);
                                         
                                         // Send email notification about nights reversal
                                         try {
@@ -302,7 +302,7 @@ export default async function handler(req, res) {
                                             // Don't fail the cancellation if email fails
                                         }
                                     } else {
-                                        console.log(`No active GuestApproval record found for guest ${booking.Guest.id}`);
+                                        console.log(`No matching GuestApproval record found for guest ${booking.Guest.id} for cancellation`);
                                     }
                                 } catch (fundingError) {
                                     console.error('Error reversing nights_used:', fundingError);

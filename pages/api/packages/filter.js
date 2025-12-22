@@ -184,7 +184,7 @@ export default async function handler(req, res) {
           ? 'NDIS Funded' 
           : (pkg.price ? `${parseFloat(pkg.price).toFixed(2)}` : 'Price TBA'),
         // Add placeholder fields for frontend compatibility
-        description: pkg.summary || `${pkg.name} package`,
+        description: pkg.description || `${pkg.name} package`,
         inclusions: pkg.ndis_line_items || [],
         features: []
       };

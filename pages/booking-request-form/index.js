@@ -32,6 +32,7 @@ import {
     shouldMoveQuestionToNdisPage,
     extractCurrentFundingAnswer,
     getInfantCareQuestionMapping,
+    getCurrentFunder,
 } from "../../utilities/bookingRequestForm";
 
 import { 
@@ -1584,18 +1585,24 @@ const BookingRequestForm = () => {
                             isHolidayType = true;
                             console.log('✅ Holiday type detected: Lives in SIL');
                         }
+
+                        if ((questionHasKey(question, QUESTION_KEYS.ARE_YOU_STAYING_WITH_INFORMAL_SUPPORTS)) &&
+                            question.answer === 'Yes') {
+                            isHolidayType = true;
+                            console.log('✅ Holiday type detected: Staying with informal supports');
+                        }
                         
                         // ✅ FIX: Calculate care hours from the CURRENT formData instead of relying on currentCareAnalysis
                         if (isHolidayType) {
-                            // Extract care hours directly from this formData
+                            // Get care hours from the form data
                             const careHours = extractCareHoursFromFormData(formData);
-                            const requiresCare = careHours > 0;
                             
-                            if (requiresCare) {
+                            // ✅ FIX: Only use holiday-plus if care hours is EXPLICITLY greater than 0
+                            if (careHours > 0) {
                                 ndisPackageType = 'holiday-plus';
                                 console.log(`✅ Holiday-Plus package: Holiday type with ${careHours}h care required`);
                             } else {
-                                ndisPackageType = 'holiday';
+                                ndisPackageType = 'holiday';  // Default to regular holiday for 0 care
                                 console.log('✅ Holiday package: Holiday type with no care required');
                             }
                         }
@@ -3472,90 +3479,90 @@ const BookingRequestForm = () => {
                             answerType: typeof answer
                         });
                         
-                        let hasSelection = false;
                         let validAnswer = true;
                         
-                        // ✅ FIX: Parse the answer if it's a string
-                        let parsedAnswer = answer;
-                        if (typeof answer === 'string') {
-                            try {
-                                parsedAnswer = JSON.parse(answer);
-                                console.log(`🎴 Parsed string answer to object:`, parsedAnswer);
-                            } catch (e) {
-                                console.error(`❌ Failed to parse service cards answer:`, e);
-                                validAnswer = false;
-                                parsedAnswer = null;
-                            }
-                        }
+                        // Get the available services from question options
+                        const services = typeof question.options === 'string' 
+                            ? JSON.parse(question.options) 
+                            : question.options;
                         
-                        // Check if parsedAnswer exists and is an object
-                        if (parsedAnswer && typeof parsedAnswer === 'object') {
-                            // Check if at least one service is selected (answered "Yes")
-                            hasSelection = Object.values(parsedAnswer).some(service => 
-                                service && service.selected === true
-                            );
-                            
-                            console.log(`🎴 Service cards - hasSelection: ${hasSelection}, answer keys:`, Object.keys(parsedAnswer));
-                            
-                            // If no services are selected, check if all are explicitly set to "No"
-                            // This means the user interacted with the form
-                            if (!hasSelection) {
-                                const allServicesAnswered = Object.values(parsedAnswer).every(service =>
-                                    service && typeof service.selected === 'boolean'
-                                );
-                                
-                                console.log(`🎴 No selections, allServicesAnswered: ${allServicesAnswered}`);
-                                
-                                // If not all services have been answered, it's invalid
-                                if (!allServicesAnswered) {
+                        // First check if answer is null, undefined, or empty
+                        if (!answer || answer === '' || answer === null || answer === undefined) {
+                            console.log(`❌ Service cards has no answer at all`);
+                            validAnswer = false;
+                        } else {
+                            // Parse the answer if it's a string
+                            let parsedAnswer = answer;
+                            if (typeof answer === 'string') {
+                                try {
+                                    parsedAnswer = JSON.parse(answer);
+                                } catch (e) {
+                                    console.error(`❌ Failed to parse service cards answer:`, e);
                                     validAnswer = false;
+                                    parsedAnswer = null;
                                 }
                             }
                             
-                            // If services are selected, check for required sub-options ONLY IF THEY EXIST
-                            if (hasSelection) {
-                                const services = typeof question.options === 'string' 
-                                    ? JSON.parse(question.options) 
-                                    : question.options;
+                            // Check if parsedAnswer exists and is an object
+                            if (parsedAnswer && typeof parsedAnswer === 'object') {
+                                const answerKeys = Object.keys(parsedAnswer);
                                 
-                                for (const serviceValue in parsedAnswer) {
-                                    const serviceAnswer = parsedAnswer[serviceValue];
-                                    if (serviceAnswer && serviceAnswer.selected) {
-                                        // Find the service definition
-                                        const serviceDef = services.find(s => s.value === serviceValue);
-                                        
-                                        // Only check sub-options if they exist AND are required
-                                        if (serviceDef && serviceDef.subOptions && serviceDef.subOptions.length > 0) {
-                                            // Sub-options exist, now check if they're required
-                                            if (serviceDef.subOptionsRequired) {
-                                                if (!serviceAnswer.subOptions || serviceAnswer.subOptions.length === 0) {
-                                                    console.log(`❌ Service "${serviceDef.label}" requires sub-option selection`);
-                                                    errorMessage.add({
-                                                        pageId: page.id,
-                                                        pageTitle: page.title,
-                                                        message: `Please select at least one option for "${serviceDef.label}".`,
-                                                        question: question.question,
-                                                        type: question.type
-                                                    });
-                                                    validAnswer = false;
-                                                    break;
+                                // Check if the answer object is empty
+                                if (answerKeys.length === 0) {
+                                    console.log(`❌ Service cards answer is empty object`);
+                                    validAnswer = false;
+                                } else {
+                                    // ✅ CRITICAL FIX: ALWAYS check that ALL services have been answered
+                                    // This must happen regardless of whether some are "Yes" or "No"
+                                    const allOptionsAnswered = services && services.every(option => {
+                                        const serviceAnswer = parsedAnswer[option.value];
+                                        const isAnswered = serviceAnswer && typeof serviceAnswer.selected === 'boolean';
+                                        if (!isAnswered) {
+                                            console.log(`❌ Service "${option.label || option.value}" has not been answered`);
+                                        }
+                                        return isAnswered;
+                                    });
+                                    
+                                    if (!allOptionsAnswered) {
+                                        console.log(`❌ Not all services have been answered`);
+                                        validAnswer = false;
+                                    }
+                                    
+                                    // If all services are answered, check for required sub-options on "Yes" services
+                                    if (validAnswer) {
+                                        for (const serviceValue in parsedAnswer) {
+                                            const serviceAnswer = parsedAnswer[serviceValue];
+                                            if (serviceAnswer && serviceAnswer.selected === true) {
+                                                const serviceDef = services.find(s => s.value === serviceValue);
+                                                
+                                                if (serviceDef && serviceDef.subOptions && serviceDef.subOptions.length > 0) {
+                                                    if (serviceDef.subOptionsRequired) {
+                                                        if (!serviceAnswer.subOptions || serviceAnswer.subOptions.length === 0) {
+                                                            console.log(`❌ Service "${serviceDef.label}" requires sub-option selection`);
+                                                            errorMessage.add({
+                                                                pageId: page.id,
+                                                                pageTitle: page.title,
+                                                                message: `Please select at least one option for "${serviceDef.label}".`,
+                                                                question: question.question,
+                                                                type: question.type
+                                                            });
+                                                            validAnswer = false;
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
-                                        // If no sub-options exist, the selection is valid as-is
-                                        console.log(`✅ Service "${serviceDef?.label || serviceValue}" is valid (no sub-options required)`);
                                     }
                                 }
+                            } else {
+                                console.log(`❌ Service cards answer is not a valid object:`, parsedAnswer);
+                                validAnswer = false;
                             }
-                        } else {
-                            // Answer is null or not an object
-                            console.log(`❌ Service cards answer is not a valid object:`, parsedAnswer);
-                            validAnswer = false;
                         }
                         
-                        // Only show error if it's truly invalid (not just all "No" answers)
+                        // Show error if validation failed
                         if (!validAnswer) {
-                            console.log(`❌ Service cards validation failed - no valid answer structure`);
+                            console.log(`❌ Service cards validation failed - not all services answered`);
                             errorMessage.add({
                                 pageId: page.id,
                                 pageTitle: page.title,
@@ -3976,15 +3983,32 @@ const BookingRequestForm = () => {
                 }
 
                 const sectionLabel = section.label;
-                questions.filter(q =>
-                    q.hidden === true && q.dirty === true && (q.answer == null || q.answer == undefined || q.answer == '')).map(q => {
-                        qa_pairs.push({
-                            ...q,
-                            section_id: section.id,
-                            delete: true,
-                            guestId: guest?.id
-                        });
+                // FIXED: Handle deletion of hidden questions with existing QaPair records
+                // When saveCurrentPage is triggered, any hidden question with an existing 
+                // QaPair record (fromQa = true) should be deleted from the database.
+                // The excludeFromSave flag only preserves answers in memory during form 
+                // interaction - at save time, hidden questions with DB records get deleted.
+                questions.filter(q => {
+                    // Hidden questions with existing QaPair records should be deleted
+                    if (q.hidden === true && q.fromQa === true) {
+                        return true;
+                    }
+                    
+                    // Original condition - hidden, dirty, and answer cleared (for questions without existing QaPairs)
+                    if (q.hidden === true && q.dirty === true && 
+                        (q.answer == null || q.answer == undefined || q.answer == '')) {
+                        return true;
+                    }
+                    
+                    return false;
+                }).map(q => {
+                    qa_pairs.push({
+                        ...q,
+                        section_id: section.id,
+                        delete: true,
+                        guestId: guest?.id
                     });
+                });
                 
                 questions = questions.filter(q => !q.excludeFromSave);
 
@@ -4393,22 +4417,15 @@ const BookingRequestForm = () => {
             'horizontal-card-multi'
         ];
 
-        const calculateNdisFundingStatus = (pages) => {
-            for (const page of pages) {
-                for (const section of page.Sections || []) {
-                    for (const question of section.Questions || []) {
-                        if (questionHasKey(question, QUESTION_KEYS.FUNDING_SOURCE) &&
-                            question.answer &&
-                            (question.answer?.toLowerCase().includes('ndis') || question.answer?.toLowerCase().includes('ndia'))) {
-                            return true;
-                        }
-                    }
-                }
-            }
-            return false;
-        };
+        const currentFunder = getCurrentFunder(pages);
+        let currentIsNdisFunded = false;
+        let currentIsIcareFunded = false;
+        if (currentFunder && (currentFunder.toLowerCase().includes('ndis') || currentFunder.toLowerCase().includes('ndia'))) {
+            currentIsNdisFunded = true;
+        } else if (currentFunder && currentFunder.toLowerCase().includes('icare')) {
+            currentIsIcareFunded = true;
+        }
 
-        const currentIsNdisFunded = calculateNdisFundingStatus(pages);
 
         let hiddenQuestions = [];
         const list = pages.map((page) => {
@@ -4418,7 +4435,7 @@ const BookingRequestForm = () => {
                 let s = structuredClone(section);
 
                 if (s.Questions.length === 1) {
-                    if (s.Questions[0].second_booking_only || s.Questions[0].ndis_only) {
+                    if (s.Questions[0].second_booking_only || s.Questions[0].ndis_only || s.Questions[0].question_key === 'i-acknowledge-additional-costs-icare') {
                         return s;
                     }
                 }
@@ -4532,7 +4549,7 @@ const BookingRequestForm = () => {
                 let s = structuredClone(section);
 
                 if (s.Questions.length === 1) {
-                    if (s.Questions[0].second_booking_only || s.Questions[0].ndis_only) {
+                    if (s.Questions[0].second_booking_only || s.Questions[0].ndis_only || s.Questions[0].question_key === 'i-acknowledge-additional-costs-icare') {
                         return s;
                     }
                 }
@@ -4597,7 +4614,7 @@ const BookingRequestForm = () => {
                 let s = structuredClone(section);
 
                 if (s.Questions.length === 1) {
-                    if (s.Questions[0].second_booking_only && booking?.type == 'Returning Guest') {
+                    if (s.Questions[0].second_booking_only && booking?.type == BOOKING_TYPES.RETURNING_GUEST) {
                         s.Questions[0].hidden = true;
                         s.hidden = true;
                         if (pageIsDirty || s.Questions[0]?.dirty) {
@@ -4617,6 +4634,17 @@ const BookingRequestForm = () => {
                                 s.Questions[0].hidden = false;
                                 s.hidden = false;
                             }
+                        }
+
+                        return s;
+                    }
+
+                    if (s.Questions[0].question_key === 'i-acknowledge-additional-costs-icare') {
+                        s.Questions[0].hidden = true;
+                        s.hidden = true;
+                        if (currentIsIcareFunded && bookingFormRoomSelected.length > 0 && bookingFormRoomSelected[0]?.type === 'ocean_view') {
+                            s.Questions[0].hidden = false;
+                            s.hidden = false;
                         }
 
                         return s;
@@ -4791,7 +4819,15 @@ const BookingRequestForm = () => {
 
                 if (data.booking?.Rooms) {
                     const selectedRooms = data.booking.Rooms.map((room, index) => {
-                        return { room: room.label, type: index == 0 ? room.RoomType.type : 'upgrade', price: room.RoomType.price_per_night, peak_rate: room.RoomType.peak_rate };
+                        return { 
+                            room: room.label, 
+                            name: room.label,
+                            type: index == 0 ? room.RoomType.type : 'upgrade', 
+                            price: room.RoomType.price_per_night,
+                            price_per_night: room.RoomType.price_per_night,
+                            peak_rate: room.RoomType.peak_rate,
+                            hsp_pricing: room.RoomType.hsp_pricing || 0
+                        };
                     });
                     summaryOfStay.rooms = selectedRooms;
                 }

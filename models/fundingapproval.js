@@ -35,10 +35,7 @@ module.exports = (sequelize, DataTypes) => {
     },
     approval_name: {
       type: DataTypes.STRING,
-      allowNull: false,
-      validate: {
-        notEmpty: true
-      }
+      allowNull: true
     },
     approval_number: {
       type: DataTypes.STRING,
@@ -47,20 +44,20 @@ module.exports = (sequelize, DataTypes) => {
     funding_type: {
       type: DataTypes.ENUM('icare', 'ndis', 'private', 'dva', 'other'),
       defaultValue: 'icare',
-      allowNull: false
+      allowNull: true
     },
     nights_approved: {
       type: DataTypes.INTEGER,
-      allowNull: false,
-      defaultValue: 0,
+      allowNull: true,
+      defaultValue: null,
       validate: {
         min: 0
       }
     },
     nights_used: {
       type: DataTypes.INTEGER,
-      defaultValue: 0,
-      allowNull: false,
+      defaultValue: null,
+      allowNull: true,
       validate: {
         min: 0
       }
@@ -91,18 +88,18 @@ module.exports = (sequelize, DataTypes) => {
     },
     additional_room_nights_approved: {
       type: DataTypes.INTEGER,
-      defaultValue: 0,
+      defaultValue: null,
       allowNull: true
     },
     additional_room_nights_used: {
       type: DataTypes.INTEGER,
-      defaultValue: 0,
+      defaultValue: null,
       allowNull: true
     },
     status: {
       type: DataTypes.ENUM('active', 'inactive', 'expired'),
       defaultValue: 'active',
-      allowNull: false
+      allowNull: true
     },
     notes: {
       type: DataTypes.TEXT,

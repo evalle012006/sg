@@ -139,12 +139,12 @@ const ApprovalFormModal = ({ isOpen, onClose, approval, uuid, onSuccess }) => {
         approval_name: approval.approval_name || '',
         approval_number: approval.approval_number || '',
         approval_type: approval.approval_type || 'icare',
-        nights_approved: approval.nights_approved || '',
+        nights_approved: approval.nights_approved ?? '',
         package_id: approval.package_id || null,
         approval_from: approval.approval_from || '',
         approval_to: approval.approval_to || '',
         additional_room_approved: approval.additional_room_approved || null,
-        additional_room_nights_approved: approval.additional_room_nights_approved || '',
+        additional_room_nights_approved: approval.additional_room_nights_approved ?? '',
         status: approval.status || 'active'
       });
     } else {
@@ -241,36 +241,17 @@ const ApprovalFormModal = ({ isOpen, onClose, approval, uuid, onSuccess }) => {
     }
   };
 
-  // Validation
+  // Validation - only validate date range if both dates are provided
   const validateForm = () => {
-    if (!formData.nights_approved || parseInt(formData.nights_approved) < 0) {
-      toast.error('Please enter a valid number of nights approved');
-      return false;
-    }
-
-    if (!formData.approval_from) {
-      toast.error('Please select an approval start date');
-      return false;
-    }
-
-    if (!formData.approval_to) {
-      toast.error('Please select an approval end date');
-      return false;
-    }
-
-    // Validate date range
-    const fromDate = moment(formData.approval_from);
-    const toDate = moment(formData.approval_to);
-    
-    if (toDate.isBefore(fromDate)) {
-      toast.error('Approval end date must be after start date');
-      return false;
-    }
-
-    // Validate additional room nights if room is selected
-    if (formData.additional_room_approved && !formData.additional_room_nights_approved) {
-      toast.error('Please enter nights approved for the additional room');
-      return false;
+    // Only validate date range if both dates are provided
+    if (formData.approval_from && formData.approval_to) {
+      const fromDate = moment(formData.approval_from);
+      const toDate = moment(formData.approval_to);
+      
+      if (toDate.isBefore(fromDate)) {
+        toast.error('Approval end date must be after start date');
+        return false;
+      }
     }
 
     return true;
@@ -291,16 +272,16 @@ const ApprovalFormModal = ({ isOpen, onClose, approval, uuid, onSuccess }) => {
       const payload = {
         approval_name: formData.approval_name || null,
         approval_number: formData.approval_number || null,
-        approval_type: formData.approval_type,
-        nights_approved: parseInt(formData.nights_approved),
-        package_id: formData.package_id,
-        approval_from: formData.approval_from,
-        approval_to: formData.approval_to,
-        additional_room_approved: formData.additional_room_approved,
-        additional_room_nights_approved: formData.additional_room_approved 
-          ? parseInt(formData.additional_room_nights_approved) || 0 
-          : 0,
-        status: formData.status
+        approval_type: formData.approval_type || null,
+        nights_approved: formData.nights_approved !== '' ? parseInt(formData.nights_approved) : null,
+        package_id: formData.package_id || null,
+        approval_from: formData.approval_from || null,
+        approval_to: formData.approval_to || null,
+        additional_room_approved: formData.additional_room_approved || null,
+        additional_room_nights_approved: formData.additional_room_nights_approved !== '' 
+          ? parseInt(formData.additional_room_nights_approved) 
+          : null,
+        status: formData.status || 'active'
       };
 
       const response = await fetch(url, {
@@ -355,7 +336,7 @@ const ApprovalFormModal = ({ isOpen, onClose, approval, uuid, onSuccess }) => {
             <div className="space-y-6">
               {/* Approval Name */}
               <TextField
-                label="Approval Name (Optional)"
+                label="Approval Name"
                 value={formData.approval_name}
                 onChange={(value) => setFormData(prev => ({ ...prev, approval_name: value }))}
                 placeholder="e.g., 2024 Winter Package"
@@ -364,7 +345,7 @@ const ApprovalFormModal = ({ isOpen, onClose, approval, uuid, onSuccess }) => {
 
               {/* Approval Number */}
               <TextField
-                label="Approval Number (Optional)"
+                label="Approval Number"
                 value={formData.approval_number}
                 onChange={(value) => setFormData(prev => ({ ...prev, approval_number: value }))}
                 placeholder="Enter approval number"
@@ -373,7 +354,7 @@ const ApprovalFormModal = ({ isOpen, onClose, approval, uuid, onSuccess }) => {
               {/* Approval Type */}
               <div>
                 <label className="block text-sm font-medium mb-2 text-gray-700">
-                  Approval Type *
+                  Approval Type
                 </label>
                 <SelectComponent
                   options={approvalTypeOptions}
@@ -386,19 +367,18 @@ const ApprovalFormModal = ({ isOpen, onClose, approval, uuid, onSuccess }) => {
 
               {/* Nights Approved */}
               <TextField
-                label="Number of Nights Approved *"
+                label="Number of Nights Approved"
                 type="number"
                 value={formData.nights_approved}
                 onChange={(value) => setFormData(prev => ({ ...prev, nights_approved: value }))}
                 placeholder="Enter number of nights"
                 min="0"
-                required
               />
 
               {/* Package Approved */}
               <div>
                 <label className="block text-sm font-medium mb-2 text-gray-700">
-                  Package Approved (Optional)
+                  Package Approved
                   {loadingPackages && <span className="text-xs text-gray-500 ml-2">(Loading...)</span>}
                 </label>
                 <SelectComponent
@@ -415,7 +395,7 @@ const ApprovalFormModal = ({ isOpen, onClose, approval, uuid, onSuccess }) => {
               {approval && (
                 <div>
                   <label className="block text-sm font-medium mb-2 text-gray-700">
-                    Status *
+                    Status
                   </label>
                   <SelectComponent
                     options={statusOptions}
@@ -435,24 +415,22 @@ const ApprovalFormModal = ({ isOpen, onClose, approval, uuid, onSuccess }) => {
             <div className="space-y-6">
               {/* Approval From */}
               <DateComponent
-                label="Approval From *"
+                label="Approval From"
                 value={formData.approval_from}
                 onChange={(value) => setFormData(prev => ({ ...prev, approval_from: value }))}
-                required
               />
 
               {/* Approval To */}
               <DateComponent
-                label="Approval To *"
+                label="Approval To"
                 value={formData.approval_to}
                 onChange={(value) => setFormData(prev => ({ ...prev, approval_to: value }))}
-                required
               />
 
               {/* Additional Room Section */}
               <div className="border-t border-gray-200 pt-6">
                 <h3 className="text-sm font-semibold text-gray-700 mb-4">
-                  Additional Room (Optional)
+                  Additional Room
                 </h3>
                 
                 {/* Additional Room Type */}

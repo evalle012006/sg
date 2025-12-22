@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { calculateCareHours, createPackageFilterCriteria, formatCareScheduleForDisplay } from '../../utilities/careHoursCalculator';
 import { findByQuestionKey, QUESTION_KEYS } from '../../services/booking/question-helper';
 import { useCallback } from 'react';
+import FormattedDescription from '../ui-v2/FormattedDescription';
 
 // Simple Error Boundary for debugging
 class ErrorBoundary extends React.Component {
@@ -66,6 +67,9 @@ const PackageSelection = ({
   const [lastCriteriaHash, setLastCriteriaHash] = useState(null);
   const previousValueRef = useRef(value);
   const lastFetchCriteriaRef = useRef(null);
+  const abortControllerRef = useRef(null);
+  const requestIdRef = useRef(0);
+  const fetchInProgressRef = useRef(false);
 
   const shouldShowError = !builderMode && required && (
     error || 
@@ -577,10 +581,29 @@ const PackageSelection = ({
 
   // Build comprehensive filter criteria
   const enhancedFilterCriteria = useMemo(() => {
-      // Use stableFilterCriteria if available and no major changes detected
+      // ✅ FIX: Check if critical filters have changed before using stableFilterCriteria
       if (stableFilterCriteria && !builderMode) {
-          console.log('📦 Using stable filter criteria (no recalculation needed)');
-          return stableFilterCriteria;
+          // Compare critical values that should trigger a refetch
+          const criticalValuesChanged = 
+              stableFilterCriteria.ndis_package_type !== (localFilterState?.ndisPackageType || ndis_package_type) ||
+              stableFilterCriteria.funder_type !== (localFilterState?.funderType || funder);
+          
+          if (criticalValuesChanged) {
+              console.log('📦 Critical filter values changed, recalculating criteria:', {
+                  old: {
+                      ndis_package_type: stableFilterCriteria.ndis_package_type,
+                      funder_type: stableFilterCriteria.funder_type
+                  },
+                  new: {
+                      ndis_package_type: localFilterState?.ndisPackageType || ndis_package_type,
+                      funder_type: localFilterState?.funderType || funder
+                  }
+              });
+              // Don't return stableFilterCriteria - let it recalculate below
+          } else {
+              console.log('📦 Using stable filter criteria (no recalculation needed)');
+              return stableFilterCriteria;
+          }
       }
       
       console.log('📦 Calculating new filter criteria');
@@ -688,6 +711,12 @@ const PackageSelection = ({
           console.log(`      Package requires_no_care: ${req.requires_no_care}`);
           console.log(`      Package care_hours_min: ${req.care_hours_min}`);
           console.log(`      Package care_hours_max: ${req.care_hours_max}`);
+
+          // If package requires care (requires_no_care: false) but guest has 0 care hours, exclude it
+          if (req.requires_no_care === false && careHours === 0) {
+              console.log(`❌ Excluding ${pkg.package_code}: requires care but guest has 0 care hours`);
+              return false;
+          }
           
           // If package requires no care, guest must have 0 care hours
           if (req.requires_no_care === true && careHours > 0) {
@@ -808,30 +837,51 @@ const PackageSelection = ({
       return filtered;
   };
 
-  const fetchPackages = async (forceFetch = false) => {
+  const fetchPackages = useCallback(async (forceFetch = false) => {
+      // Cancel any previous pending request
+      if (abortControllerRef.current) {
+          console.log('📦 Cancelling previous request');
+          abortControllerRef.current.abort();
+      }
+
+      // Create new abort controller for this request
+      abortControllerRef.current = new AbortController();
+      const signal = abortControllerRef.current.signal;
+
+      // Increment request ID to track this specific request
+      const currentRequestId = ++requestIdRef.current;
+      console.log(`📦 Starting fetch request #${currentRequestId}`);
+
       try {
           // Create hash of current criteria
-          const currentHash = createCriteriaHash(enhancedFilterCriteria);
-          
+          const currentHash = JSON.stringify({
+              funder_type: enhancedFilterCriteria.funder_type,
+              ndis_package_type: enhancedFilterCriteria.ndis_package_type,
+              care_hours: enhancedFilterCriteria.care_hours,
+              has_course: enhancedFilterCriteria.has_course,
+              course_offered: enhancedFilterCriteria.course_offered
+          });
+
           // Check if we need to fetch (criteria changed or forced)
           if (!forceFetch && lastCriteriaHash === currentHash && packages.length > 0) {
               console.log('📦 Skipping fetch - criteria unchanged and packages already loaded');
               return;
           }
-          
+
           setLoading(true);
           setFetchError(null);
-          
-          console.log('📦 Fetching packages with criteria:', enhancedFilterCriteria);
-          
-          // Store criteria that we're fetching with
-          lastFetchCriteriaRef.current = { ...enhancedFilterCriteria };
-          
+
+          console.log('📦 Fetching packages with criteria:', {
+              funder_type: enhancedFilterCriteria.funder_type,
+              ndis_package_type: enhancedFilterCriteria.ndis_package_type,
+              care_hours: enhancedFilterCriteria.care_hours
+          });
+
           // Determine if we need advanced filtering (care-based)
           const needsAdvancedFiltering = enhancedFilterCriteria.care_hours > 0;
-          
+
           let response;
-          
+
           if (needsAdvancedFiltering) {
               console.log('🔍 Using advanced package filtering with care data');
               response = await fetch('/api/packages/filter', {
@@ -841,7 +891,8 @@ const PackageSelection = ({
                       ...enhancedFilterCriteria,
                       include_requirements: true,
                       debug: false
-                  })
+                  }),
+                  signal // Pass abort signal
               });
           } else {
               console.log('🔍 Using basic package filtering');
@@ -849,9 +900,23 @@ const PackageSelection = ({
               if (enhancedFilterCriteria.funder_type) params.set('funder', enhancedFilterCriteria.funder_type);
               if (enhancedFilterCriteria.ndis_package_type) params.set('ndis_package_type', enhancedFilterCriteria.ndis_package_type);
               params.set('include_requirements', 'true');
-              
+
               const queryString = params.toString();
-              response = await fetch(`/api/packages${queryString ? `?${queryString}` : '?include_requirements=true'}`);
+              response = await fetch(`/api/packages${queryString ? `?${queryString}` : '?include_requirements=true'}`, {
+                  signal // Pass abort signal
+              });
+          }
+
+          // Check if this request was aborted or superseded
+          if (signal.aborted) {
+              console.log(`📦 Request #${currentRequestId} was aborted, ignoring response`);
+              return;
+          }
+
+          // Check if a newer request has been made
+          if (currentRequestId !== requestIdRef.current) {
+              console.log(`📦 Request #${currentRequestId} is stale (current is #${requestIdRef.current}), ignoring response`);
+              return;
           }
 
           if (!response.ok) {
@@ -859,18 +924,24 @@ const PackageSelection = ({
           }
 
           const data = await response.json();
-          
+
+          // Double-check we're still the current request after parsing JSON
+          if (currentRequestId !== requestIdRef.current) {
+              console.log(`📦 Request #${currentRequestId} became stale during JSON parsing, ignoring`);
+              return;
+          }
+
           if (data.success && data.packages) {
-              console.log(`📦 Successfully fetched ${data.packages.length} packages`);
-              
+              console.log(`📦 Request #${currentRequestId}: Successfully fetched ${data.packages.length} packages`);
+
               let fetchedPackages = data.packages.map(pkg => ({
                   ...pkg,
-                  formattedPrice: pkg.funder === 'NDIS' 
-                    ? 'NDIS Funded' 
-                    : selectedFunder === 'icare' || selectedFunder === 'iCare'
-                      ? 'iCare Funded' 
-                      : `$${parseFloat(pkg.price || 0).toFixed(2)}`,
-                  summary: pkg.description ? 
+                  formattedPrice: pkg.funder === 'NDIS'
+                      ? 'NDIS Funded'
+                      : selectedFunder === 'icare' || selectedFunder === 'iCare'
+                          ? 'iCare Funded'
+                          : `$${parseFloat(pkg.price || 0).toFixed(2)}`,
+                  summary: pkg.description ?
                       (pkg.description.length > 100 ? pkg.description.substring(0, 100) + '...' : pkg.description) :
                       'Package details available',
                   ndis_line_items: Array.isArray(pkg.ndis_line_items) ? pkg.ndis_line_items : [],
@@ -882,129 +953,53 @@ const PackageSelection = ({
               // Apply PackageRequirement filtering
               fetchedPackages = applyPackageRequirementFiltering(fetchedPackages, enhancedFilterCriteria);
 
-              // Enhanced package sorting logic with boundary prioritization
+              // Sort packages (your existing sorting logic)
               fetchedPackages.sort((a, b) => {
                   const careHours = enhancedFilterCriteria.care_hours || 0;
-                  
-                  // Boundary prioritization logic for care hours
-                  if (careHours > 0 && a.requirement && b.requirement) {
-                      const aReq = a.requirement;
-                      const bReq = b.requirement;
-                      
-                      // Check if guest is at the boundary between packages
-                      const aAtUpperLimit = aReq.care_hours_max !== null && careHours === aReq.care_hours_max;
-                      const bAtUpperLimit = bReq.care_hours_max !== null && careHours === bReq.care_hours_max;
-                      const aAtLowerLimit = aReq.care_hours_min !== null && careHours === aReq.care_hours_min;
-                      const bAtLowerLimit = bReq.care_hours_min !== null && careHours === bReq.care_hours_min;
-                      
-                      // If one package has guest at upper limit and another at lower limit,
-                      // prioritize the one with higher capacity (lower limit)
-                      if (aAtUpperLimit && bAtLowerLimit) {
-                          console.log(`🎯 Boundary priority: ${b.package_code} (higher capacity) over ${a.package_code} (at max)`);
-                          return 1; // b wins (HCSP over CSP)
-                      }
-                      if (bAtUpperLimit && aAtLowerLimit) {
-                          console.log(`🎯 Boundary priority: ${a.package_code} (higher capacity) over ${b.package_code} (at max)`);
-                          return -1; // a wins
-                      }
-                      
-                      // If both packages are suitable, prioritize the one with higher maximum capacity
-                      if (aReq.care_hours_max !== null && bReq.care_hours_max !== null) {
-                          if (aReq.care_hours_max !== bReq.care_hours_max) {
-                              console.log(`🎯 Capacity priority: Higher max capacity wins`);
-                              return bReq.care_hours_max - aReq.care_hours_max; // Higher max wins
-                          }
-                      }
-                      
-                      // If one has unlimited capacity (null max) and other has limited, prioritize unlimited
-                      if (aReq.care_hours_max === null && bReq.care_hours_max !== null) {
-                          console.log(`🎯 Unlimited capacity priority: ${a.package_code} over ${b.package_code}`);
-                          return -1; // a wins (unlimited capacity)
-                      }
-                      if (bReq.care_hours_max === null && aReq.care_hours_max !== null) {
-                          console.log(`🎯 Unlimited capacity priority: ${b.package_code} over ${a.package_code}`);
-                          return 1; // b wins (unlimited capacity)
-                      }
-                  }
-                  
+
                   // Existing no-care prioritization logic
                   if (careHours === 0) {
                       const aIsNoCarePerfect = a.requirement?.requires_no_care === true;
                       const bIsNoCarePerfect = b.requirement?.requires_no_care === true;
-                      
-                      if (aIsNoCarePerfect && !bIsNoCarePerfect) {
-                          console.log(`🥇 Prioritizing ${a.package_code} (requires_no_care=true) over ${b.package_code}`);
-                          return -1;
-                      }
-                      if (!aIsNoCarePerfect && bIsNoCarePerfect) {
-                          console.log(`🥇 Prioritizing ${b.package_code} (requires_no_care=true) over ${a.package_code}`);
-                          return 1;
-                      }
+
+                      if (aIsNoCarePerfect && !bIsNoCarePerfect) return -1;
+                      if (!aIsNoCarePerfect && bIsNoCarePerfect) return 1;
                   }
-                  
+
                   // Recommended packages priority
                   if (a.isRecommended && !b.isRecommended) return -1;
                   if (!a.isRecommended && b.isRecommended) return 1;
-                  
+
                   // Match score priority
                   if (a.matchScore !== undefined && b.matchScore !== undefined) {
                       if (a.matchScore !== b.matchScore) {
                           return b.matchScore - a.matchScore;
                       }
                   }
-                  
-                  // Funder type compatibility
-                  const guestFunder = enhancedFilterCriteria.funder_type;
-                  if (guestFunder) {
-                      const aFunderMatch = (guestFunder === 'NDIS' && a.funder === 'NDIS') || 
-                                          (guestFunder === 'Non-NDIS' && a.funder !== 'NDIS');
-                      const bFunderMatch = (guestFunder === 'NDIS' && b.funder === 'NDIS') || 
-                                          (guestFunder === 'Non-NDIS' && b.funder !== 'NDIS');
-                      
-                      if (aFunderMatch && !bFunderMatch) return -1;
-                      if (!aFunderMatch && bFunderMatch) return 1;
-                  }
-                  
-                  // Care compatibility
-                  if (a.careCompatible && !b.careCompatible) return -1;
-                  if (!a.careCompatible && b.careCompatible) return 1;
-                  
+
                   // Alphabetical fallback
                   return (a.name || '').localeCompare(b.name || '');
               });
 
-              console.log('📦 Final package order after enhanced sorting:', 
-                  fetchedPackages.map(p => ({
-                      code: p.package_code,
-                      name: p.name,
-                      requiresNoCare: p.requirement?.requires_no_care,
-                      ndis_package_type: p.ndis_package_type,
-                      careRange: p.requirement ? `${p.requirement.care_hours_min || 0}-${p.requirement.care_hours_max || '∞'}h` : 'No req'
-                  }))
-              );
+              console.log(`📦 Request #${currentRequestId}: Final packages:`, fetchedPackages.map(p => p.package_code));
 
               if (!builderMode) {
                   const bestMatch = fetchedPackages.length > 0 ? fetchedPackages[0] : null;
-                  
+
                   if (bestMatch) {
-                      console.log('🏆 Single best match selected:', {
+                      console.log(`🏆 Request #${currentRequestId}: Best match selected:`, {
                           name: bestMatch.name,
-                          code: bestMatch.package_code,
-                          id: bestMatch.id,
-                          funder: bestMatch.funder,
-                          ndis_package_type: bestMatch.ndis_package_type
+                          code: bestMatch.package_code
                       });
 
                       // Auto-select immediately
                       if (onChange && value != bestMatch.id) {
                           onChange(bestMatch.id);
                           setAutoSelected(true);
-                          console.log('✅ Package auto-selected:', bestMatch.id);
                       }
-                      
+
                       // Show only the single best match
                       setPackages([bestMatch]);
-                      
                   } else {
                       console.warn('⚠️ No packages found');
                       setPackages([]);
@@ -1013,7 +1008,7 @@ const PackageSelection = ({
                   // Builder mode - show all packages
                   setPackages(fetchedPackages);
               }
-              
+
               // Update stable criteria and hash
               setStableFilterCriteria({ ...enhancedFilterCriteria });
               setLastCriteriaHash(currentHash);
@@ -1021,55 +1016,54 @@ const PackageSelection = ({
               throw new Error(data.message || 'Failed to fetch packages');
           }
       } catch (error) {
+          // Ignore abort errors - they're expected when cancelling requests
+          if (error.name === 'AbortError') {
+              console.log(`📦 Request #${currentRequestId} was aborted`);
+              return;
+          }
+
           console.error('❌ Error fetching packages:', error);
           setFetchError(error.message);
           setPackages([]);
       } finally {
-          setLoading(false);
+          // Only update loading state if this is still the current request
+          if (currentRequestId === requestIdRef.current) {
+              setLoading(false);
+          }
       }
-  };
+  }, [
+      enhancedFilterCriteria,
+      builderMode,
+      onChange,
+      value,
+      selectedFunder,
+      lastCriteriaHash,
+      packages.length,
+      applyPackageRequirementFiltering
+  ]);
 
   // Fetch packages when component mounts or criteria changes
   useEffect(() => {
-      console.log('📦 PackageSelection useEffect triggered:', {
-          builderMode,
-          hasStableCriteria: !!stableFilterCriteria,
-          currentValue: value,
-          autoSelected,
-          packagesCount: packages.length
-      });
-      
-      // Create hash of current criteria
-      const currentHash = createCriteriaHash(enhancedFilterCriteria);
-      
-      // Only fetch if:
-      // 1. We don't have stable criteria yet (first load)
-      // 2. The criteria hash has actually changed
-      // 3. We're in builder mode and need to show all packages
-      const shouldFetch = !stableFilterCriteria || 
-                        lastCriteriaHash !== currentHash || 
-                        (builderMode && packages.length === 0);
-      
-      if (shouldFetch) {
-          console.log('📦 Criteria changed or first load - fetching packages');
-          fetchPackages();
-      } else {
-          console.log('📦 No fetch needed - using existing packages');
-      }
-      
-      return () => {
-          if (fetchTimeout.current) {
-              clearTimeout(fetchTimeout.current);
-          }
-      };
+    console.log('📦 PackageSelection useEffect triggered');
+
+    // Fetch packages - the function itself handles deduplication
+    fetchPackages();
+
+    // Cleanup: abort any pending request when dependencies change or unmount
+    return () => {
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+        }
+    };
   }, [
-      // REDUCED dependencies - only what actually matters
+      // Use primitive values to prevent unnecessary re-triggers
       enhancedFilterCriteria.funder_type,
       enhancedFilterCriteria.ndis_package_type,
       enhancedFilterCriteria.care_hours,
       enhancedFilterCriteria.has_course,
       enhancedFilterCriteria.course_offered,
       builderMode
+      // Note: Don't include fetchPackages in deps to avoid infinite loops
   ]);
 
   useEffect(() => {
@@ -1098,6 +1092,15 @@ const PackageSelection = ({
           previousValueRef.current = value;
       }
   }, [value]);
+
+  useEffect(() => {
+    return () => {
+        isMounted.current = false;
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+        }
+    };
+  }, []);
 
   // Handle pre-population when value is provided (package ID from saved form)
   useEffect(() => {
@@ -1175,6 +1178,20 @@ const PackageSelection = ({
     }
   };
 
+  // ✅ NEW: Reset auto-selection when NDIS package type changes
+  useEffect(() => {
+      if (localFilterState?.ndisPackageType && stableFilterCriteria?.ndis_package_type) {
+          if (localFilterState.ndisPackageType !== stableFilterCriteria.ndis_package_type) {
+              console.log('📦 NDIS package type changed, resetting auto-selection:', {
+                  from: stableFilterCriteria.ndis_package_type,
+                  to: localFilterState.ndisPackageType
+              });
+              setAutoSelected(false);
+              setStableFilterCriteria(null); // Force recalculation
+          }
+      }
+  }, [localFilterState?.ndisPackageType]);
+
   // Unified Package Card Component
   const renderPackageCard = (pkg) => {
     const isSelected = isPackageSelected(pkg) || (!builderMode && packages.length === 1);
@@ -1232,7 +1249,10 @@ const PackageSelection = ({
             </h3>
             
             <div className="flex items-center justify-between mb-3">
-              <span className="font-mono text-sm bg-gray-100 px-2 py-1 rounded">
+              <span 
+                className="text-sm bg-gray-100 px-2 py-1 rounded"
+                style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}
+              >
                 {safeRender(pkg.package_code, 'N/A')}
               </span>
             </div>
@@ -1254,7 +1274,7 @@ const PackageSelection = ({
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                   </svg>
                   <p className="text-xs text-blue-700">
-                    This package is processed through NDIS funding. Final costs and line item details will be shown in your Summary of Stay.
+                    This package includes NDIS funded support and non NDIS funded accomodation. Further information will be shown on your Summary of Stay.
                   </p>
                 </div>
               </div>
@@ -1363,10 +1383,11 @@ const PackageSelection = ({
 
   return (
     <div className={`package-selection ${className}`}>
-      {/* Main Content Layout */}
-      <div className="flex flex-col lg:flex-row gap-3">
-        {/* Package Display - Main Content */}
-        <div className="flex-1 min-w-0">
+      {/* Main Content Layout - Grid for equal column control */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+        
+        {/* Package Display - Left Column */}
+        <div className="w-full">
           <div className={`
             rounded-lg border transition-all duration-200 p-3
             ${shouldShowError
@@ -1441,14 +1462,8 @@ const PackageSelection = ({
                       </div>
                     )}
 
-                    {/* Package Cards Grid */}
-                    <div className={`grid gap-6 ${
-                      builderMode 
-                        ? 'grid-cols-1 lg:grid-cols-2 xl:grid-cols-3'
-                        : funderPackages.length === 1 
-                          ? 'grid-cols-1 max-w-lg'
-                          : 'grid-cols-1 lg:grid-cols-2'
-                    }`}>
+                    {/* Package Cards - Single column within the grid cell */}
+                    <div className="space-y-4">
                       {funderPackages.map((pkg) => (
                         <ErrorBoundary key={pkg.id}>
                           {renderPackageCard(pkg)}
@@ -1460,6 +1475,7 @@ const PackageSelection = ({
               })}
             </div>
           </div>
+          
           {/* Error indicator */}
           {shouldShowError && (
             <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded text-red-600 text-sm flex items-center">
@@ -1471,13 +1487,13 @@ const PackageSelection = ({
           )}
         </div>
 
-        {/* Right Sidebar - Package Description */}
+        {/* Right Column - Package Description */}
         {!builderMode && (
-          <div className="w-full lg:w-96 xl:w-1/2 flex-shrink-0 mt-2 lg:mt-8">
+          <div className="w-full">
             {(() => {
               // Find the currently selected package
               const selectedPackage = packages.find(pkg => isPackageSelected(pkg));
-              
+
               if (selectedPackage && selectedPackage.description) {
                 return (
                   <div className="bg-white rounded-lg border border-gray-200 shadow-sm sticky top-4 overflow-hidden">
@@ -1496,16 +1512,18 @@ const PackageSelection = ({
                       </div>
                     </div>
 
-                    {/* Description content */}
+                    {/* Description content - Using FormattedDescription */}
                     <div className="p-4 sm:p-6">
-                      <div className="text-gray-700 text-sm sm:text-base leading-relaxed whitespace-pre-line">
-                        {selectedPackage.description}
-                      </div>
+                      <FormattedDescription 
+                        text={selectedPackage.description}
+                        variant="default"
+                        className="text-gray-700"
+                      />
 
                       {/* Package metadata */}
                       <div className="mt-4 pt-4 border-t border-gray-200">
                         <div className="flex flex-wrap items-center gap-2 text-xs text-gray-600">
-                          <span className="font-mono bg-gray-100 px-2 py-1 rounded">
+                          <span className="bg-gray-100 px-2 py-1 rounded">
                             {selectedPackage.package_code}
                           </span>
                           <span className="text-gray-400">•</span>

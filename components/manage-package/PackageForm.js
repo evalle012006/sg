@@ -6,6 +6,8 @@ import { Home, Plus, Trash2 } from 'lucide-react';
 const Button = dynamic(() => import('../../components/ui-v2/Button'));
 const Select = dynamic(() => import('../../components/ui-v2/Select'));
 const Spinner = dynamic(() => import('../../components/ui/spinner'));
+const DescriptionEditor = dynamic(() => import('../../components/ui-v2/DescriptionEditor'), { ssr: false });
+import { DescriptionPreview } from '../../components/ui-v2/FormattedDescription';
 
 export default function PackageForm({ 
     mode = 'add', // 'add', 'edit', or 'view'
@@ -29,6 +31,7 @@ export default function PackageForm({
 
     const [isLoading, setIsLoading] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [showPreview, setShowPreview] = useState(false);
     
     // Validation state management
     const [fieldErrors, setFieldErrors] = useState({});
@@ -637,27 +640,61 @@ export default function PackageForm({
                         )}
                     </div>
 
-                    {/* Description */}
+                    {/* Description with Editor */}
                     <div className="mb-6">
-                        <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-2">
-                            Package Description
-                        </label>
-                        <textarea
-                            id="description"
-                            name="description"
-                            value={formData.description}
-                            onChange={handleInputChange}
-                            placeholder="Enter a detailed description of this package (optional)"
-                            disabled={isReadOnly}
-                            rows="4"
-                            maxLength="2000"
-                            className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-y ${
-                                isReadOnly ? 'bg-gray-50 text-gray-500 cursor-not-allowed border-gray-300' : 'border-gray-300'
-                            }`}
-                        />
-                        <p className="mt-1.5 text-xs text-gray-500">
-                            {formData.description.length}/2000 characters
-                        </p>
+                        {isReadOnly ? (
+                            <>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    Package Description
+                                </label>
+                                <DescriptionPreview 
+                                    text={formData.description}
+                                    title="Description"
+                                />
+                            </>
+                        ) : (
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                {/* Editor */}
+                                <div>
+                                    <DescriptionEditor
+                                        id="description"
+                                        value={formData.description}
+                                        onChange={handleInputChange}
+                                        placeholder="Enter a detailed description of this package.&#10;&#10;Tips:&#10;- Use '-' at the start of a line for bullet points&#10;- Use '1.', '2.' etc. for numbered lists&#10;- Lines ending with ':' will be styled as headers"
+                                        maxLength={2000}
+                                        disabled={isReadOnly}
+                                        rows={10}
+                                        label="Package Description"
+                                        required={false}
+                                    />
+                                </div>
+                                
+                                {/* Live Preview */}
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                                        Preview
+                                    </label>
+                                    <div className="border border-gray-200 rounded-md h-[calc(100%-28px)] min-h-[280px] overflow-auto">
+                                        <div className="bg-gray-50 px-3 py-2 border-b border-gray-200">
+                                            <span className="text-xs text-gray-500">This is how the description will appear</span>
+                                        </div>
+                                        <div className="p-4">
+                                            {formData.description ? (
+                                                <DescriptionPreview 
+                                                    text={formData.description}
+                                                    title=""
+                                                    className="border-0 p-0"
+                                                />
+                                            ) : (
+                                                <p className="text-gray-400 text-sm text-center py-8">
+                                                    Start typing to see the preview...
+                                                </p>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </div>
 
                     {/* Funder - Dropdown Select */}

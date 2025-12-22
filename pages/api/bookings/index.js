@@ -655,7 +655,7 @@ export default async function handler(req, res) {
       // THE KEY OPTIMIZATION: Only include what we absolutely need
       const queryAttributes = [
         'id', 'uuid', 'reference_id', 'status', 'status_name', 'eligibility', 
-        'eligibility_name', 'type', 'type_of_spinal_injury', 'createdAt',
+        'eligibility_name', 'type', 'type_of_spinal_injury', 'createdAt', 'updatedAt',
         'preferred_arrival_date', 'preferred_departure_date', 'label',
         'complete'
       ];
@@ -758,19 +758,27 @@ export default async function handler(req, res) {
       }
       
       if (!searchQuery) {
-        const guestCancelledBookings = processedData.filter(booking => 
-          booking.status && booking.status.includes('guest_cancelled')
-        );
-    
-        const amendedBookings = processedData.filter(booking => 
-          booking.status && booking.status.includes('booking_amended')
-        );
-    
-        const otherStatusBookings = processedData.filter(booking => 
-          !booking.status || 
-          (!booking.status.includes('guest_cancelled') && 
-           !booking.status.includes('booking_amended'))
-        );
+        const sortByUpdatedAt = (a, b) => {
+          const dateA = new Date(a.updatedAt || a.createdAt);
+          const dateB = new Date(b.updatedAt || b.createdAt);
+          return dateB - dateA; // Descending (latest first)
+        };
+
+        const guestCancelledBookings = processedData
+          .filter(booking => booking.status && booking.status.includes('guest_cancelled'))
+          .sort(sortByUpdatedAt);
+
+        const amendedBookings = processedData
+          .filter(booking => booking.status && booking.status.includes('booking_amended'))
+          .sort(sortByUpdatedAt);
+
+        const otherStatusBookings = processedData
+          .filter(booking => 
+            !booking.status || 
+            (!booking.status.includes('guest_cancelled') && 
+            !booking.status.includes('booking_amended'))
+          )
+          .sort(sortByUpdatedAt);
     
         const sortedData = [...guestCancelledBookings, ...amendedBookings, ...otherStatusBookings];
         

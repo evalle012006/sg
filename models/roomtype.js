@@ -26,6 +26,11 @@ module.exports = (sequelize, DataTypes) => {
     price_per_night: DataTypes.FLOAT,
     image_filename: DataTypes.STRING,
     peak_rate: DataTypes.FLOAT,
+    hsp_pricing: {
+      type: DataTypes.FLOAT,
+      allowNull: true,
+      defaultValue: 0
+    },
   }, {
     sequelize,
     modelName: 'RoomType',

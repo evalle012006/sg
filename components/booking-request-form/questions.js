@@ -8,6 +8,7 @@ import { findByQuestionKey, generateQuestionKey, QUESTION_KEYS, questionHasKey }
 import { getCrossValidationValue } from "../../utilities/dateUtils";
 import { getInfantCareQuestionMapping } from "../../utilities/bookingRequestForm";
 import { useAutofillDetection } from '../../hooks/useAutofillDetection';
+import TooltipIcon from "../ui-v2/TooltipIcon";
 
 const QuestionPage = ({ 
     currentPage, 
@@ -718,42 +719,6 @@ const QuestionPage = ({
     }, [updatedCurrentPage, allPages]);
 
     useEffect(() => {
-        if (!currentPage?.Sections) return;
-        
-        let needsUpdate = false;
-        const updatedSections = currentPage.Sections.map(section => {
-            const updatedQuestions = section.Questions.map(question => {
-                if ((question.type === 'service-cards' || question.type === 'service-cards-multi') && !question.answer) {
-                    needsUpdate = true;
-                    
-                    // Initialize answer with all services as "No" (selected: false)
-                    const options = typeof question.options === 'string' 
-                        ? JSON.parse(question.options) 
-                        : question.options;
-                    
-                    const initialAnswer = {};
-                    options.forEach(option => {
-                        initialAnswer[option.value] = {
-                            selected: false,
-                            subOptions: []
-                        };
-                    });
-                    
-                    return { ...question, answer: initialAnswer };
-                }
-                return question;
-            });
-            
-            return { ...section, Questions: updatedQuestions };
-        });
-        
-        if (needsUpdate) {
-            const updatedPage = { ...currentPage, Sections: updatedSections };
-            setUpdatedCurrentPage(updatedPage);
-        }
-    }, [currentPage?.id]);
-
-    useEffect(() => {
         if (updatedCurrentPage && updatedCurrentPage.dirty) {
             updatePageData(updatedCurrentPage.Sections);
         }
@@ -1128,7 +1093,7 @@ const QuestionPage = ({
                                                                         );
                                                                         
                                                                         if (matchingUpdate) {
-                                                                            console.log(`✅ Found and updating question: "${question.question}" on page "${page.title}"`);
+                                                                            // console.log(`✅ Found and updating question: "${question.question}" on page "${page.title}"`);
                                                                             return {
                                                                                 ...question,
                                                                                 answer: matchingUpdate.answer,
@@ -1159,7 +1124,7 @@ const QuestionPage = ({
                                                                 // For each page that was updated, call the immediate update
                                                                 updatedAllPages.forEach(page => {
                                                                     if (page.dirty) {
-                                                                        console.log(`📝 Dispatching update for page: "${page.title}"`);
+                                                                        // console.log(`📝 Dispatching update for page: "${page.title}"`);
                                                                         updateAndDispatchPageDataImmediate(page.Sections, page.id);
                                                                     }
                                                                 });
@@ -1220,6 +1185,7 @@ const QuestionPage = ({
                                                                 {q.label && <span className="font-bold text-sargood-blue text-xl mb-2">{q.label}</span>}
                                                                 <div className="text-xs flex flex-row">
                                                                     <span className="font-bold text-sm">{q.question}</span>
+                                                                    {q.tooltip && <TooltipIcon tooltip={q.tooltip} />}
                                                                 </div>
                                                                 <div className="flex align-middle mt-2">
                                                                     <GetField  key={q.id} type='url' width='100%' url={details.url} error={q.error} label={details.label} forceShowErrors={validationAttempted} />
@@ -1233,6 +1199,7 @@ const QuestionPage = ({
                                                                 {q.label && <span className="font-bold text-sargood-blue text-xl mb-2">{q.label}</span>}
                                                                 <div className="text-xs flex flex-row">
                                                                     <span className="font-bold text-sm">{q.question}</span>
+                                                                    {q.tooltip && <TooltipIcon tooltip={q.tooltip} />}
                                                                 </div>
                                                                 <div className="flex align-middle mt-2">
                                                                     <GetField key={q.id} type='rich-text' width='100%' description={typeof q.details == 'string' ? JSON.parse(q.details)?.description : q.details.description} forceShowErrors={validationAttempted} />
@@ -1247,6 +1214,7 @@ const QuestionPage = ({
                                                                 <div className="text-xs flex flex-row">
                                                                     <span className="font-bold text-sm">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
+                                                                    {q.tooltip && <TooltipIcon tooltip={q.tooltip} />}
                                                                 </div>
                                                                 <div className="flex align-middle mt-2">
                                                                     <GetField key={q.id} type='text' 
@@ -1272,6 +1240,7 @@ const QuestionPage = ({
                                                                 <div className="text-xs flex flex-row">
                                                                     <span className="font-bold text-sm">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
+                                                                    {q.tooltip && <TooltipIcon tooltip={q.tooltip} />}
                                                                 </div>
                                                                 <div className="flex align-middle mt-2">
                                                                     <GetField 
@@ -1297,6 +1266,7 @@ const QuestionPage = ({
                                                                 <div className="text-xs flex flex-row">
                                                                     <span className="font-bold text-sm">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
+                                                                    {q.tooltip && <TooltipIcon tooltip={q.tooltip} />}
                                                                 </div>
                                                                 <div className="flex align-middle mt-2">
                                                                     <GetField 
@@ -1322,6 +1292,7 @@ const QuestionPage = ({
                                                                 <div className="text-xs flex flex-row">
                                                                     <span className="font-bold text-sm">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
+                                                                    {q.tooltip && <TooltipIcon tooltip={q.tooltip} />}
                                                                 </div>
                                                                 <div className="flex align-middle mt-2">
                                                                     <GetField key={q.id} type='select' value={q.answer} width='100%' required={q.required ? true : false} options={options} error={q.error} onChange={(e) => handleSelectFieldChange(e, idx, index)} forceShowErrors={validationAttempted} />
@@ -1336,6 +1307,7 @@ const QuestionPage = ({
                                                                 <div className="text-xs flex flex-row mb-6">
                                                                     <span className="font-bold text-sm">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
+                                                                    {q.tooltip && <TooltipIcon tooltip={q.tooltip} />}
                                                                 </div>
                                                                 <div className="flex align-middle mt-2">
                                                                     <GetField key={q.id} type='multi-select' value={q.answer} width='100%' placeholder={q.question} required={q.required ? true : false} error={q.error} options={options} onChange={(e) => handleSelectFieldChange(e, idx, index)} forceShowErrors={validationAttempted} />
@@ -1350,6 +1322,7 @@ const QuestionPage = ({
                                                                 <div className="text-xs flex flex-row">
                                                                     <span className="font-bold text-sm">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
+                                                                    {q.tooltip && <TooltipIcon tooltip={q.tooltip} />}
                                                                 </div>
                                                                 <div className="flex align-middle mt-2">
                                                                     <GetField key={q.id} type='year' defaultValue={q.answer ? q.answer : ''} width='100%' error={q.error} required={q.required ? true : false} onBlur={(e) => handleTextNumberFieldChange(e, idx, index)} forceShowErrors={validationAttempted} />
@@ -1364,6 +1337,7 @@ const QuestionPage = ({
                                                                 <div className="text-xs flex flex-row">
                                                                     <span className="font-bold text-sm">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500  ml-1 font-bold">*</span>}
+                                                                    {q.tooltip && <TooltipIcon tooltip={q.tooltip} />}
                                                                 </div>
                                                                 {selectedCourseOfferId && questionHasKey(q, QUESTION_KEYS.CHECK_IN_OUT_DATE) && (
                                                                     <div className="mb-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
@@ -1404,6 +1378,7 @@ const QuestionPage = ({
                                                                 <div className="text-xs flex flex-row">
                                                                     <span className="font-bold text-sm">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
+                                                                    {q.tooltip && <TooltipIcon tooltip={q.tooltip} />}
                                                                 </div>
                                                                 <div className="flex align-middle mt-2">
                                                                     <GetField key={q.id} type='date-range'
@@ -1426,6 +1401,7 @@ const QuestionPage = ({
                                                                 <div className="text-xs flex flex-row">
                                                                     <span className="font-bold text-sm">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
+                                                                    {q.tooltip && <TooltipIcon tooltip={q.tooltip} />}
                                                                 </div>
                                                                 <div className="flex align-middle mt-2">
                                                                     <GetField key={q.id} type='integer' defaultValue={q.answer} width='100%' placeholder={q.question} required={q.required ? true : false} error={'Required field. Please input value.'} onBlur={(e) => handleTextNumberFieldChange(e, idx, index)} forceShowErrors={validationAttempted} />
@@ -1445,6 +1421,7 @@ const QuestionPage = ({
                                                                                 {q.question}
                                                                             </span>
                                                                             {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
+                                                                            {q.tooltip && <TooltipIcon tooltip={q.tooltip} />}
                                                                         </div>
                                                                         <div className={`
                                                                             flex flex-col align-middle mt-2 rounded-lg border transition-all duration-200 p-3
@@ -1492,6 +1469,7 @@ const QuestionPage = ({
                                                                     <React.Fragment>
                                                                         <div className="text-xs flex flex-row">
                                                                             {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
+                                                                            {q.tooltip && <TooltipIcon tooltip={q.tooltip} />}
                                                                             <div className={`rounded-lg border transition-all duration-200 p-2 
                                                                                 ${
                                                                                     !!(q.error || (validationAttempted && q.required && !q.answer))
@@ -1541,6 +1519,7 @@ const QuestionPage = ({
                                                                                 {q.question}
                                                                             </span>
                                                                             {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
+                                                                            {q.tooltip && <TooltipIcon tooltip={q.tooltip} />}
                                                                         </div>
                                                                         <div className={`
                                                                             flex flex-wrap gap-1 align-middle mt-2 rounded-lg border transition-all duration-200 p-3
@@ -1591,6 +1570,7 @@ const QuestionPage = ({
                                                                     <React.Fragment>
                                                                         <div className="text-xs flex flex-row">
                                                                             {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
+                                                                            {q.tooltip && <TooltipIcon tooltip={q.tooltip} />}
                                                                             <div className={`rounded-lg border transition-all duration-200 p-2 
                                                                                 ${
                                                                                     !!(q.error || (validationAttempted && q.required && !q.answer))
@@ -1640,6 +1620,7 @@ const QuestionPage = ({
                                                                         {q.question}
                                                                     </span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
+                                                                    {q.tooltip && <TooltipIcon tooltip={q.tooltip} />}
                                                                 </div>
                                                                 <div className={`
                                                                     flex flex-col align-middle mt-2 rounded-lg border transition-all duration-200 p-3
@@ -1690,6 +1671,7 @@ const QuestionPage = ({
                                                                 <div className="text-xs flex flex-row">
                                                                     <span className="font-bold text-sm">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500  ml-1 font-bold">*</span>}
+                                                                    {q.tooltip && <TooltipIcon tooltip={q.tooltip} />}
                                                                 </div>
                                                                 <div className="flex align-middle ml-2">
                                                                     <GetField key={q.id} type='time' value={q.answer} min="14:00" max="18:00" placeholder={q.question} error={q.error} invalidTimeErrorMsg={"Please enter a time between 2pm - 10pm"} required={q.required ? true : false} onChange={(e) => handleDateFieldChange(e, idx, index)} forceShowErrors={validationAttempted} />
@@ -1704,6 +1686,7 @@ const QuestionPage = ({
                                                                 <div className="text-xs flex flex-row">
                                                                     <span className="font-bold text-sm">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
+                                                                    {q.tooltip && <TooltipIcon tooltip={q.tooltip} />}
                                                                 </div>
                                                                 <div className="flex align-middle mt-2">
                                                                     <GetField key={q.id} type='file-upload' value={q.answer ? q.answer : ''} url={url} width='100%' error={q.error} required={q.required ? true : false} onChange={(e) => handleFileUploadChange(e, idx, index)} fileType={`booking_request_form/${guest.id}/`} forceShowErrors={validationAttempted} />
@@ -1718,6 +1701,7 @@ const QuestionPage = ({
                                                                 <div className="text-xs flex flex-row">
                                                                     <span className="font-bold text-sm">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
+                                                                    {q.tooltip && <TooltipIcon tooltip={q.tooltip} />}
                                                                 </div>
                                                                 <div className="flex align-middle mt-2">
                                                                     <GetField key={q.id} type='health-info' options={options} width='100%' error="Required field" required={q.required ? true : false} onChange={(label, list) => handleHealthInfoFieldChange(label, list, idx, index)} forceShowErrors={validationAttempted} />
@@ -1767,6 +1751,7 @@ const QuestionPage = ({
                                                                 <div className="text-xs flex flex-row">
                                                                     <span className="font-bold text-sm">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
+                                                                    {q.tooltip && <TooltipIcon tooltip={q.tooltip} />}
                                                                 </div>
                                                                 <div className="flex flex-col align-middle mt-2">
                                                                     {options && options.map((option, optIdx) => {
@@ -1787,6 +1772,7 @@ const QuestionPage = ({
                                                                 <div className="text-xs flex flex-row">
                                                                     <span className="font-bold text-sm">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
+                                                                    {q.tooltip && <TooltipIcon tooltip={q.tooltip} />}
                                                                 </div>
                                                                 <GetField type='goal-table'
                                                                     name={`goal-table`}
@@ -1806,6 +1792,7 @@ const QuestionPage = ({
                                                                 <div className="text-xs flex flex-row">
                                                                     <span className="font-bold text-sm">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
+                                                                    {q.tooltip && <TooltipIcon tooltip={q.tooltip} />}
                                                                 </div>
                                                                 <span className="italic text-sm my-2">Please note, we do not provide scheduled care between midnight and 6:30am</span>
                                                                 <GetField type='care-table'
@@ -1828,6 +1815,7 @@ const QuestionPage = ({
                                                                 <div className="text-xs flex flex-row">
                                                                     <span className="font-bold text-sm">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
+                                                                    {q.tooltip && <TooltipIcon tooltip={q.tooltip} />}
                                                                 </div>
 
                                                                 {selectedCourseOfferId && questionHasKey(q, QUESTION_KEYS.WHICH_COURSE) && (
@@ -1875,6 +1863,7 @@ const QuestionPage = ({
                                                                 <div className="text-xs flex flex-row">
                                                                     <span className="font-bold text-sm">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
+                                                                    {q.tooltip && <TooltipIcon tooltip={q.tooltip} />}
                                                                 </div>
                                                                 
                                                                 <GetField 
@@ -1908,6 +1897,7 @@ const QuestionPage = ({
                                                                 <div className="text-xs flex flex-row">
                                                                     <span className="font-bold text-sm">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
+                                                                    {q.tooltip && <TooltipIcon tooltip={q.tooltip} />}
                                                                 </div>
                                                                 <GetField 
                                                                     key={q.id} 
@@ -1940,6 +1930,7 @@ const QuestionPage = ({
                                                                 <div className="text-xs flex flex-row">
                                                                     <span className="font-bold text-sm">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
+                                                                    {q.tooltip && <TooltipIcon tooltip={q.tooltip} />}
                                                                 </div>
                                                                 
                                                                 <GetField 
@@ -2001,6 +1992,7 @@ const QuestionPage = ({
                                                                 <div className="text-xs flex flex-row">
                                                                     <span className="font-bold text-sm">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
+                                                                    {q.tooltip && <TooltipIcon tooltip={q.tooltip} />}
                                                                 </div>
                                                                 <GetField 
                                                                     key={q.id} 
@@ -2029,6 +2021,7 @@ const QuestionPage = ({
                                                                 <div className="text-xs flex flex-row">
                                                                     <span className="font-bold text-sm">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
+                                                                    {q.tooltip && <TooltipIcon tooltip={q.tooltip} />}
                                                                 </div>
                                                                 
                                                                 <GetField 
@@ -2055,6 +2048,7 @@ const QuestionPage = ({
                                                                 <div className="text-xs flex flex-row">
                                                                     <span className="font-bold text-sm">{q.question}</span>
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
+                                                                    {q.tooltip && <TooltipIcon tooltip={q.tooltip} />}
                                                                 </div>
                                                                 
                                                                 <GetField 

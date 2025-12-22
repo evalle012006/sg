@@ -11,10 +11,12 @@ const ServiceCards = ({
   handleRemoveOption,
   onImageUpload,
   optionType = 'service',
+  error = null,
+  forceShowErrors = false,
+  required = false,
 }) => {
   const [localValue, setLocalValue] = useState(value || {});
   const [brokenImages, setBrokenImages] = useState(new Set());
-  const [brokenSubOptionImages, setBrokenSubOptionImages] = useState(new Set());
   const [editingFields, setEditingFields] = useState({});
   const [localInputValues, setLocalInputValues] = useState({});
   const [refreshedImageUrls, setRefreshedImageUrls] = useState(new Map());
@@ -41,17 +43,29 @@ const ServiceCards = ({
       return initialized;
   }, []);
 
+  // Check if a service has been explicitly answered by the user (from saved data or user interaction)
+  const isServiceAnswered = useCallback((serviceValue) => {
+    if (!value || typeof value !== 'object') return false;
+    const serviceData = value[serviceValue];
+    return serviceData && typeof serviceData.selected === 'boolean';
+  }, [value]);
+
+  // Check if ALL services have been answered
+  const allServicesAnswered = useCallback(() => {
+    if (!items || items.length === 0) return false;
+    return items.every(item => isServiceAnswered(item.value));
+  }, [items, isServiceAnswered]);
+
   useEffect(() => {
     const newValueStr = JSON.stringify(value);
     const prevValueStr = JSON.stringify(prevValueRef.current);
     
     if (newValueStr !== prevValueStr) {        
         const initializedValue = initializeAllServices(value, items);
-        
         setLocalValue(initializedValue);
         prevValueRef.current = initializedValue;
     }
-}, [value, items, initializeAllServices]);
+  }, [value, items, initializeAllServices]);
 
   useEffect(() => {
     const refreshImageUrls = async () => {
@@ -79,28 +93,6 @@ const ServiceCards = ({
             console.warn(`Failed to refresh URL for ${item.imageFilename}:`, error);
           }
         }
-
-        if (item.subOptions && item.subOptions.length > 0) {
-          for (let subIndex = 0; subIndex < item.subOptions.length; subIndex++) {
-            const subOption = item.subOptions[subIndex];
-            if (subOption.imageFilename && subOption.imageUrl) {
-              try {
-                const fileType = optionType || 'service';
-                const response = await fetch(
-                  `/api/storage/upload?filename=${subOption.imageFilename}&filepath=${fileType}/`,
-                  { method: 'GET' }
-                );
-                const data = await response.json();
-                
-                if (data.fileUrl) {
-                  newRefreshedUrls.set(`suboption-${i}-${subIndex}`, data.fileUrl);
-                }
-              } catch (error) {
-                console.warn(`Failed to refresh URL for ${subOption.imageFilename}:`, error);
-              }
-            }
-          }
-        }
       }
 
       setRefreshedImageUrls(newRefreshedUrls);
@@ -123,20 +115,8 @@ const ServiceCards = ({
     return refreshedUrl || originalUrl || getDefaultImage('service');
   };
 
-  // Get the current sub-option image URL (with default fallback)
-  const getSubOptionImageUrl = (serviceIndex, subOptionIndex, originalUrl) => {
-    const refreshedUrl = refreshedImageUrls.get(`suboption-${serviceIndex}-${subOptionIndex}`);
-    return refreshedUrl || originalUrl || getDefaultImage('subOption');
-  };
-
   const handleImageError = (index) => {
-    // Mark image as broken so we can show default
     setBrokenImages(prev => new Set([...prev, index]));
-  };
-
-  const handleSubOptionImageError = (serviceIndex, subOptionIndex) => {
-    const key = `${serviceIndex}-${subOptionIndex}`;
-    setBrokenSubOptionImages(prev => new Set([...prev, key]));
   };
 
   const handleFieldChange = useCallback((index, field, value) => {
@@ -232,37 +212,56 @@ const ServiceCards = ({
   }, [items]);
 
   const handleServiceToggle = (serviceValue, isSelected) => {
-      const baseValue = initializeAllServices(localValue, items);
+      // Only update the specific service that was clicked
+      // Don't spread initialized values - that would mark unanswered services as answered
+      const currentValue = value || {};
       
       const newValue = {
-          ...baseValue,
+          ...currentValue,
           [serviceValue]: {
               selected: isSelected,
-              subOptions: isSelected ? (baseValue[serviceValue]?.subOptions || []) : []
+              subOptions: isSelected ? (currentValue[serviceValue]?.subOptions || []) : []
           }
       };
       
-      setLocalValue(newValue);
+      // Update local state for immediate UI feedback
+      setLocalValue(prev => ({
+          ...prev,
+          [serviceValue]: {
+              selected: isSelected,
+              subOptions: isSelected ? (prev[serviceValue]?.subOptions || []) : []
+          }
+      }));
+      
       onChange?.(newValue);
   };
 
   const handleSubOptionToggle = (serviceValue, subOptionValue) => {
-      const baseValue = initializeAllServices(localValue, items);
+      // Only update the specific service's sub-options
+      const currentValue = value || {};
       
-      const currentSubOptions = baseValue[serviceValue]?.subOptions || [];
+      const currentSubOptions = currentValue[serviceValue]?.subOptions || [];
       const newSubOptions = currentSubOptions.includes(subOptionValue)
           ? currentSubOptions.filter(id => id !== subOptionValue)
           : [...currentSubOptions, subOptionValue];
       
       const newValue = {
-          ...baseValue,
+          ...currentValue,
           [serviceValue]: {
-              ...baseValue[serviceValue],
+              ...currentValue[serviceValue],
               subOptions: newSubOptions
           }
       };
       
-      setLocalValue(newValue);
+      // Update local state for immediate UI feedback
+      setLocalValue(prev => ({
+          ...prev,
+          [serviceValue]: {
+              ...prev[serviceValue],
+              subOptions: newSubOptions
+          }
+      }));
+      
       onChange?.(newValue);
   };
 
@@ -272,45 +271,76 @@ const ServiceCards = ({
     }
   };
 
-  const handleSubOptionImageUpload = (serviceIndex, subOptionIndex, file) => {
-    if (onImageUpload) {
-      const service = items[serviceIndex];
-      if (service && service.subOptions && service.subOptions[subOptionIndex]) {
-        const updatedSubOptions = [...service.subOptions];
-        const previewUrl = URL.createObjectURL(file);
-        
-        updatedSubOptions[subOptionIndex] = {
-          ...updatedSubOptions[subOptionIndex],
-          imageUrl: previewUrl,
-          uploading: true
-        };
-        
-        if (updateOptionLabel) {
-          updateOptionLabel(
-            { target: { value: JSON.stringify(updatedSubOptions) }, stopPropagation: () => {} },
-            { index: serviceIndex, field: 'subOptions', label: JSON.stringify(updatedSubOptions) },
-            'service-card'
-          );
-        }
-        
-        onImageUpload(serviceIndex, file, subOptionIndex);
-      }
-    }
-  };
-
   useEffect(() => {
       if (items && items.length > 0) {
           const initialized = initializeAllServices(localValue, items);
           
           if (JSON.stringify(initialized) !== JSON.stringify(localValue)) {
               setLocalValue(initialized);
-              
-              if (!value || Object.keys(value).length === 0) {
-                  onChange?.(initialized);
-              }
           }
       }
-  }, [items, initializeAllServices, localValue, onChange, value]);
+  }, [items, initializeAllServices, localValue]);
+
+  // Determine styling for individual service cards
+  const getServiceCardClasses = (serviceValue) => {
+    if (builderMode) {
+      return 'border-gray-200 bg-white hover:border-gray-300';
+    }
+    
+    const serviceAnswered = isServiceAnswered(serviceValue);
+    const hasError = error && forceShowErrors;
+    
+    // If there's an error and this service is NOT answered, show red
+    if (hasError && !serviceAnswered) {
+      return 'border-red-400 bg-red-50';
+    }
+    
+    // If this service IS answered (regardless of Yes/No), show green
+    if (serviceAnswered) {
+      return 'border-green-400 bg-green-50';
+    }
+    
+    // Default gray
+    return 'border-gray-200 bg-white hover:border-gray-300';
+  };
+
+  // Get Yes button styling
+  const getYesButtonClasses = (isSelected, serviceValue) => {
+    const serviceAnswered = isServiceAnswered(serviceValue);
+    const hasError = error && forceShowErrors;
+    
+    // If Yes is selected
+    if (isSelected) {
+      return 'bg-emerald-600 text-white';
+    }
+    
+    // If error and not answered, show red-ish buttons
+    if (hasError && !serviceAnswered) {
+      return 'bg-red-100 text-red-600 hover:bg-red-200 border border-red-300';
+    }
+    
+    // Default gray
+    return 'bg-gray-100 text-gray-600 hover:bg-gray-200';
+  };
+
+  // Get No button styling
+  const getNoButtonClasses = (isSelected, serviceValue) => {
+    const serviceAnswered = isServiceAnswered(serviceValue);
+    const hasError = error && forceShowErrors;
+    
+    // If service is answered and NOT selected (meaning No was chosen)
+    if (serviceAnswered && !isSelected) {
+      return 'bg-gray-600 text-white';
+    }
+    
+    // If error and not answered, show red-ish buttons
+    if (hasError && !serviceAnswered) {
+      return 'bg-red-100 text-red-600 hover:bg-red-200 border border-red-300';
+    }
+    
+    // Default gray
+    return 'bg-gray-100 text-gray-600 hover:bg-gray-200';
+  };
 
   return (
     <div className="space-y-6">
@@ -326,11 +356,7 @@ const ServiceCards = ({
             <div
               className={`border-2 rounded-lg p-6 transition-all ${
                 builderMode ? 'cursor-default' : 'cursor-pointer'
-              } ${
-                isSelected && !builderMode
-                  ? 'border-emerald-400 bg-emerald-50'
-                  : 'border-gray-200 bg-white hover:border-gray-300'
-              }`}
+              } ${getServiceCardClasses(service.value)}`}
               onClick={() => !builderMode && handleServiceToggle(service.value, !isSelected)}
             >
               <div className="flex items-start gap-6">
@@ -345,7 +371,6 @@ const ServiceCards = ({
                             !hasCustomImage || isBroken ? 'opacity-60' : ''
                           }`}
                           onError={(e) => {
-                            // Prevent infinite loop - only set broken once
                             if (hasCustomImage && !isBroken) {
                               handleImageError(serviceIndex);
                             }
@@ -396,7 +421,6 @@ const ServiceCards = ({
                       </div>
                     </div>
                   ) : (
-                    // Non-builder mode service image
                     <div className="w-24 h-24">
                       <img
                         src={isBroken ? getDefaultImage('service') : currentImageUrl}
@@ -405,7 +429,6 @@ const ServiceCards = ({
                           !hasCustomImage || isBroken ? 'opacity-60' : ''
                         }`}
                         onError={(e) => {
-                          // Prevent infinite loop - only set broken once
                           if (hasCustomImage && !isBroken) {
                             handleImageError(serviceIndex);
                           }
@@ -488,11 +511,7 @@ const ServiceCards = ({
                         <>
                           <button
                             type="button"
-                            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                              isSelected
-                                ? 'bg-emerald-600 text-white'
-                                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                            }`}
+                            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${getYesButtonClasses(isSelected, service.value)}`}
                             onClick={(e) => {
                               e.stopPropagation();
                               handleServiceToggle(service.value, true);
@@ -502,11 +521,7 @@ const ServiceCards = ({
                           </button>
                           <button
                             type="button"
-                            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                              !isSelected
-                                ? 'bg-gray-600 text-white'
-                                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                            }`}
+                            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${getNoButtonClasses(isSelected, service.value)}`}
                             onClick={(e) => {
                               e.stopPropagation();
                               handleServiceToggle(service.value, false);
@@ -565,88 +580,9 @@ const ServiceCards = ({
                 <div className="space-y-3">
                   {service.subOptions.map((subOption, subIndex) => {
                     const isSubOptionSelected = localValue[service.value]?.subOptions?.includes(subOption.value) || false;
-                    const currentSubImageUrl = getSubOptionImageUrl(serviceIndex, subIndex, subOption.imageUrl);
-                    const hasCustomSubImage = Boolean(subOption.imageUrl);
-                    const isSubBroken = brokenSubOptionImages.has(`${serviceIndex}-${subIndex}`);
                     
                     return (
-                      <div key={subOption.value || subIndex} className="flex items-start gap-3">
-                        <div className="flex-shrink-0">
-                          {builderMode ? (
-                            <div className="relative w-12 h-12 group">
-                              <img
-                                src={isSubBroken ? getDefaultImage('subOption') : currentSubImageUrl}
-                                alt={subOption.label || 'Sub-option'}
-                                className={`w-full h-full object-cover rounded ${
-                                  !hasCustomSubImage || isSubBroken ? 'opacity-60' : ''
-                                }`}
-                                onError={(e) => {
-                                  // Prevent infinite loop - only set broken once
-                                  if (hasCustomSubImage && !isSubBroken) {
-                                    handleSubOptionImageError(serviceIndex, subIndex);
-                                  }
-                                }}
-                              />
-                              <label className="absolute inset-0 bg-black bg-opacity-50 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
-                                <input
-                                  type="file"
-                                  accept="image/*"
-                                  className="hidden"
-                                  onChange={(e) => {
-                                    if (e.target.files[0]) {
-                                      setBrokenSubOptionImages(prev => {
-                                        const newSet = new Set(prev);
-                                        newSet.delete(`${serviceIndex}-${subIndex}`);
-                                        return newSet;
-                                      });
-                                      handleSubOptionImageUpload(serviceIndex, subIndex, e.target.files[0]);
-                                    }
-                                  }}
-                                />
-                                <Upload className="w-3 h-3 text-white" />
-                              </label>
-                              {hasCustomSubImage && !isSubBroken && (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    const updatedSubOptions = [...service.subOptions];
-                                    updatedSubOptions[subIndex] = {
-                                      ...updatedSubOptions[subIndex],
-                                      imageFilename: null,
-                                      imageUrl: null
-                                    };
-                                    updateOptionLabel?.(
-                                      { target: { value: JSON.stringify(updatedSubOptions) }, stopPropagation: () => {} },
-                                      { index: serviceIndex, field: 'subOptions', label: JSON.stringify(updatedSubOptions) },
-                                      'service-card'
-                                    );
-                                  }}
-                                  className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center hover:bg-red-600 z-10"
-                                >
-                                  <X className="w-2 h-2" />
-                                </button>
-                              )}
-                            </div>
-                          ) : (
-                            <div className="w-12 h-12">
-                              <img
-                                src={isSubBroken ? getDefaultImage('subOption') : currentSubImageUrl}
-                                alt={subOption.label || 'Sub-option'}
-                                className={`w-12 h-12 object-cover rounded ${
-                                  !hasCustomSubImage || isSubBroken ? 'opacity-60' : ''
-                                }`}
-                                onError={(e) => {
-                                  // Prevent infinite loop - only set broken once
-                                  if (hasCustomSubImage && !isSubBroken) {
-                                    handleSubOptionImageError(serviceIndex, subIndex);
-                                  }
-                                }}
-                              />
-                            </div>
-                          )}
-                        </div>
-                        
+                      <div key={subOption.value || subIndex} className="flex items-center gap-3">
                         {builderMode ? (
                           <div className="flex-1 flex items-center gap-2">
                             <input
@@ -677,8 +613,8 @@ const ServiceCards = ({
                             </button>
                           </div>
                         ) : (
-                          <label className="flex items-start gap-3 cursor-pointer group flex-1">
-                            <div className="relative flex-shrink-0 mt-0.5">
+                          <label className="flex items-center gap-3 cursor-pointer group flex-1">
+                            <div className="relative flex-shrink-0">
                               <input
                                 type="checkbox"
                                 checked={isSubOptionSelected}
@@ -712,9 +648,7 @@ const ServiceCards = ({
                       e.stopPropagation();
                       const newSubOption = {
                         label: '',
-                        value: `sub-option-${Date.now()}`,
-                        imageUrl: null,
-                        imageFilename: null
+                        value: `sub-option-${Date.now()}`
                       };
                       const updatedSubOptions = [...(service.subOptions || []), newSubOption];
                       
@@ -745,9 +679,7 @@ const ServiceCards = ({
                   e.stopPropagation();
                   const initialSubOption = {
                     label: '',
-                    value: `sub-option-${Date.now()}`,
-                    imageUrl: null,
-                    imageFilename: null
+                    value: `sub-option-${Date.now()}`
                   };
                   
                   setLocalInputValues(prev => ({
@@ -773,7 +705,7 @@ const ServiceCards = ({
   );
 };
 
-// ServiceCardsField Wrapper Component remains the same
+// ServiceCardsField Wrapper Component
 const ServiceCardsField = ({
   label,
   required,
@@ -810,12 +742,22 @@ const ServiceCardsField = ({
 
   const items = convertOptionsToItems(options);
 
-  const hasValue = value && Object.keys(value).some(key => value[key]?.selected);
+  // Check if user has answered all services
+  const hasAllAnswers = value && typeof value === 'object' && 
+    items.length > 0 && 
+    items.every(item => value[item.value] && typeof value[item.value].selected === 'boolean');
+
+  // Check if user has answered ANY service
+  const hasAnyAnswer = value && typeof value === 'object' &&
+    items.some(item => value[item.value] && typeof value[item.value].selected === 'boolean');
+
   const shouldShowError = !builderMode && required && (
     error || 
-    (forceShowErrors && !hasValue)
+    (forceShowErrors && !hasAllAnswers)
   );
-  const shouldShowValid = !builderMode && required && !shouldShowError && hasValue;
+  
+  // Show valid (green) when all services are answered and no error
+  const shouldShowValid = !builderMode && !shouldShowError && hasAllAnswers;
 
   return (
     <div className="mb-6">
@@ -827,12 +769,12 @@ const ServiceCardsField = ({
       )}
 
       <div className={`
-        rounded-lg border transition-all duration-200 p-3
+        rounded-lg border-2 transition-all duration-200 p-3
         ${shouldShowError
             ? 'border-red-400 bg-red-50'
             : shouldShowValid
                 ? 'border-green-400 bg-green-50'
-                : 'border-gray-300 bg-white'
+                : 'border-gray-200 bg-white'
         }
       `}>
         <ServiceCards
@@ -844,6 +786,9 @@ const ServiceCardsField = ({
           handleRemoveOption={handleRemoveOption}
           onImageUpload={onImageUpload}
           optionType={option_type}
+          error={shouldShowError ? (error || 'Please answer all service options') : null}
+          forceShowErrors={forceShowErrors}
+          required={required}
         />
       </div>
       

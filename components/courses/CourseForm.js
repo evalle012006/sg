@@ -6,6 +6,7 @@ import { Home, Plus, X, Calendar, Clock, DollarSign, Users, Archive } from 'luci
 import moment from 'moment';
 import { getCourseCostSummary } from '../../utilities/courses';
 import { checkFileSize } from '../../utilities/common';
+import { formatAUD } from '../../utilities/priceUtil';
 
 const Button = dynamic(() => import('../ui-v2/Button'));
 const TextField = dynamic(() => import('../ui-v2/TextField'));
@@ -461,7 +462,8 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
                 ...course,
                 duration_hours: course.duration_hours,
                 image_filename: imageFilename,
-                status: isDraft ? 'pending' : 'active'
+                status: isDraft ? 'pending' : 'active',
+                recalculate_prices: !costSummary.isCalculated
             };
 
             if (isEditMode) {
@@ -490,6 +492,9 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
             setSelectedFile(null);
 
             toast.success(result.message || `Course ${isDraft ? 'saved as draft' : 'published'} successfully`);
+            if (isEditMode && courseId) {
+                await loadCourse();
+            }
             
             if (onSuccess) {
                 onSuccess({
@@ -584,6 +589,16 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
                 method: 'POST',
                 body: formData
             });
+
+            // Handle non-JSON responses (like 413 HTML error pages from proxy)
+            const contentType = response.headers.get('content-type');
+            if (!contentType || !contentType.includes('application/json')) {
+                // Server returned HTML or non-JSON - likely a proxy error
+                if (response.status === 413) {
+                    throw new Error('File is too large. Please upload an image under 1MB.');
+                }
+                throw new Error(`Upload failed with status ${response.status}. Please try a smaller image.`);
+            }
 
             const result = await response.json();
 
@@ -832,7 +847,7 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
                                                     <div className="flex justify-between items-center mb-2">
                                                         <span className="text-gray-600">Holiday Package Price:</span>
                                                         <span className="font-medium text-gray-900">
-                                                            ${costSummary.holidayCosts.totalCost.toFixed(2)}
+                                                            {formatAUD(costSummary.holidayCosts.totalCost)}
                                                         </span>
                                                     </div>
                                                 </div>
@@ -840,7 +855,7 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
                                                     <div className="flex justify-between items-center mb-2">
                                                         <span className="text-gray-600">STA Service Price:</span>
                                                         <span className="font-medium text-gray-900">
-                                                            ${costSummary.staCosts.totalCost.toFixed(2)}
+                                                            {formatAUD(costSummary.staCosts.totalCost)}
                                                         </span>
                                                     </div>
                                                 </div>
@@ -1085,13 +1100,13 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
                                             <div>
                                                 <h4 className="font-medium text-gray-900 mb-2">Holiday Package</h4>
                                                 <div className="text-2xl font-bold text-green-600 mb-2">
-                                                    ${costSummary.holidayCosts.totalCost.toFixed(2)}
+                                                    {formatAUD(costSummary.holidayCosts.totalCost)}
                                                 </div>
                                             </div>
                                             <div>
                                                 <h4 className="font-medium text-gray-900 mb-2">STA Service</h4>
                                                 <div className="text-2xl font-bold text-blue-600 mb-2">
-                                                    ${costSummary.staCosts.totalCost.toFixed(2)}
+                                                    {formatAUD(costSummary.staCosts.totalCost)}
                                                 </div>
                                             </div>
                                         </div>

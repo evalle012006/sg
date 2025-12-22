@@ -20,6 +20,7 @@ import { QUESTION_KEYS } from "./../../services/booking/question-helper";
 import dynamic from 'next/dynamic';
 import _ from 'lodash';
 import { getFirstLetters, getFunder } from "../../utilities/common";
+import CancellationModal from '../../components/booking-comp/CancellationModal';
 
 const Layout = dynamic(() => import('../../components/layout'));
 const BookingEditView = dynamic(() => import('../../components/booking-comp/booking-edit-view'));
@@ -557,6 +558,13 @@ export default function BookingDetail() {
   const [packageOptions, setPackageOptions] = useState([]);
   const [loadingPackageOptions, setLoadingPackageOptions] = useState(false);
   const [selectedPackageValue, setSelectedPackageValue] = useState(null);
+
+  const [showCancellationModal, setShowCancellationModal] = useState(false);
+  const [pendingCancellationStatus, setPendingCancellationStatus] = useState(null);
+
+  const isCancellationStatus = (statusName) => {
+    return ['booking_cancelled', 'guest_cancelled'].includes(statusName);
+  };
 
   useEffect(() => {
     const loadOptions = async () => {
@@ -1165,6 +1173,19 @@ export default function BookingDetail() {
 
   // Status update handlers from original component
   const handleUpdateStatus = useCallback(async (selected) => {
+    // Check if this is a cancellation status
+    if (isCancellationStatus(selected.name)) {
+      // Store the pending status and show the modal
+      setPendingCancellationStatus(selected);
+      setShowCancellationModal(true);
+      return;
+    }
+    
+    // For non-cancellation statuses, proceed as normal
+    await performStatusUpdate(selected, false);
+  }, [booking?.uuid, status, dispatch]);
+
+  const performStatusUpdate = useCallback(async (selected, isFullCharge = false) => {
     dispatch(globalActions.setLoading(true));
     setStatus(selected);
     
@@ -1175,7 +1196,8 @@ export default function BookingDetail() {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          status: selected
+          status: selected,
+          isFullChargeCancellation: isFullCharge
         })
       });
 
@@ -1206,13 +1228,19 @@ export default function BookingDetail() {
       if (selected.name === 'booking_confirmed') {
         toast.success("Booking has been confirmed successfully!");
       }
+      
+      // Show appropriate message for cancellations
+      if (isCancellationStatus(selected.name)) {
+        const chargeType = isFullCharge ? 'Full Charge' : 'No Charge';
+        toast.success(`Booking has been cancelled (${chargeType}).`);
+      }
 
     } catch (error) {
       console.error('Network error updating status:', error);
       toast.error('Network error occurred. Please check your connection and try again.');
       dispatch(globalActions.setLoading(false));
     }
-  }, [booking?.uuid, status, dispatch]);
+  }, [booking?.uuid, status, dispatch, fetchBooking]);
 
   const handleUpdateEligibility = useCallback(async (selected) => {
     dispatch(globalActions.setLoading(true));
@@ -1261,6 +1289,19 @@ export default function BookingDetail() {
       dispatch(globalActions.setLoading(false));
     }
   }, [booking?.uuid, dispatch]);
+
+  const handleCancellationConfirm = useCallback((isFullCharge) => {
+    setShowCancellationModal(false);
+    if (pendingCancellationStatus) {
+      performStatusUpdate(pendingCancellationStatus, isFullCharge);
+      setPendingCancellationStatus(null);
+    }
+  }, [pendingCancellationStatus, performStatusUpdate]);
+
+  const handleCancellationModalClose = useCallback(() => {
+    setShowCancellationModal(false);
+    setPendingCancellationStatus(null);
+  }, []);
 
   // Summary PDF handlers
   const handleDownloadPDF = async (bookingId) => {
@@ -2412,6 +2453,12 @@ export default function BookingDetail() {
           ) : null}
         </div>
       </div>
+      <CancellationModal
+        isOpen={showCancellationModal}
+        onClose={handleCancellationModalClose}
+        onConfirm={handleCancellationConfirm}
+        bookingId={booking?.reference_id}
+      />
     </Layout>
   );
 }
