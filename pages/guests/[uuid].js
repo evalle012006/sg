@@ -18,6 +18,7 @@ const MultipleUploadFile = dynamic(() => import('../../components/multiple-uploa
 const TabButton = dynamic(() => import('../../components/ui-v2/TabButton'));
 const NotesAndComments = dynamic(() => import('./notes'));
 const DocumentRenameModal = dynamic(() => import('../../components/ui/document-rename-modal'));
+const DocumentViewerModal = dynamic(() => import('../../components/ui/document-viewer-modal'));
 const AdminGuestProfile = dynamic(() => import('../../components/my-profile/AdminGuestProfile'));
 const GuestCourses = dynamic(() => import('../../components/guest-comp/GuestCourses'));
 const FundingForm = dynamic(() => import('../../components/guests/FundingForm'));
@@ -662,80 +663,6 @@ export default function GuestPage() {
       </p>
     </div>
   );
-
-  const DocumentViewerModal = ({ isOpen, onClose, document }) => {
-    if (!isOpen || !document) return null;
-
-    const fileType = getFileType(document.name);
-
-    return (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-        <div className="bg-white rounded-lg max-w-6xl max-h-[90vh] w-full overflow-hidden">
-          {/* Modal Header */}
-          <div className="flex items-center justify-between p-4 border-b">
-            <h3 className="text-lg font-medium truncate mr-4">{document.name}</h3>
-            <div className="flex items-center space-x-2">
-              <a
-                href={document.download_link}
-                download
-                className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
-              >
-                Download
-              </a>
-              <button
-                onClick={onClose}
-                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-          </div>
-
-          {/* Modal Content */}
-          <div className="p-4 max-h-[calc(90vh-80px)] overflow-auto">
-            {fileType === 'image' && (
-              <img
-                src={document.download_link}
-                alt={document.name}
-                className="max-w-full h-auto mx-auto"
-                style={{ maxHeight: 'calc(90vh - 150px)' }}
-              />
-            )}
-            
-            {fileType === 'pdf' && (
-              <iframe
-                src={document.download_link}
-                className="w-full border-0"
-                style={{ height: 'calc(90vh - 150px)' }}
-                title={document.name}
-              />
-            )}
-            
-            {fileType !== 'image' && fileType !== 'pdf' && (
-              <div className="text-center py-8">
-                <div className="mb-4">
-                  {getFileIcon(document.name)}
-                </div>
-                <p className="text-gray-600 mb-4">
-                  Preview not available for this file type.
-                </p>
-                <a
-                  href={document.download_link}
-                  download
-                  className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
-                >
-                  <Download size={16} className="mr-2" />
-                  Download File
-                </a>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  };
 
   return (
     <Layout hideTitleBar={true}>

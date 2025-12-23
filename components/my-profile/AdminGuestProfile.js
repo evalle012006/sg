@@ -141,9 +141,10 @@ export default function AdminGuestProfile() {
 
     // Dropdown Options
     const genderOptions = [
-        { value: "Male", label: "Male" },
-        { value: "Female", label: "Female" },
-        { value: "Other", label: "Other" }
+        { label: 'Male', value: 'male' },
+        { label: 'Female', value: 'female' },
+        { label: 'Other', value: 'other' },
+        { label: 'Prefer not to say', value: 'prefer not to say' }
     ];
 
     const countryOptions = [
@@ -890,7 +891,7 @@ export default function AdminGuestProfile() {
                                     <Select
                                         placeholder="Female"
                                         options={genderOptions}
-                                        value={genderOptions.find(opt => opt.value === guestInfo.gender) || null}
+                                        value={genderOptions.find(opt => opt.value === guestInfo.gender?.toLowerCase()) || null}
                                         onClick={(value) => handleGuestInfoChange('gender', value?.value || '')}
                                         size="medium"
                                         disabled={!ability.can('Create/Edit', "Guest")}

@@ -8,7 +8,7 @@ const TabButton = dynamic(() => import('../../components/ui-v2/TabButton'));
 const Button = dynamic(() => import('../ui-v2/Button'));
 const StatusBadge = dynamic(() => import('../ui-v2/StatusBadge'));
 
-export default function GuestCourses({ guest }) {
+export default function GuestCourses({ guest, readOnly = false }) {
   // State management
   const [selectedCourseTab, setSelectedCourseTab] = useState("all-courses");
   const [courseOffers, setCourseOffers] = useState([]);
@@ -26,9 +26,11 @@ export default function GuestCourses({ guest }) {
   useEffect(() => {
     if (guest?.id) {
       loadCourseOffers();
-      loadAvailableCourses();
+      if (!readOnly) {
+        loadAvailableCourses();
+      }
     }
-  }, [guest?.id]);
+  }, [guest?.id, readOnly]);
 
   // API calls
   const loadCourseOffers = async () => {
@@ -108,10 +110,10 @@ export default function GuestCourses({ guest }) {
           'Dates TBD',
         duration: offer.course?.duration_hours ? `(${offer.course.duration_hours} hours)` : '',
         isExpired: now.isAfter(bookingDeadline),
-        canRemove: ['offered', 'accepted'].includes(offer.status) && !now.isAfter(courseStart)
+        canRemove: !readOnly && ['offered', 'accepted'].includes(offer.status) && !now.isAfter(courseStart)
       };
     });
-  }, [courseOffers]);
+  }, [courseOffers, readOnly]);
 
   // Get status counts for tabs
   const statusCounts = useMemo(() => {
@@ -156,7 +158,7 @@ export default function GuestCourses({ guest }) {
     // Map status to StatusBadge types
     const statusTypeMap = {
       'offered': 'offer',
-      'accepted': 'pending', 
+      'accepted': 'pending',
       'upcoming': 'primary',
       'completed': 'success'
     };
@@ -291,7 +293,8 @@ export default function GuestCourses({ guest }) {
             {getStatusBadge(offer)}
           </div>
           <div className="flex items-center justify-end">
-            {offer.canRemove && (
+            {/* Only show Remove button if NOT readOnly */}
+            {!readOnly && offer.canRemove && (
               <Button
                 color="outline"
                 size="small"
@@ -335,22 +338,26 @@ export default function GuestCourses({ guest }) {
             borderRadius="8px"
           />
         </div>
-        <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-3">
-          <Button
-            color="primary"
-            size="medium"
-            label="UPDATE"
-            onClick={loadCourseOffers}
-            className="w-full sm:w-auto"
-          />
-          <Button
-            color="secondary"
-            size="medium"
-            label="+ OFFER COURSE"
-            onClick={handleOpenOfferModal}
-            className="w-full sm:w-auto"
-          />
-        </div>
+        
+        {/* Action buttons - HIDDEN for readOnly (guest users) */}
+        {!readOnly && (
+          <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-3">
+            <Button
+              color="primary"
+              size="medium"
+              label="UPDATE"
+              onClick={loadCourseOffers}
+              className="w-full sm:w-auto"
+            />
+            <Button
+              color="secondary"
+              size="medium"
+              label="+ OFFER COURSE"
+              onClick={handleOpenOfferModal}
+              className="w-full sm:w-auto"
+            />
+          </div>
+        )}
       </div>
 
       {/* Course List */}
@@ -368,13 +375,13 @@ export default function GuestCourses({ guest }) {
         )}
       </div>
 
-      {/* Offer Course Modal */}
-      {showOfferModal && (
+      {/* Offer Course Modal - Only rendered if NOT readOnly */}
+      {!readOnly && showOfferModal && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-hidden">
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl font-semibold text-gray-900">OFFER COURSE</h2>
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[80vh] flex flex-col">
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-semibold text-gray-900">OFFER A COURSE</h2>
                 <button
                   onClick={handleCloseOfferModal}
                   className="text-gray-400 hover:text-gray-600"
@@ -386,110 +393,84 @@ export default function GuestCourses({ guest }) {
               </div>
 
               {/* Search */}
-              <div className="relative mb-4">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                  </svg>
-                </div>
+              <div className="mt-4">
                 <input
                   type="text"
-                  placeholder="Search"
+                  placeholder="Search courses..."
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
               </div>
+            </div>
 
-              <p className="text-sm text-gray-600 mb-4">
-                {selectedCoursesToOffer.length} course selected out of {filteredAvailableCourses.length}
-              </p>
-
-              {/* Course List */}
-              <div className="max-h-96 overflow-y-auto border border-gray-200 rounded-lg">
-                {filteredAvailableCourses.length === 0 ? (
-                  <div className="p-8 text-center text-gray-500">
-                    {searchTerm ? 'No courses found matching your search' : 'No available courses to offer'}
-                  </div>
-                ) : (
-                  filteredAvailableCourses.map(course => {
-                    const isSelected = selectedCoursesToOffer.includes(course.id);
-                    
-                    return (
-                      <div
-                        key={course.id}
-                        className={`flex items-center p-4 border-b border-gray-200 cursor-pointer hover:bg-gray-50 ${
-                          isSelected ? 'bg-blue-50 border-l-4 border-blue-500' : ''
-                        }`}
-                        onClick={() => {
-                          if (isSelected) {
-                            setSelectedCoursesToOffer(prev => prev.filter(id => id !== course.id));
-                          } else {
-                            setSelectedCoursesToOffer([course.id]); // Single selection
-                          }
-                        }}
-                      >
-                        <div className="w-16 h-16 mr-4 rounded-lg overflow-hidden bg-gray-200 flex-shrink-0">
-                          <Image 
-                            src={course.imageUrl || "/course-placeholder.jpg"} 
-                            alt={course.title}
-                            width={64}
-                            height={64}
-                            className="w-full h-full object-cover"
-                            onError={(e) => {
-                              e.target.src = "/course-placeholder.jpg";
-                            }}
-                          />
-                        </div>
-                        
-                        <div className="flex-grow">
-                          <div className="flex items-center justify-between">
-                            <h3 className="font-medium text-gray-900">{course.title}</h3>
-                            {isSelected && (
-                              <div className="w-5 h-5 bg-blue-600 rounded-full flex items-center justify-center">
-                                <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
-                                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                </svg>
-                              </div>
-                            )}
-                          </div>
-                          <p className="text-sm text-gray-600">Minimum dates of stay</p>
-                          <p className="text-sm text-gray-800">
-                            {course.start_date && course.end_date ? 
-                              `${moment(course.start_date).format('DD MMM, YYYY')} - ${moment(course.end_date).format('DD MMM, YYYY')}` : 
-                              'Dates TBD'
-                            } {course.duration_hours ? `(${course.duration_hours} hours)` : ''}
-                          </p>
-                        </div>
+            {/* Course List */}
+            <div className="flex-1 overflow-y-auto p-6">
+              {filteredAvailableCourses.length === 0 ? (
+                <p className="text-center text-gray-500">No available courses found.</p>
+              ) : (
+                filteredAvailableCourses.map(course => {
+                  const isSelected = selectedCoursesToOffer.includes(course.id);
+                  return (
+                    <div
+                      key={course.id}
+                      onClick={() => {
+                        if (isSelected) {
+                          setSelectedCoursesToOffer([]);
+                        } else {
+                          setSelectedCoursesToOffer([course.id]);
+                        }
+                      }}
+                      className={`flex items-center p-4 border rounded-lg cursor-pointer mb-2 transition-colors ${
+                        isSelected ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'
+                      }`}
+                    >
+                      <div className="w-16 h-16 rounded-lg overflow-hidden bg-gray-200 mr-4 flex-shrink-0">
+                        <Image 
+                          src={course.imageUrl || '/course-placeholder.jpg'} 
+                          alt={course.title}
+                          width={64}
+                          height={64}
+                          className="w-full h-full object-cover"
+                        />
                       </div>
-                    );
-                  })
-                )}
-              </div>
+                      <div className="flex-grow">
+                        <h4 className="font-medium text-gray-900">{course.title}</h4>
+                        <p className="text-sm text-gray-600">
+                          {course.start_date && course.end_date ? 
+                            `${moment(course.start_date).format('DD MMM, YYYY')} - ${moment(course.end_date).format('DD MMM, YYYY')}` : 
+                            'Dates TBD'
+                          } {course.duration_hours ? `(${course.duration_hours} hours)` : ''}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
 
-              {/* Actions */}
-              <div className="flex justify-end space-x-3 mt-6">
-                <Button
-                  color="outline"
-                  size="medium"
-                  label="CANCEL"
-                  onClick={handleCloseOfferModal}
-                />
-                <Button
-                  color="primary"
-                  size="medium"
-                  label="ADD"
-                  onClick={handleOfferCourse}
-                  disabled={selectedCoursesToOffer.length === 0}
-                />
-              </div>
+            {/* Actions */}
+            <div className="flex justify-end space-x-3 p-6 border-t border-gray-200">
+              <Button
+                color="outline"
+                size="medium"
+                label="CANCEL"
+                onClick={handleCloseOfferModal}
+              />
+              <Button
+                color="primary"
+                size="medium"
+                label="ADD"
+                onClick={handleOfferCourse}
+                disabled={selectedCoursesToOffer.length === 0}
+              />
             </div>
           </div>
         </div>
       )}
 
-      {/* Remove Course Modal */}
-      {showRemoveModal && selectedCourseToRemove && (
+      {/* Remove Course Modal - Only rendered if NOT readOnly */}
+      {!readOnly && showRemoveModal && selectedCourseToRemove && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
             <div className="p-6">
