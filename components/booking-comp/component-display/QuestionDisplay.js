@@ -45,9 +45,39 @@ const QuestionDisplay = ({ question, answer, questionType, options, optionType, 
     return String(value);
   };
 
+  const processCareDataForDisplay = (careAnswer) => {
+    let careData = careAnswer;
+    let defaultValues = null;
+    let careVaries = true;
+    
+    if (careAnswer && typeof careAnswer === 'object' && !Array.isArray(careAnswer)) {
+      if (careAnswer.careData) {
+        careData = careAnswer.careData;
+        defaultValues = careAnswer.defaultValues || null;
+        careVaries = careAnswer.careVaries !== false;
+      }
+    }
+    
+    if (!Array.isArray(careData)) return [];
+    
+    // Merge defaultValues when careVaries is false
+    if (!careVaries && defaultValues) {
+      return careData.map(item => ({
+        ...item,
+        values: {
+          carers: item.values?.carers || defaultValues[item.care]?.carers || '',
+          time: item.values?.time || defaultValues[item.care]?.time || '',
+          duration: item.values?.duration || defaultValues[item.care]?.duration || ''
+        }
+      }));
+    }
+    
+    return careData;
+  };
+
   // UPDATED: Helper to format care table data for display only (not amendments)
   const formatCareTableForDisplay = (answer) => {
-    let data = answer;
+    const data = processCareDataForDisplay(answer);
     
     try {
       if (typeof answer === 'string') {

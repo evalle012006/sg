@@ -1,19 +1,39 @@
 /**
  * Calculate total care hours from booking care data
- * @param {Array} careData - Array of care schedule objects
+ * @param {Array|Object} careData - Array of care schedule objects OR full object with careData/defaultValues
  * @returns {Object} Care analysis with total hours and breakdown
  */
 export function calculateCareHours(careData) {
-  let dataToProcess = careData;
+  // console.log('📊 calculateCareHours received:', {
+  //   isArray: Array.isArray(careData),
+  //   isObject: typeof careData === 'object' && !Array.isArray(careData),
+  //   hasDefaultValues: careData?.defaultValues !== undefined,
+  //   hasCareVaries: careData?.careVaries !== undefined
+  // });
   
+  let dataToProcess = careData;
+  let defaultValues = null;
+  let careVaries = true;
+  
+  // Handle nested structure from CareTable: { careData: [...], defaultValues: {...}, careVaries: false }
   if (careData && typeof careData === 'object' && !Array.isArray(careData)) {
-    if (careData.careData && Array.isArray(careData.careData)) {
-      console.warn('⚠️ calculateCareHours received nested structure, extracting careData array');
+    if (careData.careData !== undefined) {
       dataToProcess = careData.careData;
+      defaultValues = careData.defaultValues || null;
+      careVaries = careData.careVaries !== false; // Default to true if not specified
+      
+      console.log('📊 Extracted from nested structure:', {
+        careDataLength: Array.isArray(dataToProcess) ? dataToProcess.length : 0,
+        hasDefaultValues: !!defaultValues,
+        careVaries: careVaries,
+        defaultValuesPeriods: defaultValues ? Object.keys(defaultValues) : []
+      });
     }
   }
   
+  // If no data to process, return early
   if (!dataToProcess || !Array.isArray(dataToProcess) || dataToProcess.length === 0) {
+    console.log('📊 No care data entries to process');
     return {
       totalHoursPerDay: 0,
       dailyBreakdown: {},
@@ -27,7 +47,7 @@ export function calculateCareHours(careData) {
   const dailyCare = {};
   
   dataToProcess.forEach(entry => {
-    const { date, values } = entry;
+    const { date, values, care } = entry;
     
     if (!dailyCare[date]) {
       dailyCare[date] = {
@@ -38,9 +58,26 @@ export function calculateCareHours(careData) {
       };
     }
     
+    // ========== THE KEY FIX ==========
+    // Determine the duration to use:
+    // 1. If careVaries is false AND entry.values.duration is empty,
+    //    use the duration from defaultValues for this period
+    // 2. Otherwise use entry.values.duration
+    let durationToUse = values?.duration;
+    
+    if (!careVaries && defaultValues && (!durationToUse || durationToUse === '')) {
+      // Look up duration from defaultValues for this care period (morning/afternoon/evening)
+      const defaultForPeriod = defaultValues[care];
+      if (defaultForPeriod?.duration) {
+        durationToUse = defaultForPeriod.duration;
+        console.log(`📊 Using default duration for ${care}: ${durationToUse}`);
+      }
+    }
+    // ========== END KEY FIX ==========
+    
     // Convert duration to hours
-    const hours = parseDurationToHours(values.duration);
-    dailyCare[date][entry.care] = hours;
+    const hours = parseDurationToHours(durationToUse);
+    dailyCare[date][care] = hours;
     dailyCare[date].total += hours;
   });
 
@@ -50,6 +87,13 @@ export function calculateCareHours(careData) {
     ? dates.reduce((sum, date) => sum + dailyCare[date].total, 0) / dates.length
     : 0;
 
+  console.log('📊 Care hours calculated:', {
+    totalHoursPerDay,
+    datesProcessed: dates.length,
+    usedDefaults: !careVaries && !!defaultValues,
+    sampleDayTotal: dates.length > 0 ? dailyCare[dates[0]].total : 0
+  });
+
   // Analyze care pattern
   const carePattern = determineCarePattern(totalHoursPerDay, dailyCare);
   
@@ -57,18 +101,19 @@ export function calculateCareHours(careData) {
   const recommendedPackages = getRecommendedPackages(totalHoursPerDay, carePattern);
 
   return {
-    totalHoursPerDay: Math.round(totalHoursPerDay * 100) / 100, // Round to 2 decimal places
+    totalHoursPerDay: Math.round(totalHoursPerDay * 100) / 100,
     dailyBreakdown: dailyCare,
     carePattern,
     recommendedPackages,
     analysis: generateCareAnalysis(totalHoursPerDay, carePattern, dates.length),
-    sampleDay: dates.length > 0 ? dailyCare[dates[0]] : null
+    sampleDay: dates.length > 0 ? dailyCare[dates[0]] : null,
+    usedDefaults: !careVaries && !!defaultValues  // Flag to indicate defaults were used
   };
 }
 
 /**
  * Parse duration string to hours
- * @param {string} duration - Duration like "15 minutes", "3.5 hours", "6 hours"
+ * @param {string} duration - Duration like "15 minutes", "3.5 hours", "1.5 hours"
  * @returns {number} Hours as decimal
  */
 function parseDurationToHours(duration) {
@@ -82,7 +127,7 @@ function parseDurationToHours(duration) {
     return minutes / 60;
   }
   
-  // Handle hours
+  // Handle hours (including "1.5 hours")
   if (durationLower.includes('hour')) {
     return parseFloat(durationLower.match(/(\d+(?:\.\d+)?)/)?.[1] || 0);
   }

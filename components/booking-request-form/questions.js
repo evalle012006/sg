@@ -36,6 +36,8 @@ const QuestionPage = ({
     infantCareQuantities = {},
     validationAttempted = false,
     onStayDatesUpdate = null,
+    equipmentFieldRef,
+    onEquipmentValidationChange,
 }) => {
     const dispatch = useDispatch();
     const [updatedCurrentPage, setUpdatedCurrentPage] = useState();
@@ -1732,6 +1734,7 @@ const QuestionPage = ({
                                                         <GetField 
                                                             key={q.id} 
                                                             type='equipment' 
+                                                            ref={equipmentFieldRef}
                                                             label={q.question} 
                                                             value={q.answer} 
                                                             width='100%' 
@@ -1740,8 +1743,11 @@ const QuestionPage = ({
                                                             infantCareQuantities={infantCareQuantities}
                                                             forceShowErrors={validationAttempted}
                                                             onChange={(isValid, equipmentChanges) => {
-                                                                handleEquipmentFieldChange('', idx, index, equipmentChanges);
-                                                            }} 
+                                                                // Call existing handler
+                                                                handleEquipmentFieldChange(isValid, idx, index, equipmentChanges);
+                                                                // Notify parent - but mark this as NOT user-triggered (it's from onChange)
+                                                                // User-triggered validation only happens via ref.validate()
+                                                            }}
                                                         />
                                                     )}
                                                     {(q.type === 'radio-ndis' && !q.hidden) && (
@@ -1787,7 +1793,7 @@ const QuestionPage = ({
                                                     )}
                                                     {(q.type === 'care-table' && !q.hidden) && (
                                                         <React.Fragment>
-                                                            <div className="flex flex-col max-w-screen-2xl flex-1">
+                                                            <div className="flex flex-col max-w-screen-xl-1 flex-1">
                                                                 {q.label && <span className="font-bold text-sargood-blue text-xl mb-2">{q.label}</span>}
                                                                 <div className="text-xs flex flex-row">
                                                                     <span className="font-bold text-sm">{q.question}</span>

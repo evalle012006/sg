@@ -739,7 +739,8 @@ export const applyQuestionDependenciesAcrossPages = (targetPage, allPages, booki
                 question.hidden = true;
                 updatedSection.hidden = true;
                 // Show if NDIS funded (simplified logic without room checking for consistency)
-                if (currentIsIcareFunded && bookingFormRoomSelected.length > 0 && bookingFormRoomSelected[0]?.type === 'ocean_view') {
+                const isPaidRoom = (bookingFormRoomSelected.length > 0 && bookingFormRoomSelected[0]?.type != 'studio') || bookingFormRoomSelected.length > 1;
+                if (isPaidRoom) {
                     question.hidden = false;
                     updatedSection.hidden = false;
                 }
@@ -1415,7 +1416,8 @@ export const forceRefreshAllDependencies = (allPages, bookingFormRoomSelected = 
                         question.hidden = true;
                         updatedSection.hidden = true;
                         // Show if ICare funded AND ocean_view room selected
-                        if (currentIsIcareFunded && bookingFormRoomSelected.length > 0 && bookingFormRoomSelected[0]?.type === 'ocean_view') {
+                        const isPaidRoom = (bookingFormRoomSelected.length > 0 && bookingFormRoomSelected[0]?.type != 'studio') || bookingFormRoomSelected.length > 1;
+                        if (isPaidRoom) {
                             question.hidden = false;
                             updatedSection.hidden = false;
                         }
@@ -1472,7 +1474,7 @@ export const forceRefreshAllDependencies = (allPages, bookingFormRoomSelected = 
                     // Check if visibility changed
                     if (wasHidden !== q.hidden) {
                         hasChanges = true;
-                        console.log(`  📋 Pass ${passCount}: Question "${q.question}" visibility changed: ${wasHidden ? 'hidden' : 'visible'} → ${q.hidden ? 'hidden' : 'visible'}`);
+                        // console.log(`  📋 Pass ${passCount}: Question "${q.question}" visibility changed: ${wasHidden ? 'hidden' : 'visible'} → ${q.hidden ? 'hidden' : 'visible'}`);
                     }
                     
                     return q;

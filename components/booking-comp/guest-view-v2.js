@@ -18,6 +18,9 @@ const ThumbnailCard = dynamic(() => import('../ui-v2/ThumbnailCard'));
 const CalendarView = dynamic(() => import('../ui-v2/CalendarView'), {
     loading: () => <div className="flex justify-center items-center py-12"><span>Loading calendar...</span></div>
 });
+const GuestProfileTab = dynamic(() => import('../my-profile/GuestProfileTab'));
+const HealthInformation = dynamic(() => import('../guests/HealthInformation'));
+const FundingApprovalsReadOnly = dynamic(() => import('../my-profile/FundingApprovalsReadOnly'));
 
 export default function GuestBookingsV2() {
     const dispatch = useDispatch();
@@ -33,7 +36,6 @@ export default function GuestBookingsV2() {
     const [activeTab, setActiveTab] = useState(0);
     const [activeActivityTab, setActiveActivityTab] = useState(0);
 
-    // Add course offers state
     const [courseOffers, setCourseOffers] = useState([]);
     const [courseOffersLoading, setCourseOffersLoading] = useState(false);
     const [showAllCourseOffers, setShowAllCourseOffers] = useState(false);
@@ -44,12 +46,58 @@ export default function GuestBookingsV2() {
     const [openCancelDropdown, setOpenCancelDropdown] = useState(null);
     const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
 
-    // Updated tabs to include Course Calendar
+    const [healthInfo, setHealthInfo] = useState([]);
+    const [healthInfoLastUpdated, setHealthInfoLastUpdated] = useState(null);
+    const [ndis, setNdis] = useState(null);
+    const [icare, setIcare] = useState(null);
+
     const tabs = [
         { label: "UPCOMING BOOKINGS" },
         { label: "PAST BOOKINGS" },
-        { label: "COURSE CALENDAR" }
+        { label: "COURSE CALENDAR" },
+        { label: "PROFILE" },
+        { label: "HEALTH" },
+        { label: "FUNDING" }
     ];
+
+    const loadHealthInfo = async () => {
+        if (!user?.uuid) return;
+        
+        try {
+            const response = await fetch(`/api/guests/${user.uuid}`);
+            if (response.ok) {
+                const data = await response.json();
+                
+                // Set health info
+                if (data.HealthInformation && data.HealthInformation.length > 0) {
+                    setHealthInfo(data.HealthInformation);
+                    const sortedHealth = [...data.HealthInformation].sort(
+                        (a, b) => new Date(b.updated_at) - new Date(a.updated_at)
+                    );
+                    setHealthInfoLastUpdated(sortedHealth[0]?.updated_at);
+                }
+                
+                // Set NDIS info
+                if (data.ndis) {
+                    setNdis(data.ndis);
+                }
+                
+                // Set iCare info
+                if (data.icare) {
+                    setIcare(data.icare);
+                }
+            }
+        } catch (error) {
+            console.error('Error loading health info:', error);
+        }
+    };
+
+    useEffect(() => {
+        // Load health info when switching to health or profile tabs
+        if (activeTab >= 3 && user?.uuid) {
+            loadHealthInfo();
+        }
+    }, [activeTab, user?.uuid]);
 
     const createBookingRequestForm = async (bookingId) => {
         return await fetch(`/api/booking-request-form/check-booking-section`, {
@@ -890,9 +938,9 @@ export default function GuestBookingsV2() {
                 <div>
                     <div className="w-full bg-[#F7F7F7] border-b border-gray-200">
                         <div className="container mx-auto px-4 sm:px-6">
-                            <div className="grid grid-cols-1 md:grid-cols-12 pt-2 pb-4">
-                                {/* Tabs - Allow horizontal scroll on mobile */}
-                                <div className="md:col-span-6 flex justify-start md:justify-start items-center mb-3 md:mb-0 overflow-x-auto">
+                            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between pt-2 pb-4 gap-3">
+                                {/* Tabs - Allow horizontal scroll on mobile, flex-grow on desktop */}
+                                <div className="flex-1 overflow-x-auto">
                                     <div className="min-w-max">
                                         <TabButton 
                                             tabs={tabs} 
@@ -904,8 +952,8 @@ export default function GuestBookingsV2() {
                                     </div>
                                 </div>
                                 
-                                {/* Button - Full width on mobile, right-aligned on desktop */}
-                                <div className="md:col-span-6 flex justify-start md:justify-end items-center">
+                                {/* Button - Full width on mobile, auto width on desktop */}
+                                <div className="flex-shrink-0">
                                     <Button 
                                         size="small" 
                                         color="primary" 
@@ -922,10 +970,36 @@ export default function GuestBookingsV2() {
                             {activeTab === 0 && renderBookingCards(upcomingBookings)}
                             {activeTab === 1 && renderBookingCards(pastBookings)}
                             {activeTab === 2 && renderCalendarView()}
+
+                            {/* Profile Tab */}
+                            {activeTab === 3 && (
+                                <div className="max-w-7xl mx-auto">
+                                    <GuestProfileTab isGuestUser={true} />
+                                </div>
+                            )}
+
+                            {/* Health Information Tab */}
+                            {activeTab === 4 && (
+                                <div className="max-w-7xl mx-auto">
+                                    <HealthInformation 
+                                        healthInfo={healthInfo}
+                                        healthInfoLastUpdated={healthInfoLastUpdated}
+                                        ndis={ndis}
+                                        icare={icare}
+                                    />
+                                </div>
+                            )}
+
+                            {/* Funding Approvals Tab */}
+                            {activeTab === 5 && (
+                                <div className="max-w-7xl mx-auto">
+                                    <FundingApprovalsReadOnly uuid={user?.uuid} />
+                                </div>
+                            )}
                         </div>
                     </div>
 
-                    {activeTab !== 2 && (
+                    {activeTab < 2 && (
                         <div style={{ background: '#EBECF0' }} className="py-8 sm:py-12">
                             <div className="max-w-7xl mx-auto px-4 sm:px-6">
                                 <div className="text-center mb-6 sm:mb-8">
@@ -939,7 +1013,7 @@ export default function GuestBookingsV2() {
                         </div>
                     )}
 
-                    {activeTab !== 2 && (
+                    {activeTab < 3 && (
                         <div className="py-8 sm:py-12">
                             <div className="max-w-7xl mx-auto px-4 sm:px-6">
                                 <div className="text-center mb-6 sm:mb-8">

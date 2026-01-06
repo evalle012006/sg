@@ -36,7 +36,7 @@ const CancellationModal = ({
                 onClick={() => onConfirm(false)}
               >
                 <div className="font-medium text-gray-900 group-hover:text-blue-700">No Charge Cancellation</div>
-                <div className="text-sm text-gray-500">Nights will NOT be returned to the guest's approval</div>
+                <div className="text-sm text-gray-500">Nights will NOT be returned to the guest&apos;s approval</div>
               </button>
               
               <button
@@ -44,7 +44,7 @@ const CancellationModal = ({
                 onClick={() => onConfirm(true)}
               >
                 <div className="font-medium text-gray-900 group-hover:text-blue-700">Full Charge Cancellation</div>
-                <div className="text-sm text-gray-500">Nights WILL be returned to the guest's iCare approval</div>
+                <div className="text-sm text-gray-500">Nights WILL be returned to the guest&apos;s iCare approval</div>
               </button>
             </div>
             

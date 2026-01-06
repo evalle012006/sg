@@ -45,8 +45,8 @@ export default function GuestProfilePage() {
     // Tab configuration - same as admin but with "Profile" label
     const mainTabs = [
         { label: "PROFILE", size: "medium", fullLabel: "PROFILE" },
-        { label: "HEALTH", size: "medium", fullLabel: "HEALTH INFORMATION" },
-        { label: "FUNDING", size: "medium", fullLabel: "FUNDING APPROVALS" }
+        // { label: "HEALTH", size: "medium", fullLabel: "HEALTH INFORMATION" },
+        // { label: "FUNDING", size: "medium", fullLabel: "FUNDING APPROVALS" }
     ];
 
     // Fetch guest data - same as admin GuestPage
@@ -376,21 +376,21 @@ export default function GuestProfilePage() {
                         )}
 
                         {/* Health Information Tab */}
-                        {selectedTab === "health-information" && (
+                        {/* {selectedTab === "health-information" && (
                             <HealthInformation 
                                 healthInfo={healthInfo}
                                 healthInfoLastUpdated={healthInfoLastUpdated}
                                 ndis={ndis}
                                 icare={icare}
                             />
-                        )}
+                        )} */}
 
                         {/* Funding Approvals Tab - Read Only for guests */}
-                        {selectedTab === "funding-approvals" && (
+                        {/* {selectedTab === "funding-approvals" && (
                             <div>
                                 <FundingApprovalsReadOnly uuid={currentUser?.uuid} />
                             </div>
-                        )}
+                        )} */}
                     </div>
                 </div>
             </div>

@@ -109,14 +109,14 @@ export function useAutofillDetection(options = {}) {
       processedFieldsRef.current.add(uniqueKey);
       const fieldData = fieldMapping[fieldId];
       
-      console.log(`🔄 Autofill detected [${source}]:`, {
-        fieldId,
-        value: value.substring(0, 20) + (value.length > 20 ? '...' : ''),
-        question: fieldData.question,
-        type: fieldData.type,
-        sectionIndex: fieldData.sectionIndex,
-        questionIndex: fieldData.questionIndex
-      });
+      // console.log(`🔄 Autofill detected [${source}]:`, {
+      //   fieldId,
+      //   value: value.substring(0, 20) + (value.length > 20 ? '...' : ''),
+      //   question: fieldData.question,
+      //   type: fieldData.type,
+      //   sectionIndex: fieldData.sectionIndex,
+      //   questionIndex: fieldData.questionIndex
+      // });
       
       // Update in Redux with dirty flag
       dispatch(bookingRequestFormActions.updateSingleField({

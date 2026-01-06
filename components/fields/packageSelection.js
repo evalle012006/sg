@@ -70,6 +70,19 @@ const PackageSelection = ({
   const abortControllerRef = useRef(null);
   const requestIdRef = useRef(0);
   const fetchInProgressRef = useRef(false);
+  const [dataReady, setDataReady] = useState(false);
+  const initialLoadRef = useRef(true);
+
+  useEffect(() => {
+      console.log('📦 PackageSelection received careAnalysisData:', {
+          received: !!careAnalysisData,
+          totalHoursPerDay: careAnalysisData?.totalHoursPerDay,
+          carePattern: careAnalysisData?.carePattern,
+          dataSource: careAnalysisData?.dataSource,
+          hasRawData: !!careAnalysisData?.rawCareData,
+          rawDataLength: careAnalysisData?.rawCareData?.length || 0
+      });
+  }, [careAnalysisData]);
 
   const shouldShowError = !builderMode && required && (
     error || 
@@ -79,6 +92,32 @@ const PackageSelection = ({
   const shouldShowValid = !builderMode && required && !shouldShowError && value && (
     Array.isArray(value) ? value.length > 0 : true
   );
+
+  useEffect(() => {
+    if (builderMode) {
+        setDataReady(true);
+        return;
+    }
+    
+    if (initialLoadRef.current) {
+        const hasFunderData = funder || localFilterState?.funderType || 
+                              (formData && formData.funder) ||
+                              (qaData && qaData.length > 0);
+        
+        const hasCareData = careAnalysisData && 
+                           typeof careAnalysisData.totalHoursPerDay === 'number' &&
+                           careAnalysisData.dataSource !== 'none';
+        
+        if (!hasFunderData || !hasCareData) {
+            console.log('📦 Waiting for critical data...');
+            setDataReady(false);
+            return;
+        }
+        
+        initialLoadRef.current = false;
+        setDataReady(true);
+    }
+  }, [builderMode, funder, localFilterState?.funderType, careAnalysisData, formData, qaData]);
 
   // New function to extract requirements ONLY from stable QaPairs data
   const extractGuestRequirementsFromStableData = () => {
@@ -583,6 +622,17 @@ const PackageSelection = ({
   const enhancedFilterCriteria = useMemo(() => {
       // ✅ FIX: Check if critical filters have changed before using stableFilterCriteria
       if (stableFilterCriteria && !builderMode) {
+        const careHoursToUse = careAnalysisData 
+            ? Math.ceil(careAnalysisData.totalHoursPerDay || 0) 
+            : 0;
+
+        console.log('📦 Filter criteria care hours calculation:', {
+            hasCareAnalysisData: !!careAnalysisData,
+            rawTotalHoursPerDay: careAnalysisData?.totalHoursPerDay,
+            careHoursToUse: careHoursToUse,
+            carePattern: careAnalysisData?.carePattern,
+            dataSource: careAnalysisData?.dataSource
+        });
           // Compare critical values that should trigger a refetch
           const criticalValuesChanged = 
               stableFilterCriteria.ndis_package_type !== (localFilterState?.ndisPackageType || ndis_package_type) ||
@@ -844,6 +894,12 @@ const PackageSelection = ({
           abortControllerRef.current.abort();
       }
 
+      // ADDED: Clear packages immediately when fetching to prevent stale descriptions
+      // This ensures we don't show old package descriptions during transition
+      if (!forceFetch) {
+          setPackages([]);
+      }
+
       // Create new abort controller for this request
       abortControllerRef.current = new AbortController();
       const signal = abortControllerRef.current.signal;
@@ -1044,26 +1100,32 @@ const PackageSelection = ({
 
   // Fetch packages when component mounts or criteria changes
   useEffect(() => {
-    console.log('📦 PackageSelection useEffect triggered');
+    // Don't fetch until data is ready
+    if (!dataReady && !builderMode) {
+        console.log('⏳ Skipping fetch - data not ready yet');
+        return;
+    }
+    
+    if (!builderMode && !enhancedFilterCriteria.funder_type) {
+        console.log('⏳ Skipping fetch - no funder type available');
+        return;
+    }
 
-    // Fetch packages - the function itself handles deduplication
     fetchPackages();
 
-    // Cleanup: abort any pending request when dependencies change or unmount
     return () => {
         if (abortControllerRef.current) {
             abortControllerRef.current.abort();
         }
     };
-  }, [
-      // Use primitive values to prevent unnecessary re-triggers
-      enhancedFilterCriteria.funder_type,
-      enhancedFilterCriteria.ndis_package_type,
-      enhancedFilterCriteria.care_hours,
-      enhancedFilterCriteria.has_course,
-      enhancedFilterCriteria.course_offered,
-      builderMode
-      // Note: Don't include fetchPackages in deps to avoid infinite loops
+}, [
+    dataReady, // NEW dependency
+    enhancedFilterCriteria.funder_type,
+    enhancedFilterCriteria.ndis_package_type,
+    enhancedFilterCriteria.care_hours,
+    enhancedFilterCriteria.has_course,
+    enhancedFilterCriteria.course_offered,
+    builderMode
   ]);
 
   useEffect(() => {
@@ -1492,7 +1554,16 @@ const PackageSelection = ({
           <div className="w-full">
             {(() => {
               // Find the currently selected package
-              const selectedPackage = packages.find(pkg => isPackageSelected(pkg));
+              let selectedPackage;
+  
+              if (!builderMode && packages.length === 1) {
+                // Single package mode - always use the only available package
+                // This ensures description stays in sync with the card which also uses this condition
+                selectedPackage = packages[0];
+              } else {
+                // Multiple packages - use value-based selection
+                selectedPackage = packages.find(pkg => isPackageSelected(pkg));
+              }
 
               if (selectedPackage && selectedPackage.description) {
                 return (

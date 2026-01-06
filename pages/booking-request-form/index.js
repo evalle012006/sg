@@ -156,6 +156,24 @@ const BookingRequestForm = () => {
     const initialDatesExtractedRef = useRef(false);
     const stayDatesRef = useRef(stayDates);
 
+    const equipmentFieldRef = useRef(null);
+    
+    useEffect(() => {
+        console.log('📊 CARE DATA DEBUG:', {
+            currentCareAnalysis: {
+                totalHours: currentCareAnalysis?.totalHoursPerDay,
+                dataSource: currentCareAnalysis?.dataSource,
+                pattern: currentCareAnalysis?.carePattern
+            },
+            careAnalysisData: {
+                totalHours: careAnalysisData?.totalHoursPerDay,
+                dataSource: careAnalysisData?.dataSource,
+                pattern: careAnalysisData?.carePattern
+            },
+            formDataLength: processedFormData?.length || bookingRequestFormData?.length || 0
+        });
+    }, [currentCareAnalysis, careAnalysisData, processedFormData?.length, bookingRequestFormData?.length]);
+
     // Callback to immediately update stay dates when changed in child component
     const updateStayDatesImmediate = useCallback((newDates) => {
         if (newDates.checkInDate || newDates.checkOutDate) {
@@ -866,13 +884,13 @@ const BookingRequestForm = () => {
                     
                     // STEP 1: Remove NDIS questions from non-NDIS pages
                     if (page.id !== 'ndis_packages_page' && question.ndis_only && isNdisFunded && ndisPageExists) {
-                        console.log(`🗑️ Removing NDIS question from ${page.title}: "${question.question}"`);
+                        // console.log(`🗑️ Removing NDIS question from ${page.title}: "${question.question}"`);
                         return false;
                     }
                     
                     // STEP 2: Remove duplicates by composite key AND ID
                     if (seenQuestions.has(compositeKey) || seenQuestionIds.has(questionId)) {
-                        console.log(`🗑️ Removing duplicate: "${question.question}" from ${page.title}`);
+                        // console.log(`🗑️ Removing duplicate: "${question.question}" from ${page.title}`);
                         return false;
                     }
                     
@@ -1154,6 +1172,14 @@ const BookingRequestForm = () => {
     const currentCareAnalysis = useMemo(() => {
         let formDataToUse = null;
         let dataSource = 'none';
+
+        // CRITICAL: Log what data sources are available
+        console.log('🏥 Care Analysis Starting:', {
+            hasProcessedFormData: !!processedFormData && processedFormData.length > 0,
+            hasBookingRequestFormData: !!bookingRequestFormData && bookingRequestFormData.length > 0,
+            processedFormDataLength: processedFormData?.length || 0,
+            bookingRequestFormDataLength: bookingRequestFormData?.length || 0
+        });
         
         if (processedFormData && processedFormData.length > 0) {
             formDataToUse = processedFormData;
@@ -1227,9 +1253,28 @@ const BookingRequestForm = () => {
                 }
             });
         });
+
+        // CRITICAL DEBUG: Log all care-related QA pairs found
+        const careRelatedQAs = allQAPairs.filter(qa => 
+            qa.question_key?.includes('care') || 
+            qa.question?.toLowerCase().includes('care')
+        );
+        console.log('🏥 Care-related QA pairs found:', careRelatedQAs.map(qa => ({
+            key: qa.question_key,
+            question: qa.question?.substring(0, 50),
+            hasAnswer: !!qa.answer,
+            answerType: typeof qa.answer,
+            source: qa.source
+        })));
         
         // Look for care schedule data
         const careScheduleQA = findByQuestionKey(allQAPairs, QUESTION_KEYS.WHEN_DO_YOU_REQUIRE_CARE);
+        console.log('🏥 Care schedule search result:', {
+            found: !!careScheduleQA,
+            searchKey: QUESTION_KEYS.WHEN_DO_YOU_REQUIRE_CARE,
+            answer: careScheduleQA?.answer ? 'HAS_DATA' : 'NO_DATA',
+            answerType: typeof careScheduleQA?.answer
+        });
         const personalCareQA = findByQuestionKey(allQAPairs, QUESTION_KEYS.DO_YOU_REQUIRE_ASSISTANCE_WITH_PERSONAL_CARE) ||
                         allQAPairs.find(qa => 
                             qa.question_key === QUESTION_KEYS.ASSISTANCE_WITH_PERSONAL_CARE ||
@@ -1259,45 +1304,83 @@ const BookingRequestForm = () => {
         }
 
         try {
-            // Parse the care data
             const careData = typeof careScheduleQA.answer === 'string' 
                 ? JSON.parse(careScheduleQA.answer) 
                 : careScheduleQA.answer;
 
-            // 🔧 FIX: Extract careData array from nested structure
-            let careDataArray = careData;
+            // Check if this is the nested structure with defaultValues
+            let dataForCalculation;
+            let careDataArray;
+            
             if (careData && typeof careData === 'object' && !Array.isArray(careData)) {
-                if (Array.isArray(careData.careData)) {
-                    // console.log('🔄 Extracting careData array from nested structure in currentCareAnalysis');
-                    careDataArray = careData.careData;
-                }
-            }
-
-            // Validate it's an array
-            if (!Array.isArray(careDataArray)) {
-                console.warn('⚠️ Care data is not an array:', careDataArray);
+                // This is the nested structure: { careData: [...], defaultValues: {...}, careVaries: false }
+                careDataArray = careData.careData || [];
+                
+                // ========== THE FIX ==========
+                // Pass the FULL object to calculateCareHours so it can access defaultValues
+                // when careVaries is false and individual entries have empty duration
+                dataForCalculation = careData;
+                // ========== END FIX ==========
+                
+                console.log('🏥 Passing full care object to calculateCareHours:', {
+                    careDataLength: careDataArray.length,
+                    hasDefaultValues: !!careData.defaultValues,
+                    careVaries: careData.careVaries
+                });
+            } else if (Array.isArray(careData)) {
+                // Legacy format - just an array
+                careDataArray = careData;
+                dataForCalculation = careData;
+            } else {
+                console.warn('⚠️ Unexpected care data format:', typeof careData);
                 return {
                     requiresCare: false,
                     totalHoursPerDay: 0,
                     carePattern: 'no-care',
                     recommendedPackages: [],
-                    analysis: 'Invalid care data format',
+                    analysis: 'Unexpected care data format',
                     dataSource: dataSource
                 };
             }
 
-            // Calculate care hours using ONLY the array (no defaultValues)
-            const analysis = calculateCareHours(careDataArray);
+            // Validate we have data
+            if (!careDataArray || careDataArray.length === 0) {
+                // Check if we can still use defaultValues
+                if (careData?.defaultValues && careData?.careVaries === false) {
+                    console.log('🏥 careData array is empty but have defaultValues, passing full object');
+                    dataForCalculation = careData;
+                } else {
+                    console.warn('⚠️ Care data is empty and no defaults available');
+                    return {
+                        requiresCare: false,
+                        totalHoursPerDay: 0,
+                        carePattern: 'no-care',
+                        recommendedPackages: [],
+                        analysis: 'No care data entries',
+                        dataSource: dataSource
+                    };
+                }
+            }
+
+            // Calculate care hours - now passing the FULL object!
+            const analysis = calculateCareHours(dataForCalculation);
+            
+            console.log('🏥 Care analysis result:', {
+                totalHoursPerDay: analysis.totalHoursPerDay,
+                carePattern: analysis.carePattern,
+                usedDefaults: analysis.usedDefaults || false
+            });
 
             return {
-                requiresCare: true,
+                requiresCare: analysis.totalHoursPerDay > 0,
                 ...analysis,
-                rawCareData: careDataArray,  // Store only the array
+                rawCareData: careDataArray,
                 dataSource: dataSource
             };
         } catch (error) {
+            console.error('❌ Error parsing care schedule:', error);
             return {
-                requiresCare: true,
+                requiresCare: false,
                 totalHoursPerDay: 0,
                 carePattern: 'care-error',
                 recommendedPackages: [],
@@ -1381,6 +1464,30 @@ const BookingRequestForm = () => {
         courseAnalysisData?.hasCourse,        // and course participation
         courseAnalysisData?.courseOffered,
         funder,
+    ]);
+
+    useEffect(() => {
+        // Only update if currentCareAnalysis has real data (not 'none' source)
+        if (currentCareAnalysis && currentCareAnalysis.dataSource !== 'none') {
+            // Check if values actually changed to prevent unnecessary re-renders
+            const shouldUpdate = 
+                careAnalysisData?.totalHoursPerDay !== currentCareAnalysis.totalHoursPerDay ||
+                careAnalysisData?.carePattern !== currentCareAnalysis.carePattern ||
+                careAnalysisData?.dataSource !== currentCareAnalysis.dataSource;
+            
+            if (shouldUpdate) {
+                console.log('🏥 Updating careAnalysisData state:', {
+                    from: careAnalysisData?.totalHoursPerDay,
+                    to: currentCareAnalysis.totalHoursPerDay,
+                    dataSource: currentCareAnalysis.dataSource
+                });
+                setCareAnalysisData(currentCareAnalysis);
+            }
+        }
+    }, [
+        currentCareAnalysis.totalHoursPerDay,
+        currentCareAnalysis.carePattern,
+        currentCareAnalysis.dataSource
     ]);
 
     // Enhanced function to get course-specific and care-specific form data for package selection
@@ -1804,10 +1911,21 @@ const BookingRequestForm = () => {
                 return;
             }
 
-            console.log('✅ Profile data fetched successfully for guest:', guestId);
+            // console.log('✅ Profile data fetched successfully for guest:', guestId);
 
             const updatedPages = mapProfileDataToQuestions(profileData, templatePages);
-            const finalPages = applyQuestionDependencies(updatedPages);
+            // Preserve Equipment page completion before dependency processing
+            const equipmentPageFromTemplate = templatePages.find(p => p.title === 'Equipment');
+            const equipmentWasCompleted = equipmentPageFromTemplate?.completed || completedEquipments || equipmentPageCompleted;
+
+            const finalPages = applyQuestionDependencies(updatedPages).map(page => {
+                // Ensure Equipment page completion is preserved from API/template
+                if (page.title === 'Equipment' && equipmentWasCompleted) {
+                    // console.log(`🔧 Restoring Equipment page completion after profile data: true`);
+                    return { ...page, completed: true };
+                }
+                return page;
+            });
 
             setProcessedFormData(finalPages);
             safeDispatchData(finalPages, 'Profile data applied after template load');
@@ -2913,6 +3031,13 @@ const BookingRequestForm = () => {
                         infantCareQuantities={extractInfantCareQuantities()}
                         validationAttempted={currentPage?.validationAttempted || false} 
                         onStayDatesUpdate={updateStayDatesImmediate}
+                        equipmentFieldRef={equipmentFieldRef}
+                        onEquipmentValidationChange={(isValid, wasUserTriggered) => {
+                            // Only update state if this was from user interaction, not initialization
+                            if (wasUserTriggered) {
+                                setEquipmentValidationPassed(isValid);
+                            }
+                        }}
                     />
                 )
             };
@@ -2966,63 +3091,127 @@ const BookingRequestForm = () => {
             const pageToValidate = currentPageInProcessed || currentPage;
 
             try {
-                const pageErrors = validate([pageToValidate], courseOffers);
-                
-                if (pageErrors.length > 0) {
-                    console.log('❌ Validation errors found on current page:', pageErrors);
+                // ============================================
+                // EQUIPMENT PAGE - Special validation via ref
+                // ============================================
+                if (pageToValidate.title === 'Equipment') {
+                    console.log('🔧 Validating Equipment page before navigation...');
                     
-                    const updatedPages = stableProcessedFormData.map(page => {
-                        if (page.id === pageToValidate.id) {
-                            return { 
-                                ...page, 
-                                completed: false,
-                                validationAttempted: true
-                            };
+                    if (equipmentFieldRef.current && typeof equipmentFieldRef.current.validate === 'function') {
+                        const result = equipmentFieldRef.current.validate();
+                        console.log('🔧 Equipment validation result:', result);
+                        
+                        if (!result.allValid) {
+                            console.log('❌ Equipment validation failed - blocking navigation');
+                            
+                            const updatedPages = stableProcessedFormData.map(page => {
+                                if (page.id === pageToValidate.id) {
+                                    return { 
+                                        ...page, 
+                                        completed: false,
+                                        validationAttempted: true
+                                    };
+                                }
+                                return page;
+                            });
+                            
+                            setProcessedFormData(updatedPages);
+                            safeDispatchData(updatedPages, 'Equipment validation failed');
+                            
+                            toast.error('Please complete all required equipment questions before continuing.');
+                            throw new Error('Equipment validation failed');
                         }
-                        return page;
-                    });
+                    }
                     
-                    setProcessedFormData(updatedPages);
-                    safeDispatchData(updatedPages, 'Page validation failed');
+                    // Equipment validation passed, save and continue
+                    console.log('✅ Equipment validation passed - proceeding');
+                    await saveCurrentPage(pageToValidate, false);
                     
-                    const createNavigationErrorMessage = () => {
-                        if (pageErrors.length === 1) {
-                            return `Please complete the required field "${pageErrors[0].question}" before continuing.`;
-                        } else if (pageErrors.length <= 3) {
-                            const questions = pageErrors.map(error => `"${error.question}"`).join(', ');
-                            return `Please complete these required fields before continuing: ${questions}`;
-                        } else {
-                            return `Please complete ${pageErrors.length} required fields on this page before continuing.`;
-                        }
-                    };
+                    // Handle returning guest completion update
+                    if (prevBookingId && currentBookingType === BOOKING_TYPES.RETURNING_GUEST && pageToValidate?.id) {
+                        const newSavedPages = new Set([...pagesWithSavedData, pageToValidate.id]);
+                        setPagesWithSavedData(newSavedPages);
+                        
+                        const updatedPages = batchUpdateReturningGuestCompletions(
+                            stableProcessedFormData,
+                            {
+                                visitedPages,
+                                pagesWithSavedData: newSavedPages,
+                                equipmentPageCompleted,
+                                equipmentChangesState,
+                                prevBookingId,
+                                currentBookingType
+                            }
+                        );
+                        
+                        setProcessedFormData(updatedPages);
+                        safeDispatchData(updatedPages, 'completion update before navigation');
+                    }
                     
-                    toast.error(createNavigationErrorMessage());
-                    throw new Error('Validation failed');
-                }
-                
-                // If validation passes, save the page
-                await saveCurrentPage(pageToValidate, false);
+                    // DON'T return here - let it fall through to navigation below
+                    
+                } else {
+                    // ============================================
+                    // NON-EQUIPMENT PAGES - Normal validation
+                    // ============================================
+                    const pageErrors = validate([pageToValidate], courseOffers);
+                    
+                    if (pageErrors.length > 0) {
+                        console.log('❌ Validation errors found on current page:', pageErrors);
+                        
+                        const updatedPages = stableProcessedFormData.map(page => {
+                            if (page.id === pageToValidate.id) {
+                                return { 
+                                    ...page, 
+                                    completed: false,
+                                    validationAttempted: true
+                                };
+                            }
+                            return page;
+                        });
+                        
+                        setProcessedFormData(updatedPages);
+                        safeDispatchData(updatedPages, 'Page validation failed');
+                        
+                        const createNavigationErrorMessage = () => {
+                            if (pageErrors.length === 1) {
+                                return `Please complete the required field "${pageErrors[0].question}" before continuing.`;
+                            } else if (pageErrors.length <= 3) {
+                                const questions = pageErrors.map(error => `"${error.question}"`).join(', ');
+                                return `Please complete these required fields before continuing: ${questions}`;
+                            } else {
+                                return `Please complete ${pageErrors.length} required fields on this page before continuing.`;
+                            }
+                        };
+                        
+                        toast.error(createNavigationErrorMessage());
+                        throw new Error('Validation failed');
+                    }
+                    
+                    // Non-equipment validation passed, save the page
+                    await saveCurrentPage(pageToValidate, false);
 
-                if (prevBookingId && currentBookingType === BOOKING_TYPES.RETURNING_GUEST && pageToValidate?.id) {
-                    console.log(`🔄 Synchronously updating completion for page "${pageToValidate.title}"`);
-                    
-                    const newSavedPages = new Set([...pagesWithSavedData, pageToValidate.id]);
-                    setPagesWithSavedData(newSavedPages);
-                    
-                    const updatedPages = batchUpdateReturningGuestCompletions(
-                        stableProcessedFormData,
-                        {
-                            visitedPages,
-                            pagesWithSavedData: newSavedPages,
-                            equipmentPageCompleted,
-                            equipmentChangesState,
-                            prevBookingId,
-                            currentBookingType
-                        }
-                    );
-                    
-                    setProcessedFormData(updatedPages);
-                    safeDispatchData(updatedPages, 'completion update before navigation');
+                    if (prevBookingId && currentBookingType === BOOKING_TYPES.RETURNING_GUEST && pageToValidate?.id) {
+                        // console.log(`🔄 Synchronously updating completion for page "${pageToValidate.title}"`);
+                        
+                        const newSavedPages = new Set([...pagesWithSavedData, pageToValidate.id]);
+                        setPagesWithSavedData(newSavedPages);
+                        
+                        const updatedPages = batchUpdateReturningGuestCompletions(
+                            stableProcessedFormData,
+                            {
+                                visitedPages,
+                                pagesWithSavedData: newSavedPages,
+                                equipmentPageCompleted,
+                                equipmentChangesState,
+                                prevBookingId,
+                                currentBookingType
+                            }
+                        );
+                        
+                        setProcessedFormData(updatedPages);
+                        safeDispatchData(updatedPages, 'completion update before navigation');
+                    }
                 }
                 
             } catch (error) {
@@ -3032,6 +3221,9 @@ const BookingRequestForm = () => {
             }
         }
 
+        // ============================================
+        // NAVIGATION - Happens for both Equipment and non-Equipment pages after validation passes
+        // ============================================
         // Batch all state updates together to prevent multiple re-renders
         dispatch(bookingRequestFormActions.setCurrentPage(targetPage));
         setActiveAccordionIndex(targetIndex);
@@ -4473,7 +4665,7 @@ const BookingRequestForm = () => {
                                             }
                                         } else {
                                             // Plain string answer from old template - convert to empty array for checkbox/multi-select
-                                            console.log(`Converting non-JSON string answer to array for ${question.type}: "${answer}"`);
+                                            // console.log(`Converting non-JSON string answer to array for ${question.type}: "${answer}"`);
                                             answer = [];
                                         }
                                     }
@@ -4507,7 +4699,7 @@ const BookingRequestForm = () => {
                                             }
                                         } else {
                                             // Plain string answer from old template - convert to empty array for checkbox/multi-select
-                                            console.log(`Converting non-JSON string answer to array for ${question.type}: "${answer}"`);
+                                            // console.log(`Converting non-JSON string answer to array for ${question.type}: "${answer}"`);
                                             answer = [];
                                         }
                                     }
@@ -4642,7 +4834,8 @@ const BookingRequestForm = () => {
                     if (s.Questions[0].question_key === 'i-acknowledge-additional-costs-icare') {
                         s.Questions[0].hidden = true;
                         s.hidden = true;
-                        if (currentIsIcareFunded && bookingFormRoomSelected.length > 0 && bookingFormRoomSelected[0]?.type === 'ocean_view') {
+                        const isPaidRoom = (bookingFormRoomSelected.length > 0 && bookingFormRoomSelected[0]?.type != 'studio') || bookingFormRoomSelected.length > 1;
+                        if (isPaidRoom) {
                             s.Questions[0].hidden = false;
                             s.hidden = false;
                         }
@@ -4746,8 +4939,19 @@ const BookingRequestForm = () => {
         const finalPages = list.map(page => {
             // ✅ CRITICAL FIX: Don't calculate completion here for returning guests
             if (isReturningGuestWithHelper) {
-                console.log(`🔄 Skipping completion calculation for returning guest on page: ${page.id} "${page.title}"`);
+                // console.log(`🔄 Skipping completion calculation for returning guest on page: ${page.id} "${page.title}"`);
                 return page; // Keep existing completion, helper will handle it
+            }
+            
+            // ✅ CRITICAL FIX: Preserve Equipment page completion from API flag
+            // Equipment completion is determined by API (completedEquipments) not by form validation
+            if (page.title === 'Equipment') {
+                const equipmentCompleted = completedEquipments || equipmentPageCompleted || page.completed;
+                // console.log(`🔧 Preserving Equipment page completion: ${equipmentCompleted}`);
+                return {
+                    ...page,
+                    completed: equipmentCompleted
+                };
             }
             
             // Original completion logic for first-time guests
@@ -4786,7 +4990,7 @@ const BookingRequestForm = () => {
 
             if (data.completedEquipments !== undefined) {
                 setCompletedEquipments(data.completedEquipments);
-                console.log('🔧 Equipment completion flag from API:', data.completedEquipments);
+                // console.log('🔧 Equipment completion flag from API:', data.completedEquipments);
             }
 
             let summaryOfStay = { ...summaryData };
@@ -5242,7 +5446,7 @@ const BookingRequestForm = () => {
                     // Pass a guarded completion function
                     (page) => {
                         if (bookingType === BOOKING_TYPES.RETURNING_GUEST && prevBookingId) {
-                            console.log(`🔄 Skipping completion calculation for returning guest on page: ${page.id} "${page.title}"`);
+                            // console.log(`🔄 Skipping completion calculation for returning guest on page: ${page.id} "${page.title}"`);
                             return false; // Let the helper handle it later
                         }
                         return calculatePageCompletion(page);
@@ -5281,7 +5485,7 @@ const BookingRequestForm = () => {
                 const newCompletions = updatedPages.map(p => p.completed);
                 
                 if (JSON.stringify(currentCompletions) !== JSON.stringify(newCompletions)) {
-                    console.log('📊 Debounced completion sync applied for returning guest');
+                    // console.log('📊 Debounced completion sync applied for returning guest');
                     setProcessedFormData(updatedPages);
                     safeDispatchData(updatedPages, 'debounced state sync');
                 }
@@ -5378,13 +5582,13 @@ const BookingRequestForm = () => {
             const canProcess = timeSinceLastUpdate > PROCESSING_COOLDOWN;
 
             if ((dataChanged || fundingChanged) && canProcess) {
-                console.log('📊 Form data or NDIS funding status changed, processing with completion lock...', {
-                    dataChanged,
-                    fundingChanged,
-                    newFundingStatus: isNdisFunded,
-                    analysis,
-                    timeSinceLastUpdate
-                });
+                // console.log('📊 Form data or NDIS funding status changed, processing with completion lock...', {
+                //     dataChanged,
+                //     fundingChanged,
+                //     newFundingStatus: isNdisFunded,
+                //     analysis,
+                //     timeSinceLastUpdate
+                // });
 
                 setIsUpdating(true);
                 lastProcessingTimeRef.current = now;
@@ -5392,7 +5596,7 @@ const BookingRequestForm = () => {
                 prevIsNdisFundedRef.current = isNdisFunded;
 
                 if (analysis.needsProcessing || fundingChanged) {
-                    console.log('🔄 Using debounced NDIS processing with completion lock...');
+                    // console.log('🔄 Using debounced NDIS processing with completion lock...');
                     processNdisWithDebounce(stableBookingRequestFormData, isNdisFunded);
                 } else {
                     const updatedData = forceRefreshAllDependencies(stableBookingRequestFormData, bookingFormRoomSelected);

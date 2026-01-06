@@ -29,6 +29,29 @@ const DURATION_OPTIONS = [
   '6 hours'
 ];
 
+/**
+ * Format a Date object to YYYY-MM-DD string WITHOUT timezone conversion
+ * This preserves the local date regardless of user's timezone
+ */
+const formatDateLocal = (date) => {
+  if (!date || !(date instanceof Date) || isNaN(date.getTime())) {
+    return null;
+  }
+  
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  
+  return `${year}-${month}-${day}`;
+};
+
+/**
+ * Create a new Date from year, month, day without timezone issues
+ */
+const createLocalDate = (year, month, day) => {
+  return new Date(year, month - 1, day, 12, 0, 0); // Use noon to avoid DST edge cases
+};
+
 // Helper function to check if care is not required
 const isNoCareRequired = (carerValue) => {
   return carerValue === 'No care required';
@@ -111,23 +134,21 @@ const formatEndTime = (timeStr, durationStr) => {
 const parseDateString = (dateStr) => {
   if (!dateStr) return null;
   
+  let year, month, day;
+  
   if (dateStr.includes('-')) {
-    const [year, month, day] = dateStr.split('-');
-    return new Date(year, parseInt(month) - 1, day);
+    // YYYY-MM-DD format
+    [year, month, day] = dateStr.split('-').map(Number);
+  } else if (dateStr.includes('/')) {
+    // DD/MM/YYYY format
+    [day, month, year] = dateStr.split('/').map(Number);
+  } else {
+    console.error("Unknown date format:", dateStr);
+    return null;
   }
   
-  if (dateStr.includes('/')) {
-    const [day, month, year] = dateStr.split('/');
-    return new Date(year, parseInt(month) - 1, day);
-  }
-  
-  const parsedDate = new Date(dateStr);
-  if (!isNaN(parsedDate.getTime())) {
-    return parsedDate;
-  }
-  
-  console.error("Unable to parse date:", dateStr);
-  return null;
+  // Create date at noon local time to avoid timezone edge cases
+  return new Date(year, month - 1, day, 12, 0, 0);
 };
 
 const generateDateRange = (startDate, endDate) => {
@@ -137,16 +158,20 @@ const generateDateRange = (startDate, endDate) => {
   }
   
   const dates = [];
-  const currentDate = parseDateString(startDate);
-  const lastDate = parseDateString(endDate);
+  const start = parseDateString(startDate);
+  const end = parseDateString(endDate);
   
-  if (!currentDate || !lastDate) {
+  if (!start || !end) {
     console.log("Failed to parse dates:", startDate, endDate);
     return [];
   }
 
-  while (currentDate <= lastDate) {
-    dates.push(new Date(currentDate));
+  // Clone the start date
+  const currentDate = new Date(start);
+
+  while (currentDate <= end) {
+    // Create a new date object for each day
+    dates.push(new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate(), 12, 0, 0));
     currentDate.setDate(currentDate.getDate() + 1);
   }
 
@@ -176,26 +201,44 @@ const transformDataForSaving = (tableData, defaultValues = null, careVaries = fa
     }
     
     Object.entries(periods).forEach(([period, values]) => {
+      // Determine the carers value to use
+      // When careVaries is false, prefer defaultValues
+      const carersToUse = !careVaries && defaultValues?.[period]?.carers 
+        ? defaultValues[period].carers 
+        : values.carers;
+      
       // Only include periods that require care
-      if (values.carers && values.carers.trim() !== '' && !isNoCareRequired(values.carers)) {
+      if (carersToUse && carersToUse.trim() !== '' && !isNoCareRequired(carersToUse)) {
+        
+        // When careVaries is false, use the time/duration from defaultValues
+        // because that's what the user actually sees and edits
+        let timeToSave = values.time;
+        let durationToSave = values.duration;
+        
+        if (!careVaries && defaultValues?.[period]) {
+          // Use defaultValues since that's what's displayed when careVaries is false
+          timeToSave = defaultValues[period].time || values.time;
+          durationToSave = defaultValues[period].duration || values.duration;
+        }
+        
         result.careData.push({
           care: period,
           date: formattedDate,
           values: {
-            carers: values.carers,
-            time: values.time,
-            duration: values.duration
+            carers: carersToUse,
+            time: timeToSave,
+            duration: durationToSave
           }
         });
       }
     });
   });
   
-  // ✅ CRITICAL: Ensure we always return the nested structure
   console.log('💾 Saving care data structure:', {
     careDataLength: result.careData.length,
     hasDefaultValues: !!result.defaultValues,
-    careVaries: result.careVaries
+    careVaries: result.careVaries,
+    firstEntry: result.careData[0] || null
   });
   
   return result;
@@ -285,9 +328,10 @@ const getActivePeriods = (date, dates) => {
     return ['morning', 'afternoon', 'evening'];
   }
   
-  const dateStr = date.toISOString().split('T')[0];
-  const firstDateStr = dates[0].toISOString().split('T')[0];
-  const lastDateStr = dates[dates.length - 1].toISOString().split('T')[0];
+  // Use local date formatting instead of toISOString()
+  const dateStr = formatDateLocal(date);
+  const firstDateStr = formatDateLocal(dates[0]);
+  const lastDateStr = formatDateLocal(dates[dates.length - 1]);
   
   if (dateStr === firstDateStr) {
     return ['afternoon', 'evening'];
@@ -352,7 +396,7 @@ const validateAllFieldsFilled = (tableData, dates, careVaries, defaultValues) =>
       
       let hasDateErrors = false;
       
-      const dateObj = dates.find(d => d.toISOString().split('T')[0] === dateStr);
+      const dateObj = dates.find(d => formatDateLocal(d) === dateStr);
       const activePeriods = dateObj ? getActivePeriods(dateObj, dates) : ['morning', 'afternoon', 'evening'];
       
       for (const period in tableData[dateStr]) {
@@ -439,13 +483,20 @@ const detectDateMismatch = (existingData = [], currentStartDate, currentEndDate)
     }
   });
 
+  // Generate expected dates using LOCAL date formatting (NOT toISOString!)
   const expectedDates = new Set();
-  const startDate = new Date(currentStartDate);
-  const endDate = new Date(currentEndDate);
+  const startDate = parseDateString(currentStartDate);
+  const endDate = parseDateString(currentEndDate);
+  
+  if (!startDate || !endDate) {
+    return { hasMismatch: false, details: null };
+  }
+  
   const currentDate = new Date(startDate);
   
   while (currentDate <= endDate) {
-    expectedDates.add(currentDate.toISOString().split('T')[0]);
+    // Use formatDateLocal instead of toISOString().split('T')[0]
+    expectedDates.add(formatDateLocal(currentDate));
     currentDate.setDate(currentDate.getDate() + 1);
   }
 
@@ -457,8 +508,13 @@ const detectDateMismatch = (existingData = [], currentStartDate, currentEndDate)
     
     const formatDateRange = (dates) => {
       if (dates.length === 0) return '';
-      if (dates.length === 1) return new Date(dates[0]).toLocaleDateString();
-      return `${new Date(dates[0]).toLocaleDateString()} - ${new Date(dates[dates.length - 1]).toLocaleDateString()}`;
+      if (dates.length === 1) {
+        const d = parseDateString(dates[0]);
+        return d ? d.toLocaleDateString('en-AU') : dates[0];
+      }
+      const startD = parseDateString(dates[0]);
+      const endD = parseDateString(dates[dates.length - 1]);
+      return `${startD?.toLocaleDateString('en-AU') || dates[0]} - ${endD?.toLocaleDateString('en-AU') || dates[dates.length - 1]}`;
     };
 
     return {
@@ -494,15 +550,19 @@ export default function CareTable({
   const [showDetailedTable, setShowDetailedTable] = useState(false);
   const [validationErrors, setValidationErrors] = useState(null);
   const [hasValues, setHasValues] = useState(false);
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [debug, setDebug] = useState({ attempted: false, error: null });
-  const [isSaving, setIsSaving] = useState(false);
+  
   const isInitialMount = useRef(true);
   const valueRef = useRef(value);
   const savedDataRef = useRef({});
   const dateInitializedRef = useRef(false);
   const savedDefaultsRef = useRef(null);
   const savedCareVariesRef = useRef(null);
+  
+  // Auto-save refs to prevent infinite loops
+  const userHasInteractedRef = useRef(false);
+  const lastSentDataRef = useRef(null);
+  const autoSaveTimeoutRef = useRef(null);
   
   const [dateMismatch, setDateMismatch] = useState(null);
   const notificationSentRef = useRef(false);
@@ -532,7 +592,8 @@ export default function CareTable({
     if (!dates || dates.length === 0) return;
     
     try {
-      const datesKey = dates.map(d => d.toISOString()).join('|');
+      // Use formatDateLocal instead of toISOString
+      const datesKey = dates.map(d => formatDateLocal(d)).join('|');
       
       if (processedDatesRef.current.includes(datesKey)) {
         return;
@@ -542,7 +603,7 @@ export default function CareTable({
       
       const initialData = {};
       dates.forEach(date => {
-        const dateString = date.toISOString().split('T')[0];
+        const dateString = formatDateLocal(date);
         initialData[dateString] = {
           morning: { carers: '', time: '', duration: '' },
           afternoon: { carers: '', time: '', duration: '' },
@@ -579,6 +640,14 @@ export default function CareTable({
         isInitialMount.current = false;
         valueRef.current = value;
         savedDataRef.current = JSON.parse(JSON.stringify(initialData));
+        
+        // Initialize lastSentDataRef with the initial data to prevent auto-saving unchanged data
+        const initialTransformed = transformDataForSaving(initialData, extractedDefaults || {
+          morning: { carers: '', time: '', duration: '' },
+          afternoon: { carers: '', time: '', duration: '' },
+          evening: { carers: '', time: '', duration: '' }
+        }, extractedCareVaries);
+        lastSentDataRef.current = JSON.stringify(initialTransformed);
       }
       
       setTableData(initialData);
@@ -623,10 +692,40 @@ export default function CareTable({
               };
             }
           });
+
+          // If careVaries is false, merge defaultValues into tableData
+          if (extractedCareVaries === false && extractedDefaults) {
+            Object.keys(newData).forEach(dateKey => {
+              ['morning', 'afternoon', 'evening'].forEach(period => {
+                const defaultForPeriod = extractedDefaults[period];
+                if (defaultForPeriod) {
+                  if (!newData[dateKey][period].time && defaultForPeriod.time) {
+                    newData[dateKey][period].time = defaultForPeriod.time;
+                  }
+                  if (!newData[dateKey][period].duration && defaultForPeriod.duration) {
+                    newData[dateKey][period].duration = defaultForPeriod.duration;
+                  }
+                  if (!newData[dateKey][period].carers && defaultForPeriod.carers) {
+                    newData[dateKey][period].carers = defaultForPeriod.carers;
+                  }
+                }
+              });
+            });
+            console.log('🔄 Merged defaultValues into tableData (careVaries=false)');
+          }
+
           return newData;
         });
         
         savedDataRef.current = JSON.parse(JSON.stringify(existingData));
+        
+        // Update lastSentDataRef to match incoming data - prevents auto-saving unchanged data
+        const incomingTransformed = transformDataForSaving(
+          existingData,
+          extractedDefaults || defaultValues,
+          extractedCareVaries ?? careVaries
+        );
+        lastSentDataRef.current = JSON.stringify(incomingTransformed);
       }
     }
   }, [value, dates]);
@@ -636,22 +735,71 @@ export default function CareTable({
     if (validationErrors) {
       setValidationErrors(null);
     }
-    
-    if (!isInitialMount.current) {
-      const currentDataString = JSON.stringify(tableData);
-      const savedDataString = JSON.stringify(savedDataRef.current);
-      const currentDefaultsString = JSON.stringify(defaultValues);
-      const savedDefaultsString = JSON.stringify(savedDefaultsRef.current);
-      const currentCareVaries = careVaries;
-      const savedCareVaries = savedCareVariesRef.current;
-      
-      setHasUnsavedChanges(
-        currentDataString !== savedDataString || 
-        currentDefaultsString !== savedDefaultsString ||
-        currentCareVaries !== savedCareVaries
-      );
-    }
   }, [tableData, defaultValues, careVaries]);
+
+  // ============================================
+  // AUTO-SAVE EFFECT - replaces the Done button
+  // ============================================
+  useEffect(() => {
+    // Skip if user hasn't interacted yet (prevents auto-saving on initial load)
+    if (!userHasInteractedRef.current) {
+      return;
+    }
+    
+    // Skip if no onChange handler
+    if (!onChange) {
+      return;
+    }
+    
+    // Skip if there are no values to save (user hasn't entered any care)
+    if (!hasAnyDefaultValues(defaultValues) && !hasAnyValues(tableData)) {
+      return;
+    }
+    
+    // Clear any existing timeout to debounce rapid changes
+    if (autoSaveTimeoutRef.current) {
+      clearTimeout(autoSaveTimeoutRef.current);
+    }
+    
+    // Debounce the auto-save (300ms)
+    autoSaveTimeoutRef.current = setTimeout(() => {
+      const transformedData = transformDataForSaving(tableData, defaultValues, careVaries);
+      const transformedString = JSON.stringify(transformedData);
+      
+      // Skip if data hasn't actually changed from what we last sent
+      if (transformedString === lastSentDataRef.current) {
+        console.log('🔄 CareTable: Skipping auto-save - data unchanged');
+        return;
+      }
+      
+      // Validate if required and user has answered the "care varies" question
+      let hasErrors = false;
+      if (required && careVaries !== null) {
+        const errors = validateAllFieldsFilled(tableData, dates, careVaries, defaultValues);
+        hasErrors = errors.hasErrors;
+        setValidationErrors(hasErrors ? errors : null);
+      } else {
+        setValidationErrors(null);
+      }
+      
+      console.log('🔄 CareTable: Auto-saving changes', { hasErrors });
+      onChange(transformedData, hasErrors);
+      lastSentDataRef.current = transformedString;
+      
+      // Update saved refs
+      savedDataRef.current = JSON.parse(JSON.stringify(tableData));
+      savedDefaultsRef.current = JSON.parse(JSON.stringify(defaultValues));
+      savedCareVariesRef.current = careVaries;
+      
+    }, 300);
+    
+    // Cleanup timeout on unmount or when dependencies change
+    return () => {
+      if (autoSaveTimeoutRef.current) {
+        clearTimeout(autoSaveTimeoutRef.current);
+      }
+    };
+  }, [tableData, defaultValues, careVaries, onChange, required, dates]);
 
   useEffect(() => {
     if (value && stayDates?.checkInDate && stayDates?.checkOutDate) {
@@ -715,6 +863,9 @@ export default function CareTable({
   }, [startDate, endDate]);
 
   const handleChange = useCallback((date, period, field, value) => {
+    // Mark that user has interacted - enables auto-save
+    userHasInteractedRef.current = true;
+    
     setTableData(prev => {
       const newData = { ...prev };
       
@@ -771,6 +922,9 @@ export default function CareTable({
   }, []);
 
   const handleDefaultChange = useCallback((period, field, value) => {
+    // Mark that user has interacted - enables auto-save
+    userHasInteractedRef.current = true;
+    
     setDefaultValues(prev => {
       const newValues = { ...prev };
       
@@ -805,6 +959,9 @@ export default function CareTable({
   }, []);
 
   const handleCareVariesChange = useCallback((varies) => {
+    // Mark that user has interacted - enables auto-save
+    userHasInteractedRef.current = true;
+    
     setCareVaries(varies);
     
     if (varies === true) {
@@ -846,45 +1003,6 @@ export default function CareTable({
       year: 'numeric'
     }).format(date).replace(',', '');
   };
-
-  const handleSave = useCallback(() => {
-    setIsSaving(true);
-    
-    try {
-      let hasErrors = false;
-      if (required) {
-        const errors = validateAllFieldsFilled(tableData, dates, careVaries, defaultValues);
-
-        if (errors.hasErrors) {
-          hasErrors = true;
-          setValidationErrors(errors);
-          setIsSaving(false);
-          return;
-        }
-      }
-      
-      setValidationErrors(null);
-      
-      const transformedData = transformDataForSaving(tableData, defaultValues, careVaries);
-      
-      if (onChange) {
-        console.log('💾 CareTable: Calling onChange with care data, default values, and careVaries');
-        onChange(transformedData, hasErrors);
-      }
-      
-      savedDataRef.current = JSON.parse(JSON.stringify(tableData));
-      savedDefaultsRef.current = JSON.parse(JSON.stringify(defaultValues));
-      savedCareVariesRef.current = careVaries;
-      setHasUnsavedChanges(false);
-      
-      console.log('✅ CareTable: Data and defaults preserved in state successfully');
-      
-    } catch (error) {
-      console.error('❌ CareTable: Error during save:', error);
-    } finally {
-      setIsSaving(false);
-    }
-  }, [tableData, defaultValues, careVaries, onChange, required, dates]);
 
   const getFilteredTimeOptions = (period, currentDuration, isDefault = false) => {
     if (period !== 'evening' || !currentDuration) {
@@ -955,7 +1073,7 @@ export default function CareTable({
   };
 
   const renderSelect = (date, period, field, options) => {
-    const dateStr = date.toISOString().split('T')[0];
+    const dateStr = formatDateLocal(date);
     const hasError = validationErrors?.dates?.[dateStr]?.[period]?.[field];
     const hasEveningTimeError = validationErrors?.dates?.[dateStr]?.[period]?.eveningTimeExtension;
     
@@ -1058,18 +1176,6 @@ export default function CareTable({
 
   return (
     <div className="w-full space-y-4">
-      {hasUnsavedChanges && (
-        <div className="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 rounded shadow-md mb-4" role="alert">
-          <div className="flex items-center">
-            <svg className="h-6 w-6 text-yellow-500 mr-2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-            </svg>
-            <p className="font-bold">Unsaved Changes!</p>
-          </div>
-          <p className="text-sm mt-1">Click the <span className="font-bold">Done</span> button to confirm your care schedule and continue with the form.</p>
-        </div>
-      )}
-
       {dateMismatch && (
         <div className="bg-amber-100 border-l-4 border-amber-500 text-amber-700 p-4 rounded shadow-md mb-4" role="alert">
           <div className="flex items-start">
@@ -1086,15 +1192,6 @@ export default function CareTable({
                 <strong>Please set up your care schedule for your new dates below.</strong>
               </p>
             </div>
-          </div>
-        </div>
-      )}
-      
-      {isSaving && (
-        <div className="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-4 rounded shadow-md mb-4" role="alert">
-          <div className="flex items-center">
-            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-500 mr-2"></div>
-            <p className="font-bold">Processing care schedule...</p>
           </div>
         </div>
       )}
@@ -1132,7 +1229,7 @@ export default function CareTable({
         </div>
       )}
 
-      {/* Daily Care Section (formerly "Set Default Care Schedule") */}
+      {/* Daily Care Section */}
       <div className="flex flex-col border rounded-lg p-4 bg-gray-50">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold">Daily Care</h3>
@@ -1388,33 +1485,6 @@ export default function CareTable({
               </tbody>
             </table>
           </div>
-        </div>
-      )}
-      
-      {/* Save Button */}
-      {(hasAnyDefaultValues(defaultValues) || hasValues) && hasUnsavedChanges && (
-        <div className="flex justify-between items-center bg-gray-50 p-4 rounded-lg">
-          <div className="text-sm text-gray-600">
-            {isSaving ? (
-              <span className="flex items-center">
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500 mr-2"></div>
-                Processing care schedule...
-              </span>
-            ) : (
-              <span>⚠️ Please confirm your care schedule to continue</span>
-            )}
-          </div>
-          <button
-            onClick={handleSave}
-            disabled={isSaving}
-            className={`text-sm py-2 px-6 rounded font-medium transition-all ${
-              isSaving 
-                ? 'bg-gray-400 text-gray-600 cursor-not-allowed' 
-                : 'bg-blue-500 hover:bg-blue-600 text-white shadow-md hover:shadow-lg'
-            }`}
-          >
-            {isSaving ? 'Processing...' : 'Done'}
-          </button>
         </div>
       )}
     </div>

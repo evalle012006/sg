@@ -9,6 +9,9 @@ module.exports = {
       sans: ['Open Sans', 'sans-serif'],
     },
     extend: {
+      maxWidth: {
+        'screen-xl-1': '1550px',
+      },
       colors: {
         // Primary Colors
         "sea": "#00467F",

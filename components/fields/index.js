@@ -21,6 +21,7 @@ import CareTable from './careTable';
 import CardField from './cardField';
 import PackageSelection from './packageSelection';
 import ServiceCardsField from './serviceCards';
+import { forwardRef } from 'react';
 
 export const fields = {
     "text": (props) => <InputField {...props} type="text" />,
@@ -41,7 +42,7 @@ export const fields = {
     "url": URLField,
     "rich-text": RichTextField,
     "rooms": RoomsField,
-    "equipment": EquipmentField,
+    "equipment": forwardRef((props, ref) => <EquipmentField ref={ref} {...props} />),
     "health-info": HealthInfo,
     
     // Horizontal Card Selection Components
@@ -68,11 +69,19 @@ export const fields = {
     "service-cards-multi": (props) => <ServiceCardsField {...props} multi={true} />,
 }
 
-export const GetField = (props) => {
+export const GetField = forwardRef((props, ref) => {
     const FieldComponent = fields[props.type];
     if (!FieldComponent) {
         console.warn(`Unknown field type: ${props.type}`);
         return null;
     }
+    
+    // For equipment field, pass the ref
+    if (props.type === 'equipment') {
+        return <FieldComponent ref={ref} {...props} />;
+    }
+    
     return <FieldComponent {...props} />;
-}
+});
+
+GetField.displayName = 'GetField';

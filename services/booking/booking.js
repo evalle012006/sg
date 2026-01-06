@@ -108,9 +108,16 @@ export class BookingService extends EntityBuilder {
         const adultsAnswer = getAnswerByQuestionKey(qaPairs, QUESTION_KEYS.ADULTS_COUNT);
         const petsAnswer = getAnswerByQuestionKey(qaPairs, QUESTION_KEYS.ASSISTANCE_ANIMAL);
 
-        if (infantsAnswer) roomData = { ...roomData, infants: infantsAnswer };
-        if (childrenAnswer) roomData = { ...roomData, children: childrenAnswer };
-        if (adultsAnswer) roomData = { ...roomData, adults: adultsAnswer };
+        console.log('Guest counts:', {
+            infants: parseInt(infantsAnswer),
+            children: parseInt(childrenAnswer),
+            adults: parseInt(adultsAnswer),
+            pets: petsAnswer
+        });
+
+        if (infantsAnswer) roomData = { ...roomData, infants: parseInt(infantsAnswer) };
+        if (childrenAnswer) roomData = { ...roomData, children: parseInt(childrenAnswer) };
+        if (adultsAnswer) roomData = { ...roomData, adults: parseInt(adultsAnswer) };
         if (petsAnswer) roomData = { ...roomData, pets: petsAnswer == 'Yes' ? 1 : 0 };
 
         const totalGuests = parseInt(roomData.infants || 0) + parseInt(roomData.children || 0) + 
@@ -253,7 +260,7 @@ export class BookingService extends EntityBuilder {
             .filter(question => question.required)
             .filter(question => {
                 // Existing filters
-                if (question.second_booking_only || question.ndis_only) return false;
+                if (question.second_booking_only || question.ndis_only || question.question_key === 'i-acknowledge-additional-costs-icare') return false;
                 
                 // NDIS package filter
                 if (isNdisFunder && question.type == 'radio' && 

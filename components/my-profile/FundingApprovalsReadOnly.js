@@ -307,7 +307,7 @@ const FundingApprovalsReadOnly = ({ uuid }) => {
                     </div>
                     <h3 className="text-lg font-semibold text-gray-800 mb-2">No Funding Approvals</h3>
                     <p className="text-gray-600">
-                        You don't have any funding approvals yet. Contact the Sargood team for more information.
+                        You don&apos;t have any funding approvals yet. Contact the Sargood team for more information.
                     </p>
                 </div>
             ) : (

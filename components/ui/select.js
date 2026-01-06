@@ -39,7 +39,7 @@ const SelectComponent = (props) => {
 
     useEffect(() => {
         if (props.value) {
-            setValue(props.value);
+            setValue(props.value == 0 ? '0' : props.value);
         }
     }, [props.value]);
 
