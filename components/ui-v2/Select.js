@@ -14,11 +14,18 @@ const Select = ({
   const [selectedValues, setSelectedValues] = useState(multi ? (Array.isArray(value) ? value : []) : value);
   const selectRef = useRef(null);
 
+  // Sync with external value prop
+  useEffect(() => {
+    if (value !== undefined) {
+      setSelectedValues(multi ? (Array.isArray(value) ? value : []) : value);
+    }
+  }, [value, multi]);
+
   // Determine size classes
   const sizeClasses = {
-    small: 'p-1 text-sm',
-    medium: 'p-2',
-    large: 'p-3 text-lg',
+    small: 'p-1.5 text-sm min-h-[34px]',
+    medium: 'p-2.5 min-h-[42px]',
+    large: 'p-3 text-lg min-h-[50px]',
   };
 
   // Close dropdown when clicking outside
@@ -39,9 +46,10 @@ const Select = ({
   const handleOptionClick = (option) => {
     if (multi) {
       // For multi-select
-      const updatedValues = selectedValues.some(item => item.value === option.value)
-        ? selectedValues.filter(item => item.value !== option.value)
-        : [...selectedValues, option];
+      const currentValues = Array.isArray(selectedValues) ? selectedValues : [];
+      const updatedValues = currentValues.some(item => item.value === option.value)
+        ? currentValues.filter(item => item.value !== option.value)
+        : [...currentValues, option];
       
       setSelectedValues(updatedValues);
       if (onClick) onClick(updatedValues);
@@ -79,7 +87,7 @@ const Select = ({
   // Check if an option is selected
   const isOptionSelected = (option) => {
     if (multi) {
-      return selectedValues.some(item => item.value === option.value);
+      return Array.isArray(selectedValues) && selectedValues.some(item => item.value === option.value);
     }
     return selectedValues && selectedValues.value === option.value;
   };
@@ -92,7 +100,7 @@ const Select = ({
         className={`flex items-center justify-between w-full rounded-md border border-gray-300 bg-white ${sizeClasses[size]} text-left shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500`}
         onClick={() => setIsOpen(!isOpen)}
       >
-        <div className="flex flex-wrap items-center gap-1">
+        <div className="flex flex-wrap items-center gap-1 flex-1 pr-6">
           {multi && Array.isArray(selectedValues) && selectedValues.length > 0 ? (
             <div className="flex flex-wrap gap-1">
               {selectedValues.map((selectedOption) => (
@@ -109,17 +117,17 @@ const Select = ({
               ))}
             </div>
           ) : (
-            <span className={selectedValues ? '' : 'text-gray-500'}>
+            <span className={selectedValues && selectedValues.label ? 'text-gray-900' : 'text-gray-500'}>
               {getDisplayText()}
             </span>
           )}
         </div>
-        <ChevronDown className={`h-5 w-5 text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+        <ChevronDown className={`h-5 w-5 text-gray-400 transition-transform flex-shrink-0 ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
-      {/* Dropdown options */}
+      {/* Dropdown options - FIXED: Changed z-10 to z-[9999] for modal compatibility */}
       {isOpen && (
-        <div className="absolute z-10 mt-1 w-full rounded-md bg-white shadow-lg max-h-60 overflow-auto">
+        <div className="absolute z-[9999] mt-1 w-full rounded-md bg-white shadow-lg max-h-60 overflow-auto border border-gray-200">
           <ul className="py-1">
             {options.map((option) => (
               <li

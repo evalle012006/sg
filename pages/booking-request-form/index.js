@@ -1796,20 +1796,22 @@ const BookingRequestForm = () => {
         try {
             const timestamp = Date.now();
             const response = await fetch(`/api/my-profile/${guestId}?_t=${timestamp}`, {
-                // ADD: Prevent browser caching
                 cache: 'no-store',
                 headers: {
-                    'Cache-Control': 'no-cache',
-                    'Pragma': 'no-cache'
+                    'Cache-Control': 'no-cache, no-store, must-revalidate',
+                    'Pragma': 'no-cache',
+                    'Expires': '0'
                 }
             });
             if (response.ok) {
                 const profileData = await response.json();
+                console.log('✅ Fresh profile data loaded for guest:', guestId, 'Fields:', Object.keys(profileData));
                 return profileData;
             }
+            console.warn('⚠️ Failed to fetch profile data, status:', response.status);
             return null;
         } catch (error) {
-            console.error('Error fetching profile data:', error);
+            console.error('❌ Error fetching profile data:', error);
             return null;
         }
     };
@@ -1942,7 +1944,7 @@ const BookingRequestForm = () => {
     const mapProfileDataToQuestions = (profileData, pages) => {
         if (!profileData || !pages || pages.length === 0) return pages;
 
-        // console.log('🔄 Applying comprehensive profile data mapping');
+        console.log('🔄 Applying comprehensive profile data mapping - PROFILE ALWAYS TAKES PRECEDENCE');
 
         const updatedPages = pages.map(page => {
             const updatedSections = page.Sections.map(section => {
@@ -1950,35 +1952,30 @@ const BookingRequestForm = () => {
                     let updatedQuestion = { ...question };
                     const questionKey = question.question_key || '';
 
-                    // Skip protected (pre-populated) questions
-                    if (question.protected || question.prePopulated) {
-                        console.log(`🛡️ Skipping protected pre-populated question: "${questionKey}"`);
-                        return updatedQuestion;
-                    }
+                    // REMOVED: Don't skip any questions - profile should ALWAYS take precedence
+                    // for profile-mapped fields, regardless of protected/prePopulated flags
                     
                     let mapped = false;
-                    let originalAnswer = question.answer;
+                    // IMPORTANT: Store the BOOKING answer (from QaPairs/saved data) separately
+                    const bookingAnswer = question.answer;
 
                     // COMPREHENSIVE MAPPING - BASIC FIELDS
                     switch (questionKey) {
                         case 'first-name':
                             if (profileData.first_name) {
                                 updatedQuestion.answer = profileData.first_name;
-                                updatedQuestion.oldAnswer = profileData.first_name;
                                 mapped = true;
                             }
                             break;
                         case 'last-name':
                             if (profileData.last_name) {
                                 updatedQuestion.answer = profileData.last_name;
-                                updatedQuestion.oldAnswer = profileData.last_name;
                                 mapped = true;
                             }
                             break;
                         case 'email':
                             if (profileData.email) {
                                 updatedQuestion.answer = profileData.email;
-                                updatedQuestion.oldAnswer = profileData.email;
                                 mapped = true;
                             }
                             break;
@@ -1986,14 +1983,12 @@ const BookingRequestForm = () => {
                         case 'mobile-no':
                             if (profileData.phone_number) {
                                 updatedQuestion.answer = profileData.phone_number;
-                                updatedQuestion.oldAnswer = profileData.phone_number;
                                 mapped = true;
                             }
                             break;
                         case 'gender-person-with-sci':
                             if (profileData.gender) {
                                 updatedQuestion.answer = profileData.gender;
-                                updatedQuestion.oldAnswer = profileData.gender;
                                 mapped = true;
                             }
                             break;
@@ -2002,7 +1997,6 @@ const BookingRequestForm = () => {
                                 const dobDate = new Date(profileData.dob);
                                 const formattedDob = dobDate.toISOString().split('T')[0];
                                 updatedQuestion.answer = formattedDob;
-                                updatedQuestion.oldAnswer = formattedDob;
                                 mapped = true;
                             }
                             break;
@@ -2012,7 +2006,6 @@ const BookingRequestForm = () => {
                         case 'street-address-line-1':
                             if (profileData.address_street1) {
                                 updatedQuestion.answer = profileData.address_street1;
-                                updatedQuestion.oldAnswer = profileData.address_street1;
                                 mapped = true;
                             }
                             break;
@@ -2020,35 +2013,30 @@ const BookingRequestForm = () => {
                         case 'street-address-line-2':
                             if (profileData.address_street2) {
                                 updatedQuestion.answer = profileData.address_street2;
-                                updatedQuestion.oldAnswer = profileData.address_street2;
                                 mapped = true;
                             }
                             break;
                         case 'city':
                             if (profileData.address_city) {
                                 updatedQuestion.answer = profileData.address_city;
-                                updatedQuestion.oldAnswer = profileData.address_city;
                                 mapped = true;
                             }
                             break;
                         case 'state-province':
                             if (profileData.address_state_province) {
                                 updatedQuestion.answer = profileData.address_state_province;
-                                updatedQuestion.oldAnswer = profileData.address_state_province;
                                 mapped = true;
                             }
                             break;
                         case 'post-code':
                             if (profileData.address_postal) {
                                 updatedQuestion.answer = profileData.address_postal;
-                                updatedQuestion.oldAnswer = profileData.address_postal;
                                 mapped = true;
                             }
                             break;
                         case 'country':
                             if (profileData.address_country) {
                                 updatedQuestion.answer = profileData.address_country;
-                                updatedQuestion.oldAnswer = profileData.address_country;
                                 mapped = true;
                             }
                             break;
@@ -2057,28 +2045,24 @@ const BookingRequestForm = () => {
                         case 'emergency-contact-name':
                             if (profileData.HealthInfo?.emergency_name) {
                                 updatedQuestion.answer = profileData.HealthInfo.emergency_name;
-                                updatedQuestion.oldAnswer = profileData.HealthInfo.emergency_name;
                                 mapped = true;
                             }
                             break;
                         case 'emergency-contact-phone':
                             if (profileData.HealthInfo?.emergency_mobile_number) {
                                 updatedQuestion.answer = profileData.HealthInfo.emergency_mobile_number;
-                                updatedQuestion.oldAnswer = profileData.HealthInfo.emergency_mobile_number;
                                 mapped = true;
                             }
                             break;
                         case 'emergency-contact-email':
                             if (profileData.HealthInfo?.emergency_email) {
                                 updatedQuestion.answer = profileData.HealthInfo.emergency_email;
-                                updatedQuestion.oldAnswer = profileData.HealthInfo.emergency_email;
                                 mapped = true;
                             }
                             break;
                         case 'emergency-contact-relationship-to-you':
                             if (profileData.HealthInfo?.emergency_relationship) {
                                 updatedQuestion.answer = profileData.HealthInfo.emergency_relationship;
-                                updatedQuestion.oldAnswer = profileData.HealthInfo.emergency_relationship;
                                 mapped = true;
                             }
                             break;
@@ -2087,21 +2071,18 @@ const BookingRequestForm = () => {
                         case 'gp-or-specialist-name':
                             if (profileData.HealthInfo?.specialist_name) {
                                 updatedQuestion.answer = profileData.HealthInfo.specialist_name;
-                                updatedQuestion.oldAnswer = profileData.HealthInfo.specialist_name;
                                 mapped = true;
                             }
                             break;
                         case 'gp-or-specialist-phone':
                             if (profileData.HealthInfo?.specialist_mobile_number) {
                                 updatedQuestion.answer = profileData.HealthInfo.specialist_mobile_number;
-                                updatedQuestion.oldAnswer = profileData.HealthInfo.specialist_mobile_number;
                                 mapped = true;
                             }
                             break;
                         case 'gp-or-specialist-practice-name':
                             if (profileData.HealthInfo?.specialist_practice_name) {
                                 updatedQuestion.answer = profileData.HealthInfo.specialist_practice_name;
-                                updatedQuestion.oldAnswer = profileData.HealthInfo.specialist_practice_name;
                                 mapped = true;
                             }
                             break;
@@ -2110,7 +2091,6 @@ const BookingRequestForm = () => {
                         case 'do-you-identify-as-aboriginal-or-torres-strait-islander-person-with-sci':
                             if (profileData.HealthInfo?.identify_aboriginal_torres !== null && profileData.HealthInfo?.identify_aboriginal_torres !== undefined) {
                                 updatedQuestion.answer = profileData.HealthInfo.identify_aboriginal_torres ? 'Yes' : 'No';
-                                updatedQuestion.oldAnswer = profileData.HealthInfo.identify_aboriginal_torres ? 'Yes' : 'No';
                                 mapped = true;
                             }
                             break;
@@ -2118,29 +2098,24 @@ const BookingRequestForm = () => {
                             // Always map this field - default to "No" if language is null/empty
                             if (profileData.HealthInfo?.language === null || profileData.HealthInfo?.language === undefined || profileData.HealthInfo?.language === '') {
                                 updatedQuestion.answer = 'No';
-                                updatedQuestion.oldAnswer = 'No';
                                 mapped = true;
                             } else if (profileData.HealthInfo.language === 'rather_not_say') {
                                 updatedQuestion.answer = 'Rather not to say';
-                                updatedQuestion.oldAnswer = 'Rather not to say';
                                 mapped = true;
                             } else if (profileData.HealthInfo.language) {
                                 updatedQuestion.answer = 'Yes';
-                                updatedQuestion.oldAnswer = 'Yes';
                                 mapped = true;
                             }
                             break;
                         case 'language-spoken-at-home':
                             if (profileData.HealthInfo?.language && profileData.HealthInfo.language !== '' && profileData.HealthInfo.language !== 'rather_not_say') {
                                 updatedQuestion.answer = profileData.HealthInfo.language;
-                                updatedQuestion.oldAnswer = profileData.HealthInfo.language;
                                 mapped = true;
                             }
                             break;
                         case 'do-you-require-an-interpreter':
                             if (profileData.HealthInfo?.require_interpreter !== null && profileData.HealthInfo?.require_interpreter !== undefined) {
                                 updatedQuestion.answer = profileData.HealthInfo.require_interpreter ? 'Yes' : 'No';
-                                updatedQuestion.oldAnswer = profileData.HealthInfo.require_interpreter ? 'Yes' : 'No';
                                 mapped = true;
                             }
                             break;
@@ -2148,18 +2123,15 @@ const BookingRequestForm = () => {
                             // Always map this field - default to "No" if cultural_beliefs is null/empty
                             if (profileData.HealthInfo?.cultural_beliefs === null || profileData.HealthInfo?.cultural_beliefs === undefined || profileData.HealthInfo?.cultural_beliefs === '') {
                                 updatedQuestion.answer = 'No';
-                                updatedQuestion.oldAnswer = 'No';
                                 mapped = true;
                             } else if (profileData.HealthInfo.cultural_beliefs) {
                                 updatedQuestion.answer = 'Yes';
-                                updatedQuestion.oldAnswer = 'Yes';
                                 mapped = true;
                             }
                             break;
                         case 'please-give-details-on-cultural-beliefs-or-values-you-would-like-our-staff-to-be-aware-of':
                             if (profileData.HealthInfo?.cultural_beliefs && profileData.HealthInfo.cultural_beliefs !== '') {
                                 updatedQuestion.answer = profileData.HealthInfo.cultural_beliefs;
-                                updatedQuestion.oldAnswer = profileData.HealthInfo.cultural_beliefs;
                                 mapped = true;
                             }
                             break;
@@ -2168,7 +2140,6 @@ const BookingRequestForm = () => {
                         case 'what-year-did-you-begin-living-with-your-spinal-cord-injury':
                             if (profileData.HealthInfo?.sci_year) {
                                 updatedQuestion.answer = profileData.HealthInfo.sci_year;
-                                updatedQuestion.oldAnswer = profileData.HealthInfo.sci_year;
                                 mapped = true;
                             }
                             break;
@@ -2186,7 +2157,6 @@ const BookingRequestForm = () => {
                                 };
                                 const displayValue = injuryTypeMap[profileData.HealthInfo.sci_injury_type] || profileData.HealthInfo.sci_injury_type;
                                 updatedQuestion.answer = displayValue;
-                                updatedQuestion.oldAnswer = displayValue;
                                 mapped = true;
                             }
                             break;
@@ -2202,21 +2172,18 @@ const BookingRequestForm = () => {
                                 };
                                 const displayValue = asiaScaleMap[profileData.HealthInfo.sci_type] || profileData.HealthInfo.sci_type;
                                 updatedQuestion.answer = displayValue;
-                                updatedQuestion.oldAnswer = displayValue;
                                 mapped = true;
                             }
                             break;
                         case 'where-did-you-complete-your-initial-spinal-cord-injury-rehabilitation':
                             if (profileData.HealthInfo?.sci_intial_spinal_rehab) {
                                 updatedQuestion.answer = profileData.HealthInfo.sci_intial_spinal_rehab;
-                                updatedQuestion.oldAnswer = profileData.HealthInfo.sci_intial_spinal_rehab;
                                 mapped = true;
                             }
                             break;
                         case 'are-you-currently-an-inpatient-at-a-hospital-or-a-rehabilitation-facility':
                             if (profileData.HealthInfo?.sci_inpatient !== null && profileData.HealthInfo?.sci_inpatient !== undefined) {
                                 updatedQuestion.answer = profileData.HealthInfo.sci_inpatient ? 'Yes' : 'No';
-                                updatedQuestion.oldAnswer = profileData.HealthInfo.sci_inpatient ? 'Yes' : 'No';
                                 mapped = true;
                             }
                             break;
@@ -2228,7 +2195,6 @@ const BookingRequestForm = () => {
                                 const cervicalLevels = levels.filter(level => level && level.toString().toUpperCase().startsWith('C'));
                                 if (cervicalLevels.length > 0) {
                                     updatedQuestion.answer = cervicalLevels;
-                                    updatedQuestion.oldAnswer = cervicalLevels;
                                     mapped = true;
                                 }
                             }
@@ -2239,7 +2205,6 @@ const BookingRequestForm = () => {
                                 const thoracicLevels = levels.filter(level => level && level.toString().toUpperCase().startsWith('T'));
                                 if (thoracicLevels.length > 0) {
                                     updatedQuestion.answer = thoracicLevels;
-                                    updatedQuestion.oldAnswer = thoracicLevels;
                                     mapped = true;
                                 }
                             }
@@ -2250,7 +2215,6 @@ const BookingRequestForm = () => {
                                 const lumbarLevels = levels.filter(level => level && level.toString().toUpperCase().startsWith('L'));
                                 if (lumbarLevels.length > 0) {
                                     updatedQuestion.answer = lumbarLevels;
-                                    updatedQuestion.oldAnswer = lumbarLevels;
                                     mapped = true;
                                 }
                             }
@@ -2261,7 +2225,6 @@ const BookingRequestForm = () => {
                                 const sacralLevels = levels.filter(level => level && level.toString().toUpperCase().startsWith('S'));
                                 if (sacralLevels.length > 0) {
                                     updatedQuestion.answer = sacralLevels;
-                                    updatedQuestion.oldAnswer = sacralLevels;
                                     mapped = true;
                                 }
                             }
@@ -2272,23 +2235,50 @@ const BookingRequestForm = () => {
                             break;
                     }
 
-                    // ✅ CRITICAL FIX: Clear temporary flags when profile data overrides
+                    // CRITICAL: Handle mapped fields properly
                     if (mapped) {
-                        if (updatedQuestion.temporaryFromPreviousBooking) {
-                            console.log(`🔄 Profile data overriding temporary previous booking data for: "${questionKey}"`, {
-                                previousValue: originalAnswer,
-                                profileValue: updatedQuestion.answer
-                            });
-                            updatedQuestion.temporaryFromPreviousBooking = false;
+                        // Store the original booking answer for comparison during save
+                        updatedQuestion.bookingAnswer = bookingAnswer; // What was saved in the booking QaPairs
+                        updatedQuestion.profileAnswer = updatedQuestion.answer; // What came from profile
+                        
+                        // Clear temporary flags since profile data is now authoritative
+                        updatedQuestion.temporaryFromPreviousBooking = false;
+                        
+                        // Mark as coming from profile
+                        updatedQuestion.fromProfile = true;
+                        
+                        // Set oldAnswer to the BOOKING value (not profile value)
+                        // This ensures change detection works correctly:
+                        // - If user doesn't change anything: answer === profileAnswer, but we still want to save to sync
+                        // - If user changes the value: answer !== oldAnswer, will be detected as dirty
+                        updatedQuestion.oldAnswer = bookingAnswer;
+                        
+                        // Mark as dirty if profile differs from what was in booking
+                        // This ensures the booking QaPairs get updated to match profile
+                        const profileValue = updatedQuestion.answer;
+                        const bookingValue = bookingAnswer;
+                        
+                        // Compare values (handle arrays and objects)
+                        let valuesAreDifferent = false;
+                        if (Array.isArray(profileValue) && Array.isArray(bookingValue)) {
+                            valuesAreDifferent = JSON.stringify(profileValue.sort()) !== JSON.stringify(bookingValue.sort());
+                        } else if (typeof profileValue === 'object' && typeof bookingValue === 'object') {
+                            valuesAreDifferent = JSON.stringify(profileValue) !== JSON.stringify(bookingValue);
+                        } else {
+                            valuesAreDifferent = profileValue !== bookingValue;
                         }
                         
-                        // Mark as coming from profile to prevent future overrides
-                        updatedQuestion.fromProfile = true;
-                        updatedQuestion.protected = true; // Protect from being overridden
-                        
-                        // Mark as dirty only if the value actually changed
-                        if (originalAnswer !== updatedQuestion.answer) {
+                        if (valuesAreDifferent) {
                             updatedQuestion.dirty = true;
+                            updatedQuestion.profileOverrideBooking = true; // Flag to indicate profile overrode booking data
+                            console.log(`📝 Profile data differs from booking for "${questionKey}":`, {
+                                bookingValue: bookingValue,
+                                profileValue: profileValue,
+                                willSyncToBooking: true
+                            });
+                        } else {
+                            // Values are the same - no need to mark dirty
+                            console.log(`✅ Profile matches booking for "${questionKey}": ${profileValue}`);
                         }
                     }
 
@@ -4175,18 +4165,15 @@ const BookingRequestForm = () => {
                 }
 
                 const sectionLabel = section.label;
+                
                 // FIXED: Handle deletion of hidden questions with existing QaPair records
-                // When saveCurrentPage is triggered, any hidden question with an existing 
-                // QaPair record (fromQa = true) should be deleted from the database.
-                // The excludeFromSave flag only preserves answers in memory during form 
-                // interaction - at save time, hidden questions with DB records get deleted.
                 questions.filter(q => {
                     // Hidden questions with existing QaPair records should be deleted
                     if (q.hidden === true && q.fromQa === true) {
                         return true;
                     }
                     
-                    // Original condition - hidden, dirty, and answer cleared (for questions without existing QaPairs)
+                    // Original condition - hidden, dirty, and answer cleared
                     if (q.hidden === true && q.dirty === true && 
                         (q.answer == null || q.answer == undefined || q.answer == '')) {
                         return true;
@@ -4235,6 +4222,11 @@ const BookingRequestForm = () => {
                             }
                         }
 
+                        // ADDED: If question has profileOverrideBooking flag, mark as dirty
+                        if (question.profileOverrideBooking) {
+                            qaPairDirty = true;
+                        }
+
                         const answer = (typeof question.answer != 'string' && (
                             question.type === 'multi-select' || 
                             question.type === 'checkbox' || 
@@ -4245,24 +4237,24 @@ const BookingRequestForm = () => {
                             question.type === 'service-cards' ||
                             question.type === 'service-cards-multi'
                         )) ? JSON.stringify(question.answer) : question.answer;
+                        
                         if (answer != undefined) {
                             let qap = {
                                 ...qaPairs[questionIndex],
                                 question: question.question,
                                 answer: answer,
                                 question_type: question.type,
-                                // ✅ Don't send question_id for existing QaPairs - let the DB keep its correct value
-                                // question_id: question.fromQa ? question.question_id : question.id,
                                 section_id: section.id,
                                 submit: submit,
                                 updatedAt: new Date(),
-                                dirty: qaPairDirty,
+                                dirty: qaPairDirty || question.dirty, // Include question.dirty flag
                                 sectionLabel: sectionLabel,
                                 oldAnswer: question.oldAnswer,
-                                question_key: question.question_key
+                                question_key: question.question_key,
+                                fromProfile: question.fromProfile // Track if this came from profile
                             };
 
-                            // ✅ Only set question_id for NEW qa_pairs (when fromQa is false)
+                            // Only set question_id for NEW qa_pairs (when fromQa is false)
                             if (!question.fromQa) {
                                 qap.question_id = question.id;
                             }
@@ -4277,18 +4269,15 @@ const BookingRequestForm = () => {
                                     question: question.question,
                                     answer: answer,
                                     question_type: question.type,
-                                    // ✅ Don't send question_id for existing QaPairs - let the DB keep its correct value
-                                    // question_id: question.fromQa ? question.question_id : question.id,
                                     section_id: section.id,
                                     submit: submit,
                                     updatedAt: new Date(),
-                                    dirty: qaPairDirty,
+                                    dirty: qaPairDirty || question.dirty,
                                     sectionLabel: sectionLabel,
                                     oldAnswer: question.oldAnswer,
                                     question_key: question.question_key
                                 };
 
-                                // ✅ Only set question_id for NEW qa_pairs (when fromQa is false)
                                 if (!question.fromQa) {
                                     qap.question_id = question.id;
                                 }
@@ -4309,6 +4298,7 @@ const BookingRequestForm = () => {
                             question.type === 'service-cards' || 
                             question.type === 'service-cards-multi' 
                         )) ? JSON.stringify(question.answer) : question.answer;
+                        
                         if (answer != undefined) {
                             let qap = {
                                 label: '',
@@ -4321,7 +4311,9 @@ const BookingRequestForm = () => {
                                 createdAt: new Date(),
                                 updatedAt: new Date(),
                                 question_key: question.question_key,
-                                oldAnswer: question.oldAnswer
+                                oldAnswer: question.oldAnswer,
+                                dirty: question.dirty || question.profileOverrideBooking, // Include dirty flags
+                                fromProfile: question.fromProfile
                             };
 
                             if (question.fromQa) {
@@ -4336,6 +4328,7 @@ const BookingRequestForm = () => {
             });
         });
 
+        // Handle equipment changes
         if (equipmentChangesState && equipmentChangesState?.length > 0) {
             console.log('📝 Processing equipment changes for QA pair updates...', equipmentChangesState);
             
@@ -4347,28 +4340,23 @@ const BookingRequestForm = () => {
                         const questionMapping = getInfantCareQuestionMapping(equipment.name);
                         
                         if (questionMapping && equipment.meta_data?.quantity !== undefined) {
-                            // Find the section ID and question details for this question
                             let sectionId = null;
                             let existingQaPairId = null;
                             let oldAnswer = null;
                             let questionId = null;
                             let questionType = null;
                             
-                            // FIXED: Look through all pages to find the question and gather ALL required fields
                             stableProcessedFormData?.forEach(page => {
                                 page.Sections?.forEach(section => {
-                                    // Check Questions array
                                     section.Questions?.forEach(question => {
                                         if (question.question_key === questionMapping.questionKey) {
                                             sectionId = section.id;
                                             oldAnswer = question.answer;
                                             questionId = question.fromQa ? question.question_id : question.id;
                                             questionType = question.type;
-                                            console.log(`✅ Found question in Questions array: "${question.question}" (ID: ${questionId})`);
                                         }
                                     });
                                     
-                                    // Check QaPairs array for existing entries
                                     section.QaPairs?.forEach(qaPair => {
                                         if (qaPair.Question?.question_key === questionMapping.questionKey) {
                                             sectionId = section.id;
@@ -4376,7 +4364,6 @@ const BookingRequestForm = () => {
                                             oldAnswer = qaPair.answer;
                                             questionId = qaPair.question_id || qaPair.Question?.id;
                                             questionType = qaPair.question_type || qaPair.Question?.type;
-                                            console.log(`✅ Found existing QaPair: "${qaPair.question}" (QaPair ID: ${existingQaPairId}, Question ID: ${questionId})`);
                                         }
                                     });
                                 });
@@ -4410,14 +4397,7 @@ const BookingRequestForm = () => {
                                     }
                                     
                                     qa_pairs.push(equipmentQaPair);
-                                    console.log(`✅ Created complete qa_pair for ${equipment.name}:`, equipmentQaPair);
                                 }
-                            } else {
-                                console.warn(`⚠️ Could not find complete question data for: ${questionMapping.questionKey} (${equipment.name})`, {
-                                    sectionId,
-                                    questionId,
-                                    questionType
-                                });
                             }
                         }
                     });
@@ -4429,11 +4409,12 @@ const BookingRequestForm = () => {
 
         let data = {};
         const qaPairDirty = qa_pairs.some(qp => qp.dirty);
+        
         if (qaPairDirty || qa_pairs.length > 0 || currentPage.Sections.every(s => s.QaPairs && s.QaPairs.length == 0)) {
+            // Handle NDIS package filtering (unchanged)
             if (summaryOfStay.data.funder && (summaryOfStay.data.funder?.toLowerCase().includes('ndis') || summaryOfStay.data.funder?.toLowerCase().includes('ndia'))) {
                 const packageQuestions = qa_pairs.filter(qp => questionMatches({ question: qp.question }, 'Please select your accommodation and assistance package below', QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL));
 
-                // Find regular radio type package questions to delete (but keep package-selection and radio-ndis)
                 const regularRadioPackageQuestion = packageQuestions.find(qp => qp.question_type === 'radio');
                 if (regularRadioPackageQuestion) {
                     qa_pairs = qa_pairs.map(qp => {
@@ -4448,7 +4429,6 @@ const BookingRequestForm = () => {
             } else {
                 const packageQuestions = qa_pairs.filter(qp => questionMatches({ question: qp.question }, 'Please select your accommodation and assistance package below', QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL));
 
-                // Find NDIS-specific package questions to delete
                 const ndisPackageQuestions = packageQuestions.filter(qp =>
                     qp.question_type === 'radio-ndis' || qp.question_type === 'package-selection'
                 );
@@ -4485,22 +4465,18 @@ const BookingRequestForm = () => {
                     setBookingAmended(true);
                 }
 
-                // CRITICAL CHANGE: Handle completion immediately after successful save
+                // Handle completion updates (unchanged)
                 if (prevBookingId && cPage?.id) {
                     console.log(`💾 Page "${cPage.title}" saved successfully - updating completion`);
                     
-                    // FOR RETURNING GUESTS: Use dedicated helper
                     if (currentBookingType === BOOKING_TYPES.RETURNING_GUEST) {
-                        // Update saved pages state synchronously
                         const newSavedPages = new Set([...pagesWithSavedData, cPage.id]);
                         setPagesWithSavedData(newSavedPages);
                         
-                        // Force immediate completion update with new state
                         setTimeout(() => {
                             forcePageCompletionUpdate(cPage.id, visitedPages, newSavedPages);
                         }, 0);
                     } else {
-                        // FOR FIRST-TIME GUESTS: Original logic
                         const newSavedPages = new Set([...pagesWithSavedData, cPage.id]);
                         setPagesWithSavedData(newSavedPages);
                         
@@ -4511,31 +4487,41 @@ const BookingRequestForm = () => {
                 }
             }
 
+            // =====================================================
+            // CRITICAL: PROFILE SYNC LOGIC - UPDATED
+            // =====================================================
             const guestId = getGuestId();
             if (guestId) {
-                const changedProfileFields = qa_pairs.filter(qp => {
+                // Get all profile-mapped fields that should be saved
+                const profileFieldsToSave = qa_pairs.filter(qp => {
                     const hasMapping = hasProfileMapping(qp.question_key);
-                    const hasChanged = (() => {
-                        if (qp.answer === qp.oldAnswer) return false;
-                        if (qp.answer == null || qp.oldAnswer == null) return qp.answer !== qp.oldAnswer;
-
-                        if (typeof qp.answer === 'object' || typeof qp.oldAnswer === 'object') {
-                            return JSON.stringify(qp.answer) !== JSON.stringify(qp.oldAnswer);
-                        }
-
-                        return qp.answer !== qp.oldAnswer;
-                    })();
-
-                    const isNotDeleted = !qp.delete;
-
-                    return hasMapping && hasChanged && isNotDeleted;
+                    if (!hasMapping) return false;
+                    
+                    // Don't save deleted items
+                    if (qp.delete) return false;
+                    
+                    // Check if there's a value to save
+                    const hasValue = qp.answer !== null && qp.answer !== undefined && qp.answer !== '';
+                    if (!hasValue) return false;
+                    
+                    // UPDATED LOGIC: Save to profile if:
+                    // 1. The field is dirty (user changed it or profile differs from booking)
+                    // 2. OR this is a submit action (to ensure profile stays in sync)
+                    // 3. OR the field came from profile and we want to ensure consistency
+                    const shouldSave = qp.dirty || submit || qp.fromProfile;
+                    
+                    return shouldSave;
                 });
 
+                console.log(`📤 Profile fields to save: ${profileFieldsToSave.length}`, 
+                    profileFieldsToSave.map(f => ({ key: f.question_key, answer: f.answer, dirty: f.dirty }))
+                );
+
                 // Batch all profile changes into a single operation
-                if (changedProfileFields.length > 0) {
+                if (profileFieldsToSave.length > 0) {
                     const batchUpdate = {};
 
-                    for (const field of changedProfileFields) {
+                    for (const field of profileFieldsToSave) {
                         const profileUpdate = mapQuestionKeyToProfileData(field.question_key, field.answer);
                         if (profileUpdate) {
                             Object.assign(batchUpdate, profileUpdate);
@@ -4545,7 +4531,8 @@ const BookingRequestForm = () => {
                     // Make a single API call for all profile updates
                     if (Object.keys(batchUpdate).length > 0) {
                         try {
-                            const response = await fetch('/api/my-profile/save-update', {
+                            console.log('📤 Saving to profile:', Object.keys(batchUpdate));
+                            const profileResponse = await fetch('/api/my-profile/save-update', {
                                 method: 'POST',
                                 headers: {
                                     'Content-Type': 'application/json',
@@ -4556,19 +4543,22 @@ const BookingRequestForm = () => {
                                 }),
                             });
 
-                            if (response.ok) {
-                                console.log('Batch profile update successful');
+                            if (profileResponse.ok) {
+                                const profileResult = await profileResponse.json();
+                                console.log('✅ Profile update successful:', profileResult.message);
                             } else {
-                                console.error('Batch profile update failed');
+                                const errorResult = await profileResponse.json();
+                                console.error('❌ Profile update failed:', errorResult.message);
                             }
                         } catch (error) {
-                            console.error('Error in batch profile update:', error);
+                            console.error('❌ Error in profile update:', error);
                         }
                     }
                 }
             }
         }
 
+        // Update page with saved QaPairs (unchanged)
         const updatedPage = structuredClone(cPage);
         if (data.hasOwnProperty('data')) {
             data.data.map(mainQuestion => {
@@ -4580,7 +4570,6 @@ const BookingRequestForm = () => {
                         if (currentQuestion.question == mainQuestion.question) {
                             let qaPair = { ...mainQuestion, question_id: currentQuestion.id, section_id: currentSection.id, fromQa: true };
                             if (!updatedPage.Sections[sectionIndex].QaPairs) updatedPage.Sections[sectionIndex].QaPairs = [];
-                            // this is to avoid adding existing qa pair to the object
                             const existingQaPairIdx = currentSection?.QaPairs?.findIndex(qp => qp.id === qaPair.id);
                             if (existingQaPairIdx > -1) {
                                 updatedPage.Sections[sectionIndex].QaPairs[existingQaPairIdx] = qaPair;

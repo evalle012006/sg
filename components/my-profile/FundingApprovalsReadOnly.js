@@ -63,9 +63,19 @@ const FundingApprovalsReadOnly = ({ uuid }) => {
         return [...active, ...expired];
     }, [fundingApprovals]);
 
-    // Calculate totals
+    // Calculate totals - only for non-expired approvals
     const totals = useMemo(() => {
+        const now = moment();
+        
         return fundingApprovals.reduce((acc, approval) => {
+            // Skip expired approvals from totals
+            const isExpired = approval.status === 'expired' || 
+                (approval.approval_to && moment(approval.approval_to).isBefore(now));
+            
+            if (isExpired) {
+                return acc;
+            }
+            
             acc.totalAllocated += approval.nights_approved || 0;
             acc.totalUsed += approval.nights_used || 0;
             acc.totalRemaining += (approval.nights_approved || 0) - (approval.nights_used || 0);
@@ -267,19 +277,19 @@ const FundingApprovalsReadOnly = ({ uuid }) => {
                     <div className="bg-white border border-gray-200 rounded-lg p-4">
                         <p className="text-xs text-gray-500 mb-1">Total Allocated</p>
                         <p className="text-2xl font-bold text-gray-800">{totals.totalAllocated}</p>
-                        <p className="text-xs text-gray-500">nights</p>
+                        <p className="text-xs text-gray-500">nights (active only)</p>
                     </div>
                     <div className="bg-white border border-gray-200 rounded-lg p-4">
                         <p className="text-xs text-gray-500 mb-1">Total Used</p>
                         <p className="text-2xl font-bold text-gray-800">{totals.totalUsed}</p>
-                        <p className="text-xs text-gray-500">nights</p>
+                        <p className="text-xs text-gray-500">nights (active only)</p>
                     </div>
                     <div className="bg-white border border-gray-200 rounded-lg p-4 sm:col-span-1 col-span-2">
                         <p className="text-xs text-gray-500 mb-1">Total Remaining</p>
                         <p className={`text-2xl font-bold ${totals.totalRemaining >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                             {totals.totalRemaining}
                         </p>
-                        <p className="text-xs text-gray-500">nights</p>
+                        <p className="text-xs text-gray-500">nights (active only)</p>
                     </div>
                 </div>
             )}
@@ -292,6 +302,7 @@ const FundingApprovalsReadOnly = ({ uuid }) => {
                         <p>
                             This is a read-only view of your funding approvals. 
                             Contact the Sargood team if you have any questions about your funding.
+                            Expired approvals are not included in the totals above.
                         </p>
                     </div>
                 </div>

@@ -45,6 +45,7 @@ const emailTriggerQuestionModel = require('./emailtriggerquestion');
 const bookingApprovalUsageModel = require('./bookingapprovalusage');
 const fundingApprovalModel = require('./fundingapproval');
 const guestApprovalFundingApprovalModel = require('./guestapprovalfundingapproval');
+const courseEOIModel = require('./courseeoi');
 
 const env = process.env.NODE_ENV || 'development';
 const config = require(__dirname + '/../config/config.js')[env];
@@ -100,6 +101,7 @@ const EmailTriggerQuestion = emailTriggerQuestionModel(sequelize, Sequelize.Data
 const BookingApprovalUsage = bookingApprovalUsageModel(sequelize, Sequelize.DataTypes);
 const FundingApproval = fundingApprovalModel(sequelize, Sequelize.DataTypes);
 const GuestApprovalFundingApproval = guestApprovalFundingApprovalModel(sequelize, Sequelize.DataTypes);
+const CourseEOI = courseEOIModel(sequelize, Sequelize.DataTypes);
 
 //ASSOCIATIONS
 
@@ -463,6 +465,16 @@ GuestApprovalFundingApproval.belongsTo(FundingApproval, {
   as: 'fundingApproval'
 });
 
+// Guest & CourseEOI associations
+Guest.hasMany(CourseEOI, {
+  foreignKey: 'guest_id',
+  as: 'courseEOIs'
+});
+CourseEOI.belongsTo(Guest, {
+  foreignKey: 'guest_id',
+  as: 'guest'
+});
+
 module.exports = {
   sequelize,
   Sequelize,
@@ -510,4 +522,5 @@ module.exports = {
   BookingApprovalUsage,
   FundingApproval,
   GuestApprovalFundingApproval,
+  CourseEOI,
 };

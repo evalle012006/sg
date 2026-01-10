@@ -1,0 +1,76 @@
+<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+    <h2 style="color: #00467F; margin-bottom: 20px;">New Course Expression of Interest</h2>
+    
+    <div style="background-color: #f8f9fa; border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+        <p style="margin: 0 0 10px 0;"><strong>EOI ID:</strong> {{eoiId}}</p>
+        <p style="margin: 0 0 10px 0;"><strong>Submitted:</strong> {{submittedAt}}</p>
+    </div>
+
+    <h3 style="color: #00467F; margin-bottom: 15px;">Guest Details</h3>
+    <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+        <tr>
+            <td style="padding: 8px; border-bottom: 1px solid #eee; width: 40%;"><strong>Name:</strong></td>
+            <td style="padding: 8px; border-bottom: 1px solid #eee;">{{guestName}}</td>
+        </tr>
+        <tr>
+            <td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Email:</strong></td>
+            <td style="padding: 8px; border-bottom: 1px solid #eee;"><a href="mailto:{{guestEmail}}">{{guestEmail}}</a></td>
+        </tr>
+        <tr>
+            <td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Phone:</strong></td>
+            <td style="padding: 8px; border-bottom: 1px solid #eee;"><a href="tel:{{guestPhone}}">{{guestPhone}}</a></td>
+        </tr>
+        <tr>
+            <td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Funding Type:</strong></td>
+            <td style="padding: 8px; border-bottom: 1px solid #eee;">{{fundingType}}</td>
+        </tr>
+        <tr>
+            <td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Has SCI:</strong></td>
+            <td style="padding: 8px; border-bottom: 1px solid #eee;">{{hasSCI}}</td>
+        </tr>
+        <tr>
+            <td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>SCI Levels:</strong></td>
+            <td style="padding: 8px; border-bottom: 1px solid #eee;">{{sciLevels}}</td>
+        </tr>
+    </table>
+
+    {{#if isCompletingForOther}}
+    <h3 style="color: #00467F; margin-bottom: 15px;">Support Person Details</h3>
+    <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+        <tr>
+            <td style="padding: 8px; border-bottom: 1px solid #eee; width: 40%;"><strong>Name:</strong></td>
+            <td style="padding: 8px; border-bottom: 1px solid #eee;">{{supportName}}</td>
+        </tr>
+        <tr>
+            <td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Email:</strong></td>
+            <td style="padding: 8px; border-bottom: 1px solid #eee;"><a href="mailto:{{supportEmail}}">{{supportEmail}}</a></td>
+        </tr>
+        <tr>
+            <td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Phone:</strong></td>
+            <td style="padding: 8px; border-bottom: 1px solid #eee;">{{supportPhone}}</td>
+        </tr>
+        <tr>
+            <td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Role:</strong></td>
+            <td style="padding: 8px; border-bottom: 1px solid #eee;">{{supportRole}}</td>
+        </tr>
+    </table>
+    {{/if}}
+
+    <h3 style="color: #00467F; margin-bottom: 15px;">Courses Interested In</h3>
+    <div style="background-color: #e8f4f8; border-radius: 8px; padding: 15px; margin-bottom: 20px;">
+        <p style="margin: 0; font-size: 16px;">{{courseNames}}</p>
+    </div>
+
+    {{#if comments}}
+    <h3 style="color: #00467F; margin-bottom: 15px;">Additional Comments</h3>
+    <div style="background-color: #f8f9fa; border-radius: 8px; padding: 15px; margin-bottom: 20px;">
+        <p style="margin: 0; white-space: pre-wrap;">{{comments}}</p>
+    </div>
+    {{/if}}
+
+    <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
+    
+    <p style="color: #666; font-size: 12px; margin: 0;">
+        This is an automated notification from the Sargood on Collaroy booking system.
+    </p>
+</div>

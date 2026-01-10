@@ -1,17 +1,31 @@
 import React, { useState, useMemo } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import moment from 'moment';
-import StatusBadge from './StatusBadge'; // Import StatusBadge component (adjust path as needed)
-import Card from './Card'; // Import Card component (adjust path as needed)
+import StatusBadge from './StatusBadge';
+import Card from './Card';
 
 // Custom Calendar Icon Component
 const CalendarIcon = ({ className = "w-5 h-5" }) => (
     <svg className={className} viewBox="0 0 22 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M3.20898 1.55273C3.71336 1.60377 4.10733 2.03004 4.10742 2.54785C4.10742 3.06574 3.71341 3.49192 3.20898 3.54297L3.10742 3.54785H2.80859C2.59424 3.54785 2.38792 3.63264 2.23633 3.78418C2.08477 3.93574 2.00005 4.14212 2 4.35645V17.1914L2.00391 17.2705C2.01169 17.3492 2.03118 17.4266 2.06152 17.5C2.1021 17.598 2.16139 17.6877 2.23633 17.7627C2.31135 17.8377 2.40102 17.8969 2.49902 17.9375C2.5971 17.9781 2.70244 17.999 2.80859 17.999H18.2803L18.3594 17.9951C18.4382 17.9873 18.5154 17.9679 18.5889 17.9375C18.6869 17.8969 18.7765 17.8377 18.8516 17.7627C18.9266 17.6876 18.9858 17.598 19.0264 17.5C19.0567 17.4266 19.0762 17.3493 19.084 17.2705L19.0879 17.1914V4.35645C19.0878 4.14212 19.0031 3.93573 18.8516 3.78418C18.7191 3.65183 18.5451 3.5702 18.3604 3.55176L18.2803 3.54785H17.9258C17.3735 3.54785 16.9258 3.10014 16.9258 2.54785C16.9259 1.99565 17.3736 1.54785 17.9258 1.54785H18.2803L18.5576 1.56152C19.2004 1.62535 19.8048 1.90948 20.2656 2.37012C20.7923 2.89675 21.0878 3.61169 21.0879 4.35645V17.1914L21.0752 17.4668C21.0482 17.7409 20.9807 18.0102 20.875 18.2656C20.7339 18.6063 20.5264 18.916 20.2656 19.1768C20.0049 19.4375 19.6952 19.644 19.3545 19.7852C19.099 19.891 18.8299 19.9583 18.5557 19.9854L18.2803 19.999H2.80859C2.43979 19.999 2.07413 19.9263 1.7334 19.7852C1.39284 19.644 1.08294 19.4374 0.822266 19.1768C0.561601 18.916 0.354953 18.6062 0.213867 18.2656C0.108091 18.0102 0.0407272 17.7409 0.0136719 17.4668L0 17.1914V4.35645C4.8441e-05 3.61168 0.295638 2.89674 0.822266 2.37012C1.34893 1.8435 2.06381 1.54785 2.80859 1.54785H3.10742L3.20898 1.55273ZM5.89258 11.7422L6.02246 11.7646L6.15137 11.7959C6.40525 11.8682 6.64041 11.9958 6.83887 12.1699L6.93457 12.2607L7.02441 12.3584C7.19488 12.5599 7.31799 12.7976 7.38574 13.0527L7.41504 13.1816L7.43457 13.3125C7.46867 13.6186 7.42296 13.9295 7.30078 14.2139C7.161 14.5388 6.92703 14.8149 6.62988 15.0068C6.33499 15.1972 5.99052 15.2957 5.63965 15.291V15.292L5.63672 15.291C5.63488 15.291 5.63269 15.292 5.63086 15.292V15.291C5.1635 15.2843 4.71735 15.0944 4.38965 14.7607C4.06 14.4249 3.87677 13.9715 3.88086 13.501C3.88268 13.1502 3.98796 12.8069 4.18359 12.5156L4.26172 12.4092C4.45188 12.1671 4.70199 11.9775 4.98828 11.8604L5.11328 11.8145C5.36441 11.733 5.63076 11.7082 5.89258 11.7422ZM10.5723 11.7422L10.7021 11.7646L10.8311 11.7959C11.0849 11.8682 11.3201 11.9958 11.5186 12.1699L11.6143 12.2607L11.7041 12.3584C11.8746 12.5599 11.9977 12.7976 12.0654 13.0527L12.0947 13.1816L12.1143 13.3125C12.1484 13.6186 12.1026 13.9295 11.9805 14.2139C11.8407 14.5388 11.6067 14.8149 11.3096 15.0068C11.0147 15.1972 10.6702 15.2957 10.3193 15.291V15.292L10.3164 15.291C10.3146 15.291 10.3124 15.292 10.3105 15.292V15.291C9.84318 15.2843 9.39703 15.0944 9.06934 14.7607C8.7397 14.4249 8.55646 13.9715 8.56055 13.501C8.56236 13.1502 8.66765 12.8069 8.86328 12.5156L8.94141 12.4092C9.13157 12.1671 9.38168 11.9775 9.66797 11.8604L9.79297 11.8145C10.0441 11.733 10.3104 11.7082 10.5723 11.7422ZM5.89062 6.27051L6.02148 6.29199L6.15039 6.32422C6.4041 6.39647 6.63856 6.52433 6.83691 6.69824L6.93359 6.78906L7.02246 6.88672C7.19293 7.08817 7.317 7.32502 7.38477 7.58008L7.41309 7.70898L7.43262 7.83984C7.46677 8.14567 7.42175 8.45607 7.2998 8.74023C7.16029 9.06515 6.9268 9.34116 6.62988 9.5332C6.33505 9.72386 5.99061 9.82189 5.63965 9.81738V9.81934C5.16928 9.81487 4.71938 9.62356 4.38965 9.28809C4.06011 8.95263 3.87718 8.49954 3.88086 8.0293C3.8825 7.67846 3.98794 7.33533 4.18359 7.04395L4.26074 6.9375C4.45093 6.69516 4.70178 6.50587 4.98828 6.38867L5.1123 6.34277C5.36313 6.26134 5.62908 6.23675 5.89062 6.27051ZM10.5713 6.27051L10.7021 6.29199L10.8311 6.32422C11.0848 6.39647 11.3192 6.52433 11.5176 6.69824L11.6143 6.78906L11.7031 6.88672C11.8736 7.08817 11.9977 7.32502 12.0654 7.58008L12.0938 7.70898L12.1133 7.83984C12.1474 8.14567 12.1024 8.45606 11.9805 8.74023C11.8409 9.06516 11.6075 9.34116 11.3105 9.5332C11.0157 9.72386 10.6713 9.82189 10.3203 9.81738V9.81934C9.84995 9.81487 9.40004 9.62356 9.07031 9.28809C8.74078 8.95263 8.55785 8.49954 8.56152 8.0293C8.56317 7.67845 8.66861 7.33532 8.86426 7.04395L8.94141 6.9375C9.13159 6.69517 9.38244 6.50587 9.66895 6.38867L9.79297 6.34277C10.0438 6.26134 10.3097 6.23675 10.5713 6.27051ZM15.5879 6.26465C15.9374 6.29942 16.2693 6.43651 16.541 6.65918L16.6709 6.77734L16.79 6.9082C17.0497 7.22513 17.1933 7.62384 17.1934 8.03711L17.1846 8.21387C17.144 8.62161 16.9632 9.00459 16.6709 9.29688C16.3368 9.63099 15.8836 9.81934 15.4111 9.81934C14.9387 9.81924 14.4854 9.6309 14.1514 9.29688C13.8593 9.00465 13.6792 8.62145 13.6387 8.21387L13.6299 8.03711L13.6387 7.86133C13.6792 7.45349 13.859 7.06967 14.1514 6.77734L14.2822 6.65918C14.5992 6.39949 14.9978 6.25594 15.4111 6.25586L15.5879 6.26465ZM5.6875 0C6.23978 0 6.6875 0.447715 6.6875 1V3.28906C6.68698 3.84091 6.23947 4.28906 5.6875 4.28906C5.13553 4.28906 4.68802 3.84091 4.6875 3.28906V1C4.6875 0.447715 5.13522 0 5.6875 0ZM15.3164 0C15.8687 0 16.3164 0.447715 16.3164 1V3.28906C16.3159 3.84091 15.8684 4.28906 15.3164 4.28906C14.7644 4.28906 14.3169 3.84091 14.3164 3.28906V1C14.3164 0.447715 14.7641 0 15.3164 0ZM12.7822 1.55273C13.2863 1.60404 13.6796 2.03024 13.6797 2.54785C13.6797 3.06554 13.2864 3.49165 12.7822 3.54297L12.6797 3.54785H8.38184C7.82955 3.54785 7.38184 3.10014 7.38184 2.54785C7.38194 1.99565 7.82961 1.54785 8.38184 1.54785H12.6797L12.7822 1.55273Z" fill="#00467F"/>
+        <path d="M3.20898 1.55273C3.71336 1.60377 4.10733 2.03004 4.10742 2.54785C4.10742 3.06574 3.71341 3.49192 3.20898 3.54297L3.10742 3.54785H2.80859C2.59424 3.54785 2.38792 3.63264 2.23633 3.78418C2.08477 3.93574 2.00005 4.14212 2 4.35645V17.1914L2.00391 17.2705C2.01169 17.3492 2.03118 17.4266 2.06152 17.5C2.1021 17.598 2.16139 17.6877 2.23633 17.7627C2.31135 17.8377 2.40102 17.8969 2.49902 17.9375C2.5971 17.9781 2.70244 17.999 2.80859 17.999H18.2803L18.3594 17.9951C18.4382 17.9873 18.5154 17.9679 18.5889 17.9375C18.6869 17.8969 18.7765 17.8377 18.8516 17.7627C18.9266 17.6876 18.9858 17.598 19.0264 17.5C19.0567 17.4266 19.0762 17.3493 19.084 17.2705L19.0879 17.1914V4.35645C19.0878 4.14212 19.0031 3.93573 18.8516 3.78418C18.7191 3.65183 18.5451 3.5702 18.3604 3.55176L18.2803 3.54785H17.9258C17.3735 3.54785 16.9258 3.10014 16.9258 2.54785C16.9259 1.99565 17.3736 1.54785 17.9258 1.54785H18.2803L18.5576 1.56152C19.2004 1.62535 19.8048 1.90948 20.2656 2.37012C20.7923 2.89675 21.0878 3.61169 21.0879 4.35645V17.1914L21.0752 17.4668C21.0482 17.7409 20.9807 18.0102 20.875 18.2656C20.7339 18.6063 20.5264 18.916 20.2656 19.1768C20.0049 19.4375 19.6952 19.644 19.3545 19.7852C19.099 19.891 18.8299 19.9583 18.5557 19.9854L18.2803 19.999H2.80859C2.43979 19.999 2.07413 19.9263 1.7334 19.7852C1.39284 19.644 1.08294 19.4374 0.822266 19.1768C0.561601 18.916 0.354953 18.6062 0.213867 18.2656C0.108091 18.0102 0.0407272 17.7409 0.0136719 17.4668L0 17.1914V4.35645C4.8441e-05 3.61168 0.295638 2.89674 0.822266 2.37012C1.34893 1.8435 2.06381 1.54785 2.80859 1.54785H3.10742L3.20898 1.55273ZM5.89258 11.7422L6.02246 11.7646L6.15137 11.7959C6.40525 11.8682 6.64041 11.9958 6.83887 12.1699L6.93457 12.2607L7.02441 12.3584C7.19488 12.5599 7.31799 12.7976 7.38574 13.0527L7.41699 13.1855L7.43945 13.3193L7.45117 13.4551L7.45117 13.5918V14.5918C7.45117 14.8571 7.34581 15.1115 7.1582 15.2991C6.9706 15.4868 6.71625 15.5921 6.45117 15.5918C5.93989 15.5918 5.51762 15.2056 5.45898 14.7109L5.45117 14.5918V13.5918C5.45117 13.3266 5.55652 13.0721 5.74414 12.8845C5.90475 12.724 6.11706 12.6216 6.34375 12.5947L6.45117 12.5869H6.95117L6.85156 12.5918H5.95117C5.68594 12.5918 5.43159 12.6971 5.24399 12.8848C5.05637 13.0724 4.95117 13.3267 4.95117 13.5918V14.5918C4.95117 15.4203 5.62274 16.0918 6.45117 16.0918C7.24585 16.0918 7.89638 15.4732 7.94824 14.6914L7.95117 14.5918V13.5918C7.95117 12.7634 7.27961 12.0918 6.45117 12.0918C5.65649 12.0918 5.00596 12.7104 4.9541 13.4922L4.95117 13.5918V14.0918C4.95117 14.3679 4.72732 14.5918 4.45117 14.5918C4.175 14.5918 3.95117 14.3679 3.95117 14.0918V13.5918C3.95117 12.211 5.07032 11.0918 6.45117 11.0918C6.59814 11.0918 6.74256 11.1039 6.88379 11.127L6.77051 11.1064L6.65527 11.0918H6.45117H5.94922C5.93029 11.0918 5.91138 11.0923 5.89258 11.0928V11.7422ZM14.5898 11.7422L14.7197 11.7646L14.8486 11.7959C15.1025 11.8682 15.3377 11.9958 15.5361 12.1699L15.6318 12.2607L15.7217 12.3584C15.8921 12.5599 16.0152 12.7976 16.083 13.0527L16.1143 13.1855L16.1367 13.3193L16.1484 13.4551V14.5918C16.1484 14.8571 16.0431 15.1115 15.8555 15.2991C15.6679 15.4868 15.4135 15.5921 15.1484 15.5918C14.6372 15.5918 14.2149 15.2056 14.1562 14.7109L14.1484 14.5918V13.5918C14.1484 13.3266 14.2538 13.0721 14.4414 12.8845C14.602 12.724 14.8143 12.6216 15.041 12.5947L15.1484 12.5869H15.6484L15.5488 12.5918H14.6484C14.3832 12.5918 14.1289 12.6971 13.9412 12.8848C13.7536 13.0724 13.6484 13.3267 13.6484 13.5918V14.5918C13.6484 15.4203 14.32 16.0918 15.1484 16.0918C15.9431 16.0918 16.5936 15.4732 16.6455 14.6914L16.6484 14.5918V13.5918C16.6484 12.7634 15.9769 12.0918 15.1484 12.0918C14.3538 12.0918 13.7032 12.7104 13.6514 13.4922L13.6484 13.5918V14.0918C13.6484 14.3679 13.4246 14.5918 13.1484 14.5918C12.8723 14.5918 12.6484 14.3679 12.6484 14.0918V13.5918C12.6484 12.211 13.7676 11.0918 15.1484 11.0918C15.2954 11.0918 15.4398 11.1039 15.5811 11.127L15.4678 11.1064L15.3535 11.0918H15.1484H14.6465C14.6276 11.0918 14.6086 11.0923 14.5898 11.0928V11.7422ZM6.45117 4.04785C7.00345 4.04785 7.45117 4.49556 7.45117 5.04785V6.54785C7.45117 7.10014 7.00345 7.54785 6.45117 7.54785C5.89889 7.54785 5.45117 7.10014 5.45117 6.54785V5.04785C5.45117 4.49556 5.89889 4.04785 6.45117 4.04785ZM15.0879 4.04785C15.6402 4.04785 16.0879 4.49556 16.0879 5.04785V6.54785C16.0879 7.10014 15.6402 7.54785 15.0879 7.54785C14.5356 7.54785 14.0879 7.10014 14.0879 6.54785V5.04785C14.0879 4.49556 14.5356 4.04785 15.0879 4.04785Z" fill="currentColor"/>
     </svg>
 );
 
-const CalendarView = ({ courses = [], onCourseBookNow }) => {
+/**
+ * CalendarView Component
+ * 
+ * @param {Object} props
+ * @param {Array} props.courses - Array of courses offered to the guest (with booking status)
+ * @param {Array} props.allCourses - Array of ALL available courses (including non-offered)
+ * @param {Function} props.onBookNow - Callback when "Book Now" is clicked
+ * @param {Function} props.onRegisterInterest - Callback when "Register Interest" is clicked
+ */
+const CalendarView = ({ 
+    courses = [], 
+    allCourses = [],
+    onBookNow,
+    onRegisterInterest 
+}) => {
     const [currentDate, setCurrentDate] = useState(moment());
 
     // Navigate to previous month
@@ -23,6 +37,43 @@ const CalendarView = ({ courses = [], onCourseBookNow }) => {
     const goToNextMonth = () => {
         setCurrentDate(prev => prev.clone().add(1, 'month'));
     };
+
+    // Merge offered courses with all courses, marking which are offered
+    const mergedCourses = useMemo(() => {
+        // Create a map of offered course IDs for quick lookup
+        const offeredCourseIds = new Set(courses.map(c => c.id));
+        
+        // If allCourses is provided, merge with offered courses
+        if (allCourses && allCourses.length > 0) {
+            const merged = [];
+            
+            // Add all courses from allCourses, enriching with offer data if available
+            allCourses.forEach(course => {
+                const offeredCourse = courses.find(oc => oc.id === course.id);
+                if (offeredCourse) {
+                    // Course is offered - use the offered course data
+                    merged.push({
+                        ...course,
+                        ...offeredCourse,
+                        isOffered: true
+                    });
+                } else {
+                    // Course is NOT offered - mark it as such
+                    merged.push({
+                        ...course,
+                        isOffered: false,
+                        isLinkedToBooking: false,
+                        canBookNow: false
+                    });
+                }
+            });
+            
+            return merged;
+        }
+        
+        // Fallback to just offered courses if allCourses not provided
+        return courses.map(c => ({ ...c, isOffered: true }));
+    }, [courses, allCourses]);
 
     // Get calendar data for current month
     const calendarData = useMemo(() => {
@@ -44,7 +95,7 @@ const CalendarView = ({ courses = [], onCourseBookNow }) => {
 
     // Get events for a specific date with level tracking for stacking
     const getEventsForDate = (date) => {
-        const dayEvents = courses.filter(course => {
+        const dayEvents = mergedCourses.filter(course => {
             if (!course.start_date || !course.end_date) return false;
             
             const courseStart = moment(course.start_date);
@@ -80,14 +131,14 @@ const CalendarView = ({ courses = [], onCourseBookNow }) => {
 
     // Get event color based on course properties
     const getEventColor = (course) => {
-        if (course.isLinkedToBooking) {
+        if (!course.isOffered) {
+            return '#D1D5DB'; // Gray for non-offered courses
+        } else if (course.isLinkedToBooking) {
             return '#95EFEB'; // Teal for booked courses
         } else if (course.canBookNow) {
-            return '#FEF3C7'; // Yellow for available courses
-        } else if (course.status === 'active') {
-            return '#E6EDF3'; // Light blue for active but not bookable
+            return '#FEF3C7'; // Yellow for available courses (offered)
         } else {
-            return '#FFBEB1'; // Light red for inactive/expired
+            return '#E6EDF3'; // Light blue for offered but not currently bookable
         }
     };
 
@@ -128,19 +179,19 @@ const CalendarView = ({ courses = [], onCourseBookNow }) => {
         return null;
     };
 
-    // Get upcoming courses (next 30 days)
+    // Get upcoming courses (next 30 days) - show all courses
     const upcomingCourses = useMemo(() => {
         const now = moment();
         const thirtyDaysFromNow = moment().add(30, 'days');
         
-        return courses
+        return mergedCourses
             .filter(course => {
                 const courseStart = moment(course.start_date);
                 return courseStart.isBetween(now, thirtyDaysFromNow, 'day', '[]');
             })
             .sort((a, b) => moment(a.start_date).diff(moment(b.start_date)))
             .slice(0, 10); // Limit to 10 upcoming courses
-    }, [courses]);
+    }, [mergedCourses]);
 
     const weekDays = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 
@@ -154,128 +205,109 @@ const CalendarView = ({ courses = [], onCourseBookNow }) => {
                         {currentDate.format('MMMM YYYY').toUpperCase()}
                     </h2>
                     <div className="flex items-center space-x-1 sm:space-x-2">
-                        <button
+                        <button 
                             onClick={goToPreviousMonth}
-                            className="p-1.5 sm:p-2 rounded-lg hover:bg-gray-100 transition-colors"
-                            title="Previous Month"
+                            className="p-1.5 sm:p-2 hover:bg-gray-100 rounded-full transition-colors"
                         >
                             <ChevronLeft className="w-4 h-4 sm:w-5 sm:h-5 text-gray-600" />
                         </button>
-                        <button
+                        <button 
                             onClick={goToNextMonth}
-                            className="p-1.5 sm:p-2 rounded-lg hover:bg-gray-100 transition-colors"
-                            title="Next Month"
+                            className="p-1.5 sm:p-2 hover:bg-gray-100 rounded-full transition-colors"
                         >
                             <ChevronRight className="w-4 h-4 sm:w-5 sm:h-5 text-gray-600" />
                         </button>
                     </div>
                 </div>
 
-                <div className="px-2 sm:px-4">
-                    {/* Calendar Grid */}
-                    <div 
-                        className="overflow-hidden rounded-lg w-full"
-                        style={{
-                            border: '1px solid #E6E6E6',
-                            boxShadow: '0px 3px 12px 0px #0000001A'
-                        }}
-                    >
-                        {/* Week Days Header */}
-                        <div className="grid grid-cols-7 bg-gray-50">
-                            {weekDays.map(day => (
-                                <div key={day} className="px-1 sm:px-2 lg:px-4 py-2 sm:py-3 lg:py-4 text-center text-xs sm:text-sm font-medium text-gray-700">
-                                    {day}
-                                </div>
-                            ))}
-                        </div>
+                {/* Calendar Grid */}
+                <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+                    {/* Week Days Header */}
+                    <div className="grid grid-cols-7 bg-gray-50 border-b border-gray-200">
+                        {weekDays.map(day => (
+                            <div 
+                                key={day} 
+                                className="py-2 sm:py-3 text-center text-[10px] sm:text-xs font-semibold text-gray-600"
+                            >
+                                {day}
+                            </div>
+                        ))}
+                    </div>
 
-                        {/* Calendar Days */}
-                        <div className="grid grid-cols-7">
-                            {calendarData.map((date, index) => {
-                                const events = getEventsForDate(date);
-                                const isCurrentMonthDate = isCurrentMonth(date);
-                                const isTodayDate = isToday(date);
-                                
-                                // Calculate minimum height based on number of event levels
-                                const maxLevel = events.length > 0 ? Math.max(...events.map(e => e.level)) : -1;
-                                // Use CSS classes for responsive sizing
-                                const baseHeight = 60; // Base height for mobile
-                                const eventHeight = 18; // Event height for mobile
-                                const minHeight = baseHeight + (maxLevel + 1) * eventHeight;
-                                
-                                return (
-                                    <div
-                                        key={index}
-                                        className={`relative px-1 sm:px-2 lg:px-3 py-1 sm:py-2 lg:py-3 ${
-                                            !isCurrentMonthDate ? 'bg-gray-50' : 'bg-white'
-                                        }`}
-                                        style={{ 
-                                            minHeight: `${minHeight}px`,
-                                            // Use CSS custom properties for responsive heights
-                                            '--mobile-base-height': '60px',
-                                            '--tablet-base-height': '70px', 
-                                            '--desktop-base-height': '80px'
-                                        }}
-                                    >
-                                        {/* Date Number */}
-                                        <div className="flex justify-start mb-1">
-                                            <span
-                                                className={`text-xs sm:text-sm font-medium w-4 h-4 sm:w-5 sm:h-5 lg:w-6 lg:h-6 flex items-center justify-center rounded-full ${
-                                                    isTodayDate
-                                                        ? 'bg-blue-600 text-white'
-                                                        : isCurrentMonthDate
-                                                        ? 'text-gray-900'
-                                                        : 'text-gray-400'
-                                                }`}
-                                            >
-                                                {date.format('D')}
-                                            </span>
-                                        </div>
+                    {/* Calendar Days */}
+                    <div className="grid grid-cols-7">
+                        {calendarData.map((date, index) => {
+                            const events = getEventsForDate(date);
+                            const isCurrentMonthDate = isCurrentMonth(date);
+                            const isTodayDate = isToday(date);
 
-                                        {/* Events - Positioned events that can span multiple days */}
-                                        {events.map((course, courseIndex) => {
+                            return (
+                                <div 
+                                    key={index}
+                                    className={`min-h-[60px] sm:min-h-[80px] lg:min-h-[100px] border-b border-r border-gray-100 p-0.5 sm:p-1 ${
+                                        !isCurrentMonthDate ? 'bg-gray-50' : ''
+                                    }`}
+                                >
+                                    {/* Date Number */}
+                                    <div className="flex justify-end mb-0.5 sm:mb-1">
+                                        <span className={`text-[10px] sm:text-xs lg:text-sm w-5 h-5 sm:w-6 sm:h-6 flex items-center justify-center rounded-full ${
+                                            isTodayDate 
+                                                ? 'bg-blue-600 text-white'
+                                                : isCurrentMonthDate
+                                                ? 'text-gray-900'
+                                                : 'text-gray-400'
+                                        }`}>
+                                            {date.format('D')}
+                                        </span>
+                                    </div>
+
+                                    {/* Events */}
+                                    <div className="space-y-0.5 sm:space-y-1">
+                                        {events.map((course) => {
                                             const eventStyle = getEventStyle(course, date);
                                             if (!eventStyle) return null;
 
                                             return (
                                                 <div
-                                                    key={`${course.id}-${date.format('YYYY-MM-DD')}-${courseIndex}`}
-                                                    className="text-xs px-1 sm:px-2 py-0.5 sm:py-1 rounded text-gray-800 font-medium truncate cursor-pointer hover:opacity-80 transition-opacity"
+                                                    key={`${course.id}-${date.format('YYYY-MM-DD')}`}
+                                                    className={`text-[8px] sm:text-xs px-1 sm:px-2 py-0.5 sm:py-1 rounded font-medium truncate ${
+                                                        !course.isOffered ? 'text-gray-600' : 'text-gray-800'
+                                                    }`}
                                                     style={{
                                                         backgroundColor: getEventColor(course),
                                                         ...eventStyle
                                                     }}
-                                                    title={`${course.title} - ${moment(course.start_date).format('DD/MM/YYYY')} to ${moment(course.end_date).format('DD/MM/YYYY')}`}
+                                                    title={`${course.title} - ${moment(course.start_date).format('DD/MM/YYYY')} to ${moment(course.end_date).format('DD/MM/YYYY')}${!course.isOffered ? ' (Not offered - Register interest)' : ''}`}
                                                 >
                                                     {course.title}
                                                 </div>
                                             );
                                         })}
                                     </div>
-                                );
-                            })}
-                        </div>
+                                </div>
+                            );
+                        })}
                     </div>
+                </div>
 
-                    {/* Legend */}
-                    <div className="mt-3 sm:mt-4 flex flex-wrap gap-2 sm:gap-3 lg:gap-4 text-xs sm:text-sm">
-                        <div className="flex items-center space-x-1 sm:space-x-2">
-                            <div className="w-3 h-3 sm:w-4 sm:h-4 rounded" style={{ backgroundColor: '#95EFEB' }}></div>
-                            <span className="text-gray-600">Already Booked</span>
-                        </div>
-                        <div className="flex items-center space-x-1 sm:space-x-2">
-                            <div className="w-3 h-3 sm:w-4 sm:h-4 rounded" style={{ backgroundColor: '#FEF3C7' }}></div>
-                            <span className="text-gray-600">Available to Book</span>
-                        </div>
-                        <div className="flex items-center space-x-1 sm:space-x-2">
-                            <div className="w-3 h-3 sm:w-4 sm:h-4 rounded" style={{ backgroundColor: '#E6EDF3' }}></div>
-                            <span className="text-gray-600">Not Available</span>
-                        </div>
+                {/* Legend */}
+                <div className="mt-3 sm:mt-4 flex flex-wrap gap-2 sm:gap-3 lg:gap-4 text-xs sm:text-sm">
+                    <div className="flex items-center space-x-1 sm:space-x-2">
+                        <div className="w-3 h-3 sm:w-4 sm:h-4 rounded" style={{ backgroundColor: '#95EFEB' }}></div>
+                        <span className="text-gray-600">Already Booked</span>
+                    </div>
+                    <div className="flex items-center space-x-1 sm:space-x-2">
+                        <div className="w-3 h-3 sm:w-4 sm:h-4 rounded" style={{ backgroundColor: '#FEF3C7' }}></div>
+                        <span className="text-gray-600">Available to Book</span>
+                    </div>
+                    <div className="flex items-center space-x-1 sm:space-x-2">
+                        <div className="w-3 h-3 sm:w-4 sm:h-4 rounded" style={{ backgroundColor: '#D1D5DB' }}></div>
+                        <span className="text-gray-600">Register Interest</span>
                     </div>
                 </div>
             </div>
 
-            {/* Upcoming Courses Sidebar - No background panel, just content */}
+            {/* Upcoming Courses Sidebar */}
             <div className="lg:col-span-1 xl:col-span-1 mt-6 lg:mt-0">
                 <div className="px-2 sm:px-4">
                     <div className="flex items-center space-x-2 mb-4 sm:mb-6">
@@ -290,15 +322,25 @@ const CalendarView = ({ courses = [], onCourseBookNow }) => {
                                 const dayOfWeek = startDate.format('dddd');
                                 const formattedDate = startDate.format('D MMMM, YYYY');
                                 
-                                // Determine status for the Card component
-                                let cardStatus = "Not Available";
+                                // Determine status and actions based on course offer status
+                                let cardStatus = "Register Interest";
                                 let isSpecialOffer = false;
+                                let showBookNow = false;
+                                let showRegisterInterest = false;
                                 
-                                if (course.isLinkedToBooking) {
+                                if (!course.isOffered) {
+                                    // Course NOT offered to this guest
+                                    cardStatus = "Register Interest";
+                                    showRegisterInterest = true;
+                                } else if (course.isLinkedToBooking) {
                                     cardStatus = "Already Booked";
                                 } else if (course.canBookNow) {
                                     cardStatus = "Special Offer";
                                     isSpecialOffer = true;
+                                    showBookNow = true;
+                                } else {
+                                    cardStatus = "Offered";
+                                    showBookNow = true;
                                 }
                                 
                                 // Format dates for the card
@@ -313,16 +355,68 @@ const CalendarView = ({ courses = [], onCourseBookNow }) => {
                                             {dayOfWeek}, {formattedDate}
                                         </div>
                                         
-                                        {/* Card Component */}
-                                        <Card
-                                            title={course.title}
-                                            image={course.imageUrl}
-                                            isSpecialOffer={isSpecialOffer}
-                                            status={cardStatus}
-                                            minStayDates={dateRange}
-                                            onViewDetails={() => console.log(`View details for: ${course.title}`)}
-                                            showBookNow={false} // We'll use View details instead
-                                        />
+                                        {/* Course Card */}
+                                        <div className={`bg-white rounded-lg border ${!course.isOffered ? 'border-gray-300' : 'border-gray-200'} overflow-hidden`}>
+                                            <div className="flex">
+                                                {/* Image */}
+                                                <div className="w-24 sm:w-28 flex-shrink-0">
+                                                    {course.imageUrl ? (
+                                                        <img 
+                                                            src={course.imageUrl} 
+                                                            alt={course.title}
+                                                            className="w-full h-full object-cover"
+                                                            onError={(e) => {
+                                                                e.target.style.display = 'none';
+                                                                e.target.nextSibling.style.display = 'flex';
+                                                            }}
+                                                        />
+                                                    ) : null}
+                                                    <div className={`w-full h-full bg-gray-100 flex items-center justify-center ${course.imageUrl ? 'hidden' : ''}`}>
+                                                        <svg className="w-8 h-8 text-gray-300" fill="currentColor" viewBox="0 0 20 20">
+                                                            <path fillRule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clipRule="evenodd" />
+                                                        </svg>
+                                                    </div>
+                                                </div>
+                                                
+                                                {/* Content */}
+                                                <div className="flex-1 p-3">
+                                                    <div className="flex items-start justify-between mb-1">
+                                                        <h4 className="font-semibold text-sm text-gray-900 line-clamp-1">{course.title}</h4>
+                                                        <StatusBadge 
+                                                            type={
+                                                                !course.isOffered ? 'neutral' :
+                                                                course.isLinkedToBooking ? 'success' : 
+                                                                course.canBookNow ? 'offer' : 'pending'
+                                                            }
+                                                            label={cardStatus}
+                                                            size="small"
+                                                        />
+                                                    </div>
+                                                    <p className="text-xs text-gray-500 mb-2">{dateRange}</p>
+                                                    
+                                                    {/* Action Buttons */}
+                                                    <div className="flex items-center space-x-2">
+                                                        {showRegisterInterest ? (
+                                                            <button
+                                                                onClick={() => onRegisterInterest && onRegisterInterest(course)}
+                                                                className="text-xs font-medium text-[#00467F] hover:text-blue-800 underline"
+                                                            >
+                                                                Register Interest
+                                                            </button>
+                                                        ) : showBookNow ? (
+                                                            <button
+                                                                onClick={() => onBookNow && onBookNow(course)}
+                                                                className="text-xs font-medium text-[#00467F] hover:text-blue-800 underline"
+                                                            >
+                                                                Book Now
+                                                            </button>
+                                                        ) : course.isLinkedToBooking ? (
+                                                            <span className="text-xs text-gray-500">View in My Bookings</span>
+                                                        ) : null}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
                                 );
                             })

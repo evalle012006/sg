@@ -1,3 +1,4 @@
+/* eslint-disable react/display-name */
 import InputField from './input';
 import SelectField from './select';
 import DateField from './date';

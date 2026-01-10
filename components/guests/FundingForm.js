@@ -141,6 +141,12 @@ const FundingForm = ({ uuid, onSuccess }) => {
 
   const calculateTotals = () => {
     return fundingApprovals.reduce((totals, approval) => {
+      // Skip expired approvals from totals
+      const isExpired = approval.approval_to && moment(approval.approval_to).isBefore(moment());
+      if (isExpired) {
+        return totals;
+      }
+
       const nightsApproved = approval.nights_approved || 0;
       const nightsUsed = approval.nights_used || 0;
       const nightsRemaining = Math.max(0, nightsApproved - nightsUsed);
@@ -152,6 +158,19 @@ const FundingForm = ({ uuid, onSuccess }) => {
       };
     }, { totalAllocated: 0, totalUsed: 0, totalRemaining: 0 });
   };
+
+  // Sort approvals: non-expired first (by date asc), then expired (by date asc)
+  const sortedApprovals = [...fundingApprovals].sort((a, b) => {
+    const aExpired = a.approval_to && moment(a.approval_to).isBefore(moment());
+    const bExpired = b.approval_to && moment(b.approval_to).isBefore(moment());
+    
+    // If one is expired and the other is not, non-expired comes first
+    if (aExpired && !bExpired) return 1;
+    if (!aExpired && bExpired) return -1;
+    
+    // Both same status, sort by approval_from date ascending
+    return moment(a.approval_from).diff(moment(b.approval_from));
+  });
 
   const totals = calculateTotals();
 
@@ -809,12 +828,12 @@ const FundingForm = ({ uuid, onSuccess }) => {
           <div className="bg-white border border-gray-200 rounded-lg p-4">
             <p className="text-xs text-gray-500 mb-1">Total allocated</p>
             <p className="text-2xl font-bold text-gray-800">{totals.totalAllocated}</p>
-            <p className="text-xs text-gray-500">nights</p>
+            <p className="text-xs text-gray-500">nights (active only)</p>
           </div>
           <div className="bg-white border border-gray-200 rounded-lg p-4">
             <p className="text-xs text-gray-500 mb-1">Total used</p>
             <p className="text-2xl font-bold text-gray-800">{totals.totalUsed}</p>
-            <p className="text-xs text-gray-500">nights</p>
+            <p className="text-xs text-gray-500">nights (active only)</p>
           </div>
           {/* <div className="bg-white border border-gray-200 rounded-lg p-4">
             <p className="text-xs text-gray-500 mb-1">Total remaining</p>
@@ -835,6 +854,7 @@ const FundingForm = ({ uuid, onSuccess }) => {
               <li>Active approvals are highlighted (within date range)</li>
               <li>Nights are automatically tracked when bookings are confirmed</li>
               <li>You can create multiple approvals with different date ranges</li>
+              <li>Expired approvals are not included in totals</li>
             </ul>
           </div>
         </div>
@@ -864,11 +884,9 @@ const FundingForm = ({ uuid, onSuccess }) => {
         </div>
       ) : (
         <div className="space-y-6">
-          {fundingApprovals
-            .sort((a, b) => moment(a.approval_from).diff(moment(b.approval_from)))
-            .map((approval) => (
-              <ApprovalCard key={approval.id} approval={approval} />
-            ))}
+          {sortedApprovals.map((approval) => (
+            <ApprovalCard key={approval.id} approval={approval} />
+          ))}
         </div>
       )}
 

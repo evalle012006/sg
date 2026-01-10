@@ -21,6 +21,7 @@ const CalendarView = dynamic(() => import('../ui-v2/CalendarView'), {
 const GuestProfileTab = dynamic(() => import('../my-profile/GuestProfileTab'));
 const HealthInformation = dynamic(() => import('../guests/HealthInformation'));
 const FundingApprovalsReadOnly = dynamic(() => import('../my-profile/FundingApprovalsReadOnly'));
+const CourseEOIModal = dynamic(() => import('../courses/CourseEOIModal'));
 
 export default function GuestBookingsV2() {
     const dispatch = useDispatch();
@@ -51,13 +52,34 @@ export default function GuestBookingsV2() {
     const [ndis, setNdis] = useState(null);
     const [icare, setIcare] = useState(null);
 
+    // All courses state (for calendar view)
+    const [allCourses, setAllCourses] = useState([]);
+    const [allCoursesLoading, setAllCoursesLoading] = useState(false);
+
+    // EOI Modal state
+    const [showEOIModal, setShowEOIModal] = useState(false);
+    const [selectedCourseForEOI, setSelectedCourseForEOI] = useState(null);
+
+    const [showCourseDetailsModal, setShowCourseDetailsModal] = useState(false);
+    const [selectedCourseForDetails, setSelectedCourseForDetails] = useState(null);
+
+    const handleViewCourseDetails = (course, offer) => {
+        setSelectedCourseForDetails({ course, offer });
+        setShowCourseDetailsModal(true);
+    };
+
+    const handleCloseCourseDetailsModal = () => {
+        setShowCourseDetailsModal(false);
+        setSelectedCourseForDetails(null);
+    };
+
     const tabs = [
         { label: "UPCOMING BOOKINGS" },
         { label: "PAST BOOKINGS" },
         { label: "COURSE CALENDAR" },
-        { label: "PROFILE" },
-        { label: "HEALTH" },
-        { label: "FUNDING" }
+        { label: "MY PROFILE" },
+        { label: "MY HEALTH" },
+        { label: "MY FUNDING" }
     ];
 
     const loadHealthInfo = async () => {
@@ -338,6 +360,48 @@ export default function GuestBookingsV2() {
         }
     };
 
+    // Load ALL active courses (for calendar view - shows courses not offered to guest)
+    const loadAllCourses = async () => {
+        setAllCoursesLoading(true);
+        try {
+            const params = new URLSearchParams({
+                status: 'active',
+                limit: '100'
+            });
+            
+            const response = await fetch(`/api/courses?${params}`);
+            if (!response.ok) {
+                throw new Error(`Failed to load all courses: ${response.status}`);
+            }
+            
+            const result = await response.json();
+            if (result.success) {
+                const courses = result.data || result.courses || [];
+                setAllCourses(courses);
+                console.log(`📚 All courses loaded: ${courses.length} total`);
+            } else {
+                throw new Error(result.message || 'Failed to load courses');
+            }
+        } catch (error) {
+            console.error('❌ Error loading all courses:', error);
+            setAllCourses([]);
+        } finally {
+            setAllCoursesLoading(false);
+        }
+    };
+
+    // Handle Register Interest click from calendar
+    const handleRegisterInterest = (course) => {
+        setSelectedCourseForEOI(course);
+        setShowEOIModal(true);
+    };
+
+    // Handle EOI modal close
+    const handleCloseEOIModal = () => {
+        setShowEOIModal(false);
+        setSelectedCourseForEOI(null);
+    };
+
     useEffect(() => {
         if (bookings) {
             const past = bookings.filter(booking => {
@@ -364,6 +428,7 @@ export default function GuestBookingsV2() {
         if (user) {
             fetchBookings();
             loadCourseOffers();
+            loadAllCourses();
         }
 
         if (user == null) {
@@ -641,7 +706,7 @@ export default function GuestBookingsV2() {
     };
 
     const renderCalendarView = () => {
-        if (courseOffersLoading) {
+        if (courseOffersLoading || allCoursesLoading) {
             return (
                 <div className="flex justify-center items-center py-12">
                     <Spinner />
@@ -653,7 +718,18 @@ export default function GuestBookingsV2() {
 
         return (
             <div className="px-2 sm:px-4">
-                <CalendarView courses={calendarCourses} />
+                <CalendarView 
+                    courses={calendarCourses} 
+                    allCourses={allCourses}
+                    onBookNow={(course) => {
+                        // Find the offer for this course
+                        const offer = courseOffers.find(o => o.course?.id === course.id);
+                        if (offer) {
+                            handleCourseBookNow(offer.id, course.title);
+                        }
+                    }}
+                    onRegisterInterest={handleRegisterInterest}
+                />
             </div>
         );
     };
@@ -767,7 +843,7 @@ export default function GuestBookingsV2() {
                                         <span 
                                             className="flex-1 text-sm cursor-pointer hover:text-blue-800 transition-colors underline py-2"
                                             style={{ color: '#00467F' }}
-                                            onClick={() => console.log(`View details for course offer: ${offer.id}`)}
+                                            onClick={() => handleViewCourseDetails(course, offer)}
                                         >
                                             View Details
                                         </span>
@@ -1051,6 +1127,167 @@ export default function GuestBookingsV2() {
                             confirmColor="text-emerald-500"
                         />
                     }
+
+                    {/* Course EOI Modal */}
+                    <CourseEOIModal
+                        isOpen={showEOIModal}
+                        onClose={handleCloseEOIModal}
+                        selectedCourse={selectedCourseForEOI}
+                        allCourses={allCourses}
+                        guestData={user}
+                    />
+
+                    {showCourseDetailsModal && selectedCourseForDetails && (
+                        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50 p-4">
+                            <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+                                {/* Header */}
+                                <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+                                    <h2 className="text-xl font-semibold text-gray-900">Course Details</h2>
+                                    <button
+                                        onClick={handleCloseCourseDetailsModal}
+                                        className="text-gray-400 hover:text-gray-600 transition-colors"
+                                    >
+                                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                        </svg>
+                                    </button>
+                                </div>
+                                
+                                {/* Course Image */}
+                                <div className="relative">
+                                    {selectedCourseForDetails.offer?.booking_id && (
+                                        <div className="absolute top-3 left-3 z-10">
+                                            <StatusBadge 
+                                                type="success" 
+                                                label="Already Booked"
+                                                size="small"
+                                            />
+                                        </div>
+                                    )}
+                                    <img 
+                                        src={selectedCourseForDetails.course?.imageUrl || "/course-placeholder.jpg"} 
+                                        alt={selectedCourseForDetails.course?.title}
+                                        className="w-full h-56 object-cover"
+                                        onError={(e) => {
+                                            e.target.style.display = 'none';
+                                            e.target.nextSibling.style.display = 'flex';
+                                        }}
+                                    />
+                                    <div className="w-full h-56 bg-gray-200 flex items-center justify-center text-gray-500 hidden">
+                                        <svg className="w-16 h-16" fill="currentColor" viewBox="0 0 20 20">
+                                            <path fillRule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clipRule="evenodd" />
+                                        </svg>
+                                    </div>
+                                </div>
+                                
+                                {/* Course Content */}
+                                <div className="p-6">
+                                    <h3 className="text-2xl font-bold text-gray-900 mb-3">
+                                        {selectedCourseForDetails.course?.title}
+                                    </h3>
+                                    
+                                    <p className="text-gray-600 mb-6">
+                                        {selectedCourseForDetails.course?.description || 'Experience this exciting course designed for all skill levels.'}
+                                    </p>
+                                    
+                                    {/* Course Details Grid */}
+                                    <div className="bg-gray-50 rounded-lg p-4 mb-6">
+                                        <h4 className="font-semibold text-gray-900 mb-3">Course Information</h4>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                            <div>
+                                                <span className="text-sm text-gray-500">Course Dates</span>
+                                                <p className="font-medium text-gray-900">
+                                                    {selectedCourseForDetails.course?.start_date && selectedCourseForDetails.course?.end_date 
+                                                        ? `${moment(selectedCourseForDetails.course.start_date).format('DD MMM, YYYY')} - ${moment(selectedCourseForDetails.course.end_date).format('DD MMM, YYYY')}`
+                                                        : 'Dates TBD'}
+                                                </p>
+                                            </div>
+                                            <div>
+                                                <span className="text-sm text-gray-500">Minimum Stay Dates</span>
+                                                <p className="font-medium text-gray-900">
+                                                    {selectedCourseForDetails.course?.min_start_date && selectedCourseForDetails.course?.min_end_date 
+                                                        ? `${moment(selectedCourseForDetails.course.min_start_date).format('DD MMM, YYYY')} - ${moment(selectedCourseForDetails.course.min_end_date).format('DD MMM, YYYY')}`
+                                                        : selectedCourseForDetails.course?.start_date && selectedCourseForDetails.course?.end_date 
+                                                            ? `${moment(selectedCourseForDetails.course.start_date).format('DD MMM, YYYY')} - ${moment(selectedCourseForDetails.course.end_date).format('DD MMM, YYYY')}`
+                                                            : 'Dates TBD'}
+                                                </p>
+                                            </div>
+                                            {selectedCourseForDetails.course?.duration_hours && (
+                                                <div>
+                                                    <span className="text-sm text-gray-500">Duration</span>
+                                                    <p className="font-medium text-gray-900">
+                                                        {selectedCourseForDetails.course.duration_hours} hours
+                                                    </p>
+                                                </div>
+                                            )}
+                                            {selectedCourseForDetails.course?.max_participants && (
+                                                <div>
+                                                    <span className="text-sm text-gray-500">Max Participants</span>
+                                                    <p className="font-medium text-gray-900">
+                                                        {selectedCourseForDetails.course.max_participants}
+                                                    </p>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                    
+                                    {/* Linked Booking Info */}
+                                    {selectedCourseForDetails.offer?.booking_id && selectedCourseForDetails.offer?.booking && (
+                                        <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-6">
+                                            <h4 className="font-semibold text-green-800 mb-2">Linked Booking</h4>
+                                            <p className="text-sm text-green-700">
+                                                This course is linked to booking: <span className="font-medium">{selectedCourseForDetails.offer.booking.reference_id}</span>
+                                            </p>
+                                        </div>
+                                    )}
+                                    
+                                    {/* Additional Notes */}
+                                    {selectedCourseForDetails.offer?.notes && (
+                                        <div className="mb-6">
+                                            <h4 className="font-semibold text-gray-900 mb-2">Additional Notes</h4>
+                                            <p className="text-gray-600">{selectedCourseForDetails.offer.notes}</p>
+                                        </div>
+                                    )}
+                                </div>
+                                
+                                {/* Footer Actions */}
+                                <div className="sticky bottom-0 bg-gray-50 border-t border-gray-200 px-6 py-4 flex justify-end gap-3">
+                                    <Button 
+                                        size="medium"
+                                        color="outline"
+                                        label="CLOSE"
+                                        onClick={handleCloseCourseDetailsModal}
+                                    />
+                                    {selectedCourseForDetails.offer?.booking_id ? (
+                                        <Button 
+                                            size="medium"
+                                            color="secondary"
+                                            label="VIEW BOOKING"
+                                            onClick={() => {
+                                                const bookingToView = selectedCourseForDetails.offer.booking?.uuid || selectedCourseForDetails.offer.booking?.reference_id;
+                                                if (bookingToView) {
+                                                    window.open(`/bookings/${bookingToView}`, '_self');
+                                                } else {
+                                                    toast.info('Booking details not available');
+                                                }
+                                                handleCloseCourseDetailsModal();
+                                            }}
+                                        />
+                                    ) : (
+                                        <Button 
+                                            size="medium"
+                                            color="primary"
+                                            label="BOOK NOW"
+                                            onClick={() => {
+                                                handleCourseBookNow(selectedCourseForDetails.offer.id, selectedCourseForDetails.course.title);
+                                                handleCloseCourseDetailsModal();
+                                            }}
+                                        />
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
         </Layout>
