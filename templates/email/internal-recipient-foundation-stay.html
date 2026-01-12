@@ -1,84 +1,218 @@
 <!doctype html>
 <html lang="en-US">
-
 <head>
     <meta content="text/html; charset=utf-8" http-equiv="Content-Type" />
-    <title>Foundation Stay Template</title>
-    <meta name="description" content="Reset Password Email Template.">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Foundation Stay Request - Admin Notification</title>
     <style type="text/css">
-        a:hover {
-            text-decoration: underline !important;
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #f9fafb;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            font-size: 15px;
+            line-height: 1.6;
+            color: #1f2937;
+        }
+        .container {
+            max-width: 560px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            padding: 40px;
+        }
+        .status-badge {
+            display: inline-block;
+            background-color: #fef3c7;
+            color: #92400e;
+            font-size: 12px;
+            font-weight: 600;
+            padding: 4px 12px;
+            border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 16px;
+        }
+        h1 {
+            color: #1f2937;
+            font-size: 20px;
+            font-weight: 600;
+            margin: 0 0 24px 0;
+        }
+        p {
+            margin: 0 0 16px 0;
+        }
+        .details-box {
+            background-color: #f9fafb;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 24px 0;
+        }
+        .details-box h2 {
+            font-size: 13px;
+            font-weight: 600;
+            color: #6b7280;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin: 0 0 16px 0;
+        }
+        .detail-row {
+            padding: 8px 0;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .detail-row:last-child {
+            border-bottom: none;
+        }
+        .detail-label {
+            color: #6b7280;
+            font-size: 13px;
+            display: block;
+            margin-bottom: 2px;
+        }
+        .detail-value {
+            color: #1f2937;
+            font-weight: 500;
+        }
+        .response-box {
+            background-color: #f0f9ff;
+            border-left: 3px solid #075985;
+            padding: 16px 20px;
+            margin: 24px 0;
+        }
+        .response-box h3 {
+            font-size: 14px;
+            font-weight: 600;
+            color: #075985;
+            margin: 0 0 8px 0;
+        }
+        .response-box p {
+            font-size: 14px;
+            margin: 0;
+        }
+        .divider {
+            border: none;
+            border-top: 1px solid #e5e7eb;
+            margin: 24px 0;
+        }
+        .footer {
+            color: #9ca3af;
+            font-size: 12px;
+            text-align: center;
+        }
+        a {
+            color: #075985;
+            text-decoration: none;
         }
     </style>
 </head>
+<body>
+    <div class="container">
+        <div class="status-badge">Foundation Stay</div>
+        
+        <h1>Foundation Stay Request</h1>
 
-<body marginheight="0" topmargin="0" marginwidth="0" style="margin: 0px; background-color: #f2f3f8;" leftmargin="0">
-    <div>
-        <p>Hi,</p>
+        <p>{{message}}</p>
 
-        <p>{{message}}:</p>
-        <p><strong>Name: </strong>{{guest_name}}</p>
-        <p><strong>Phone: </strong>{{guest_phone}}</p>
-        <p><strong>Email: </strong>{{guest_email}}</p>
+        <div class="details-box">
+            <h2>Guest Details</h2>
+            
+            <div class="detail-row">
+                <span class="detail-label">Name</span>
+                <span class="detail-value">{{guest_name}}</span>
+            </div>
+            
+            <div class="detail-row">
+                <span class="detail-label">Phone</span>
+                <span class="detail-value">{{guest_phone}}</span>
+            </div>
+            
+            <div class="detail-row">
+                <span class="detail-label">Email</span>
+                <span class="detail-value">{{guest_email}}</span>
+            </div>
+            
+            {{#if dob}}
+            <div class="detail-row">
+                <span class="detail-label">Date of Birth</span>
+                <span class="detail-value">{{dob}}</span>
+            </div>
+            {{/if}}
+        </div>
 
-        <ul style="margin-bottom: 4px;">
-            <li style="list-style-type: none;">Arrival Date: {{ arrivalDate }}</li>
-            <li style="list-style-type: none;">Departure Date: {{ departureDate }}</li>
-        </ul>
-
-        {{#if dob}}
-            <p><strong>Date of Birth: </strong>{{dob}}</p>
-        {{/if}}
-
-        {{#if nights_stay}}
-            <p><strong>Number of Nights Staying: </strong>{{nights_stay}}</p>
-        {{/if}}
-        {{#if package}}
-            <p><strong>Package: </strong>{{package}}</p>
-        {{/if}}
-        {{#if funder}}
-            <p><strong>Funder: </strong>{{funder}}</p>
-        {{/if}}
+        <div class="details-box">
+            <h2>Stay Details</h2>
+            
+            <div class="detail-row">
+                <span class="detail-label">Arrival</span>
+                <span class="detail-value">{{arrivalDate}}</span>
+            </div>
+            
+            <div class="detail-row">
+                <span class="detail-label">Departure</span>
+                <span class="detail-value">{{departureDate}}</span>
+            </div>
+            
+            {{#if nights_stay}}
+            <div class="detail-row">
+                <span class="detail-label">Number of Nights</span>
+                <span class="detail-value">{{nights_stay}}</span>
+            </div>
+            {{/if}}
+            
+            {{#if package}}
+            <div class="detail-row">
+                <span class="detail-label">Package</span>
+                <span class="detail-value">{{package}}</span>
+            </div>
+            {{/if}}
+            
+            {{#if funder}}
+            <div class="detail-row">
+                <span class="detail-label">Funder</span>
+                <span class="detail-value">{{funder}}</span>
+            </div>
+            {{/if}}
+        </div>
 
         {{#if applying_assistance}}
-            <p><strong>Why are you applying for financial assistance? </strong>{{applying_assistance}}</p>
+        <div class="response-box">
+            <h3>Why are you applying for financial assistance?</h3>
+            <p>{{applying_assistance}}</p>
+        </div>
         {{/if}}
-        {{#if goals1}}
-            <p><strong>What goals are you looking to achieve by staying at Sargood on Collaroy? </strong>{{goals1}}</p>
-        {{/if}}
-        <p><strong>Why are you applying for a travel grant? </strong>{{why_grant}}</p>
-        <p><strong>What goals are you looking to achieve by staying at Sargood on Collaroy? </strong>{{goals2}}</p>
-        <p><strong>Approx. how much funding within $500 are you applying for and how will you be using it for your travel to and from Sargood on Collaroy? </strong>{{how_much}}</p>
 
-        <p>Kind Regards,</p>
-        <p><strong>Sargood Team</strong></p>
+        {{#if goals1}}
+        <div class="response-box">
+            <h3>Goals for staying at Sargood</h3>
+            <p>{{goals1}}</p>
+        </div>
+        {{/if}}
+
+        {{#if why_grant}}
+        <div class="response-box">
+            <h3>Why are you applying for a travel grant?</h3>
+            <p>{{why_grant}}</p>
+        </div>
+        {{/if}}
+
+        {{#if goals2}}
+        <div class="response-box">
+            <h3>Goals for staying at Sargood</h3>
+            <p>{{goals2}}</p>
+        </div>
+        {{/if}}
+
+        {{#if how_much}}
+        <div class="response-box">
+            <h3>Funding amount and travel plans</h3>
+            <p>{{how_much}}</p>
+        </div>
+        {{/if}}
+
+        <hr class="divider">
+
+        <div class="footer">
+            <p>Sargood on Collaroy · Admin Notification</p>
+        </div>
     </div>
 </body>
-
 </html>
-
-<!-- Hi < funder contact name>,
-
-We have received a booking request from <guest name>, <NDIS number>.
-
-The booking request details are;
-
-Arrival <arrival dd/mm/yy>
-
-Departure <departure dd/mm/yy)
-
-<Room Type>
-
-<Package Type>
-
-Rate per night <Room Package Rate ($)>
-
-<Reason for Stay>
-
-Link to Terms and Conditions including Cancellation Policy: https://sargoodoncollaroy.com/terms-and-conditions/
-
-Pease ensure that funds are available or contact us to discuss further.
-
-Kind Regards,
-
-The Sargood Team -->

@@ -9,6 +9,7 @@ import { getCrossValidationValue } from "../../utilities/dateUtils";
 import { getInfantCareQuestionMapping } from "../../utilities/bookingRequestForm";
 import { useAutofillDetection } from '../../hooks/useAutofillDetection';
 import TooltipIcon from "../ui-v2/TooltipIcon";
+import parse from 'html-react-parser';
 
 const QuestionPage = ({ 
     currentPage, 
@@ -45,6 +46,11 @@ const QuestionPage = ({
     const [questionInteractions, setQuestionInteractions] = useState({});
     const updateTimeoutRef = useRef({});
     const mountedRef = useRef(true);
+
+    const isHtmlContent = (text) => {
+        if (!text) return false;
+        return /<[a-z][\s\S]*>/i.test(text);
+    };
 
     const [localFilterState, setLocalFilterState] = useState({
         funderType: funderType,
@@ -1419,9 +1425,15 @@ const QuestionPage = ({
                                                                 {options && options.length > 0 ? (
                                                                     <React.Fragment>
                                                                         <div className="text-xs flex flex-row">
-                                                                            <span className="font-bold text-sm">
-                                                                                {q.question}
-                                                                            </span>
+                                                                            {isHtmlContent(q.question) ? (
+                                                                                <div className="text-sm rich-text-container">
+                                                                                    {parse(q.question)}
+                                                                                </div>
+                                                                            ) : (
+                                                                                <span className="font-bold text-sm">
+                                                                                    {q.question}
+                                                                                </span>
+                                                                            )}
                                                                             {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
                                                                             {q.tooltip && <TooltipIcon tooltip={q.tooltip} />}
                                                                         </div>
@@ -1517,9 +1529,15 @@ const QuestionPage = ({
                                                                 {options && options.length > 0 ? (
                                                                     <React.Fragment>
                                                                         <div className="text-xs flex flex-row">
-                                                                            <span className="font-bold text-sm">
-                                                                                {q.question}
-                                                                            </span>
+                                                                            {isHtmlContent(q.question) ? (
+                                                                                <div className="text-sm rich-text-container">
+                                                                                    {parse(q.question)}
+                                                                                </div>
+                                                                            ) : (
+                                                                                <span className="font-bold text-sm">
+                                                                                    {q.question}
+                                                                                </span>
+                                                                            )}
                                                                             {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
                                                                             {q.tooltip && <TooltipIcon tooltip={q.tooltip} />}
                                                                         </div>
@@ -1618,9 +1636,15 @@ const QuestionPage = ({
                                                             <div className="flex flex-col w-full flex-1" id={q.id}>
                                                                 {q.label && <span className="font-bold text-sargood-blue text-xl mb-2">{q.label}</span>}
                                                                 <div className="text-xs flex flex-row">
-                                                                    <span className="font-bold text-sm">
-                                                                        {q.question}
-                                                                    </span>
+                                                                    {isHtmlContent(q.question) ? (
+                                                                        <div className="text-sm rich-text-container">
+                                                                            {parse(q.question)}
+                                                                        </div>
+                                                                    ) : (
+                                                                        <span className="font-bold text-sm">
+                                                                            {q.question}
+                                                                        </span>
+                                                                    )}
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
                                                                     {q.tooltip && <TooltipIcon tooltip={q.tooltip} />}
                                                                 </div>
@@ -1755,7 +1779,15 @@ const QuestionPage = ({
                                                             <div className="flex flex-col w-full flex-1">
                                                                 {q.label && <span className="font-bold text-sargood-blue text-xl mb-2">{q.label}</span>}
                                                                 <div className="text-xs flex flex-row">
-                                                                    <span className="font-bold text-sm">{q.question}</span>
+                                                                    {isHtmlContent(q.question) ? (
+                                                                        <div className="text-sm rich-text-container">
+                                                                            {parse(q.question)}
+                                                                        </div>
+                                                                    ) : (
+                                                                        <span className="font-bold text-sm">
+                                                                            {q.question}
+                                                                        </span>
+                                                                    )}
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
                                                                     {q.tooltip && <TooltipIcon tooltip={q.tooltip} />}
                                                                 </div>

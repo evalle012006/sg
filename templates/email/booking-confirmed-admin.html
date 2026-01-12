@@ -3,7 +3,7 @@
 <head>
     <meta content="text/html; charset=utf-8" http-equiv="Content-Type" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Booking Cancelled - Admin Notification</title>
+    <title>Booking Confirmed - Admin Notification</title>
     <style type="text/css">
         body {
             margin: 0;
@@ -22,8 +22,8 @@
         }
         .status-badge {
             display: inline-block;
-            background-color: #fee2e2;
-            color: #991b1b;
+            background-color: #dcfce7;
+            color: #166534;
             font-size: 12px;
             font-weight: 600;
             padding: 4px 12px;
@@ -75,6 +75,16 @@
             font-weight: 500;
             font-size: 14px;
         }
+        .btn {
+            display: inline-block;
+            background-color: #075985;
+            color: #ffffff !important;
+            text-decoration: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            font-weight: 500;
+            font-size: 14px;
+        }
         .checklist {
             margin: 24px 0;
         }
@@ -108,7 +118,7 @@
         .checklist li:last-child {
             border-bottom: none;
         }
-        .fee-note {
+        .icare-note {
             background-color: #fef3c7;
             border-radius: 6px;
             padding: 12px 16px;
@@ -134,13 +144,13 @@
 </head>
 <body>
     <div class="container">
-        <div class="status-badge">Cancelled</div>
+        <div class="status-badge">Confirmed</div>
         
-        <h1>Booking Cancelled</h1>
-        <p class="subtitle">{{guest_name}}</p>
+        <h1>Booking Confirmed</h1>
+        <p class="subtitle">{{guest_name}} · {{booking_id}}</p>
 
         <div class="details-box">
-            <h2>Cancelled Booking Details</h2>
+            <h2>Booking Details</h2>
             
             <div class="detail-row">
                 <span class="detail-label">Guest</span>
@@ -148,31 +158,52 @@
             </div>
             
             <div class="detail-row">
-                <span class="detail-label">Original Check-in</span>
+                <span class="detail-label">Booking ID</span>
+                <span class="detail-value">{{booking_id}}</span>
+            </div>
+            
+            <div class="detail-row">
+                <span class="detail-label">Check-in</span>
                 <span class="detail-value">{{arrivalDate}}</span>
             </div>
             
             <div class="detail-row">
-                <span class="detail-label">Original Check-out</span>
+                <span class="detail-label">Check-out</span>
                 <span class="detail-value">{{departureDate}}</span>
+            </div>
+            
+            <div class="detail-row">
+                <span class="detail-label">Accommodation</span>
+                <span class="detail-value">{{accommodation}}</span>
+            </div>
+            
+            <div class="detail-row">
+                <span class="detail-label">Package</span>
+                <span class="detail-value">{{booking_package}}</span>
             </div>
         </div>
 
         <div class="checklist">
-            <h2>Required Actions</h2>
+            <h2>Pre-Arrival Checklist</h2>
             <ul>
-                <li>Remove scheduled care services from staff schedules</li>
-                <li>Update room availability in booking system</li>
-                <li>Cancel equipment bookings or special arrangements</li>
-                <li>Review cancellation policy for applicable fees</li>
-                <li>Generate cancellation invoice if required</li>
-                <li>Update guest record with cancellation notes</li>
+                <li>Confirm room allocation and setup</li>
+                <li>Review care requirements and schedule staff</li>
+                <li>Arrange required equipment</li>
+                <li>Check dietary requirements</li>
+                <li>Confirm course enrolments</li>
+                <li>Prepare welcome pack</li>
             </ul>
         </div>
 
-        <div class="fee-note">
-            <strong>Fee Reminder:</strong> Cancellations with less than 7 days notice incur a fee of 100% of the booking cost (max 7 nights). Check the original booking date.
+        {{#if icare_funded}}
+        <div class="icare-note">
+            <strong>iCare Funding:</strong> This booking is iCare funded. The guest's approval has been updated with the nights used.
         </div>
+        {{/if}}
+
+        <p style="text-align: center;">
+            <a href="{{booking_link}}" class="btn">View Booking</a>
+        </p>
 
         <hr class="divider">
 

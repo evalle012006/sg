@@ -1,223 +1,179 @@
 <!doctype html>
 <html lang="en-US">
-
 <head>
     <meta content="text/html; charset=utf-8" http-equiv="Content-Type" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>New Booking Request - Sargood on Collaroy</title>
-    <meta name="description" content="External New Booking Email Template.">
     <style type="text/css">
-        a:hover {
-            text-decoration: underline !important;
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #f9fafb;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            font-size: 15px;
+            line-height: 1.6;
+            color: #1f2937;
         }
-        .booking-notification {
-            background-color: #f0f9ff;
-            border: 1px solid #0ea5e9;
-            border-radius: 8px;
-            padding: 25px;
-            margin: 25px 0;
-        }
-        .booking-notification h3 {
-            color: #075985;
-            margin-top: 0;
-            margin-bottom: 15px;
-        }
-        .booking-details {
-            background-color: #f8fafc;
-            border: 1px solid #cbd5e1;
-            border-radius: 6px;
-            padding: 20px;
-            margin: 20px 0;
-        }
-        .booking-details h3 {
-            color: #075985;
-            margin-top: 0;
-            margin-bottom: 15px;
-        }
-        .detail-item {
-            display: flex;
-            margin: 10px 0;
-            padding: 8px 12px;
+        .container {
+            max-width: 560px;
+            margin: 0 auto;
             background-color: #ffffff;
+            padding: 40px;
+        }
+        .status-badge {
+            display: inline-block;
+            background-color: #dbeafe;
+            color: #1e40af;
+            font-size: 12px;
+            font-weight: 600;
+            padding: 4px 12px;
             border-radius: 4px;
-            border-left: 4px solid #ffd000;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 16px;
+        }
+        h1 {
+            color: #1f2937;
+            font-size: 20px;
+            font-weight: 600;
+            margin: 0 0 24px 0;
+        }
+        p {
+            margin: 0 0 16px 0;
+        }
+        .details-box {
+            background-color: #f9fafb;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 24px 0;
+        }
+        .details-box h2 {
+            font-size: 13px;
+            font-weight: 600;
+            color: #6b7280;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin: 0 0 16px 0;
+        }
+        .detail-row {
+            padding: 8px 0;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .detail-row:last-child {
+            border-bottom: none;
         }
         .detail-label {
-            font-weight: 600;
-            color: #374151;
-            min-width: 140px;
-            display: inline-block;
+            color: #6b7280;
+            font-size: 13px;
+            display: block;
+            margin-bottom: 2px;
         }
         .detail-value {
-            color: #6b7280;
-            flex: 1;
-        }
-        .important-note {
-            background-color: #fff7ed;
-            border: 1px solid #fed7aa;
-            border-radius: 6px;
-            padding: 20px;
-            margin: 25px 0;
-        }
-        .important-note h4 {
-            color: #ea580c;
-            margin-top: 0;
-            margin-bottom: 15px;
-        }
-        .cta-button {
-            background: #075985;
-            text-decoration: none !important;
+            color: #1f2937;
             font-weight: 500;
-            margin: 15px 5px;
-            color: #ffffff !important;
-            text-transform: uppercase;
-            font-size: 14px;
-            padding: 12px 24px;
-            display: inline-block;
-            border-radius: 50px;
-            border: none;
         }
-        .contact-info {
-            background-color: #f8fafc;
-            border-top: 2px solid #075985;
-            padding: 20px;
-            margin-top: 30px;
+        .action-box {
+            background-color: #fef3c7;
             border-radius: 6px;
+            padding: 16px;
+            margin: 24px 0;
+            font-size: 14px;
+            color: #92400e;
         }
-        .footer-links {
-            text-align: center;
-            margin: 25px 0;
-            padding: 20px;
-            background-color: #f8f9fa;
-            border-radius: 8px;
+        .divider {
+            border: none;
+            border-top: 1px solid #e5e7eb;
+            margin: 24px 0;
+        }
+        .footer {
+            color: #6b7280;
+            font-size: 13px;
+        }
+        .footer a {
+            color: #075985;
+            text-decoration: none;
+        }
+        a {
+            color: #075985;
         }
     </style>
 </head>
+<body>
+    <div class="container">
+        <div class="status-badge">New Booking</div>
+        
+        <h1>New Booking Request</h1>
 
-<body marginheight="0" topmargin="0" marginwidth="0" style="margin: 0px; background-color: #f2f3f8;" leftmargin="0">
-    <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; padding: 30px;">
-        <h2 style="color: #075985; text-align: center; margin-bottom: 30px;">
-            New Booking Request Notification
-        </h2>
+        <p>Hi {{coordinator_name}},</p>
 
-        <p>Hi there,</p>
+        <p>We've received a booking request that requires your attention.</p>
 
-        <div class="booking-notification">
-            <h3>📋 Booking Request Received</h3>
-            <p style="margin-bottom: 0;">
-                We have received a new booking request from <strong>{{guest_name}}</strong> that requires your attention and coordination.
-            </p>
-        </div>
-
-        <div class="booking-details">
-            <h3>👤 Guest Details</h3>
+        <div class="details-box">
+            <h2>Guest Details</h2>
             
-            <div class="detail-item">
-                <div class="detail-label">🏷️ Name:</div>
-                <div class="detail-value">{{guest_name}}</div>
+            <div class="detail-row">
+                <span class="detail-label">Guest Name</span>
+                <span class="detail-value">{{guest_name}}</span>
             </div>
             
-            <div class="detail-item">
-                <div class="detail-label">✉️ Email:</div>
-                <div class="detail-value">{{guest_email}}</div>
-            </div>
-            
-            <div class="detail-item">
-                <div class="detail-label">📞 Phone:</div>
-                <div class="detail-value">{{guest_phone}}</div>
+            <div class="detail-row">
+                <span class="detail-label">Reference Number</span>
+                <span class="detail-value">{{icare_or_ndis_number}}</span>
             </div>
         </div>
 
-        <div class="booking-details">
-            <h3>📅 Requested Stay Details</h3>
+        <div class="details-box">
+            <h2>Booking Details</h2>
             
-            <div class="detail-item">
-                <div class="detail-label">📅 Arrival Date:</div>
-                <div class="detail-value"><strong>{{check_in_date}}</strong></div>
+            <div class="detail-row">
+                <span class="detail-label">Check-in</span>
+                <span class="detail-value">{{check_in_date}}</span>
             </div>
             
-            <div class="detail-item">
-                <div class="detail-label">📅 Departure Date:</div>
-                <div class="detail-value"><strong>{{check_out_date}}</strong></div>
+            <div class="detail-row">
+                <span class="detail-label">Check-out</span>
+                <span class="detail-value">{{check_out_date}}</span>
+            </div>
+            
+            {{#each rooms}}
+            <div class="detail-row">
+                <span class="detail-label">Room Type</span>
+                <span class="detail-value">{{room_type}}</span>
+            </div>
+            {{/each}}
+            
+            <div class="detail-row">
+                <span class="detail-label">Package</span>
+                <span class="detail-value">{{package_type}}</span>
             </div>
             
             {{#if funder}}
-            <div class="detail-item">
-                <div class="detail-label">💰 Funder:</div>
-                <div class="detail-value">{{funder}}</div>
+            <div class="detail-row">
+                <span class="detail-label">Funder</span>
+                <span class="detail-value">{{funder}}</span>
             </div>
             {{/if}}
         </div>
 
-        <div class="important-note">
-            <h4>💼 Next Steps Required</h4>
-            <p style="margin: 5px 0 15px 0;">
-                Please ensure that appropriate funding arrangements are in place and available for the requested dates. 
-                We recommend confirming funding availability and discussing any specific requirements with the guest.
-            </p>
-            
-            <div style="background-color: #ffffff; padding: 15px; border-radius: 4px; margin: 15px 0;">
-                <p style="margin: 0; font-size: 14px; color: #666666;">
-                    <strong>Important:</strong> Please verify funding capacity and contact us immediately if there 
-                    are any concerns about funding availability or special arrangements needed.
-                </p>
-            </div>
+        {{#if reason_for_stay}}
+        <p><strong>Reason for Stay:</strong> {{reason_for_stay}}</p>
+        {{/if}}
+
+        <div class="action-box">
+            <strong>Action Required:</strong> Please ensure funds are available or contact us to discuss further.
         </div>
 
-        <div style="background-color: #f0f9ff; border-radius: 8px; padding: 20px; margin: 25px 0;">
-            <h4 style="color: #075985; margin-top: 0;">📋 Review Process</h4>
-            <p style="color: #666666; margin: 10px 0;">As part of our standard procedure, this booking request will undergo:</p>
-            <ul style="color: #666666; margin: 10px 0;">
-                <li>Eligibility assessment and verification</li>
-                <li>Funding and payment arrangement confirmation</li>
-                <li>Accommodation and care needs evaluation</li>
-                <li>Final booking confirmation and scheduling</li>
-            </ul>
-        </div>
+        <p>View our <a href="https://sargoodoncollaroy.com/terms-and-conditions/">Terms and Conditions</a> including cancellation policy.</p>
 
-        <div class="footer-links">
-            <h4 style="color: #075985; margin-top: 0;">📚 Important Information</h4>
-            <p style="margin: 10px 0;">
-                Please ensure all parties are aware of our terms and conditions, including our cancellation policy.
-            </p>
-            <a href="https://sargoodoncollaroy.com/terms-and-conditions/" 
-               style="color: #075985; text-decoration: underline;" target="_blank">
-                📄 View Terms and Conditions | Sargood on Collaroy
-            </a>
-        </div>
+        <hr class="divider">
 
-        <div class="contact-info">
-            <p style="margin-top: 0; margin-bottom: 15px;">
-                <strong style="color: #075985;">Questions or Concerns?</strong>
-            </p>
-            <p style="margin: 5px 0;">
-                If you have any questions about this booking request, funding arrangements, or need to discuss special requirements:
-            </p>
-            <p style="margin: 15px 0 5px 0;">
-                <strong>📞 Phone:</strong> 02 8597 0600
-            </p>
-            <p style="margin: 5px 0;">
-                <strong>✉️ Email:</strong> <a href="mailto:info@sargoodoncollaroy.com.au" style="color: #075985;">info@sargoodoncollaroy.com.au</a>
-            </p>
-            <p style="margin: 15px 0 0 0; font-size: 14px; color: #666666;">
-                Our team is available to coordinate with all parties to ensure a smooth booking process.
-            </p>
-        </div>
-
-        <p style="margin-top: 30px;">
-            Thank you for your ongoing partnership in providing exceptional care and accommodation services.
-        </p>
-
-        <p style="margin-top: 20px;">
-            Kind regards,<br>
-            <strong style="color: #075985;">The Sargood Team</strong>
-        </p>
-
-        <div style="text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px solid #e5e7eb; font-size: 12px; color: #6b7280;">
-            <p style="margin: 0;">
-                📍 Sargood on Collaroy | 🌐 <a href="https://sargoodoncollaroy.com" style="color: #075985;">sargoodoncollaroy.com</a>
+        <div class="footer">
+            <p><strong>Sargood on Collaroy</strong></p>
+            <p>
+                Phone: <a href="tel:0285970600">02 8597 0600</a><br>
+                Email: <a href="mailto:info@sargoodoncollaroy.com.au">info@sargoodoncollaroy.com.au</a>
             </p>
         </div>
     </div>
 </body>
-
 </html>

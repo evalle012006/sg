@@ -14,6 +14,63 @@ const DatePicker = dynamic(() => import('../ui-v2/DateField'));
 const TextField = dynamic(() => import('../ui-v2/TextField'));
 const Select = dynamic(() => import('../ui-v2/Select'));
 
+// Helper function to validate and clean health info data
+const validateAndCleanHealthInfo = (healthData) => {
+    const cleanedData = { ...healthData };
+    
+    // Ensure boolean fields are not null
+    if (cleanedData.identify_aboriginal_torres === null || cleanedData.identify_aboriginal_torres === undefined) {
+        cleanedData.identify_aboriginal_torres = false;
+    }
+    
+    if (cleanedData.sci_inpatient === null || cleanedData.sci_inpatient === undefined) {
+        cleanedData.sci_inpatient = false;
+    }
+    
+    if (cleanedData.require_interpreter === null || cleanedData.require_interpreter === undefined) {
+        cleanedData.require_interpreter = false;
+    }
+    
+    // Ensure string fields for yes/no questions are not null
+    if (cleanedData.language === null || cleanedData.language === undefined) {
+        cleanedData.language = '';
+    }
+    
+    if (cleanedData.cultural_beliefs === null || cleanedData.cultural_beliefs === undefined) {
+        cleanedData.cultural_beliefs = '';
+    }
+    
+    // Clean up other optional fields
+    const optionalStringFields = [
+        'emergency_name',
+        'emergency_mobile_number',
+        'emergency_email',
+        'emergency_relationship',
+        'specialist_name', 
+        'specialist_mobile_number', 
+        'specialist_practice_name',
+        'sci_year',
+        'sci_level_asia',
+        'sci_intial_spinal_rehab',
+        'sci_type',
+        'sci_injury_type',
+        'sci_other_details'
+    ];
+    
+    optionalStringFields.forEach(field => {
+        if (cleanedData[field] === null || cleanedData[field] === undefined) {
+            cleanedData[field] = '';
+        }
+    });
+    
+    // Ensure sci_type_level is an array
+    if (!cleanedData.sci_type_level) {
+        cleanedData.sci_type_level = [];
+    }
+    
+    return cleanedData;
+};
+
 export default function GuestProfileTab({ isGuestUser = false }) {
     const dispatch = useDispatch();
     const currentUser = useSelector((state) => state.user.user);
@@ -55,7 +112,7 @@ export default function GuestProfileTab({ isGuestUser = false }) {
         country: ''
     });
     
-    // Health information state
+    // Health information state - matching AdminGuestProfile structure
     const [healthInfo, setHealthInfo] = useState({
         identify_aboriginal_torres: false,
         language: '',
@@ -73,7 +130,9 @@ export default function GuestProfileTab({ isGuestUser = false }) {
         sci_intial_spinal_rehab: '',
         sci_type: '',
         sci_type_level: [],
-        sci_inpatient: false
+        sci_inpatient: false,
+        sci_injury_type: '',
+        sci_other_details: ''
     });
 
     // Download PDF handler
@@ -131,6 +190,7 @@ export default function GuestProfileTab({ isGuestUser = false }) {
             
             if (response.ok) {
                 const data = await response.json();
+                console.log('Profile data:', data);
                 
                 setProfileImageUrl(data.profileUrl || '');
                 
@@ -150,35 +210,16 @@ export default function GuestProfileTab({ isGuestUser = false }) {
                 });
                 
                 if (data.HealthInfo) {
+                    // Ensure sci_type_level is an array
                     const healthInfoData = { ...data.HealthInfo };
-                    
-                    // Convert sci_type_level to array if needed
                     if (healthInfoData.sci_type_level && typeof healthInfoData.sci_type_level === 'string') {
+                        // Convert legacy comma-separated string to array
                         healthInfoData.sci_type_level = healthInfoData.sci_type_level.split(',').filter(level => level.trim());
                     }
                     
-                    // Set defaults for null values
-                    if (healthInfoData.identify_aboriginal_torres === null || healthInfoData.identify_aboriginal_torres === undefined) {
-                        healthInfoData.identify_aboriginal_torres = false;
-                    }
-                    
-                    if (healthInfoData.language === null || healthInfoData.language === undefined) {
-                        healthInfoData.language = '';
-                    }
-                    
-                    if (healthInfoData.cultural_beliefs === null || healthInfoData.cultural_beliefs === undefined) {
-                        healthInfoData.cultural_beliefs = '';
-                    }
-                    
-                    if (healthInfoData.sci_inpatient === null || healthInfoData.sci_inpatient === undefined) {
-                        healthInfoData.sci_inpatient = false;
-                    }
-                    
-                    if (healthInfoData.require_interpreter === null || healthInfoData.require_interpreter === undefined) {
-                        healthInfoData.require_interpreter = false;
-                    }
-                    
-                    setHealthInfo(healthInfoData);
+                    // Use the validation helper to clean all null values
+                    const cleanedHealthInfo = validateAndCleanHealthInfo(healthInfoData);
+                    setHealthInfo(cleanedHealthInfo);
                 }
             } else if (response.status === 404) {
                 toast.error('Profile not found');
@@ -239,6 +280,7 @@ export default function GuestProfileTab({ isGuestUser = false }) {
     };
 
     const handleHealthInfoChange = (field, value) => {
+        console.log(`Updating health info: ${field} = ${value}`);
         setHealthInfo(prev => ({ ...prev, [field]: value }));
     };
 
@@ -281,12 +323,15 @@ export default function GuestProfileTab({ isGuestUser = false }) {
         dispatch(globalActions.setLoading(true));
         
         try {
+            // Clean health info before submission
+            const cleanedHealthInfo = validateAndCleanHealthInfo(healthInfo);
+            
             const payload = {
                 guest_id: guestId,
                 ...guestInfo,
                 // Only include flags for non-guest users
                 ...(isGuestUser ? {} : { flags: localFlags }),
-                health_info: healthInfo
+                health_info: cleanedHealthInfo
             };
             
             const response = await fetch('/api/my-profile/save-update', {
@@ -328,6 +373,21 @@ export default function GuestProfileTab({ isGuestUser = false }) {
         return healthInfo.cultural_beliefs && healthInfo.cultural_beliefs !== '' && healthInfo.cultural_beliefs !== 'no'
             ? "yes"
             : "no";
+    };
+
+    // Add this helper function (around line 300, near the other helper functions)
+    const getSciTypeLevelDisplayValue = () => {
+        if (!healthInfo.sci_type_level) return '';
+        if (Array.isArray(healthInfo.sci_type_level)) {
+            return healthInfo.sci_type_level.join(', ');
+        }
+        return healthInfo.sci_type_level;
+    };
+
+    const handleSciTypeLevelChange = (value) => {
+        // Convert comma-separated string back to array
+        const levels = value.split(',').map(v => v.trim()).filter(v => v);
+        handleHealthInfoChange('sci_type_level', levels);
     };
 
     if (loading) {
@@ -744,8 +804,8 @@ export default function GuestProfileTab({ isGuestUser = false }) {
                                 />
                                 <TextField
                                     label="Level of Injury (ASIA)"
-                                    value={healthInfo.sci_level_asia}
-                                    onChange={(value) => handleHealthInfoChange('sci_level_asia', value)}
+                                    value={getSciTypeLevelDisplayValue()}
+                                    onChange={handleSciTypeLevelChange}
                                     placeholder="e.g., C5, T12"
                                     size="medium"
                                 />

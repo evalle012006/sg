@@ -526,7 +526,9 @@ const EquipmentField = forwardRef((props, ref) => {
             if (!res.ok) throw new Error('Failed to fetch equipments');
             const data = await res.json();
             const activeEquipments = data.filter(equipment => 
-                equipment.status === 'Active' || equipment.status === 'active'
+                // Keep active equipment OR hidden acknowledgement equipment
+                (equipment.status === 'Active' || equipment.status === 'active') ||
+                (equipment.type === 'acknowledgement' && equipment.hidden)
             );
             setEquipments(activeEquipments);
             return activeEquipments;
@@ -1741,7 +1743,17 @@ const EquipmentField = forwardRef((props, ref) => {
                                     };
                                     setEquipmentChanges(prev => {
                                         const filtered = prev.filter(c => c.category !== 'acknowledgement');
-                                        return [...filtered, change];
+                                        const newChanges = [...filtered, change];
+                                        
+                                        // FIX: Notify parent component of the change (this was missing!)
+                                        setTimeout(() => {
+                                            if (mountedRef.current && props.hasOwnProperty('onChange')) {
+                                                const validationResult = validateSelections();
+                                                props.onChange(validationResult.allValid, newChanges);
+                                            }
+                                        }, 0);
+                                        
+                                        return newChanges;
                                     });
                                 }
                             }}

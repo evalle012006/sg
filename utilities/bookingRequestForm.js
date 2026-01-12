@@ -1,18 +1,69 @@
 import { QUESTION_KEYS, questionHasKey, questionMatches } from '../services/booking/question-helper';
 
 /**
- * Helper function to detect NDIS funding from QaPairs during template load
- * @param {Array} sections - Array of sections with QaPairs
+ * ENHANCED: Detect NDIS funding from BOTH QaPairs (saved) AND Questions (prefilled/current)
+ * This handles returning guests where answers may be prefilled but not yet saved
+ * @param {Array} sections - Array of sections with QaPairs and/or Questions
  * @returns {boolean} - True if NDIS funding detected
  */
-export const detectNdisFundingFromQaPairs = (sections) => {
-    for (const section of sections) {
+export const detectNdisFundingFromSections = (sections) => {
+    for (const section of sections || []) {
+        // CHECK 1: QaPairs (saved answers from current booking)
         for (const qaPair of section.QaPairs || []) {
-            if (questionHasKey(qaPair.Question, QUESTION_KEYS.FUNDING_SOURCE) && qaPair.answer) {
-                return qaPair.answer?.toLowerCase().includes('ndis') || qaPair.answer?.toLowerCase().includes('ndia');
+            const question = qaPair.Question;
+            
+            // Strategy 1: By question_key
+            if (questionHasKey(question, QUESTION_KEYS.FUNDING_SOURCE) && qaPair.answer) {
+                const isNdis = qaPair.answer?.toLowerCase().includes('ndis') || 
+                               qaPair.answer?.toLowerCase().includes('ndia');
+                if (isNdis) {
+                    console.log('✅ NDIS detected from QaPairs:', qaPair.answer);
+                    return true;
+                }
+                return false; // Found funding question but answer is not NDIS
+            }
+            
+            // Strategy 2: By question text (fallback)
+            const questionText = question?.question || qaPair.question || '';
+            if (questionText.toLowerCase().includes('how will your stay be funded') && qaPair.answer) {
+                const isNdis = qaPair.answer?.toLowerCase().includes('ndis') || 
+                               qaPair.answer?.toLowerCase().includes('ndia');
+                if (isNdis) {
+                    console.log('✅ NDIS detected from QaPairs (text match):', qaPair.answer);
+                    return true;
+                }
+                return false;
+            }
+        }
+        
+        // CHECK 2: Questions array (prefilled or current unsaved answers)
+        for (const question of section.Questions || []) {
+            // Strategy 1: By question_key
+            if (questionHasKey(question, QUESTION_KEYS.FUNDING_SOURCE) && question.answer) {
+                const isNdis = question.answer?.toLowerCase().includes('ndis') || 
+                               question.answer?.toLowerCase().includes('ndia');
+                if (isNdis) {
+                    console.log('✅ NDIS detected from Questions:', question.answer);
+                    return true;
+                }
+                return false; // Found funding question but answer is not NDIS
+            }
+            
+            // Strategy 2: By question text (fallback)
+            const questionText = question.question || '';
+            if (questionText.toLowerCase().includes('how will your stay be funded') && question.answer) {
+                const isNdis = question.answer?.toLowerCase().includes('ndis') || 
+                               question.answer?.toLowerCase().includes('ndia');
+                if (isNdis) {
+                    console.log('✅ NDIS detected from Questions (text match):', question.answer);
+                    return true;
+                }
+                return false;
             }
         }
     }
+    
+    console.log('⚠️ No funding source found in sections');
     return false;
 };
 
@@ -119,39 +170,80 @@ export const shouldMoveQuestionToNdisPage = (question, isNdisFunded) => {
     return true;
 };
 
-/**
- * Post-process pages to create NDIS page and filter original pages
- * @param {Array} pages - Array of pages
- * @param {boolean} isNdisFunded - Whether NDIS funding is detected
- * @param {Function} calculatePageCompletion - Function to calculate page completion
- * @returns {Array} - Processed pages with NDIS page if needed
- */
 export const postProcessPagesForNdis = (pages, isNdisFunded, calculatePageCompletion) => {
-    if (!isNdisFunded) return pages;
+    console.log('🔄 postProcessPagesForNdis called:', { 
+        isNdisFunded, 
+        pageCount: pages?.length,
+        pageIds: pages?.map(p => p.id || p.title).join(', ')
+    });
+    
+    if (!isNdisFunded) {
+        console.log('⏩ NDIS not funded, returning pages unchanged');
+        return pages;
+    }
+    
+    if (!pages || pages.length === 0) {
+        console.warn('⚠️ No pages provided to postProcessPagesForNdis');
+        return pages;
+    }
     
     const ndisQuestions = [];
     const filteredPages = [];
     let movedQuestionsCount = 0;
     
-    // Find funding page index
+    // Find funding page index - check BOTH Questions AND QaPairs
     let fundingPageIndex = -1;
     for (let i = 0; i < pages.length; i++) {
-        const hasFundingQuestion = pages[i].Sections?.some(section =>
-            section.Questions?.some(question =>
-                questionHasKey(question, QUESTION_KEYS.FUNDING_SOURCE)
-            )
-        );
-        if (hasFundingQuestion) {
+        const page = pages[i];
+        let found = false;
+        
+        for (const section of page.Sections || []) {
+            // Check Questions array
+            for (const question of section.Questions || []) {
+                if (questionHasKey(question, QUESTION_KEYS.FUNDING_SOURCE)) {
+                    found = true;
+                    break;
+                }
+                // Fallback: check by question text
+                if (question.question?.toLowerCase().includes('how will your stay be funded')) {
+                    found = true;
+                    break;
+                }
+            }
+            
+            if (found) break;
+            
+            // Check QaPairs array
+            for (const qaPair of section.QaPairs || []) {
+                if (questionHasKey(qaPair.Question, QUESTION_KEYS.FUNDING_SOURCE)) {
+                    found = true;
+                    break;
+                }
+            }
+            
+            if (found) break;
+        }
+        
+        if (found) {
             fundingPageIndex = i;
+            console.log(`✅ Found funding page at index ${i}: "${page.title}"`);
             break;
         }
     }
     
-    // Process each page
+    if (fundingPageIndex === -1) {
+        console.warn('⚠️ Funding page not found! Cannot create NDIS page.');
+        console.log('📋 Available pages:', pages.map(p => p.title).join(', '));
+        return pages;
+    }
+    
+    // Process each page to collect NDIS questions
+    console.log(`📋 Processing ${pages.length} pages for NDIS questions...`);
+    
     pages.forEach((page, pageIndex) => {
         const filteredSections = [];
         
-        page.Sections.forEach(section => {
+        page.Sections?.forEach(section => {
             const remainingQuestions = [];
             const remainingQaPairs = [];
             
@@ -159,6 +251,7 @@ export const postProcessPagesForNdis = (pages, isNdisFunded, calculatePageComple
             section.Questions?.forEach(question => {
                 if (shouldMoveQuestionToNdisPage(question, isNdisFunded)) {
                     movedQuestionsCount++;
+                    console.log(`📦 Moving question to NDIS page: "${question.question?.substring(0, 60)}..." (ID: ${question.id}, key: ${question.question_key})`);
                     
                     // Create section for NDIS page
                     const ndisSection = {
@@ -179,6 +272,7 @@ export const postProcessPagesForNdis = (pages, isNdisFunded, calculatePageComple
                 const question = qaPair.Question;
                 if (question && shouldMoveQuestionToNdisPage(question, isNdisFunded)) {
                     movedQuestionsCount++;
+                    console.log(`📦 Moving QaPair to NDIS page: "${question.question?.substring(0, 60)}..."`);
                     
                     // Find or create section for NDIS page
                     let ndisSection = ndisQuestions.find(ns => ns.id === section.id);
@@ -193,7 +287,6 @@ export const postProcessPagesForNdis = (pages, isNdisFunded, calculatePageComple
                         ndisQuestions.push(ndisSection);
                     }
                     
-                    // Add to NDIS page
                     ndisSection.Questions.push({
                         ...question,
                         answer: qaPair.answer,
@@ -218,26 +311,26 @@ export const postProcessPagesForNdis = (pages, isNdisFunded, calculatePageComple
             }
         });
         
-        // Recalculate page completion after filtering - but only for the current page state
         const filteredPage = {
             ...page,
             Sections: filteredSections
         };
         
-        // ✅ IMPORTANT: Preserve completion status if page was already completed
-        // But don't try to calculate it here for NDIS-related pages - will be done later
+        // Preserve completion status
         if (page.completed && !page.title.includes('NDIS')) {
             filteredPage.completed = true;
         } else {
-            filteredPage.completed = false; // Will be calculated later after all processing
+            filteredPage.completed = false;
         }
         
         filteredPages.push(filteredPage);
     });
     
+    console.log(`📊 NDIS processing summary: ${movedQuestionsCount} questions moved, ${ndisQuestions.length} sections collected`);
+    
     // Create NDIS page if we have NDIS questions
     if (ndisQuestions.length > 0 && fundingPageIndex !== -1) {
-        // ✅ NEW: Sort questions by order before creating the page
+        // Sort questions by order
         const sortedNdisQuestions = ndisQuestions.map(section => {
             const sortedQuestions = [...section.Questions].sort((a, b) => {
                 const orderA = a.order !== undefined ? a.order : 999;
@@ -279,13 +372,19 @@ export const postProcessPagesForNdis = (pages, isNdisFunded, calculatePageComple
         // Insert NDIS page after funding page
         filteredPages.splice(fundingPageIndex + 1, 0, ndisPage);
         
+        console.log(`✅ Created NDIS page with ${ndisPage.noItems} questions, inserted at index ${fundingPageIndex + 1}`);
+        
         // Update navigation properties
         filteredPages.forEach((page, index) => {
             page.hasNext = index < filteredPages.length - 1;
             page.hasBack = index > 0;
             page.lastPage = index === filteredPages.length - 1;
         });
+    } else {
+        console.warn(`⚠️ NDIS page NOT created: ndisQuestions.length=${ndisQuestions.length}, fundingPageIndex=${fundingPageIndex}`);
     }
+    
+    console.log(`📋 Final page count: ${filteredPages.length}, Pages: ${filteredPages.map(p => p.title || p.id).join(', ')}`);
     
     return filteredPages;
 };
@@ -693,7 +792,7 @@ export const applyQuestionDependenciesAcrossPages = (targetPage, allPages, booki
         return null;
     };
 
-    const currentFunder = getCurrentFunder(pages);
+    const currentFunder = getCurrentFunder(allPages);
     let currentIsNdisFunded = false;
     let currentIsIcareFunded = false;
     if (currentFunder && (currentFunder.toLowerCase().includes('ndis') || currentFunder.toLowerCase().includes('ndia'))) {

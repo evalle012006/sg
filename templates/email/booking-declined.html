@@ -1,112 +1,117 @@
 <!doctype html>
 <html lang="en-US">
-
 <head>
     <meta content="text/html; charset=utf-8" http-equiv="Content-Type" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Booking Enquiry Response - Sargood on Collaroy</title>
-    <meta name="description" content="Booking Declined Email Template.">
     <style type="text/css">
-        a:hover {
-            text-decoration: underline !important;
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #f9fafb;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            font-size: 15px;
+            line-height: 1.6;
+            color: #1f2937;
         }
-        .alternative-services {
+        .container {
+            max-width: 560px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            padding: 40px;
+        }
+        h1 {
+            color: #1f2937;
+            font-size: 22px;
+            font-weight: 600;
+            margin: 0 0 24px 0;
+        }
+        p {
+            margin: 0 0 16px 0;
+        }
+        .info-box {
             background-color: #f0f9ff;
-            border: 1px solid #0ea5e9;
             border-radius: 8px;
             padding: 20px;
-            margin: 20px 0;
+            margin: 24px 0;
         }
-        .contact-info {
-            background-color: #f8fafc;
-            border-top: 2px solid #075985;
-            padding: 20px;
-            margin-top: 30px;
-            border-radius: 6px;
+        .info-box h2 {
+            color: #075985;
+            font-size: 16px;
+            margin: 0 0 12px 0;
         }
-        .cta-button {
-            background: #0ea5e9;
-            text-decoration: none !important;
-            font-weight: 500;
-            margin: 10px 5px;
-            color: #ffffff !important;
-            text-transform: uppercase;
-            font-size: 13px;
-            padding: 10px 20px;
+        .info-box p {
+            margin: 0;
+            font-size: 14px;
+        }
+        .btn {
             display: inline-block;
-            border-radius: 25px;
+            background-color: #075985;
+            color: #ffffff !important;
+            text-decoration: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            font-weight: 500;
+            font-size: 14px;
+            margin: 4px 4px 4px 0;
+        }
+        .btn-outline {
+            background-color: transparent;
+            border: 1px solid #d1d5db;
+            color: #374151 !important;
+        }
+        .divider {
             border: none;
+            border-top: 1px solid #e5e7eb;
+            margin: 32px 0;
+        }
+        .footer {
+            color: #6b7280;
+            font-size: 13px;
+        }
+        .footer a {
+            color: #075985;
+            text-decoration: none;
+        }
+        a {
+            color: #075985;
         }
     </style>
 </head>
-
-<body marginheight="0" topmargin="0" marginwidth="0" style="margin: 0px; background-color: #f2f3f8;" leftmargin="0">
-    <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; padding: 30px;">
-        <h2 style="color: #075985; text-align: center; margin-bottom: 30px;">
-            Thank You for Your Enquiry
-        </h2>
+<body>
+    <div class="container">
+        <h1>Thank You for Your Enquiry</h1>
 
         <p>Dear {{guest_name}},</p>
 
-        <p>Thank you for your enquiry to stay at Sargood on Collaroy. We appreciate you taking the time to reach out to us.</p>
+        <p>Thank you for your enquiry to stay at Sargood on Collaroy.</p>
 
-        <p>After careful review of your application, we regret to inform you that you have not met the eligibility criteria to use our specialized Spinal Cord Injury accommodation service at this time.</p>
+        <p>After careful review, we regret to inform you that we are unable to accommodate your request at this time. This may be due to availability, eligibility criteria, or other factors specific to your enquiry.</p>
 
-        <div class="alternative-services">
-            <h3 style="color: #075985; margin-top: 0;">Other Services That May Help</h3>
-            <p>However, if you are local to the Collaroy area, you may be interested in accessing our Allied Health and other community services at our onsite clinic at Sargood.</p>
-            
-            <p><strong>Our clinic services include:</strong></p>
-            <ul style="color: #666666; margin: 15px 0;">
-                <li>Physiotherapy and exercise programs</li>
-                <li>Occupational therapy</li>
-                <li>Psychology and counseling services</li>
-                <li>Dietitian consultations</li>
-                <li>Community support programs</li>
-            </ul>
-
-            <div style="text-align: center; margin: 20px 0;">
-                <a href="mailto:RRLW.Sargood@royalrehab.com.au" class="cta-button">
-                    Email Our Clinic
-                </a>
-                <a href="https://royalrehablifeworks.com.au/collaroy/" class="cta-button" target="_blank">
-                    Visit Our Website
-                </a>
-            </div>
+        <div class="info-box">
+            <h2>Alternative Options</h2>
+            <p>If you'd like to discuss alternative dates, accommodations, or have questions about our eligibility requirements, please don't hesitate to contact our team. We're here to help find the right solution for you.</p>
         </div>
 
-        <div class="contact-info">
-            <p style="margin-top: 0; margin-bottom: 15px;">
-                <strong style="color: #075985;">Get in Touch with Our Clinic Team</strong>
-            </p>
-            <p style="margin: 5px 0;">
-                <strong>📞 Phone:</strong> 1800 329 142
-            </p>
-            <p style="margin: 5px 0;">
-                <strong>✉️ Email:</strong> <a href="mailto:RRLW.Sargood@royalrehab.com.au" style="color: #075985;">RRLW.Sargood@royalrehab.com.au</a>
-            </p>
-            <p style="margin: 5px 0;">
-                <strong>🌐 Website:</strong> <a href="https://royalrehablifeworks.com.au/collaroy/" style="color: #075985;" target="_blank">royalrehablifeworks.com.au/collaroy</a>
-            </p>
-            <p style="margin: 15px 0 0 0; font-size: 14px; color: #666666;">
-                Our friendly clinic team is here to discuss how we can support your health and wellbeing journey.
-            </p>
-        </div>
-
-        <p style="margin-top: 30px;">
-            We sincerely appreciate your interest in Sargood on Collaroy and wish you all the best in finding the right support for your needs.
+        <p>
+            <a href="mailto:info@sargoodoncollaroy.com.au" class="btn">Contact Us</a>
+            <a href="https://sargoodoncollaroy.com" class="btn btn-outline">Visit Website</a>
         </p>
 
-        <p style="margin-top: 20px;">
-            Kind regards,<br>
-            <strong style="color: #075985;">The Sargood on Collaroy Team</strong>
-        </p>
+        <p style="margin-top: 24px;">We appreciate your interest in Sargood on Collaroy and wish you all the best.</p>
 
-        <div style="text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px solid #e5e7eb; font-size: 12px; color: #6b7280;">
-            <p style="margin: 0;">
-                📍 Sargood on Collaroy | 🌐 <a href="https://sargoodoncollaroy.com" style="color: #075985;">sargoodoncollaroy.com</a> | 📧 <a href="mailto:info@sargoodoncollaroy.com.au" style="color: #075985;">info@sargoodoncollaroy.com.au</a>
+        <hr class="divider">
+
+        <div class="footer">
+            <p><strong>Sargood on Collaroy</strong></p>
+            <p>
+                Phone: <a href="tel:0285970600">02 8597 0600</a><br>
+                Email: <a href="mailto:info@sargoodoncollaroy.com.au">info@sargoodoncollaroy.com.au</a>
+            </p>
+            <p style="margin-top: 16px; font-size: 12px; color: #9ca3af;">
+                1 Brissenden Avenue, Collaroy NSW 2097, Australia
             </p>
         </div>
     </div>
 </body>
-
 </html>

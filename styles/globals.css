@@ -143,6 +143,10 @@
   @apply list-disc list-inside ml-10;
 }
 
+.rich-text-container {
+  @apply font-normal; /* Reset to normal weight */
+}
+
 /* Updated date range styles to use new color system */
 .date-range-popper {
   left: 50% !important;

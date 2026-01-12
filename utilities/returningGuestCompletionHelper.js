@@ -230,18 +230,18 @@ const calculateNdisPageCompletionForReturningGuest = (page, context) => {
     const hasSavedData = pagesWithSavedData.has(page.id);
     const hasRealQaPairs = hasRealUserInteractionQaPairs(page);
     
-    console.log(`📋 NDIS Page completion check:`, {
-        pageId: page.id,
-        hasBeenVisited,
-        hasSavedData,
-        hasRealQaPairs,
-        sectionsCount: page.Sections.length,
-        totalQuestions: page.Sections.reduce((sum, s) => sum + (s.Questions?.length || 0), 0)
-    });
+    // console.log(`📋 NDIS Page completion check:`, {
+    //     pageId: page.id,
+    //     hasBeenVisited,
+    //     hasSavedData,
+    //     hasRealQaPairs,
+    //     sectionsCount: page.Sections.length,
+    //     totalQuestions: page.Sections.reduce((sum, s) => sum + (s.Questions?.length || 0), 0)
+    // });
     
     // Must have some form of real interaction
     if (!hasBeenVisited && !hasSavedData && !hasRealQaPairs) {
-        console.log('❌ NDIS page has no interaction indicators');
+        // console.log('❌ NDIS page has no interaction indicators');
         return false;
     }
 

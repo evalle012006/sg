@@ -18,7 +18,6 @@ import {
 } from "../../services/booking/question-helper";
 
 import { 
-    detectNdisFundingFromQaPairs, 
     postProcessPagesForNdis,
     analyzeNdisProcessingNeeds,
     processFormDataForNdisPackages,
@@ -33,6 +32,7 @@ import {
     extractCurrentFundingAnswer,
     getInfantCareQuestionMapping,
     getCurrentFunder,
+    detectNdisFundingFromSections,
 } from "../../utilities/bookingRequestForm";
 
 import { 
@@ -107,6 +107,7 @@ const BookingRequestForm = () => {
     const profileSaveInProgressRef = useRef(false);
     const lastProcessingTimeRef = useRef(0);
     const processingTimeoutRef = useRef(null);
+    const deletedCourseHandledRef = useRef(false);
 
     useAutofillDetection();
 
@@ -1023,7 +1024,7 @@ const BookingRequestForm = () => {
                             prevBookingId,
                             currentBookingType
                         });
-                        console.log(`🔒 NDIS Processing: Using helper completion for "${page.title}": ${wasCompleted} → ${newCompleted}`);
+                        // console.log(`🔒 NDIS Processing: Using helper completion for "${page.title}": ${wasCompleted} → ${newCompleted}`);
                     } else {
                         // For first-time guests, use standard calculation
                         if (page.id === 'ndis_packages_page') {
@@ -4988,15 +4989,42 @@ const BookingRequestForm = () => {
             let bookingType = BOOKING_TYPES.FIRST_TIME_GUEST;
             
             // DETECT NDIS FUNDING EARLY TO PREVENT DUPLICATE QUESTIONS
+            // Uses enhanced detection that checks BOTH QaPairs (saved) AND Questions (prefilled)
             let isNdisFunded = false;
+
+            // Check current booking sections
             if (data.booking?.Sections) {
-                isNdisFunded = detectNdisFundingFromQaPairs(data.booking.Sections);
-            } else if (data.newBooking?.Sections) {
-                isNdisFunded = detectNdisFundingFromQaPairs(data.newBooking.Sections);
+                isNdisFunded = detectNdisFundingFromSections(data.booking.Sections);
             }
-            
+
+            // Also check newBooking for returning guests (may have different data structure)
+            if (!isNdisFunded && data.newBooking?.Sections) {
+                isNdisFunded = detectNdisFundingFromSections(data.newBooking.Sections);
+            }
+
+            // ADDITIONAL: Check template pages directly (for cases where data is in a different structure)
+            if (!isNdisFunded && data.template?.Pages) {
+                for (const page of data.template.Pages) {
+                    if (isNdisFunded) break;
+                    for (const section of page.Sections || []) {
+                        if (isNdisFunded) break;
+                        // Check Questions
+                        for (const question of section.Questions || []) {
+                            if (questionHasKey(question, QUESTION_KEYS.FUNDING_SOURCE) && question.answer) {
+                                isNdisFunded = question.answer?.toLowerCase().includes('ndis') || 
+                                            question.answer?.toLowerCase().includes('ndia');
+                                if (isNdisFunded) {
+                                    console.log('✅ NDIS detected from template.Pages:', question.answer);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             console.log('🔍 Early NDIS detection during template load:', isNdisFunded);
-            
+
             if (isNdisFunded) {
                 dispatch(bookingRequestFormActions.setIsNdisFunded(true));
             }
@@ -5452,6 +5480,78 @@ const BookingRequestForm = () => {
             }, 100);
         }
     };
+
+    /**
+     * Handle NDIS page creation when funding changes to NDIS after template load
+     * This covers the case where:
+     * 1. Returning guest loads form with prefilled non-NDIS funding
+     * 2. User changes funding to NDIS
+     * 3. NDIS page needs to be created dynamically
+     */
+    useEffect(() => {
+        // Only proceed if NDIS is funded and we have form data
+        if (!isNdisFunded || !stableProcessedFormData || stableProcessedFormData.length === 0) {
+            return;
+        }
+        
+        // Check if NDIS page already exists
+        const hasNdisPage = stableProcessedFormData.some(p => p.id === 'ndis_packages_page');
+        
+        if (hasNdisPage) {
+            // NDIS page already exists, no action needed
+            return;
+        }
+        
+        // Check if there are NDIS-only questions that need to be moved
+        const hasNdisQuestions = stableProcessedFormData.some(page =>
+            page.Sections?.some(section =>
+                section.Questions?.some(q => 
+                    q.ndis_only === true && shouldMoveQuestionToNdisPage(q, true)
+                )
+            )
+        );
+        
+        if (!hasNdisQuestions) {
+            console.log('ℹ️ No NDIS-only questions found to move');
+            return;
+        }
+        
+        console.log('🔄 Creating NDIS page after funding change to NDIS...');
+        
+        try {
+            // Process the form data to create NDIS page
+            const processedPages = postProcessPagesForNdis(
+                stableProcessedFormData,
+                true, // isNdisFunded
+                (page) => {
+                    // Guard completion calculation for returning guests
+                    if (currentBookingType === BOOKING_TYPES.RETURNING_GUEST && prevBookingId) {
+                        return false; // Let the helper handle it later
+                    }
+                    return calculatePageCompletion(page);
+                }
+            );
+            
+            // Verify NDIS page was created
+            const ndisPageCreated = processedPages.some(p => p.id === 'ndis_packages_page');
+            
+            if (ndisPageCreated) {
+                console.log('✅ NDIS page created successfully after funding change');
+                
+                // Apply dependencies to all pages
+                const pagesWithDependencies = processedPages.map(page => 
+                    applyQuestionDependenciesAcrossPages(page, processedPages, bookingFormRoomSelected)
+                );
+                
+                setProcessedFormData(pagesWithDependencies);
+                safeDispatchData(pagesWithDependencies, 'NDIS page created after funding change');
+            } else {
+                console.warn('⚠️ NDIS page creation failed - no NDIS questions were moved');
+            }
+        } catch (error) {
+            console.error('❌ Error creating NDIS page after funding change:', error);
+        }
+    }, [isNdisFunded, stableProcessedFormData?.length]); // Minimal dependencies to prevent loops
 
     useEffect(() => {
         // Only run debounced sync for returning guests
@@ -6295,6 +6395,10 @@ const BookingRequestForm = () => {
             return;
         }
 
+        if (deletedCourseHandledRef.current) {
+            return;
+        }
+
         console.log('🔍 Checking for deleted/unavailable courses in booking form...');
         
         let hasDeletedCourse = false;
@@ -6363,6 +6467,8 @@ const BookingRequestForm = () => {
         });
 
         if (hasDeletedCourse) {
+            deletedCourseHandledRef.current = true;
+
             console.log('🔄 Clearing deleted course selection and marking page as incomplete');
             setProcessedFormData(updatedPages);
             safeDispatchData(updatedPages, 'Cleared deleted course selection');
@@ -6387,6 +6493,10 @@ const BookingRequestForm = () => {
         }
 
     }, [courseOffersLoaded, courseOffers, stableProcessedFormData]);
+
+    useEffect(() => {
+        deletedCourseHandledRef.current = false;
+    }, [uuid, prevBookingId]);
 
     useEffect(() => {
         if (activeAccordionIndex >= 0 && stableProcessedFormData?.length > 0) {

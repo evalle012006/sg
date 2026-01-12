@@ -94,6 +94,7 @@ const QUESTION_KEYS = {
     // NDIS-specific question keys for package filtering
     IS_STA_STATED_SUPPORT: 'is-sta-a-stated-support-in-your-plan',
     DO_YOU_LIVE_ALONE: 'do-you-live-alone',
+    WE_ALSO_NEED_TO_KNOW: 'we-also-need-to-know-at-least-one-of-the-below-factors-applies-to-you',
     DO_YOU_LIVE_IN_SIL: 'do-you-live-in-supported-independent-living-sil',
     ARE_YOU_STAYING_WITH_INFORMAL_SUPPORTS: 'are-you-staying-with-any-informal-supports',
     

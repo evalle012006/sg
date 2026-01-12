@@ -622,33 +622,49 @@ const PackageSelection = ({
   const enhancedFilterCriteria = useMemo(() => {
       // ✅ FIX: Check if critical filters have changed before using stableFilterCriteria
       if (stableFilterCriteria && !builderMode) {
-        const careHoursToUse = careAnalysisData 
-            ? Math.ceil(careAnalysisData.totalHoursPerDay || 0) 
-            : 0;
+          const careHoursToUse = careAnalysisData 
+              ? Math.ceil(careAnalysisData.totalHoursPerDay || 0) 
+              : 0;
 
-        console.log('📦 Filter criteria care hours calculation:', {
-            hasCareAnalysisData: !!careAnalysisData,
-            rawTotalHoursPerDay: careAnalysisData?.totalHoursPerDay,
-            careHoursToUse: careHoursToUse,
-            carePattern: careAnalysisData?.carePattern,
-            dataSource: careAnalysisData?.dataSource
-        });
-          // Compare critical values that should trigger a refetch
+          console.log('📦 Filter criteria care hours calculation:', {
+              hasCareAnalysisData: !!careAnalysisData,
+              rawTotalHoursPerDay: careAnalysisData?.totalHoursPerDay,
+              careHoursToUse: careHoursToUse,
+              carePattern: careAnalysisData?.carePattern,
+              dataSource: careAnalysisData?.dataSource
+          });
+
+          // ✅ FIXED: Compare ALL critical values that should trigger a refetch
+          const newCareHours = careAnalysisData ? Math.ceil(careAnalysisData.totalHoursPerDay || 0) : 0;
+          const newHasCourse = courseAnalysisData ? (courseAnalysisData.hasCourse || courseAnalysisData.courseOffered) : false;
+          const newCourseOffered = courseAnalysisData ? courseAnalysisData.courseOffered : false;
+          
           const criticalValuesChanged = 
               stableFilterCriteria.ndis_package_type !== (localFilterState?.ndisPackageType || ndis_package_type) ||
-              stableFilterCriteria.funder_type !== (localFilterState?.funderType || funder);
+              stableFilterCriteria.funder_type !== (localFilterState?.funderType || funder) ||
+              // ✅ NEW: Also check care hours and course data
+              stableFilterCriteria.care_hours !== newCareHours ||
+              stableFilterCriteria.has_course !== newHasCourse ||
+              stableFilterCriteria.course_offered !== newCourseOffered;
           
           if (criticalValuesChanged) {
               console.log('📦 Critical filter values changed, recalculating criteria:', {
                   old: {
                       ndis_package_type: stableFilterCriteria.ndis_package_type,
-                      funder_type: stableFilterCriteria.funder_type
+                      funder_type: stableFilterCriteria.funder_type,
+                      care_hours: stableFilterCriteria.care_hours,
+                      has_course: stableFilterCriteria.has_course,
+                      course_offered: stableFilterCriteria.course_offered
                   },
                   new: {
                       ndis_package_type: localFilterState?.ndisPackageType || ndis_package_type,
-                      funder_type: localFilterState?.funderType || funder
+                      funder_type: localFilterState?.funderType || funder,
+                      care_hours: newCareHours,
+                      has_course: newHasCourse,
+                      course_offered: newCourseOffered
                   }
               });
+              // ✅ IMPORTANT: Reset stableFilterCriteria to force recalculation
               // Don't return stableFilterCriteria - let it recalculate below
           } else {
               console.log('📦 Using stable filter criteria (no recalculation needed)');
@@ -1126,6 +1142,35 @@ const PackageSelection = ({
     enhancedFilterCriteria.has_course,
     enhancedFilterCriteria.course_offered,
     builderMode
+  ]);
+
+  // Reset stable criteria when care or course data changes significantly
+  useEffect(() => {
+      if (!builderMode && stableFilterCriteria) {
+          const newCareHours = careAnalysisData ? Math.ceil(careAnalysisData.totalHoursPerDay || 0) : 0;
+          const newHasCourse = courseAnalysisData ? (courseAnalysisData.hasCourse || courseAnalysisData.courseOffered) : false;
+          
+          const significantChange = 
+              stableFilterCriteria.care_hours !== newCareHours ||
+              stableFilterCriteria.has_course !== newHasCourse;
+          
+          if (significantChange) {
+              console.log('📦 Significant data change detected, resetting stable criteria:', {
+                  oldCareHours: stableFilterCriteria.care_hours,
+                  newCareHours,
+                  oldHasCourse: stableFilterCriteria.has_course,
+                  newHasCourse
+              });
+              setStableFilterCriteria(null);
+              setAutoSelected(false); // Allow re-selection of best match
+              setLastCriteriaHash(null); // Force refetch
+          }
+      }
+  }, [
+      careAnalysisData?.totalHoursPerDay,
+      courseAnalysisData?.hasCourse,
+      courseAnalysisData?.courseOffered,
+      builderMode
   ]);
 
   useEffect(() => {

@@ -118,13 +118,7 @@ export default async function handler(req, res) {
                         const minEndFormatted = minEndDate.format('D MMM YYYY');
                         
                         if (!canCheckIn) {
-                            if (checkIn.isBefore(minStartDate)) {
-                                dateValidationMessage = `Check-in cannot be before ${minStartFormatted} for ${course.title}.`;
-                            } else if (checkIn.isAfter(courseStartDate)) {
-                                dateValidationMessage = `Check-in must be by ${courseStartFormatted} for ${course.title}.`;
-                            } else {
-                                dateValidationMessage = `Check-in must be between ${minStartFormatted} and ${courseStartFormatted} for ${course.title}.`;
-                            }
+                            dateValidationMessage = `Check-in must be on or before ${courseStartFormatted} to participate in ${course.title}.`;
                         } else if (!staysUntilCourseEnds) {
                             dateValidationMessage = `You must stay until course ends on ${courseEndFormatted} for ${course.title}.`;
                         } else if (!staysMinimumPeriod) {

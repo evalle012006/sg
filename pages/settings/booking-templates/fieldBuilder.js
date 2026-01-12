@@ -59,17 +59,19 @@ export default function FieldBuilder(props) {
         { label: "Course", value: "course" }
     ];
 
-    // Available funder types for package selection - REMOVED FROM BUILDER
-    const funderTypes = [
-        { label: "NDIS", value: "NDIS" },
-        { label: "Non-NDIS", value: "Non-NDIS" }
+    // Field types that support rich text question (instead of plain textarea)
+    const richTextQuestionFields = [
+        'radio',
+        'radio-ndis', 
+        'checkbox',
+        'checkbox-button'
     ];
 
-    // Available NDIS package types (only for NDIS funder) - REMOVED FROM BUILDER
-    const ndisPackageTypes = [
-        { label: "STA (Short Term Accommodation)", value: "sta" },
-        { label: "Holiday", value: "holiday" }
-    ];
+    const updateRichTextQuestion = (field) => {
+        const updatedQuestion = { ...question, question: field.description };
+        setQuestion(updatedQuestion);
+        debounceHandleQuestionChanges(updatedQuestion);
+    };
 
     useEffect(() => {
         if (!question) {
@@ -736,19 +738,33 @@ export default function FieldBuilder(props) {
         <div className="info-item">
             {/* TODO - IMPROVE THE TYPE SELECTION FEATURE */}
             {/* <GetField type='select' value={labelSelector.find(o => o.value === question.label)} width='100%' label="Type" options={labelSelector} onChange={updateLabel} /> */}
-            <textarea className="auto-save-input font-bold p-1 bg-transparent border-stone-50"
-                placeholder="Type your question here"
-                value={question.question}
-                data-tip="edit field label"
-                data-effect="solid"
-                style={{ width: '90%' }}
-                disabled={question.is_locked}
-                onChange={(e) => {
-                    const updatedQuestion = { ...question, question: e.target.value };
-                    setQuestion(updatedQuestion);
-                    debounceHandleQuestionChanges(updatedQuestion);
-                }}
-            />
+            {richTextQuestionFields.includes(question.type) ? (
+                /* Rich Text Editor for radio/checkbox question text */
+                <div className="w-full">
+                    <GetField 
+                        type="rich-text" 
+                        builderMode={true} 
+                        description={question.question || ''} 
+                        onChange={updateRichTextQuestion} 
+                        className="w-full" 
+                    />
+                </div>
+            ) : (
+                /* Plain textarea for other field types */
+                <textarea className="auto-save-input font-bold p-1 bg-transparent border-stone-50"
+                    placeholder="Type your question here"
+                    value={question.question}
+                    data-tip="edit field label"
+                    data-effect="solid"
+                    style={{ width: '90%' }}
+                    disabled={question.is_locked}
+                    onChange={(e) => {
+                        const updatedQuestion = { ...question, question: e.target.value };
+                        setQuestion(updatedQuestion);
+                        debounceHandleQuestionChanges(updatedQuestion);
+                    }}
+                />
+            )}
 
             {/* Tooltip Field */}
             <div className="mt-4 mb-4">
