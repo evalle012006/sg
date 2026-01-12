@@ -1256,26 +1256,26 @@ const BookingRequestForm = () => {
         });
 
         // CRITICAL DEBUG: Log all care-related QA pairs found
-        const careRelatedQAs = allQAPairs.filter(qa => 
-            qa.question_key?.includes('care') || 
-            qa.question?.toLowerCase().includes('care')
-        );
-        console.log('🏥 Care-related QA pairs found:', careRelatedQAs.map(qa => ({
-            key: qa.question_key,
-            question: qa.question?.substring(0, 50),
-            hasAnswer: !!qa.answer,
-            answerType: typeof qa.answer,
-            source: qa.source
-        })));
+        // const careRelatedQAs = allQAPairs.filter(qa => 
+        //     qa.question_key?.includes('care') || 
+        //     qa.question?.toLowerCase().includes('care')
+        // );
+        // console.log('🏥 Care-related QA pairs found:', careRelatedQAs.map(qa => ({
+        //     key: qa.question_key,
+        //     question: qa.question?.substring(0, 50),
+        //     hasAnswer: !!qa.answer,
+        //     answerType: typeof qa.answer,
+        //     source: qa.source
+        // })));
         
         // Look for care schedule data
         const careScheduleQA = findByQuestionKey(allQAPairs, QUESTION_KEYS.WHEN_DO_YOU_REQUIRE_CARE);
-        console.log('🏥 Care schedule search result:', {
-            found: !!careScheduleQA,
-            searchKey: QUESTION_KEYS.WHEN_DO_YOU_REQUIRE_CARE,
-            answer: careScheduleQA?.answer ? 'HAS_DATA' : 'NO_DATA',
-            answerType: typeof careScheduleQA?.answer
-        });
+        // console.log('🏥 Care schedule search result:', {
+        //     found: !!careScheduleQA,
+        //     searchKey: QUESTION_KEYS.WHEN_DO_YOU_REQUIRE_CARE,
+        //     answer: careScheduleQA?.answer ? 'HAS_DATA' : 'NO_DATA',
+        //     answerType: typeof careScheduleQA?.answer
+        // });
         const personalCareQA = findByQuestionKey(allQAPairs, QUESTION_KEYS.DO_YOU_REQUIRE_ASSISTANCE_WITH_PERSONAL_CARE) ||
                         allQAPairs.find(qa => 
                             qa.question_key === QUESTION_KEYS.ASSISTANCE_WITH_PERSONAL_CARE ||
@@ -1323,11 +1323,11 @@ const BookingRequestForm = () => {
                 dataForCalculation = careData;
                 // ========== END FIX ==========
                 
-                console.log('🏥 Passing full care object to calculateCareHours:', {
-                    careDataLength: careDataArray.length,
-                    hasDefaultValues: !!careData.defaultValues,
-                    careVaries: careData.careVaries
-                });
+                // console.log('🏥 Passing full care object to calculateCareHours:', {
+                //     careDataLength: careDataArray.length,
+                //     hasDefaultValues: !!careData.defaultValues,
+                //     careVaries: careData.careVaries
+                // });
             } else if (Array.isArray(careData)) {
                 // Legacy format - just an array
                 careDataArray = careData;
