@@ -34,7 +34,10 @@ const DateRangeField = (props) => {
         }
     };
 
-    const [allowPrevDate, setAllowPrevDate] = useState(props.hasOwnProperty('allowPrevDate') ? props.allowPrevDate : true);
+    //  New prop to check if booking is confirmed/completed
+    const isConfirmedBooking = props.isConfirmedBooking || false;
+
+    const [allowPrevDate, setAllowPrevDate] = useState(props.hasOwnProperty('allowPrevDate') ? (props.allowPrevDate || isConfirmedBooking) : true);
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
     const [showStartCalendar, setShowStartCalendar] = useState(false);
@@ -296,7 +299,7 @@ const DateRangeField = (props) => {
 
     // Handle calendar date selection
     const handleCalendarDateSelect = (selectedDate, isStartCalendar = true) => {
-        if (!allowPrevDate && isDateInPast(selectedDate)) {
+        if (!allowPrevDate && !isConfirmedBooking && isDateInPast(selectedDate)) {
             toast.error('Past dates are not allowed!');
             return;
         }

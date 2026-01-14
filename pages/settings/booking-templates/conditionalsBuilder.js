@@ -9,6 +9,7 @@ import { truncate } from "lodash";
 import Modal from "../../../components/ui/genericModal";
 import ConditionsTable from "./conditionsTable";
 import { toast } from "react-toastify";
+import parse from 'html-react-parser';
 
 export default function ConditionalsBuilder() {
 
@@ -29,6 +30,32 @@ export default function ConditionalsBuilder() {
     const [newCondition, setNewCondition] = useState({ question_id: null, answer: null, dependence_id: null });
 
     const [searchQuestionQuery, setSearchQuestionQuery] = useState("");
+
+    const isHtmlContent = (text) => {
+        if (!text) return false;
+        return /<[a-z][\s\S]*>/i.test(text);
+    };
+
+    const renderQuestionText = (text, maxLength = null) => {
+        if (!text) return '';
+        
+        // If it's HTML content, strip tags for truncated display or parse for full display
+        if (isHtmlContent(text)) {
+            if (maxLength) {
+                // Strip HTML tags for truncated preview
+                const strippedText = text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+                return truncate(strippedText, { length: maxLength });
+            }
+            // Return parsed HTML for full display
+            return <div className="rich-text-container">{parse(text)}</div>;
+        }
+        
+        // Plain text - truncate if needed
+        if (maxLength) {
+            return truncate(text, { length: maxLength });
+        }
+        return text;
+    };
 
     const fieldWithSelectOptions = [
         'select',
@@ -80,6 +107,12 @@ export default function ConditionalsBuilder() {
         generateAllQuestionsConditions();
     }, [questions, template])
 
+    // Helper to strip HTML for table display
+    const stripHtml = (text) => {
+        if (!text) return '';
+        return text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+    };
+
     const generateSelectedQuestionConditions = () => {
         let conditions = [];
 
@@ -110,7 +143,7 @@ export default function ConditionalsBuilder() {
                     if (existingYesConditions.length) {
                         existingYesConditions.forEach(condition => {
                             conditions.push({
-                                question: selectedQuestion.question, 
+                                question: stripHtml(selectedQuestion.question), 
                                 answer: yesDisplayValue,
                                 nextQuestion: condition.question || condition.type,
                                 isYesNo: true,
@@ -124,7 +157,7 @@ export default function ConditionalsBuilder() {
                         });
                     } else {
                         conditions.push({ 
-                            question: selectedQuestion.question, 
+                            question: stripHtml(selectedQuestion.question), 
                             answer: yesDisplayValue, 
                             type: selectedQuestion.type, 
                             nextQuestion: 'Next Question',
@@ -149,7 +182,7 @@ export default function ConditionalsBuilder() {
                     if (existingNoConditions.length) {
                         existingNoConditions.forEach(condition => {
                             conditions.push({
-                                question: selectedQuestion.question, 
+                                question: stripHtml(selectedQuestion.question), 
                                 answer: noDisplayValue,
                                 nextQuestion: condition.question || condition.type,
                                 isYesNo: true,
@@ -163,7 +196,7 @@ export default function ConditionalsBuilder() {
                         });
                     } else {
                         conditions.push({ 
-                            question: selectedQuestion.question, 
+                            question: stripHtml(selectedQuestion.question), 
                             answer: noDisplayValue, 
                             type: selectedQuestion.type, 
                             nextQuestion: 'Next Question',
@@ -191,7 +224,7 @@ export default function ConditionalsBuilder() {
                             if (existingSubOptionConditions.length) {
                                 existingSubOptionConditions.forEach(condition => {
                                     conditions.push({
-                                        question: selectedQuestion.question, 
+                                        question: stripHtml(selectedQuestion.question), 
                                         answer: subOptionDisplayValue,
                                         nextQuestion: condition.question || condition.type,
                                         isSubOption: true,
@@ -204,7 +237,7 @@ export default function ConditionalsBuilder() {
                                 });
                             } else {
                                 conditions.push({ 
-                                    question: selectedQuestion.question, 
+                                    question: stripHtml(selectedQuestion.question), 
                                     answer: subOptionDisplayValue, 
                                     type: selectedQuestion.type, 
                                     nextQuestion: 'Next Question',
@@ -227,7 +260,7 @@ export default function ConditionalsBuilder() {
                     if (existingConditions.length) {
                         existingConditions.forEach(condition => {
                             conditions.push({
-                                question: selectedQuestion.question, 
+                                question: stripHtml(selectedQuestion.question), 
                                 answer: displayValue,
                                 nextQuestion: condition.question || condition.type,
                                 metaData: condition.QuestionDependencies.find(dependency => 
@@ -238,7 +271,7 @@ export default function ConditionalsBuilder() {
                         });
                     } else {
                         conditions.push({ 
-                            question: selectedQuestion.question, 
+                            question: stripHtml(selectedQuestion.question), 
                             answer: displayValue, 
                             type: selectedQuestion.type, 
                             nextQuestion: 'Next Question', 
@@ -282,7 +315,7 @@ export default function ConditionalsBuilder() {
                         if (existingYesConditions.length) {
                             existingYesConditions.forEach(condition => {
                                 conditions.push({
-                                    question: selectedQuestion.question, 
+                                    question: stripHtml(selectedQuestion.question), 
                                     answer: yesDisplayValue,
                                     nextQuestion: condition.question || condition.type,
                                     isYesNo: true,
@@ -310,7 +343,7 @@ export default function ConditionalsBuilder() {
                         if (existingNoConditions.length) {
                             existingNoConditions.forEach(condition => {
                                 conditions.push({
-                                    question: selectedQuestion.question, 
+                                    question: stripHtml(selectedQuestion.question), 
                                     answer: noDisplayValue,
                                     nextQuestion: condition.question || condition.type,
                                     isYesNo: true,
@@ -340,7 +373,7 @@ export default function ConditionalsBuilder() {
                                 if (existingSubOptionConditions.length) {
                                     existingSubOptionConditions.forEach(condition => {
                                         conditions.push({
-                                            question: selectedQuestion.question, 
+                                            question: stripHtml(selectedQuestion.question), 
                                             answer: subOptionDisplayValue,
                                             nextQuestion: condition.question || condition.type,
                                             isSubOption: true,
@@ -365,7 +398,7 @@ export default function ConditionalsBuilder() {
                         if (existingConditions.length) {
                             existingConditions.forEach(condition => {
                                 conditions.push({
-                                    question: selectedQuestion.question, 
+                                    question: stripHtml(selectedQuestion.question), 
                                     answer: displayValue,
                                     nextQuestion: condition.question || condition.type,
                                     metaData: condition.QuestionDependencies.find(dependency => 
@@ -466,7 +499,17 @@ export default function ConditionalsBuilder() {
                                         <div className="bg-stone-50 p-10">
                                             <div className="relative">
                                                 <p className="absolute top-0 right-0 bg-blue-300 text-white rounded-md p-1 px-2 w-fit">preview</p>
-                                                <GetField type={selectedQuestion.type} label={selectedQuestion.question} options={selectedQuestion.options} hideoptions={true} />
+                                                <GetField 
+                                                    type={selectedQuestion.type} 
+                                                    label={isHtmlContent(selectedQuestion.question) ? '' : selectedQuestion.question} 
+                                                    options={selectedQuestion.options} 
+                                                    hideoptions={true} 
+                                                />
+                                                {isHtmlContent(selectedQuestion.question) && (
+                                                    <div className="text-sm rich-text-container mt-2">
+                                                        {parse(selectedQuestion.question)}
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
                                         <h3 className="py-10 text-xl text-sargood-blue font-bold">Conditions for Q.{selectedQuestion?.id}</h3>
@@ -510,7 +553,7 @@ export default function ConditionalsBuilder() {
                                             {/* <label className="label">Q.{question.id}</label> */}
                                             {/* <label className="bg-sargood-blue/10 rounded-md p-1 px-2">{question.type}</label> */}
                                         </div>
-                                        <p>{truncate(question.question, { length: 70 })}</p>
+                                        <p>{renderQuestionText(question.question, 70)}</p>
                                     </div>)
                                 )}
                             </div>
@@ -542,7 +585,13 @@ export default function ConditionalsBuilder() {
                     <div>
                         <div className="grid grid-cols-2 gap-4">
                             <div className="overflow-y-auto" style={{ maxHeight: '500px' }}>
-                                <p className="text-xl mb-5">Q.{selectedQuestion.id} {selectedQuestion.question}</p>
+                                {isHtmlContent(selectedQuestion?.question) ? (
+                                    <div className="text-sm rich-text-container">
+                                        <p className="text-xl mb-5">Q.{selectedQuestion.id} {parse(selectedQuestion.question)}</p>
+                                    </div>
+                                ) : (
+                                    <p className="text-xl mb-5">Q.{selectedQuestion.id} {selectedQuestion.question}</p>
+                                )}
                                 
                                 {/* Regular options display for non-service-cards questions */}
                                 {selectedQuestion?.options && 

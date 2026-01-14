@@ -12,6 +12,16 @@ export default function SimpleTable({ columns, data, options = {
     hasSendEmailStayOption: false,
 }, styles, actions = false }) {
     const router = useRouter();
+
+    const isHtmlContent = (text) => {
+        if (!text) return false;
+        return /<[a-z][\s\S]*>/i.test(text);
+    };
+
+    const stripHtml = (text) => {
+        if (!text) return '';
+        return text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+    };
     
     const downloadFile = async(link, name) => { 
         const element = document.createElement('a');
@@ -28,6 +38,10 @@ export default function SimpleTable({ columns, data, options = {
         let value = _.get(obj, attributeString);
         if (value instanceof Date) {
             return new Date(value).toLocaleDateString();
+        }
+        // Strip HTML tags for cleaner table display
+        if (typeof value === 'string' && isHtmlContent(value)) {
+            return stripHtml(value);
         }
         return value;
     }

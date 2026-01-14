@@ -24,8 +24,13 @@ const DateField = (props) => {
     const monthRef = useRef();
     const yearRef = useRef();
 
+    //  New prop to check if booking is confirmed/completed
+    const isConfirmedBooking = props.isConfirmedBooking || false;
+
     // Props with defaults
-    const allowPrevDate = props.hasOwnProperty('allowPrevDate') ? props.allowPrevDate : true;
+     const allowPrevDate = props.hasOwnProperty('allowPrevDate') 
+        ? (props.allowPrevDate || isConfirmedBooking)  // Allow past dates if confirmed
+        : true;
     
     // Determine if this is a booking field that needs cross-validation
     const isBookingField = props.name === 'checkinDate' || props.name === 'checkoutDate';
@@ -146,7 +151,7 @@ const DateField = (props) => {
         }
 
         // Past date validation
-        if (!allowPrevDate && isDateInPast(selectedDate)) {
+        if (!allowPrevDate && !isConfirmedBooking && isDateInPast(selectedDate)) {
             return { isValid: false, error: 'Past dates are not allowed!' };
         }
 

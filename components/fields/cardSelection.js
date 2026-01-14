@@ -300,12 +300,10 @@ const CardSelection = ({
   };
 
   useEffect(() => {
-    if (initialized) return;
-    
     if (optionType === 'course') {
           // Use passed course offers if available
           if (courseOffers && courseOffers.length > 0) {
-              console.log('Using passed course offers immediately');
+              console.log('Using passed course offers:', courseOffers.length);
               const courses = courseOffers.map(offer => ({
                   label: offer.courseName || 'Untitled Course',
                   value: offer.courseId?.toString() || offer.id?.toString(),
@@ -322,27 +320,31 @@ const CardSelection = ({
                   statusColor: offer.dateValid === false ? 'amber' : 'green'
               }));
               setDynamicItems(courses);
+              setCoursesLoading(false);
+              if (!initialized) setInitialized(true);
           } 
           // Only fetch if no course offers provided AND parent says loading is complete
           else if (courseOffersLoaded && courseOffers.length === 0) {
-              console.log('No course offers from parent, fetching as fallback...');
-              fetchActiveCourses().then(courses => {
-                  setDynamicItems(courses);
-              }).catch(error => {
-                  console.error('Course fetch failed:', error);
-                  setDynamicItems([]);
-              });
+              if (!initialized) {
+                  console.log('No course offers from parent, fetching as fallback...');
+                  fetchActiveCourses().then(courses => {
+                      setDynamicItems(courses);
+                  }).catch(error => {
+                      console.error('Course fetch failed:', error);
+                      setDynamicItems([]);
+                  });
+                  setInitialized(true);
+              }
           }
           // Still loading from parent, show loading state
           else if (!courseOffersLoaded) {
               console.log('Waiting for course offers from parent...');
               setCoursesLoading(true);
           }
-      } else {
+      } else if (!initialized) {
           setDynamicItems(items || []);
+          setInitialized(true);
       }
-      
-      setInitialized(true);
   }, [courseOffers, courseOffersLoaded, optionType, initialized]);
 
   useEffect(() => {

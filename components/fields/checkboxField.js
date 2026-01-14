@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import CheckBox from "./checkbox";
+import { isNoneTypeOption } from "../../utilities/checkboxHelpers";
 
 export default function CheckBoxField(props) {
   const [error, setError] = useState(false);
@@ -12,12 +13,40 @@ export default function CheckBoxField(props) {
     setDirty(true);
     setUserInteracted(true);
     
-    let newOptions = props.options && props.options.map((option) => {
-      if (option.label === label) {
-        return { ...option, value: checked };
-      }
-      return option;
-    });
+    const options = typeof props.options === 'string' 
+        ? JSON.parse(props.options) 
+        : props.options;
+    
+    const clickedOption = options.find(o => o.label === label);
+    const isNoneType = clickedOption?.notAvailableFlag || isNoneTypeOption(label);
+    
+    let newOptions;
+    
+    if (checked && isNoneType) {
+        // Selecting a "none" type - uncheck all others
+        newOptions = options.map(option => ({
+            ...option,
+            value: option.label === label
+        }));
+    } else if (checked) {
+        // Selecting a regular option - uncheck any "none" types
+        newOptions = options.map(option => {
+            const isOptionNoneType = option.notAvailableFlag || isNoneTypeOption(option.label);
+            if (isOptionNoneType) {
+                return { ...option, value: false };
+            }
+            if (option.label === label) {
+                return { ...option, value: true };
+            }
+            return option;
+        });
+    } else {
+        // Unchecking - just update that option
+        newOptions = options.map(option => ({
+            ...option,
+            value: option.label === label ? false : option.value
+        }));
+    }
 
     validateSelection(newOptions);
     props.onChange && props.onChange(props.label, newOptions);

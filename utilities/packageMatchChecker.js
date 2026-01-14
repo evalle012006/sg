@@ -244,9 +244,32 @@ const extractGuestRequirementsFromFormData = (formData) => {
 
           // ✅ NEW: Check holiday-indicating questions from QaPairs
           if (questionHasKey(qaPair.Question, QUESTION_KEYS.DO_YOU_LIVE_ALONE) && 
-              qaPair.answer.toLowerCase().includes('yes')) {
-            liveAlone = true;
+              qaPair.answer.toLowerCase().includes('no')) {
+            liveAlone = true; // changed due to SF-1383
           }
+
+          if (questionHasKey(qaPair.Question, QUESTION_KEYS.WE_ALSO_NEED_TO_KNOW) && 
+              qaPair.answer?.toLowerCase() === 'none of these apply to me') {
+              liveAlone = true; // changed due to SF-1383
+          }
+
+          if (questionHasKey(qaPair.Question, QUESTION_KEYS.WE_ALSO_NEED_TO_KNOW) && qaPair.answer) {
+            // Handle both array (checkbox) and string answers
+            let answerToCheck = qaPair.answer;
+            if (Array.isArray(answerToCheck)) {
+                // For checkbox/multi-select, check if "None of these apply to me" is in the array
+                const hasNoneApply = answerToCheck.some(a => 
+                    typeof a === 'string' && a.toLowerCase() === 'none of these apply to me'
+                );
+                if (hasNoneApply) {
+                    liveAlone = true; // changed due to SF-1383
+                }
+            } else if (typeof answerToCheck === 'string' && 
+                      answerToCheck.toLowerCase() === 'none of these apply to me') {
+                liveAlone = true; // changed due to SF-1383
+            }
+        }
+
           
           if (questionHasKey(qaPair.Question, QUESTION_KEYS.DO_YOU_LIVE_IN_SIL) && 
               qaPair.answer.toLowerCase().includes('yes')) {

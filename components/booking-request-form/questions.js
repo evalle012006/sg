@@ -10,6 +10,7 @@ import { getInfantCareQuestionMapping } from "../../utilities/bookingRequestForm
 import { useAutofillDetection } from '../../hooks/useAutofillDetection';
 import TooltipIcon from "../ui-v2/TooltipIcon";
 import parse from 'html-react-parser';
+import { processCheckboxAnswerWithNoneLogic } from "../../utilities/checkboxHelpers";
 
 const QuestionPage = ({ 
     currentPage, 
@@ -39,6 +40,7 @@ const QuestionPage = ({
     onStayDatesUpdate = null,
     equipmentFieldRef,
     onEquipmentValidationChange,
+    isConfirmedBooking = false,
 }) => {
     const dispatch = useDispatch();
     const [updatedCurrentPage, setUpdatedCurrentPage] = useState();
@@ -295,7 +297,7 @@ const QuestionPage = ({
                 }
                 
                 if (questionHasKey(question, QUESTION_KEYS.IS_STA_STATED_SUPPORT) && 
-                    question.answer === 'Yes') {
+                    (question.answer && question.answer.toLowerCase() === 'yes')) {
                     newNdisPackageType = 'sta';
                     console.log('✅ STA package: STA is stated support (takes precedence)');
                 }
@@ -305,22 +307,42 @@ const QuestionPage = ({
                     let isHolidayType = false;
                     
                     if (questionHasKey(question, QUESTION_KEYS.DO_YOU_LIVE_ALONE) && 
-                        question.answer === 'Yes') {
+                        (question.answer && question.answer.toLowerCase() === 'no')) {
                         isHolidayType = true;
                         console.log('✅ Holiday type detected: Lives alone');
                     }
 
+                    if (questionHasKey(question, QUESTION_KEYS.WE_ALSO_NEED_TO_KNOW) && question.answer) {
+                        // Handle both array (checkbox) and string answers
+                        let answerToCheck = question.answer;
+                        if (Array.isArray(answerToCheck)) {
+                            // For checkbox/multi-select, check if "None of these apply to me" is in the array
+                            const hasNoneApply = answerToCheck.some(a => 
+                                typeof a === 'string' && a.toLowerCase() === 'none of these apply to me'
+                            );
+                            if (hasNoneApply) {
+                                isHolidayType = true;
+                                console.log('✅ Holiday type detected: Need to know factor (array check)');
+                            }
+                        } else if (typeof answerToCheck === 'string' && 
+                                answerToCheck.toLowerCase() === 'none of these apply to me') {
+                            isHolidayType = true;
+                            console.log('✅ Holiday type detected: Need to know factor');
+                        }
+                    }
+
+
                     if (questionHasKey(question, QUESTION_KEYS.DO_YOU_LIVE_IN_SIL) && 
-                        question.answer === 'Yes') {
+                        (question.answer && question.answer.toLowerCase() === 'yes')) {
                         isHolidayType = true;
                         console.log('✅ Holiday type detected: Lives in SIL');
                     }
 
-                    // if (questionHasKey(question, QUESTION_KEYS.ARE_YOU_STAYING_WITH_INFORMAL_SUPPORTS) && 
-                    //     question.answer === 'Yes') {
-                    //     isHolidayType = true;
-                    //     console.log('✅ Holiday type detected: Staying with informal supports');
-                    // }
+                    if (questionHasKey(question, QUESTION_KEYS.ARE_YOU_STAYING_WITH_INFORMAL_SUPPORTS) && 
+                        (question.answer && question.answer.toLowerCase() === 'yes')) {
+                        isHolidayType = true;
+                        console.log('✅ Holiday type detected: Staying with informal supports');
+                    }
                     
                     if (isHolidayType) {
                         // Get care analysis from the current page
@@ -506,10 +528,8 @@ const QuestionPage = ({
                         } else if (qTemp.type === 'checkbox') {
                             if (qTemp.options.length > 0) {
                                 let currentAnswer = [];
-                                if (qTemp?.has_not_available_option && value?.notAvailableFlag || (qTemp.answer && qTemp.answer.includes('Not Applicable'))) {
-                                    qTemp.answer = null;
-                                }
                                 
+                                // Parse existing answer
                                 if (qTemp.answer) {
                                     if (typeof qTemp.answer === 'string') {
                                         try {
@@ -519,7 +539,7 @@ const QuestionPage = ({
                                             currentAnswer = [];
                                         }
                                     } else if (Array.isArray(qTemp.answer)) {
-                                        currentAnswer = qTemp.answer;
+                                        currentAnswer = [...qTemp.answer];
                                     }
                                 }
 
@@ -527,26 +547,26 @@ const QuestionPage = ({
                                     currentAnswer = [];
                                 }
 
-                                if (value.value) {
-                                    currentAnswer = [...currentAnswer, value.label];
-                                } else {
-                                    const answerIdx = currentAnswer.findIndex(a => a === value.label);
-                                    if (answerIdx > -1) {
-                                        currentAnswer = currentAnswer.filter(a => a !== value.label);
-                                    }
-                                }
+                                // Get the options array for reference
+                                const qTempOptions = typeof qTemp.options === 'string' 
+                                    ? JSON.parse(qTemp.options) 
+                                    : qTemp.options;
 
-                                qTemp[field] = currentAnswer;
+                                // Use the new utility function to process the answer
+                                const processedAnswer = processCheckboxAnswerWithNoneLogic(
+                                    currentAnswer, 
+                                    value, 
+                                    qTempOptions
+                                );
+
+                                qTemp[field] = processedAnswer;
                                 qTemp.dirty = true;
-                                const qTempOptions = typeof qTemp.options === 'string' ? JSON.parse(qTemp.options) : qTemp.options;
-                                const updatedOptions = qTempOptions.map(option => {
-                                    let o = { ...option };
-                                    if (option.label === value.label) {
-                                        o.value = value.value;
-                                    }
 
-                                    return o;
-                                });
+                                // Update options to reflect the new state
+                                const updatedOptions = qTempOptions.map(option => ({
+                                    ...option,
+                                    value: processedAnswer.includes(option.label)
+                                }));
 
                                 qTemp.options = updatedOptions;
                             } else {
@@ -556,10 +576,8 @@ const QuestionPage = ({
                         } else if (qTemp.type === 'checkbox-button') {
                             if (qTemp.options.length > 0) {
                                 let currentAnswer = [];
-                                if (qTemp?.has_not_available_option && value?.notAvailableFlag || (qTemp.answer && qTemp.answer.includes('Not Applicable'))) {
-                                    qTemp.answer = null;
-                                }
                                 
+                                // Parse existing answer
                                 if (qTemp.answer) {
                                     if (typeof qTemp.answer === 'string') {
                                         try {
@@ -569,7 +587,7 @@ const QuestionPage = ({
                                             currentAnswer = [];
                                         }
                                     } else if (Array.isArray(qTemp.answer)) {
-                                        currentAnswer = qTemp.answer;
+                                        currentAnswer = [...qTemp.answer];
                                     }
                                 }
 
@@ -577,26 +595,26 @@ const QuestionPage = ({
                                     currentAnswer = [];
                                 }
 
-                                if (value.value) {
-                                    currentAnswer = [...currentAnswer, value.label];
-                                } else {
-                                    const answerIdx = currentAnswer.findIndex(a => a === value.label);
-                                    if (answerIdx > -1) {
-                                        currentAnswer = currentAnswer.filter(a => a !== value.label);
-                                    }
-                                }
+                                // Get the options array for reference
+                                const qTempOptions = typeof qTemp.options === 'string' 
+                                    ? JSON.parse(qTemp.options) 
+                                    : qTemp.options;
 
-                                qTemp[field] = currentAnswer;
+                                // Use the new utility function to process the answer
+                                const processedAnswer = processCheckboxAnswerWithNoneLogic(
+                                    currentAnswer, 
+                                    value, 
+                                    qTempOptions
+                                );
+
+                                qTemp[field] = processedAnswer;
                                 qTemp.dirty = true;
-                                const qTempOptions = typeof qTemp.options === 'string' ? JSON.parse(qTemp.options) : qTemp.options;
-                                const updatedOptions = qTempOptions.map(option => {
-                                    let o = { ...option };
-                                    if (option.label === value.label) {
-                                        o.value = value.value;
-                                    }
 
-                                    return o;
-                                });
+                                // Update options to reflect the new state
+                                const updatedOptions = qTempOptions.map(option => ({
+                                    ...option,
+                                    value: processedAnswer.includes(option.label)
+                                }));
 
                                 qTemp.options = updatedOptions;
                             } else {
@@ -787,6 +805,33 @@ const QuestionPage = ({
         'package-selection-multi', 'service-cards', 'service-cards-multi'   
     ];
 
+    // Helper function to get validation styling for card/special field containers
+    const getCardContainerClasses = (question, hasInteracted, hasPrefill) => {
+        const hasError = question.error && (validationAttempted || hasInteracted);
+        
+        // Check if has valid answer
+        let hasValidAnswer = false;
+        if (question.answer !== null && question.answer !== undefined && question.answer !== '') {
+            if (Array.isArray(question.answer)) {
+                hasValidAnswer = question.answer.length > 0;
+            } else if (typeof question.answer === 'object') {
+                hasValidAnswer = Object.keys(question.answer).length > 0;
+            } else {
+                hasValidAnswer = true;
+            }
+        }
+        
+        const showGreen = (hasInteracted || hasPrefill) && hasValidAnswer;
+        
+        if (hasError) {
+            return 'border-red-400 bg-red-50';
+        }
+        if (showGreen) {
+            return 'border-green-400 bg-green-50';
+        }
+        return 'border-gray-200 bg-white';
+    };
+
     return (
         <React.Fragment>
             <div className="w-full flex flex-col">
@@ -868,6 +913,8 @@ const QuestionPage = ({
                                             const fieldIdx = `${q.id || q.question}-index`;
                                             const questionKey = `${idx}-${index}`;
                                             const hasUserInteracted = questionInteractions[questionKey];
+                                            // Check if question has pre-filled data (from QaPairs or saved answers)
+                                            const hasPrefillData = q.fromQa || q.prefill || (q.answer !== null && q.answer !== undefined && q.answer !== '' && !hasUserInteracted);
 
                                             // UPDATED: Improved array handling for checkbox and checkbox-button types
                                             if (q.type === "checkbox" || q.type === 'simple-checkbox') {
@@ -942,6 +989,7 @@ const QuestionPage = ({
                                                 
                                                 // Clear any existing error immediately for card selections
                                                 const currentQuestion = currentPage.Sections[secIdx]?.Questions[qIdx];
+                                                console.log('🃏 Card selection changed:', { value, secIdx, qIdx, currentQuestion });
                                                 if (currentQuestion && value && (value !== null && value !== undefined && value !== '')) {
                                                     updateSections(value, 'answer', secIdx, qIdx, [], null); // Pass null to clear error
                                                 } else {
@@ -953,31 +1001,40 @@ const QuestionPage = ({
                                                 q.answer = q.answer ? JSON.parse(q.answer) : [];
                                             }
 
-                                            // Helper function to get validation styling for checkbox containers
-                                            const getCheckboxContainerClasses = () => {
-                                                // Show error styling if error exists AND (validation attempted OR user interacted)
-                                                if (q.error && (validationAttempted || hasUserInteracted)) {
-                                                    return 'border-red-400 bg-red-50';
-                                                }
-                                                // Only show success state if user has interacted AND there's an answer AND it's required
-                                                if (hasUserInteracted && q.required && q.answer && 
-                                                    ((Array.isArray(q.answer) && q.answer.length > 0) || 
-                                                    (typeof q.answer === 'boolean' && q.answer) ||
-                                                    (typeof q.answer === 'string' && q.answer.trim()))) {
-                                                    return 'border-green-400 bg-green-50';
-                                                }
-                                                return 'border-gray-300 bg-white';
-                                            };
-
                                             const handleTextNumberFieldChange = (e, secIdx, qIdx) => {
                                                 markQuestionAsInteracted(secIdx, qIdx);
                                                 updateSections(e, 'answer', secIdx, qIdx);
                                             }
 
-                                            const handleSelectFieldChange = (e, secIdx, qIdx) => {
+                                            const handleSelectFieldChange = (selectedOptions, secIdx, qIdx) => {
                                                 markQuestionAsInteracted(secIdx, qIdx);
-                                                updateSections(e, 'answer', secIdx, qIdx);
-                                            }
+                                                
+                                                const question = currentPage.Sections[secIdx]?.Questions[qIdx];
+                                                
+                                                if (question?.type === 'multi-select' && Array.isArray(selectedOptions)) {
+                                                    // Check if user just selected a "none" type option
+                                                    const lastSelected = selectedOptions[selectedOptions.length - 1];
+                                                    const isNoneType = lastSelected && isNoneTypeOption(lastSelected.label);
+                                                    
+                                                    if (isNoneType) {
+                                                        // Keep only the "none" option
+                                                        updateSections({ label: lastSelected.label }, 'answer', secIdx, qIdx);
+                                                    } else {
+                                                        // Filter out any "none" type options
+                                                        const filteredOptions = selectedOptions.filter(opt => !isNoneTypeOption(opt.label));
+                                                        updateSections(
+                                                            filteredOptions.length === 1 
+                                                                ? { label: filteredOptions[0].label }
+                                                                : filteredOptions.map(o => o.label), 
+                                                            'answer', 
+                                                            secIdx, 
+                                                            qIdx
+                                                        );
+                                                    }
+                                                } else {
+                                                    updateSections(selectedOptions, 'answer', secIdx, qIdx);
+                                                }
+                                            };
 
                                             const handleDateFieldChange = (e, secIdx, qIdx, checkInQuestion, checkOutQuestion, error) => {
                                                 markQuestionAsInteracted(secIdx, qIdx);
@@ -1374,6 +1431,7 @@ const QuestionPage = ({
                                                                         error={q.error} 
                                                                         forceShowErrors={validationAttempted}
                                                                         allowPrevDate={QUESTION_KEYS.CHECK_IN_DATE === q.question_key || QUESTION_KEYS.CHECK_OUT_DATE === q.question_key ? false : true}
+                                                                        isConfirmedBooking={isConfirmedBooking} 
                                                                         onChange={(e, error) => handleDateFieldChange(e, idx, index, q.question == 'Check In Date', q.question == 'Check Out Date', error)} />
                                                                 </div>
                                                             </div>
@@ -1443,7 +1501,7 @@ const QuestionPage = ({
                                                                                 !!(q.error || (validationAttempted && q.required && 
                                                                                     (!q.answer || (Array.isArray(q.answer) && q.answer.length === 0))))
                                                                                     ? 'border-red-400 bg-red-50'
-                                                                                    : !!(hasUserInteracted && q.required && q.answer && Array.isArray(q.answer) && q.answer.length > 0)
+                                                                                    : !!((hasUserInteracted || hasPrefillData) && q.answer && Array.isArray(q.answer) && q.answer.length > 0)
                                                                                         ? 'border-green-400 bg-green-50'
                                                                                         : 'border-gray-300 bg-white'
                                                                             }
@@ -1488,7 +1546,7 @@ const QuestionPage = ({
                                                                                 ${
                                                                                     !!(q.error || (validationAttempted && q.required && !q.answer))
                                                                                         ? 'border-red-400 bg-red-50'
-                                                                                        : !!(hasUserInteracted && q.required && q.answer)
+                                                                                        : !!((hasUserInteracted || hasPrefillData) && q.answer)
                                                                                             ? 'border-green-400 bg-green-50'
                                                                                             : 'border-gray-300 bg-white'
                                                                                 }
@@ -1547,7 +1605,7 @@ const QuestionPage = ({
                                                                                 !!(q.error || (validationAttempted && q.required && 
                                                                                     (!q.answer || (Array.isArray(q.answer) && q.answer.length === 0))))
                                                                                     ? 'border-red-400 bg-red-50'
-                                                                                    : !!(hasUserInteracted && q.required && q.answer && Array.isArray(q.answer) && q.answer.length > 0)
+                                                                                    : !!((hasUserInteracted || hasPrefillData) && q.answer && Array.isArray(q.answer) && q.answer.length > 0)
                                                                                         ? 'border-green-400 bg-green-50'
                                                                                         : 'border-gray-300 bg-white'
                                                                             }
@@ -1595,7 +1653,7 @@ const QuestionPage = ({
                                                                                 ${
                                                                                     !!(q.error || (validationAttempted && q.required && !q.answer))
                                                                                         ? 'border-red-400 bg-red-50'
-                                                                                        : !!(hasUserInteracted && q.required && q.answer)
+                                                                                        : !!((hasUserInteracted || hasPrefillData) && q.answer)
                                                                                             ? 'border-green-400 bg-green-50'
                                                                                             : 'border-gray-300 bg-white'
                                                                                 }
@@ -1653,7 +1711,7 @@ const QuestionPage = ({
                                                                     ${
                                                                         !!(q.error || (validationAttempted && q.required && (!q.answer || q.answer === '')))
                                                                             ? 'border-red-400 bg-red-50' 
-                                                                            : !!(hasUserInteracted && q.required && q.answer)
+                                                                            : !!((hasUserInteracted || hasPrefillData) && q.answer)
                                                                                 ? 'border-green-400 bg-green-50'
                                                                                 : 'border-gray-300 bg-white'
                                                                     }
@@ -1870,26 +1928,41 @@ const QuestionPage = ({
                                                                     </div>
                                                                 )}
                                                                 
-                                                                <GetField 
-                                                                    key={q.id} 
-                                                                    type='card-selection' 
-                                                                    value={q.answer} 
-                                                                    width='100%' 
-                                                                    options={options} 
-                                                                    error={q.error} 
-                                                                    required={q.required ? true : false} 
-                                                                    size={q.size || 'medium'}
-                                                                    option_type={q.option_type}
-                                                                    guestId={guest?.id}
-                                                                    bookingId={guest?.id} // fallback
-                                                                    currentUser={guest} // fallback
-                                                                    stayDates={stayDates} // Add this line
-                                                                    courseOffers={courseOffers}
-                                                                    courseOffersLoaded={courseOffersLoaded}
-                                                                    localFilterState={localFilterState}
-                                                                    forceShowErrors={validationAttempted}
-                                                                    onChange={(value) => handleCardSelectionFieldChange(value, idx, index)} 
-                                                                />
+                                                                <div className={`
+                                                                    mt-2 rounded-xl border-2 transition-all duration-200 p-3
+                                                                    ${getCardContainerClasses(q, hasUserInteracted, hasPrefillData)}
+                                                                `}>
+                                                                    <GetField 
+                                                                        key={q.id} 
+                                                                        type='card-selection' 
+                                                                        value={q.answer} 
+                                                                        width='100%' 
+                                                                        options={options} 
+                                                                        error={q.error} 
+                                                                        required={q.required ? true : false} 
+                                                                        size={q.size || 'medium'}
+                                                                        option_type={q.option_type}
+                                                                        guestId={guest?.id}
+                                                                        bookingId={guest?.id}
+                                                                        currentUser={guest}
+                                                                        stayDates={stayDates}
+                                                                        courseOffers={courseOffers}
+                                                                        courseOffersLoaded={courseOffersLoaded}
+                                                                        localFilterState={localFilterState}
+                                                                        forceShowErrors={validationAttempted}
+                                                                        onChange={(value) => handleCardSelectionFieldChange(value, idx, index)} 
+                                                                    />
+                                                                </div>
+                                                                {!!(q.error && (validationAttempted || hasUserInteracted)) && (
+                                                                    <div className="mt-1.5 flex items-center">
+                                                                        <svg className="h-4 w-4 text-red-500 mr-1.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                                                            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                                                                        </svg>
+                                                                        <p className="text-red-600 text-sm font-medium">
+                                                                            {q.error || 'Please select an option'}
+                                                                        </p>
+                                                                    </div>
+                                                                )}
                                                             </div>
                                                         </React.Fragment>
                                                     )}
@@ -1904,26 +1977,41 @@ const QuestionPage = ({
                                                                     {q.tooltip && <TooltipIcon tooltip={q.tooltip} />}
                                                                 </div>
                                                                 
-                                                                <GetField 
-                                                                    key={q.id} 
-                                                                    type='card-selection-multi' 
-                                                                    value={q.answer} 
-                                                                    width='100%' 
-                                                                    options={options} 
-                                                                    error={q.error} 
-                                                                    required={q.required ? true : false} 
-                                                                    size={q.size || 'medium'}
-                                                                    option_type={q.option_type}
-                                                                    guestId={guest?.id}
-                                                                    bookingId={guest?.id} // fallback
-                                                                    currentUser={guest} // fallback
-                                                                    stayDates={stayDates}
-                                                                    courseOffers={courseOffers}
-                                                                    courseOffersLoaded={courseOffersLoaded}
-                                                                    localFilterState={localFilterState}
-                                                                    forceShowErrors={validationAttempted}
-                                                                    onChange={(value) => handleCardSelectionFieldChange(value, idx, index)} 
-                                                                />
+                                                                <div className={`
+                                                                    mt-2 rounded-xl border-2 transition-all duration-200 p-3
+                                                                    ${getCardContainerClasses(q, hasUserInteracted, hasPrefillData)}
+                                                                `}>
+                                                                    <GetField 
+                                                                        key={q.id} 
+                                                                        type='card-selection-multi' 
+                                                                        value={q.answer} 
+                                                                        width='100%' 
+                                                                        options={options} 
+                                                                        error={q.error} 
+                                                                        required={q.required ? true : false} 
+                                                                        size={q.size || 'medium'}
+                                                                        option_type={q.option_type}
+                                                                        guestId={guest?.id}
+                                                                        bookingId={guest?.id}
+                                                                        currentUser={guest}
+                                                                        stayDates={stayDates}
+                                                                        courseOffers={courseOffers}
+                                                                        courseOffersLoaded={courseOffersLoaded}
+                                                                        localFilterState={localFilterState}
+                                                                        forceShowErrors={validationAttempted}
+                                                                        onChange={(value) => handleCardSelectionFieldChange(value, idx, index)} 
+                                                                    />
+                                                                </div>
+                                                                {!!(q.error && (validationAttempted || hasUserInteracted)) && (
+                                                                    <div className="mt-1.5 flex items-center">
+                                                                        <svg className="h-4 w-4 text-red-500 mr-1.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                                                            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                                                                        </svg>
+                                                                        <p className="text-red-600 text-sm font-medium">
+                                                                            {q.error || 'Please select at least one option'}
+                                                                        </p>
+                                                                    </div>
+                                                                )}
                                                             </div>
                                                         </React.Fragment>
                                                     )}
@@ -1937,26 +2025,41 @@ const QuestionPage = ({
                                                                     {q.required && <span className="text-xs text-red-500 ml-1 font-bold">*</span>}
                                                                     {q.tooltip && <TooltipIcon tooltip={q.tooltip} />}
                                                                 </div>
-                                                                <GetField 
-                                                                    key={q.id} 
-                                                                    type='horizontal-card' 
-                                                                    value={q.answer} 
-                                                                    width='100%' 
-                                                                    options={options} 
-                                                                    error={q.error} 
-                                                                    required={q.required ? true : false} 
-                                                                    size={q.size || 'medium'}
-                                                                    option_type={q.option_type}
-                                                                    guestId={guest?.id}
-                                                                    bookingId={guest?.id} // fallback
-                                                                    currentUser={guest} // fallback
-                                                                    stayDates={stayDates}
-                                                                    courseOffers={courseOffers}
-                                                                    courseOffersLoaded={courseOffersLoaded}
-                                                                    localFilterState={localFilterState}
-                                                                    forceShowErrors={validationAttempted}
-                                                                    onChange={(value) => handleCardSelectionFieldChange(value, idx, index)} 
-                                                                />
+                                                                <div className={`
+                                                                    mt-2 rounded-xl border-2 transition-all duration-200 p-3
+                                                                    ${getCardContainerClasses(q, hasUserInteracted, hasPrefillData)}
+                                                                `}>
+                                                                    <GetField 
+                                                                        key={q.id} 
+                                                                        type='horizontal-card' 
+                                                                        value={q.answer} 
+                                                                        width='100%' 
+                                                                        options={options} 
+                                                                        error={q.error} 
+                                                                        required={q.required ? true : false} 
+                                                                        size={q.size || 'medium'}
+                                                                        option_type={q.option_type}
+                                                                        guestId={guest?.id}
+                                                                        bookingId={guest?.id}
+                                                                        currentUser={guest}
+                                                                        stayDates={stayDates}
+                                                                        courseOffers={courseOffers}
+                                                                        courseOffersLoaded={courseOffersLoaded}
+                                                                        localFilterState={localFilterState}
+                                                                        forceShowErrors={validationAttempted}
+                                                                        onChange={(value) => handleCardSelectionFieldChange(value, idx, index)} 
+                                                                    />
+                                                                </div>
+                                                                {!!(q.error && (validationAttempted || hasUserInteracted)) && (
+                                                                    <div className="mt-1.5 flex items-center">
+                                                                        <svg className="h-4 w-4 text-red-500 mr-1.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                                                            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                                                                        </svg>
+                                                                        <p className="text-red-600 text-sm font-medium">
+                                                                            {q.error || 'Please select an option'}
+                                                                        </p>
+                                                                    </div>
+                                                                )}
                                                             </div>
                                                         </React.Fragment>
                                                     )}
@@ -1971,26 +2074,41 @@ const QuestionPage = ({
                                                                     {q.tooltip && <TooltipIcon tooltip={q.tooltip} />}
                                                                 </div>
                                                                 
-                                                                <GetField 
-                                                                    key={q.id} 
-                                                                    type='horizontal-card-multi' 
-                                                                    value={q.answer} 
-                                                                    width='100%' 
-                                                                    options={options} 
-                                                                    error={q.error} 
-                                                                    required={q.required ? true : false} 
-                                                                    size={q.size || 'medium'}
-                                                                    option_type={q.option_type}
-                                                                    guestId={guest?.id}
-                                                                    bookingId={guest?.id} // fallback
-                                                                    currentUser={guest} // fallback
-                                                                    stayDates={stayDates} 
-                                                                    courseOffers={courseOffers}
-                                                                    courseOffersLoaded={courseOffersLoaded}
-                                                                    localFilterState={localFilterState}
-                                                                    forceShowErrors={validationAttempted}
-                                                                    onChange={(value) => handleCardSelectionFieldChange(value, idx, index)} 
-                                                                />
+                                                                <div className={`
+                                                                    mt-2 rounded-xl border-2 transition-all duration-200 p-3
+                                                                    ${getCardContainerClasses(q, hasUserInteracted, hasPrefillData)}
+                                                                `}>
+                                                                    <GetField 
+                                                                        key={q.id} 
+                                                                        type='horizontal-card-multi' 
+                                                                        value={q.answer} 
+                                                                        width='100%' 
+                                                                        options={options} 
+                                                                        error={q.error} 
+                                                                        required={q.required ? true : false} 
+                                                                        size={q.size || 'medium'}
+                                                                        option_type={q.option_type}
+                                                                        guestId={guest?.id}
+                                                                        bookingId={guest?.id}
+                                                                        currentUser={guest}
+                                                                        stayDates={stayDates} 
+                                                                        courseOffers={courseOffers}
+                                                                        courseOffersLoaded={courseOffersLoaded}
+                                                                        localFilterState={localFilterState}
+                                                                        forceShowErrors={validationAttempted}
+                                                                        onChange={(value) => handleCardSelectionFieldChange(value, idx, index)} 
+                                                                    />
+                                                                </div>
+                                                                {!!(q.error && (validationAttempted || hasUserInteracted)) && (
+                                                                    <div className="mt-1.5 flex items-center">
+                                                                        <svg className="h-4 w-4 text-red-500 mr-1.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                                                            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                                                                        </svg>
+                                                                        <p className="text-red-600 text-sm font-medium">
+                                                                            {q.error || 'Please select at least one option'}
+                                                                        </p>
+                                                                    </div>
+                                                                )}
                                                             </div>
                                                         </React.Fragment>
                                                     )}

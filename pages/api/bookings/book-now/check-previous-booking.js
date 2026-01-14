@@ -49,13 +49,12 @@ export default async function handler(request, response) {
                 checkoutDate = prevBooking.preferred_departure_date;
             }
 
-            // Exclude incomplete bookings where BOTH checkin AND checkout dates exist AND both are in the past
-            // This aligns with the QUESTION_KEYS.CHECK_IN_DATE and QUESTION_KEYS.CHECK_OUT_DATE requirement
-            if (checkinDate && checkoutDate) {
+            // Exclude incomplete bookings where BOTH checkin exist AND is in the past
+            // This aligns with the QUESTION_KEYS.CHECK_IN_DATE requirement
+            if (checkinDate) {
                 const checkinInPast = new Date(checkinDate) < today;
-                const checkoutInPast = new Date(checkoutDate) < today;
                 
-                if (checkinInPast && checkoutInPast) {
+                if (checkinInPast) {
                     shouldExclude = true;
                 }
             }

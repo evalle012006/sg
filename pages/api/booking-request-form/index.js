@@ -1,4 +1,5 @@
-import { Address, Booking, BookingEquipment, Course, Guest, Page, QaPair, Question, QuestionDependency, Room, RoomType, Section, sequelize, Setting, Template } from "../../../models"
+import { BOOKING_TYPES } from "../../../components/constants";
+import { Address, Booking, BookingEquipment, Course, Equipment, Guest, Page, QaPair, Question, QuestionDependency, Room, RoomType, Section, sequelize, Setting, Template } from "../../../models"
 import { BookingService } from "../../../services/booking/booking";
 import StorageService from "../../../services/storage/storage";
 
@@ -450,8 +451,23 @@ export default async function handler(req, res) {
 
         if (currentBooking || booking) {
             const id = currentBooking?.id || booking?.id;
-            const bookingEquipments = await BookingEquipment.findAll({ where: { booking_id: id } });
-            completedEquipments = bookingEquipments.length > 0;
+            const bookingType = currentBooking?.type || booking?.type;
+            if (bookingType === BOOKING_TYPES.FIRST_TIME_GUEST) {
+                const bookingEquipments = await BookingEquipment.findAll({ where: { booking_id: id } });
+                completedEquipments = bookingEquipments.length > 0;
+            } else {
+                // Check for acknowledgement-type equipments specifically
+                const acknowledgementEquipments = await BookingEquipment.findAll({ 
+                    where: { booking_id: id },
+                    include: [{
+                        model: Equipment,
+                        where: { type: 'acknowledgement' },
+                        required: true
+                    }]
+                });
+                
+                completedEquipments = acknowledgementEquipments.length > 0;
+            }
         }
 
         if (!completedEquipments && (currentBooking || booking)) {

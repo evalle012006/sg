@@ -133,7 +133,8 @@ const calculatePackagesPageCompletion = (page, context) => {
 
 /**
  * Equipment page completion for returning guests
- * Updated to handle the verification question for returning guests
+ * For returning guests: If acknowledgement equipments are saved in database,
+ * the page should be marked as complete regardless of page visits or changes
  */
 const calculateEquipmentPageCompletion = (page, context) => {
     const { 
@@ -143,11 +144,19 @@ const calculateEquipmentPageCompletion = (page, context) => {
         pagesWithSavedData 
     } = context;
 
+    // CRITICAL: For returning guests, if the API says equipment acknowledgements
+    // are saved in the database (equipmentPageCompleted = true), 
+    // then the page is complete - this persists across refreshes
+    if (equipmentPageCompleted === true) {
+        // console.log('🔧 Equipment page complete: acknowledgement equipments saved in database');
+        return true;
+    }
+
     // Check if page has been visited and has saved data
     const hasBeenVisited = visitedPages.has(page.id);
     const hasSavedData = pagesWithSavedData.has(page.id);
     
-    // If no interaction at all, definitely not complete
+    // If no interaction at all and no saved acknowledgements, definitely not complete
     if (!hasBeenVisited && !hasSavedData && (!equipmentChangesState || equipmentChangesState.length === 0)) {
         return false;
     }
@@ -161,54 +170,47 @@ const calculateEquipmentPageCompletion = (page, context) => {
     );
 
     if (hasVerificationQuestion) {
-        // For returning guests with verification question, we need to check:
-        // 1. Equipment was completed from previous booking OR user made changes
-        // 2. Verification question is answered
+        // For returning guests with verification question:
+        // Check if user made changes OR if verification question is answered
         
-        const equipmentBaseCompleted = equipmentPageCompleted || 
-            (equipmentChangesState && equipmentChangesState.length > 0);
+        const hasEquipmentChanges = equipmentChangesState && equipmentChangesState.length > 0;
         
         // Find and check the verification question
         let verificationAnswered = false;
         
-        for (const section of page.Sections) {
+        for (const section of page.Sections || []) {
             for (const question of section.Questions || []) {
                 if (question.question_key === 'i-verify-all-the-information-above-is-true-and-updated' &&
                     question.type === 'simple-checkbox') {
-                    
-                    // Check if verification question is answered
-                    verificationAnswered = question.answer === true || question.answer === "1" || question.answer === 1;
+                    verificationAnswered = question.answer === true || 
+                                          question.answer === "1" || 
+                                          question.answer === 1;
                     break;
                 }
             }
             if (verificationAnswered) break;
         }
 
-        // Both conditions must be met
-        const isComplete = equipmentBaseCompleted && verificationAnswered;
+        // Complete if verification answered OR if equipment changes were made and saved
+        const isComplete = verificationAnswered || (hasEquipmentChanges && hasSavedData);
         
         console.log(`🔧 Equipment completion for returning guest:`, {
-            equipmentBaseCompleted,
+            equipmentPageCompleted,
+            hasEquipmentChanges,
             verificationAnswered,
+            hasSavedData,
             isComplete,
             pageId: page.id
         });
         
         return isComplete;
     } else {
-        // No verification question - use original logic
-        
-        // If equipment was already completed in previous booking, consider it complete
-        if (equipmentPageCompleted) {
+        // No verification question - check if user has made and saved equipment changes
+        if (equipmentChangesState && equipmentChangesState.length > 0 && hasSavedData) {
             return true;
         }
 
-        // Check if user has made equipment changes in current session
-        if (equipmentChangesState && equipmentChangesState.length > 0) {
-            return true;
-        }
-
-        // If no verification question and no base completion, check if all questions answered
+        // Fallback: check if all required questions answered
         return checkAllRequiredQuestionsAnswered(page);
     }
 };

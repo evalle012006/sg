@@ -109,7 +109,7 @@ const SelectField = ({
 
   // Initialize state
   const [isOpen, setIsOpen] = useState(false);
-  const [selectedValues, setSelectedValues] = useState(() => normalizeValue(value || defaultValue));
+  const [selectedValues, setSelectedValues] = useState(() => normalizeValue(value ?? defaultValue));
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
@@ -163,7 +163,7 @@ const SelectField = ({
 
   // Initial setup effect - handles pre-populated data validation
   useEffect(() => {
-    const initialValue = normalizeValue(value || defaultValue);
+    const initialValue = normalizeValue(value ?? defaultValue);
     
     if (hasValue(initialValue) && validateOnMount) {
       setSelectedValues(initialValue);
@@ -180,7 +180,7 @@ const SelectField = ({
   // Handle builder mode initialization
   useEffect(() => {
     if ((builderMode || builder) && otherProps.question) {
-      const questionValue = normalizeValue(otherProps.question.value || otherProps.question.defaultValue);
+      const questionValue = normalizeValue(otherProps.question.value ?? otherProps.question.defaultValue);
       if (hasValue(questionValue) && validateOnMount) {
         setSelectedValues(questionValue);
         setDirty(true);

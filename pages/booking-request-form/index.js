@@ -1551,8 +1551,8 @@ const BookingRequestForm = () => {
             };
             
             const paramString = JSON.stringify(apiParams);
-            if (lastFetchParamsRef.current === paramString && courseOffers.length > 0) {
-                // console.log('📅 Using cached course offers - params unchanged');
+            if (lastFetchParamsRef.current === paramString) {
+                setCourseOffersLoaded(true);
                 return;
             }
             lastFetchParamsRef.current = paramString;
@@ -1673,7 +1673,7 @@ const BookingRequestForm = () => {
                     }
 
                     if (questionHasKey(question, QUESTION_KEYS.IS_STA_STATED_SUPPORT) &&
-                        question.answer === 'Yes') {
+                        (question.answer && question.answer.toLowerCase() === 'yes')) {
                         ndisPackageType = 'sta';
                         console.log('✅ STA package: STA is stated support (takes precedence)');
                     }
@@ -1682,20 +1682,40 @@ const BookingRequestForm = () => {
                     if (!ndisPackageType || ndisPackageType !== 'sta') {
                         let isHolidayType = false;
                         
-                        if (questionHasKey(question, QUESTION_KEYS.DO_YOU_LIVE_ALONE) &&
-                            question.answer === 'Yes') {
+                        if (questionHasKey(question, QUESTION_KEYS.DO_YOU_LIVE_ALONE) && 
+                            (question.answer && question.answer.toLowerCase() === 'no')) {
                             isHolidayType = true;
                             console.log('✅ Holiday type detected: Lives alone');
                         }
 
+                        if (questionHasKey(question, QUESTION_KEYS.WE_ALSO_NEED_TO_KNOW) && question.answer) {
+                            // Handle both array (checkbox) and string answers
+                            let answerToCheck = question.answer;
+                            if (Array.isArray(answerToCheck)) {
+                                // For checkbox/multi-select, check if "None of these apply to me" is in the array
+                                const hasNoneApply = answerToCheck.some(a => 
+                                    typeof a === 'string' && a.toLowerCase() === 'none of these apply to me'
+                                );
+                                if (hasNoneApply) {
+                                    isHolidayType = true;
+                                    console.log('✅ Holiday type detected: Need to know factor (array check)');
+                                }
+                            } else if (typeof answerToCheck === 'string' && 
+                                    answerToCheck.toLowerCase() === 'none of these apply to me') {
+                                isHolidayType = true;
+                                console.log('✅ Holiday type detected: Need to know factor');
+                            }
+                        }
+
+
                         if (questionHasKey(question, QUESTION_KEYS.DO_YOU_LIVE_IN_SIL) &&
-                            question.answer === 'Yes') {
+                            (question.answer && question.answer.toLowerCase() === 'yes')) {
                             isHolidayType = true;
                             console.log('✅ Holiday type detected: Lives in SIL');
                         }
 
                         if ((questionHasKey(question, QUESTION_KEYS.ARE_YOU_STAYING_WITH_INFORMAL_SUPPORTS)) &&
-                            question.answer === 'Yes') {
+                            (question.answer && question.answer.toLowerCase() === 'yes')) {
                             isHolidayType = true;
                             console.log('✅ Holiday type detected: Staying with informal supports');
                         }
@@ -3029,6 +3049,7 @@ const BookingRequestForm = () => {
                                 setEquipmentValidationPassed(isValid);
                             }
                         }}
+                        isConfirmedBooking={currentBookingStatus?.name === 'booking_confirmed'}
                     />
                 )
             };
@@ -3145,13 +3166,17 @@ const BookingRequestForm = () => {
                     // ============================================
                     // NON-EQUIPMENT PAGES - Normal validation
                     // ============================================
-                    const pageErrors = validate([pageToValidate], courseOffers);
+                    const latestReduxData = bookingRequestFormData || [];
+                    const latestPageData = latestReduxData.find(p => p.id === pageToValidate.id);
+                    const pageToValidateWithLatestData = latestPageData || pageToValidate;
+                    
+                    const pageErrors = validate([pageToValidateWithLatestData], courseOffers);
                     
                     if (pageErrors.length > 0) {
                         console.log('❌ Validation errors found on current page:', pageErrors);
                         
                         const updatedPages = stableProcessedFormData.map(page => {
-                            if (page.id === pageToValidate.id) {
+                            if (page.id === pageToValidateWithLatestData.id) {
                                 return { 
                                     ...page, 
                                     completed: false,
@@ -3779,14 +3804,15 @@ const BookingRequestForm = () => {
                                 const validOffers = activeOffers.filter(offer => offer.dateValid !== false);
                                 
                                 if (validOffers.length === 0) {
-                                    console.log(`❌ No valid course offers for selected dates`);
-                                    errorMessage.add({
-                                        pageId: page.id,
-                                        pageTitle: page.title,
-                                        message: 'None of your course offers are compatible with your selected stay dates. Please review your dates or change your course selection to "No".',
-                                        question: question.question,
-                                        type: question.type
-                                    });
+                                    console.log(`⚠️ No date-compatible course offers, but allowing selection (user may extend stay)`);
+                                    // console.log(`❌ No valid course offers for selected dates`);
+                                    // errorMessage.add({
+                                    //     pageId: page.id,
+                                    //     pageTitle: page.title,
+                                    //     message: 'None of your course offers are compatible with your selected stay dates. Please review your dates or change your course selection to "No".',
+                                    //     question: question.question,
+                                    //     type: question.type
+                                    // });
                                 } else {
                                     console.log(`✅ Found ${validOffers.length} valid course offers`);
                                 }
@@ -3819,14 +3845,15 @@ const BookingRequestForm = () => {
                             
                             if (selectedOffer) {
                                 if (selectedOffer.dateValid === false) {
-                                    console.log(`❌ Course "${selectedOffer.courseName}" is incompatible with stay dates`);
-                                    errorMessage.add({
-                                        pageId: page.id,
-                                        pageTitle: page.title,
-                                        message: selectedOffer.dateValidationMessage || 'Selected course is not compatible with your stay dates. Please update your dates or remove this course selection.',
-                                        question: question.question,
-                                        type: question.type
-                                    });
+                                    console.log(`⚠️ Course "${selectedOffer.courseName}" is outside minimum stay period - allowing selection (user acknowledged warning)`);
+                                    // console.log(`❌ Course "${selectedOffer.courseName}" is incompatible with stay dates`);
+                                    // errorMessage.add({
+                                    //     pageId: page.id,
+                                    //     pageTitle: page.title,
+                                    //     message: selectedOffer.dateValidationMessage || 'Selected course is not compatible with your stay dates. Please update your dates or remove this course selection.',
+                                    //     question: question.question,
+                                    //     type: question.type
+                                    // });
                                 } else {
                                     console.log(`✅ Course "${selectedOffer.courseName}" is compatible with stay dates`);
                                 }
@@ -6391,12 +6418,19 @@ const BookingRequestForm = () => {
     }, [courseOffersLoaded, courseOffers, currentBookingType, stableProcessedFormData]);
 
     useEffect(() => {
+        // Early guards
         if (!courseOffersLoaded || !stableProcessedFormData || stableProcessedFormData.length === 0) {
             return;
         }
 
+        // Prevent re-running - check ref FIRST before any processing
         if (deletedCourseHandledRef.current) {
             return;
+        }
+
+        // Also check if courseOffers is empty (still loading)
+        if (!courseOffers || courseOffers.length === 0) {
+            return;  // ⬅️ ADD THIS - Don't check for deleted courses if no offers loaded yet
         }
 
         console.log('🔍 Checking for deleted/unavailable courses in booking form...');
@@ -6473,11 +6507,12 @@ const BookingRequestForm = () => {
             setProcessedFormData(updatedPages);
             safeDispatchData(updatedPages, 'Cleared deleted course selection');
 
-            // Show user-friendly notification
+            // Show user-friendly notification (with toastId to prevent duplicates)
             toast.warning(
                 `The course you previously selected is no longer available. Please select a different course to continue with your booking.`,
                 { 
-                    duration: 8000,
+                    toastId: 'deleted-course-warning',  // ⬅️ ADD THIS LINE
+                    autoClose: 8000, 
                     position: 'top-center'
                 }
             );

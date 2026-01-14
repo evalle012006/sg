@@ -5,6 +5,7 @@ import Modal from "./../../../components/ui/modal";
 import { fetchTemplate } from "../../../store/templateSlice";
 import { toast } from "react-toastify";
 import { useDispatch } from "react-redux";
+import parse from 'html-react-parser';
 
 export default function ConditionsTable({ columns, data, styles, actions }) {
 
@@ -12,10 +13,24 @@ export default function ConditionsTable({ columns, data, styles, actions }) {
     const [selectedCondition, setSelectedCondition] = useState(null);
     const [removeConditionModal, setRemoveConditionModal] = useState(false);
 
+    const isHtmlContent = (text) => {
+        if (!text) return false;
+        return /<[a-z][\s\S]*>/i.test(text);
+    };
+
+    const stripHtml = (text) => {
+        if (!text) return '';
+        return text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+    };
+
     const returnAttribute = (obj, attributeString) => {
         let value = _.get(obj, attributeString);
         if (value instanceof Date) {
             return new Date(value).toLocaleDateString();
+        }
+        // Strip HTML tags from question text for cleaner table display
+        if (typeof value === 'string' && isHtmlContent(value)) {
+            return stripHtml(value);
         }
         return value;
     }

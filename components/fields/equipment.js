@@ -1227,7 +1227,6 @@ const EquipmentField = forwardRef((props, ref) => {
         }
     }, [equipments]);
 
-    // getValidationStyling checks validationForced
     const getValidationStyling = (categoryName, isConfirmation = false) => {
         const key = isConfirmation ? `confirm_${categoryName}` : categoryName;
         const hasError = categoryErrors[key] || categoryErrors[`${categoryName}_quantity`];
@@ -1236,9 +1235,9 @@ const EquipmentField = forwardRef((props, ref) => {
         const categoryType = categoryTypes[categoryName];
         
         const isRequired = isRequiredCategory(categoryName, categoryType) ||
-                          (categoryName === 'sling' && categorySelections['ceiling_hoist'] === 'yes') ||
-                          (isConfirmation && (categoryType === 'confirmation_multi' || categoryType === 'confirmation_single')) ||
-                          (categoryName === 'need_tilt_over_toilet' && showTiltQuestion);
+                        (categoryName === 'sling' && categorySelections['ceiling_hoist'] === 'yes') ||
+                        (isConfirmation && (categoryType === 'confirmation_multi' || categoryType === 'confirmation_single')) ||
+                        (categoryName === 'need_tilt_over_toilet' && showTiltQuestion);
         
         let isValid = false;
         if (hasSelection) {
@@ -1249,9 +1248,38 @@ const EquipmentField = forwardRef((props, ref) => {
             }
         }
 
+        // Check if this category has pre-filled data from saved booking equipment
+        const hasSavedEquipment = currentBookingEquipments.some(ce => 
+            ce.EquipmentCategory && ce.EquipmentCategory.name === categoryName
+        );
+        
+        // Check for infant care equipment keys with prefilled quantities
+        const hasPrefilledMetaData = equipmentMetaData[categoryName]?.quantity > 0 || 
+            equipmentMetaData[categoryName]?.source === 'saved' ||
+            equipmentMetaData[categoryName]?.source === 'prefilled';
+
+        // NEW: Check if this is a returning guest with initialized selection state
+        // For returning guests, even a 'no' answer is valid pre-filled data
+        // (it means they previously submitted the form with that answer)
+        const isReturningGuest = currentBookingEquipments.length > 0;
+        const hasInitializedSelection = hasSelection !== null && hasSelection !== undefined;
+        
+        // A selection is pre-filled if:
+        // 1. This is a returning guest (has any saved equipment), AND
+        // 2. This category has an initialized selection (not null/undefined)
+        // This covers cases like ceiling_hoist='no' where no equipment is saved but the answer IS pre-filled
+        const isPrefilledFromSavedState = isReturningGuest && hasInitializedSelection;
+
         // Show error if: has error AND (is touched OR forceShowErrors OR validation was forced via ref)
         const shouldShowError = hasError && (isTouched || forceShowErrors || validationForced);
-        const shouldShowValid = !shouldShowError && isValid && isTouched && isRequired;
+        
+        // Show green if: no error AND has valid selection AND any of these:
+        // - User has interacted with the field
+        // - Category has saved equipment (e.g., shower commode selected)
+        // - Category has prefilled metadata (infant care quantities)
+        // - This is a returning guest with an initialized selection (covers 'no' answers)
+        const shouldShowValid = !shouldShowError && isValid && 
+            (isTouched || hasSavedEquipment || hasPrefilledMetaData || isPrefilledFromSavedState);
 
         return {
             shouldShowError,
@@ -1706,7 +1734,16 @@ const EquipmentField = forwardRef((props, ref) => {
 
             {bookingType !== BOOKING_TYPES.FIRST_TIME_GUEST && (
                 <div className="py-4">
-                    <div className={`flex ${categoryErrors['acknowledgement'] && (categoryTouched['acknowledgement'] || forceShowErrors || validationForced) ? 'border-2 border-red-400 bg-red-50 rounded-xl p-4' : ''}`}>
+                    <div className={`
+                        flex rounded-xl p-4 border-2 transition-all duration-200
+                        ${
+                            categoryErrors['acknowledgement'] && (categoryTouched['acknowledgement'] || forceShowErrors || validationForced)
+                                ? 'border-red-400 bg-red-50'
+                                : acknowledgementChecked && (categoryTouched['acknowledgement'] || currentBookingEquipments.some(ce => ce.type === 'acknowledgement'))
+                                    ? 'border-green-400 bg-green-50'
+                                    : 'border-gray-200 bg-white'
+                        }
+                    `}>
                         <span className="text-xs text-red-500 ml-1 font-bold">*</span>
                         <CheckBox
                             bold={true}
