@@ -217,6 +217,7 @@ const calculateEquipmentPageCompletion = (page, context) => {
 
 /**
  * NDIS page completion specifically for returning guests
+ * UPDATED: Recognizes questions moved from saved QaPairs even on initial load
  */
 const calculateNdisPageCompletionForReturningGuest = (page, context) => {
     const { visitedPages, pagesWithSavedData } = context;
@@ -232,19 +233,43 @@ const calculateNdisPageCompletionForReturningGuest = (page, context) => {
     const hasSavedData = pagesWithSavedData.has(page.id);
     const hasRealQaPairs = hasRealUserInteractionQaPairs(page);
     
+    // ✅ NEW: Check if NDIS page has questions that were moved from saved QaPairs
+    // These questions have fromQa: true and have answers, indicating they came from
+    // saved data in the original booking
+    const hasMovedQuestionsWithSavedAnswers = page.Sections?.some(section =>
+        section.Questions?.some(question =>
+            question.fromQa === true && 
+            question.answer !== null && 
+            question.answer !== undefined && 
+            question.answer !== ''
+        )
+    );
+    
     // console.log(`📋 NDIS Page completion check:`, {
     //     pageId: page.id,
     //     hasBeenVisited,
     //     hasSavedData,
     //     hasRealQaPairs,
+    //     hasMovedQuestionsWithSavedAnswers,
     //     sectionsCount: page.Sections.length,
     //     totalQuestions: page.Sections.reduce((sum, s) => sum + (s.Questions?.length || 0), 0)
     // });
     
-    // Must have some form of real interaction
-    if (!hasBeenVisited && !hasSavedData && !hasRealQaPairs) {
-        // console.log('❌ NDIS page has no interaction indicators');
+    // ✅ UPDATED: Include hasMovedQuestionsWithSavedAnswers as a valid interaction indicator
+    // This allows NDIS page to be complete on initial load if questions were moved
+    // from saved QaPairs
+    if (!hasBeenVisited && !hasSavedData && !hasRealQaPairs && !hasMovedQuestionsWithSavedAnswers) {
+        console.log('❌ NDIS page has no interaction indicators');
         return false;
+    }
+
+    // ✅ NEW: If we have moved questions with saved answers, use simpler check
+    // that doesn't require QaPairs (since moved questions won't have QaPairs on NDIS page)
+    if (hasMovedQuestionsWithSavedAnswers && !hasBeenVisited) {
+        // For initial load with moved questions, just check if all visible required questions are answered
+        const allRequiredAnswered = checkAllRequiredQuestionsAnswered(page);
+        console.log(`✅ NDIS page completion (moved questions check): ${allRequiredAnswered}`);
+        return allRequiredAnswered;
     }
 
     // Check if all required questions are answered with corresponding QaPairs

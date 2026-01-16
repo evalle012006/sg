@@ -33,6 +33,7 @@ import {
     getInfantCareQuestionMapping,
     getCurrentFunder,
     detectNdisFundingFromSections,
+    addMissingNdisOnlyTemplateQuestions,
 } from "../../utilities/bookingRequestForm";
 
 import { 
@@ -2292,14 +2293,14 @@ const BookingRequestForm = () => {
                         if (valuesAreDifferent) {
                             updatedQuestion.dirty = true;
                             updatedQuestion.profileOverrideBooking = true; // Flag to indicate profile overrode booking data
-                            console.log(`📝 Profile data differs from booking for "${questionKey}":`, {
-                                bookingValue: bookingValue,
-                                profileValue: profileValue,
-                                willSyncToBooking: true
-                            });
+                            // console.log(`📝 Profile data differs from booking for "${questionKey}":`, {
+                            //     bookingValue: bookingValue,
+                            //     profileValue: profileValue,
+                            //     willSyncToBooking: true
+                            // });
                         } else {
                             // Values are the same - no need to mark dirty
-                            console.log(`✅ Profile matches booking for "${questionKey}": ${profileValue}`);
+                            // console.log(`✅ Profile matches booking for "${questionKey}": ${profileValue}`);
                         }
                     }
 
@@ -5485,18 +5486,31 @@ const BookingRequestForm = () => {
             // APPLY EXISTING DEPENDENCIES
             const pagesWithDependencies = applyQuestionDependencies(pagesArr);
             
+            // ✅ FIX: Add missing ndis_only template questions before NDIS processing
+            // This ensures questions like "Do you live in SIL?" are present even if
+            // their section had no saved QaPairs
+            // Pass API sections to retrieve saved answers
+            const apiSections = data?.booking?.Sections || data?.newBooking?.Sections || [];
+            const pagesWithAllNdisQuestions = isNdisFunded && data?.template?.Pages ?
+                addMissingNdisOnlyTemplateQuestions(
+                    pagesWithDependencies, 
+                    data.template.Pages, 
+                    isNdisFunded,
+                    apiSections  // ✅ Pass API sections to find saved QaPairs
+                ) : 
+                pagesWithDependencies;
+            
             const finalPages = isNdisFunded ? 
-                postProcessPagesForNdis(pagesWithDependencies, isNdisFunded, 
+                postProcessPagesForNdis(pagesWithAllNdisQuestions, isNdisFunded, 
                     // Pass a guarded completion function
                     (page) => {
                         if (bookingType === BOOKING_TYPES.RETURNING_GUEST && prevBookingId) {
-                            // console.log(`🔄 Skipping completion calculation for returning guest on page: ${page.id} "${page.title}"`);
-                            return false; // Let the helper handle it later
+                            return false;
                         }
                         return calculatePageCompletion(page);
                     }
                 ) : 
-                pagesWithDependencies;
+                pagesWithAllNdisQuestions;
 
             // Store the form data
             safeDispatchData(finalPages, 'template load with completion guard');

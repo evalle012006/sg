@@ -38,13 +38,13 @@ const courseModel = require('./course');
 const courseOfferModel = require('./courseoffer');
 const courseRateModel = require('./courserate');
 const packageRequirementModel = require('./packagerequirement');
-const guestApprovalModel = require('./guestapproval');
+// REMOVED: const guestApprovalModel = require('./guestapproval');
 const promotionModel = require('./promotion');
 const emailTemplateModel = require('./emailtemplate');
 const emailTriggerQuestionModel = require('./emailtriggerquestion');
 const bookingApprovalUsageModel = require('./bookingapprovalusage');
 const fundingApprovalModel = require('./fundingapproval');
-const guestApprovalFundingApprovalModel = require('./guestapprovalfundingapproval');
+// REMOVED: const guestApprovalFundingApprovalModel = require('./guestapprovalfundingapproval');
 const courseEOIModel = require('./courseeoi');
 
 const env = process.env.NODE_ENV || 'development';
@@ -94,13 +94,13 @@ const Course = courseModel(sequelize, Sequelize.DataTypes);
 const CourseOffer = courseOfferModel(sequelize, Sequelize.DataTypes);
 const CourseRate = courseRateModel(sequelize, Sequelize.DataTypes);
 const PackageRequirement = packageRequirementModel(sequelize, Sequelize.DataTypes);
-const GuestApproval = guestApprovalModel(sequelize, Sequelize.DataTypes);
+// REMOVED: const GuestApproval = guestApprovalModel(sequelize, Sequelize.DataTypes);
 const Promotion = promotionModel(sequelize, Sequelize.DataTypes);
 const EmailTemplate = emailTemplateModel(sequelize, Sequelize.DataTypes);
 const EmailTriggerQuestion = emailTriggerQuestionModel(sequelize, Sequelize.DataTypes);
 const BookingApprovalUsage = bookingApprovalUsageModel(sequelize, Sequelize.DataTypes);
 const FundingApproval = fundingApprovalModel(sequelize, Sequelize.DataTypes);
-const GuestApprovalFundingApproval = guestApprovalFundingApprovalModel(sequelize, Sequelize.DataTypes);
+// REMOVED: const GuestApprovalFundingApproval = guestApprovalFundingApprovalModel(sequelize, Sequelize.DataTypes);
 const CourseEOI = courseEOIModel(sequelize, Sequelize.DataTypes);
 
 //ASSOCIATIONS
@@ -353,36 +353,6 @@ PackageRequirement.belongsTo(Package, {
   as: 'package'
 });
 
-// Guest & GuestApproval associations
-Guest.hasMany(GuestApproval, {
-  foreignKey: 'guest_id',
-  as: 'approvals'
-});
-GuestApproval.belongsTo(Guest, {
-  foreignKey: 'guest_id',
-  as: 'guest'
-});
-
-// Package & GuestApproval associations
-Package.hasMany(GuestApproval, {
-  foreignKey: 'package_id',
-  as: 'guestApprovals'
-});
-GuestApproval.belongsTo(Package, {
-  foreignKey: 'package_id',
-  as: 'package'
-});
-
-// RoomType & GuestApproval associations (for additional room tracking)
-RoomType.hasMany(GuestApproval, {
-  foreignKey: 'additional_room_approved',
-  as: 'guestApprovals'
-});
-GuestApproval.belongsTo(RoomType, {
-  foreignKey: 'additional_room_approved',
-  as: 'additionalRoomType'
-});
-
 // Booking & BookingApprovalUsage associations
 Booking.hasMany(BookingApprovalUsage, {
   foreignKey: 'booking_id',
@@ -393,17 +363,7 @@ BookingApprovalUsage.belongsTo(Booking, {
   as: 'booking'
 });
 
-// GuestApproval & BookingApprovalUsage associations
-GuestApproval.hasMany(BookingApprovalUsage, {
-  foreignKey: 'guest_approval_id',
-  as: 'usages'
-});
-BookingApprovalUsage.belongsTo(GuestApproval, {
-  foreignKey: 'guest_approval_id',
-  as: 'approval'
-});
-
-// NEW: FundingApproval associations
+// FundingApproval associations
 Guest.hasMany(FundingApproval, {
   foreignKey: 'guest_id',
   as: 'fundingApprovals'
@@ -412,6 +372,7 @@ FundingApproval.belongsTo(Guest, {
   foreignKey: 'guest_id',
   as: 'guest'
 });
+
 // Package & FundingApproval associations
 Package.hasMany(FundingApproval, {
   foreignKey: 'package_id',
@@ -432,37 +393,14 @@ FundingApproval.belongsTo(RoomType, {
   as: 'additionalRoomType'
 });
 
-// GuestApproval & FundingApproval many-to-many associations
-GuestApproval.belongsToMany(FundingApproval, {
-  through: GuestApprovalFundingApproval,
-  foreignKey: 'guest_approval_id',
-  otherKey: 'funding_approval_id',
-  as: 'fundingApprovals'
-});
-FundingApproval.belongsToMany(GuestApproval, {
-  through: GuestApprovalFundingApproval,
+// FundingApproval & BookingApprovalUsage associations
+FundingApproval.hasMany(BookingApprovalUsage, {
   foreignKey: 'funding_approval_id',
-  otherKey: 'guest_approval_id',
-  as: 'guestApprovals'
+  as: 'usages'
 });
-
-// Direct access to junction table
-GuestApproval.hasMany(GuestApprovalFundingApproval, {
-  foreignKey: 'guest_approval_id',
-  as: 'fundingAllocations'
-});
-GuestApprovalFundingApproval.belongsTo(GuestApproval, {
-  foreignKey: 'guest_approval_id',
-  as: 'guestApproval'
-});
-
-FundingApproval.hasMany(GuestApprovalFundingApproval, {
+BookingApprovalUsage.belongsTo(FundingApproval, {
   foreignKey: 'funding_approval_id',
-  as: 'guestAllocations'
-});
-GuestApprovalFundingApproval.belongsTo(FundingApproval, {
-  foreignKey: 'funding_approval_id',
-  as: 'fundingApproval'
+  as: 'approval'
 });
 
 // Guest & CourseEOI associations
@@ -515,12 +453,10 @@ module.exports = {
   CourseOffer,
   CourseRate,
   PackageRequirement,
-  GuestApproval,
   Promotion,
   EmailTemplate,
   EmailTriggerQuestion,
   BookingApprovalUsage,
   FundingApproval,
-  GuestApprovalFundingApproval,
   CourseEOI,
 };

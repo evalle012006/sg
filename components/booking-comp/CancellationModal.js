@@ -3,6 +3,10 @@ import React from 'react';
 /**
  * Modal for selecting cancellation type (No Charge vs Full Charge)
  * Used when admin cancels a booking or processes a guest cancellation request
+ * 
+ * FIXED: Corrected the night handling descriptions
+ * - No Charge Cancellation: Nights are RETURNED to the guest (no penalty)
+ * - Full Charge Cancellation: Nights are NOT returned - guest loses them as a penalty
  */
 const CancellationModal = ({ 
   isOpen, 
@@ -32,19 +36,19 @@ const CancellationModal = ({
             
             <div className="space-y-3 mb-6">
               <button
-                className="w-full text-left px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors group"
+                className="w-full text-left px-4 py-3 border border-gray-300 rounded-lg hover:bg-green-50 transition-colors group"
                 onClick={() => onConfirm(false)}
               >
-                <div className="font-medium text-gray-900 group-hover:text-blue-700">No Charge Cancellation</div>
-                <div className="text-sm text-gray-500">Nights will NOT be returned to the guest&apos;s approval</div>
+                <div className="font-medium text-gray-900 group-hover:text-green-700">No Charge Cancellation</div>
+                <div className="text-sm text-gray-500">Nights WILL be returned to the guest&apos;s iCare approval (no penalty)</div>
               </button>
               
               <button
-                className="w-full text-left px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors group"
+                className="w-full text-left px-4 py-3 border border-gray-300 rounded-lg hover:bg-red-50 transition-colors group"
                 onClick={() => onConfirm(true)}
               >
-                <div className="font-medium text-gray-900 group-hover:text-blue-700">Full Charge Cancellation</div>
-                <div className="text-sm text-gray-500">Nights WILL be returned to the guest&apos;s iCare approval</div>
+                <div className="font-medium text-gray-900 group-hover:text-red-700">Full Charge Cancellation</div>
+                <div className="text-sm text-gray-500">Nights will NOT be returned - guest loses nights as a penalty</div>
               </button>
             </div>
             

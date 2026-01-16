@@ -103,9 +103,13 @@ export const DropdownStatus = ({ status, booking, fetchData, disabled }) => {
     setPendingCancellationStatus(null);
   };
 
-  const updateStatus = async (status, booking, isFullCharge = false) => {
+  const updateStatus = async (newStatus, booking, isFullCharge = false) => {
+    // Save the previous status to revert on error
+    const previousStatus = selectedStatus;
+    
     setIsUpdating(true);
     setIsDrop(false); // Close dropdown immediately
+    setSelectedStatus(newStatus);  // Optimistic update
     
     try {
       const response = await fetch(`/api/bookings/${booking.uuid}/update-status`, {
@@ -114,7 +118,7 @@ export const DropdownStatus = ({ status, booking, fetchData, disabled }) => {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          status: status,
+          status: newStatus,
           isFullChargeCancellation: isFullCharge
         })
       });
@@ -134,6 +138,8 @@ export const DropdownStatus = ({ status, booking, fetchData, disabled }) => {
           console.error('Error parsing error response:', parseError);
         }
         
+        // REVERT status on error
+        setSelectedStatus(previousStatus);
         toast.error(errorMessage);
         setIsUpdating(false);
         return;
@@ -142,28 +148,30 @@ export const DropdownStatus = ({ status, booking, fetchData, disabled }) => {
       // Success case
       await fetchData();
       
-      if (status.name == 'eligible' && BOOKING_TYPES.FIRST_TIME_GUEST === booking.type) {
+      if (newStatus.name == 'eligible' && BOOKING_TYPES.FIRST_TIME_GUEST === booking.type) {
         toast.success("An invitation email has been sent to the guest.");
-      } else if (status.name === 'booking_confirmed') {
+      } else if (newStatus.name === 'booking_confirmed') {
         toast.success("Booking has been confirmed successfully!");
-      } else if (status.name === 'booking_cancelled' || status.name === 'guest_cancelled') {
+      } else if (newStatus.name === 'booking_cancelled' || newStatus.name === 'guest_cancelled') {
         const chargeType = isFullCharge ? 'Full Charge' : 'No Charge';
         toast.success(`Booking has been cancelled (${chargeType}).`);
-      } else if (status.name === 'on_hold') {
+      } else if (newStatus.name === 'on_hold') {
         toast.success("Booking has been put on hold.");
       } else {
         // Generic success message for other status changes
-        toast.success(`Booking status updated to ${status.label}.`);
+        toast.success(`Booking status updated to ${newStatus.label}.`);
       }
       
       setIsUpdating(false);
 
     } catch (error) {
       console.error('Network error updating status:', error);
+      // REVERT status on network error
+      setSelectedStatus(previousStatus);
       toast.error('Network error occurred. Please check your connection and try again.');
       setIsUpdating(false);
     }
-  }
+  };
 
   return (<>
     <div className="relative">

@@ -1186,8 +1186,11 @@ export default function BookingDetail() {
   }, [booking?.uuid, status, dispatch]);
 
   const performStatusUpdate = useCallback(async (selected, isFullCharge = false) => {
+    // Save the previous status to revert on error
+    const previousStatus = status;
+    
     dispatch(globalActions.setLoading(true));
-    setStatus(selected);
+    setStatus(selected);  // Optimistic update
     
     try {
       const response = await fetch(`/api/bookings/${booking.uuid}/update-status`, {
@@ -1214,6 +1217,8 @@ export default function BookingDetail() {
           console.error('Error parsing error response:', parseError);
         }
         
+        // REVERT status on error
+        setStatus(previousStatus);
         toast.error(errorMessage);
         dispatch(globalActions.setLoading(false));
         return;
@@ -1235,16 +1240,23 @@ export default function BookingDetail() {
         toast.success(`Booking has been cancelled (${chargeType}).`);
       }
 
+      dispatch(globalActions.setLoading(false));
+
     } catch (error) {
       console.error('Network error updating status:', error);
+      // REVERT status on network error
+      setStatus(previousStatus);
       toast.error('Network error occurred. Please check your connection and try again.');
       dispatch(globalActions.setLoading(false));
     }
   }, [booking?.uuid, status, dispatch, fetchBooking]);
 
   const handleUpdateEligibility = useCallback(async (selected) => {
+    // Save the previous eligibility to revert on error
+    const previousEligibility = eligibility;
+    
     dispatch(globalActions.setLoading(true));
-    setEligibility(selected);
+    setEligibility(selected);  // Optimistic update
     
     try {
       const response = await fetch(`/api/bookings/${booking.uuid}/update-status`, {
@@ -1270,6 +1282,8 @@ export default function BookingDetail() {
           console.error('Error parsing error response:', parseError);
         }
         
+        // REVERT eligibility on error
+        setEligibility(previousEligibility);
         toast.error(errorMessage);
         dispatch(globalActions.setLoading(false));
         return;
@@ -1283,12 +1297,16 @@ export default function BookingDetail() {
         toast.success("Guest eligibility status updated.");
       }
 
+      dispatch(globalActions.setLoading(false));
+
     } catch (error) {
       console.error('Network error updating eligibility:', error);
+      // REVERT eligibility on network error
+      setEligibility(previousEligibility);
       toast.error('Network error occurred. Please check your connection and try again.');
       dispatch(globalActions.setLoading(false));
     }
-  }, [booking?.uuid, dispatch]);
+  }, [booking?.uuid, eligibility, dispatch, fetchBooking]);
 
   const handleCancellationConfirm = useCallback((isFullCharge) => {
     setShowCancellationModal(false);

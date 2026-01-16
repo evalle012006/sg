@@ -9,8 +9,9 @@ module.exports = (sequelize, DataTypes) => {
         as: 'booking'
       });
 
-      BookingApprovalUsage.belongsTo(models.GuestApproval, {
-        foreignKey: 'guest_approval_id',
+      // UPDATED: Now references FundingApproval instead of GuestApproval
+      BookingApprovalUsage.belongsTo(models.FundingApproval, {
+        foreignKey: 'funding_approval_id',
         as: 'approval'
       });
     }
@@ -25,11 +26,12 @@ module.exports = (sequelize, DataTypes) => {
         key: 'id'
       }
     },
-    guest_approval_id: {
+    // UPDATED: Changed from guest_approval_id to funding_approval_id
+    funding_approval_id: {
       type: DataTypes.INTEGER,
       allowNull: false,
       references: {
-        model: 'guest_approvals',
+        model: 'funding_approvals',
         key: 'id'
       }
     },
@@ -44,7 +46,7 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: false
     },
     status: {
-      type: DataTypes.ENUM('pending', 'confirmed', 'cancelled', 'late_cancelled'),
+      type: DataTypes.ENUM('pending', 'confirmed', 'cancelled', 'late_cancelled', 'full_charge_cancelled'),
       defaultValue: 'pending',
       allowNull: false
     }
@@ -55,7 +57,7 @@ module.exports = (sequelize, DataTypes) => {
     underscored: true,
     indexes: [
       { fields: ['booking_id'] },
-      { fields: ['guest_approval_id'] },
+      { fields: ['funding_approval_id'] },
       { fields: ['status'] }
     ]
   });

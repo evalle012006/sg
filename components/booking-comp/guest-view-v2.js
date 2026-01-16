@@ -241,26 +241,48 @@ export default function GuestBookingsV2() {
 
     const handleCancelBooking = async (bookingId, isFullCharge = false) => {
         if (bookingId) {
-            await fetch(`/api/bookings/${bookingId}/update-status`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    status: { 
-                        "name": "guest_cancelled", 
-                        "label": "Cancellation Requested", 
-                        "color": "orange" 
+            try {
+                const response = await fetch(`/api/bookings/${bookingId}/update-status`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
                     },
-                    isFullChargeCancellation: isFullCharge
-                })
-            }).then(() => {
+                    body: JSON.stringify({
+                        status: { 
+                            "name": "guest_cancelled", 
+                            "label": "Cancellation Requested", 
+                            "color": "orange" 
+                        },
+                        isFullChargeCancellation: isFullCharge
+                    })
+                });
+
+                if (!response.ok) {
+                    let errorMessage = 'Failed to cancel booking';
+                    try {
+                        const errorData = await response.json();
+                        if (errorData.message) {
+                            errorMessage = errorData.message;
+                        } else if (errorData.error) {
+                            errorMessage = errorData.error;
+                        }
+                    } catch (parseError) {
+                        console.error('Error parsing error response:', parseError);
+                    }
+                    
+                    toast.error(errorMessage);
+                    return;
+                }
+
                 fetchBookings();
                 const chargeType = isFullCharge ? 'Full Charge' : 'No Charge';
                 toast.success(`${chargeType} Booking Cancellation has been requested.`);
-            }).catch(err => console.log(err))
+            } catch (err) {
+                console.error('Network error cancelling booking:', err);
+                toast.error('Network error occurred. Please check your connection and try again.');
+            }
         }
-    }
+    };
 
     const handleDownloadPDF = async (bookingId) => {
         toast.info('Generating PDF. Please wait...');
@@ -1094,9 +1116,9 @@ export default function GuestBookingsV2() {
                             <div className="max-w-7xl mx-auto px-4 sm:px-6">
                                 <div className="text-center mb-6 sm:mb-8">
                                     <h2 className="text-xl sm:text-2xl font-bold text-gray-800 mb-2">PROMOTIONS AND SPECIAL OFFERS</h2>
-                                    <p className="text-sm text-gray-600 max-w-2xl mx-auto">
+                                    {/* <p className="text-sm text-gray-600 max-w-2xl mx-auto">
                                         Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum
-                                    </p>
+                                    </p> */}
                                 </div>
                                 {renderPromotionCards()}
                             </div>

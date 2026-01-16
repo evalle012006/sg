@@ -8,7 +8,7 @@ import {
     Comment, 
     User, 
     HealthInfo, 
-    GuestApproval,
+    FundingApproval,
     Package
 } from "./../../../models"
 import { omitAttribute } from "../../../utilities/common";
@@ -35,8 +35,8 @@ export default async function handler(req, res) {
                 include: [User]
             },
             {
-                model: GuestApproval,
-                as: 'approvals',
+                model: FundingApproval,
+                as: 'fundingApprovals', 
                 required: false,
                 include: [
                     {
@@ -122,43 +122,46 @@ export default async function handler(req, res) {
 
         // Extract dates using question keys with fallback to old question text
         const checkInOutDateQA = findByQuestionKeyWithFallback(
-            allQaPairs, 
-            QUESTION_KEYS.CHECK_IN_OUT_DATE, 
-            'Check In Date and Check Out Date'
+            allQaPairs,
+            QUESTION_KEYS.CHECK_IN_OUT_DATE,
+            ['When would you like to stay?']
         );
-        
-        if (checkInOutDateQA && dateRangeRegEx.test(checkInOutDateQA.answer)) {
-            const dates = checkInOutDateQA.answer.split(' - ');
-            check_in_date = dates[0];
-            check_out_date = dates[1];
+
+        if (checkInOutDateQA && checkInOutDateQA.answer) {
+            const answer = checkInOutDateQA.answer;
+            if (dateRangeRegEx.test(answer)) {
+                const dates = answer.split(' - ');
+                check_in_date = dates[0];
+                check_out_date = dates[1];
+            }
         }
 
-        // If combined date not found, look for individual dates
-        if (!check_in_date) {
-            check_in_date = getAnswerByQuestionKey(allQaPairs, QUESTION_KEYS.CHECK_IN_DATE) ||
-                           allQaPairs.find(qa => qa.question === 'Check In Date')?.answer;
+        // Extract NDIS number
+        const ndisQA = findByQuestionKeyWithFallback(
+            allQaPairs,
+            QUESTION_KEYS.NDIS_NUMBER,
+            ['NDIS number', 'What is your NDIS number?']
+        );
+        if (ndisQA) {
+            ndisNumber = ndisQA.answer;
         }
-        
-        if (!check_out_date) {
-            check_out_date = getAnswerByQuestionKey(allQaPairs, QUESTION_KEYS.CHECK_OUT_DATE) ||
-                            allQaPairs.find(qa => qa.question === 'Check Out Date')?.answer;
+
+        // Extract iCare number
+        const icareQA = findByQuestionKeyWithFallback(
+            allQaPairs,
+            QUESTION_KEYS.ICARE_NUMBER,
+            ['icare number', 'What is your icare number?']
+        );
+        if (icareQA) {
+            icareNumber = icareQA.answer;
         }
 
-        // Extract NDIS and iCare numbers using question keys
-        ndisNumber = getAnswerByQuestionKey(allQaPairs, QUESTION_KEYS.NDIS_PARTICIPANT_NUMBER) ||
-                     allQaPairs.find(qa => qa.question === 'NDIS Participant Number')?.answer;
-
-        icareNumber = getAnswerByQuestionKey(allQaPairs, QUESTION_KEYS.ICARE_PARTICIPANT_NUMBER) ||
-                      allQaPairs.find(qa => qa.question === 'icare Participant Number')?.answer;
-
-        // Process rooms with images - handle multiple rooms per booking
+        // Process room images
         let roomsWithImages = [];
         if (currentBooking.Rooms && currentBooking.Rooms.length > 0) {
-            for (let roomIndex = 0; roomIndex < currentBooking.Rooms.length; roomIndex++) {
-                const room = currentBooking.Rooms[roomIndex];
+            for (const room of currentBooking.Rooms) {
                 let roomWithImage = { ...room.dataValues };
-
-                // Add room type image if available
+                
                 if (room.RoomType && room.RoomType.image_filename) {
                     try {
                         const imageUrl = await storage.getSignedUrl('room-type-photo/' + room.RoomType.image_filename);
@@ -186,7 +189,7 @@ export default async function handler(req, res) {
 
         bookings.push({ 
             ...currentBooking.dataValues, 
-            Rooms: roomsWithImages, // Updated rooms with images
+            Rooms: roomsWithImages,
             check_in_date, 
             check_out_date, 
             ndisNumber, 

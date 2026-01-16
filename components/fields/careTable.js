@@ -249,13 +249,30 @@ const convertValueToTableData = (value = []) => {
   let extractedDefaults = null;
   let extractedCareVaries = null;
   
+  // ========== FIX: Parse JSON string if needed ==========
+  let parsedValue = value;
+  if (typeof value === 'string' && value.trim()) {
+    try {
+      parsedValue = JSON.parse(value);
+      console.log('🔄 CareTable: Parsed JSON string value:', {
+        hasDefaultValues: !!parsedValue?.defaultValues,
+        careVaries: parsedValue?.careVaries,
+        careDataLength: parsedValue?.careData?.length || 0
+      });
+    } catch (e) {
+      console.error('❌ CareTable: Failed to parse value JSON string:', e);
+      parsedValue = [];
+    }
+  }
+  // ========== END FIX ==========
+  
   let dataArray = [];
-  if (value && typeof value === 'object' && !Array.isArray(value)) {
-    dataArray = value.careData || [];
-    extractedDefaults = value.defaultValues || null;
-    extractedCareVaries = value.careVaries ?? null;
-  } else if (Array.isArray(value)) {
-    dataArray = value;
+  if (parsedValue && typeof parsedValue === 'object' && !Array.isArray(parsedValue)) {
+    dataArray = parsedValue.careData || [];
+    extractedDefaults = parsedValue.defaultValues || null;
+    extractedCareVaries = parsedValue.careVaries ?? null;
+  } else if (Array.isArray(parsedValue)) {
+    dataArray = parsedValue;
   }
   
   if (!Array.isArray(dataArray) || dataArray.length === 0) {
@@ -537,6 +554,18 @@ export default function CareTable({
   required = false,
   stayDates = { checkInDate: null, checkOutDate: null }
 }) {
+  const parsedValue = React.useMemo(() => {
+    if (typeof value === 'string' && value.trim()) {
+      try {
+        return JSON.parse(value);
+      } catch (e) {
+        console.error('❌ CareTable: Failed to parse value prop:', e);
+        return [];
+      }
+    }
+    return value;
+  }, [value]);
+
   const startDate = stayDates.checkInDate;
   const endDate = stayDates.checkOutDate;
   const [dates, setDates] = useState([]);
@@ -592,7 +621,6 @@ export default function CareTable({
     if (!dates || dates.length === 0) return;
     
     try {
-      // Use formatDateLocal instead of toISOString
       const datesKey = dates.map(d => formatDateLocal(d)).join('|');
       
       if (processedDatesRef.current.includes(datesKey)) {
@@ -612,14 +640,27 @@ export default function CareTable({
       });
       
       if (isInitialMount.current) {
-        const { tableData: existingData, extractedDefaults, extractedCareVaries } = convertValueToTableData(value);
+        // Use parsedValue instead of value!
+        const { tableData: existingData, extractedDefaults, extractedCareVaries } = convertValueToTableData(parsedValue);
         
+        // console.log('🔄 CareTable initialization:', {
+        //   hasExistingData: Object.keys(existingData).length > 0,
+        //   hasExtractedDefaults: !!extractedDefaults,
+        //   extractedCareVaries,
+        //   newDatesCount: Object.keys(initialData).length,
+        //   extractedDefaults // Log the actual defaults
+        // });
+        
+        // Always set defaults if we have them (for prefill scenarios)
         if (extractedDefaults) {
+          // console.log('✅ Setting defaultValues from prefilled data:', extractedDefaults);
           setDefaultValues(extractedDefaults);
           savedDefaultsRef.current = JSON.parse(JSON.stringify(extractedDefaults));
         }
         
+        // Always preserve careVaries setting from prefilled data
         if (extractedCareVaries !== null) {
+          // console.log('✅ Setting careVaries from prefilled data:', extractedCareVaries);
           setCareVaries(extractedCareVaries);
           savedCareVariesRef.current = extractedCareVaries;
           if (extractedCareVaries === true) {
@@ -627,26 +668,53 @@ export default function CareTable({
           }
         }
         
-        Object.keys(existingData).forEach(dateKey => {
-          if (initialData[dateKey]) {
-            initialData[dateKey] = {
-              morning: { ...initialData[dateKey].morning, ...existingData[dateKey].morning },
-              afternoon: { ...initialData[dateKey].afternoon, ...existingData[dateKey].afternoon },
-              evening: { ...initialData[dateKey].evening, ...existingData[dateKey].evening }
-            };
-          }
-        });
+        // ========== PREFILL FIX ==========
+        const hasPrefilledDefaults = extractedDefaults && hasAnyDefaultValues(extractedDefaults);
+        
+        if (hasPrefilledDefaults) {
+          // console.log('🔄 PREFILL MODE: Applying defaultValues to all new dates');
+          
+          Object.keys(initialData).forEach(dateKey => {
+            ['morning', 'afternoon', 'evening'].forEach(period => {
+              const defaultForPeriod = extractedDefaults[period];
+              if (defaultForPeriod) {
+                initialData[dateKey][period] = {
+                  carers: defaultForPeriod.carers || '',
+                  time: defaultForPeriod.time || '',
+                  duration: defaultForPeriod.duration || ''
+                };
+              }
+            });
+          });
+          
+          // console.log('✅ Prefilled care data for', Object.keys(initialData).length, 'dates');
+        } else {
+          // Legacy mode - match dates
+          Object.keys(existingData).forEach(dateKey => {
+            if (initialData[dateKey]) {
+              initialData[dateKey] = {
+                morning: { ...initialData[dateKey].morning, ...existingData[dateKey].morning },
+                afternoon: { ...initialData[dateKey].afternoon, ...existingData[dateKey].afternoon },
+                evening: { ...initialData[dateKey].evening, ...existingData[dateKey].evening }
+              };
+            }
+          });
+        }
+        // ========== END PREFILL FIX ==========
         
         isInitialMount.current = false;
-        valueRef.current = value;
+        valueRef.current = parsedValue; // Use parsedValue
         savedDataRef.current = JSON.parse(JSON.stringify(initialData));
         
-        // Initialize lastSentDataRef with the initial data to prevent auto-saving unchanged data
-        const initialTransformed = transformDataForSaving(initialData, extractedDefaults || {
-          morning: { carers: '', time: '', duration: '' },
-          afternoon: { carers: '', time: '', duration: '' },
-          evening: { carers: '', time: '', duration: '' }
-        }, extractedCareVaries);
+        const initialTransformed = transformDataForSaving(
+          initialData, 
+          extractedDefaults || {
+            morning: { carers: '', time: '', duration: '' },
+            afternoon: { carers: '', time: '', duration: '' },
+            evening: { carers: '', time: '', duration: '' }
+          }, 
+          extractedCareVaries
+        );
         lastSentDataRef.current = JSON.stringify(initialTransformed);
       }
       
@@ -657,7 +725,7 @@ export default function CareTable({
       console.error("Error processing dates:", err);
       setDebug(prev => ({ ...prev, error: err.message }));
     }
-  }, [dates, value]);
+  }, [dates, parsedValue]);
   
   useEffect(() => {
     if (isInitialMount.current || value === valueRef.current) return;
@@ -802,20 +870,29 @@ export default function CareTable({
   }, [tableData, defaultValues, careVaries, onChange, required, dates]);
 
   useEffect(() => {
-    if (value && stayDates?.checkInDate && stayDates?.checkOutDate) {
-        const mismatchResult = detectDateMismatch(value, stayDates.checkInDate, stayDates.checkOutDate);
+    if (parsedValue && stayDates?.checkInDate && stayDates?.checkOutDate) {
+      // Check if this is a prefill scenario (has defaultValues)
+      const isPrefillMode = parsedValue?.defaultValues && hasAnyDefaultValues(parsedValue.defaultValues);
+      
+      if (isPrefillMode) {
+        console.log('🔄 Skipping date mismatch detection - prefill mode with defaults');
+        setDateMismatch(null);
+        return;
+      }
+      
+      const mismatchResult = detectDateMismatch(parsedValue, stayDates.checkInDate, stayDates.checkOutDate);
+      
+      const newMismatch = mismatchResult.hasMismatch ? mismatchResult.details : null;
+      
+      if (JSON.stringify(newMismatch) !== JSON.stringify(dateMismatch)) {
+        setDateMismatch(newMismatch);
         
-        const newMismatch = mismatchResult.hasMismatch ? mismatchResult.details : null;
-        
-        if (JSON.stringify(newMismatch) !== JSON.stringify(dateMismatch)) {
-            setDateMismatch(newMismatch);
-            
-            if (newMismatch && onChange) {
-                onChange({ careData: [], defaultValues, careVaries: null }, true);
-            }
+        if (newMismatch && onChange && !parsedValue?.defaultValues) {
+          onChange({ careData: [], defaultValues, careVaries: null }, true);
         }
+      }
     }
-  }, [value, stayDates?.checkInDate, stayDates?.checkOutDate, dateMismatch, onChange, defaultValues, careVaries]);
+  }, [parsedValue, stayDates?.checkInDate, stayDates?.checkOutDate, dateMismatch, onChange, defaultValues, careVaries]);
 
   useEffect(() => {
     if (value && stayDates?.checkInDate && stayDates?.checkOutDate && dateMismatch) {

@@ -251,7 +251,7 @@ export const postProcessPagesForNdis = (pages, isNdisFunded, calculatePageComple
             section.Questions?.forEach(question => {
                 if (shouldMoveQuestionToNdisPage(question, isNdisFunded)) {
                     movedQuestionsCount++;
-                    console.log(`📦 Moving question to NDIS page: "${question.question?.substring(0, 60)}..." (ID: ${question.id}, key: ${question.question_key})`);
+                    // console.log(`📦 Moving question to NDIS page: "${question.question?.substring(0, 60)}..." (ID: ${question.id}, key: ${question.question_key})`);
                     
                     // Create section for NDIS page
                     const ndisSection = {
@@ -272,7 +272,7 @@ export const postProcessPagesForNdis = (pages, isNdisFunded, calculatePageComple
                 const question = qaPair.Question;
                 if (question && shouldMoveQuestionToNdisPage(question, isNdisFunded)) {
                     movedQuestionsCount++;
-                    console.log(`📦 Moving QaPair to NDIS page: "${question.question?.substring(0, 60)}..."`);
+                    // console.log(`📦 Moving QaPair to NDIS page: "${question.question?.substring(0, 60)}..."`);
                     
                     // Find or create section for NDIS page
                     let ndisSection = ndisQuestions.find(ns => ns.id === section.id);
@@ -326,7 +326,7 @@ export const postProcessPagesForNdis = (pages, isNdisFunded, calculatePageComple
         filteredPages.push(filteredPage);
     });
     
-    console.log(`📊 NDIS processing summary: ${movedQuestionsCount} questions moved, ${ndisQuestions.length} sections collected`);
+    // console.log(`📊 NDIS processing summary: ${movedQuestionsCount} questions moved, ${ndisQuestions.length} sections collected`);
     
     // Create NDIS page if we have NDIS questions
     if (ndisQuestions.length > 0 && fundingPageIndex !== -1) {
@@ -372,7 +372,7 @@ export const postProcessPagesForNdis = (pages, isNdisFunded, calculatePageComple
         // Insert NDIS page after funding page
         filteredPages.splice(fundingPageIndex + 1, 0, ndisPage);
         
-        console.log(`✅ Created NDIS page with ${ndisPage.noItems} questions, inserted at index ${fundingPageIndex + 1}`);
+        // console.log(`✅ Created NDIS page with ${ndisPage.noItems} questions, inserted at index ${fundingPageIndex + 1}`);
         
         // Update navigation properties
         filteredPages.forEach((page, index) => {
@@ -384,7 +384,7 @@ export const postProcessPagesForNdis = (pages, isNdisFunded, calculatePageComple
         console.warn(`⚠️ NDIS page NOT created: ndisQuestions.length=${ndisQuestions.length}, fundingPageIndex=${fundingPageIndex}`);
     }
     
-    console.log(`📋 Final page count: ${filteredPages.length}, Pages: ${filteredPages.map(p => p.title || p.id).join(', ')}`);
+    // console.log(`📋 Final page count: ${filteredPages.length}, Pages: ${filteredPages.map(p => p.title || p.id).join(', ')}`);
     
     return filteredPages;
 };
@@ -2048,4 +2048,242 @@ export const getCurrentFunder = (pages) => {
         }
     }
     return null;
+};
+
+/**
+ * Ensure all ndis_only template questions are present in processed form data
+ * This handles the case where sections have no saved QaPairs but contain
+ * ndis_only questions needed for the dependency chain
+ * 
+ * @param {Array} processedPages - The processed form data pages
+ * @param {Array} templatePages - Original template pages with all questions
+ * @param {boolean} isNdisFunded - Whether NDIS funding is detected
+ * @param {Array} apiSections - Raw API sections with saved QaPairs (optional)
+ * @returns {Array} - Updated pages with missing ndis_only questions added
+ */
+export const addMissingNdisOnlyTemplateQuestions = (processedPages, templatePages, isNdisFunded, apiSections = []) => {
+    if (!isNdisFunded || !templatePages || templatePages.length === 0) {
+        return processedPages;
+    }
+
+    console.log('🔍 Checking for missing ndis_only template questions...');
+
+    // ✅ Build a map of saved QaPairs from API response by question_id
+    // This lets us retrieve saved answers even if the section wasn't processed
+    const savedQaPairsMap = new Map();
+    apiSections?.forEach(section => {
+        section.QaPairs?.forEach(qaPair => {
+            const questionId = qaPair.question_id || qaPair.Question?.id;
+            if (questionId) {
+                savedQaPairsMap.set(questionId, {
+                    answer: qaPair.answer,
+                    qaPairId: qaPair.id,
+                    sectionId: section.id,
+                    origSectionId: section.orig_section_id,
+                    question: qaPair.Question
+                });
+                // console.log(`📋 Found saved QaPair for question ${questionId}: "${qaPair.answer}"`);
+            }
+        });
+    });
+
+    // Build a set of all question IDs/keys already in processed form data
+    const existingQuestionIds = new Set();
+    const existingQuestionKeys = new Set();
+
+    processedPages.forEach(page => {
+        page.Sections?.forEach(section => {
+            section.Questions?.forEach(question => {
+                if (question.id) existingQuestionIds.add(question.id);
+                if (question.question_id) existingQuestionIds.add(question.question_id);
+                if (question.question_key) existingQuestionKeys.add(question.question_key);
+            });
+            section.QaPairs?.forEach(qaPair => {
+                if (qaPair.question_id) existingQuestionIds.add(qaPair.question_id);
+                if (qaPair.Question?.id) existingQuestionIds.add(qaPair.Question.id);
+                if (qaPair.Question?.question_key) existingQuestionKeys.add(qaPair.Question.question_key);
+            });
+        });
+    });
+
+    // Find missing ndis_only questions from template
+    const missingQuestions = [];
+
+    templatePages.forEach(templatePage => {
+        templatePage.Sections?.forEach(templateSection => {
+            templateSection.Questions?.forEach(templateQuestion => {
+                // Only process ndis_only questions
+                if (!templateQuestion.ndis_only) return;
+
+                const questionId = templateQuestion.id;
+                const questionKey = templateQuestion.question_key;
+
+                // Check if this question is already in processed data
+                const alreadyExists = 
+                    existingQuestionIds.has(questionId) ||
+                    (questionKey && existingQuestionKeys.has(questionKey));
+
+                if (!alreadyExists) {
+                    // ✅ Check if there's a saved answer in the API response
+                    const savedQaPair = savedQaPairsMap.get(questionId);
+                    
+                    // console.log(`📦 Found missing ndis_only question: "${templateQuestion.question?.substring(0, 50)}..." (ID: ${questionId}, key: ${questionKey})${savedQaPair ? ` - HAS SAVED ANSWER: "${savedQaPair.answer}"` : ''}`);
+                    
+                    missingQuestions.push({
+                        question: templateQuestion,
+                        templatePageId: templatePage.id,
+                        templatePageTitle: templatePage.title,
+                        templateSectionId: templateSection.id,
+                        origSectionId: templateSection.orig_section_id || templateSection.id,
+                        savedQaPair: savedQaPair // ✅ Include saved QaPair data
+                    });
+                }
+            });
+        });
+    });
+
+    if (missingQuestions.length === 0) {
+        // console.log('✅ No missing ndis_only questions found');
+        return processedPages;
+    }
+
+    // console.log(`📋 Adding ${missingQuestions.length} missing ndis_only questions...`);
+
+    // Add missing questions to the appropriate pages/sections
+    const updatedPages = processedPages.map(page => {
+        const updatedSections = page.Sections.map(section => {
+            // Find missing questions that belong to this section
+            const questionsForThisSection = missingQuestions.filter(mq => {
+                // Match by orig_section_id
+                return mq.origSectionId === section.orig_section_id ||
+                       mq.templateSectionId === section.id ||
+                       mq.templateSectionId === section.orig_section_id;
+            });
+
+            if (questionsForThisSection.length === 0) {
+                return section;
+            }
+
+            // Add missing questions to this section
+            const newQuestions = questionsForThisSection.map(mq => {
+                const savedAnswer = mq.savedQaPair?.answer || null;
+                
+                // ✅ Process options to mark the correct one as checked if we have a saved answer
+                let processedOptions = mq.question.options;
+                if (savedAnswer && Array.isArray(mq.question.options)) {
+                    processedOptions = mq.question.options.map(opt => ({
+                        ...opt,
+                        checked: opt.label === savedAnswer
+                    }));
+                }
+                
+                return {
+                    ...mq.question,
+                    section_id: section.id,
+                    answer: savedAnswer,
+                    oldAnswer: savedAnswer,
+                    options: processedOptions,
+                    hidden: false, // Will be re-evaluated by dependency logic
+                    fromQa: !!mq.savedQaPair, // Mark as fromQa if we have saved data
+                    id: mq.savedQaPair?.qaPairId || mq.question.id,
+                    question_id: mq.question.id,
+                    ndis_only: true
+                };
+            });
+
+            // console.log(`✅ Added ${newQuestions.length} questions to section ${section.id} on page "${page.title}"`);
+
+            return {
+                ...section,
+                Questions: [...(section.Questions || []), ...newQuestions]
+            };
+        });
+
+        return {
+            ...page,
+            Sections: updatedSections
+        };
+    });
+
+    // Handle case where the section itself doesn't exist in processed pages
+    // (entire section was skipped because it had no QaPairs)
+    const remainingMissing = missingQuestions.filter(mq => {
+        // Check if this question was added
+        return !updatedPages.some(page =>
+            page.Sections?.some(section =>
+                section.Questions?.some(q => 
+                    q.id === mq.question.id || 
+                    q.question_id === mq.question.id ||
+                    q.question_key === mq.question.question_key
+                )
+            )
+        );
+    });
+
+    if (remainingMissing.length > 0) {
+        // console.log(`⚠️ ${remainingMissing.length} questions couldn't be added to existing sections, creating new sections...`);
+
+        // Group remaining missing questions by their template page
+        const groupedByPage = {};
+        remainingMissing.forEach(mq => {
+            const key = mq.templatePageTitle;
+            if (!groupedByPage[key]) {
+                groupedByPage[key] = {
+                    pageTitle: mq.templatePageTitle,
+                    pageId: mq.templatePageId,
+                    questions: []
+                };
+            }
+            groupedByPage[key].questions.push(mq);
+        });
+
+        // Add questions to matching pages or create placeholder sections
+        Object.values(groupedByPage).forEach(group => {
+            const targetPage = updatedPages.find(p => 
+                p.title === group.pageTitle || 
+                p.id === group.pageId
+            );
+
+            if (targetPage) {
+                // Create a new section for these questions
+                const newSection = {
+                    id: `ndis_temp_section_${Date.now()}`,
+                    label: '',
+                    type: 'rows',
+                    orig_section_id: group.questions[0]?.origSectionId,
+                    Questions: group.questions.map(mq => {
+                        const savedAnswer = mq.savedQaPair?.answer || null;
+                        
+                        // ✅ Process options to mark the correct one as checked
+                        let processedOptions = mq.question.options;
+                        if (savedAnswer && Array.isArray(mq.question.options)) {
+                            processedOptions = mq.question.options.map(opt => ({
+                                ...opt,
+                                checked: opt.label === savedAnswer
+                            }));
+                        }
+                        
+                        return {
+                            ...mq.question,
+                            answer: savedAnswer,
+                            oldAnswer: savedAnswer,
+                            options: processedOptions,
+                            hidden: false,
+                            fromQa: !!mq.savedQaPair,
+                            id: mq.savedQaPair?.qaPairId || mq.question.id,
+                            question_id: mq.question.id,
+                            ndis_only: true
+                        };
+                    }),
+                    QaPairs: [],
+                    hidden: false
+                };
+
+                targetPage.Sections.push(newSection);
+                // console.log(`✅ Created new section on "${targetPage.title}" with ${group.questions.length} ndis_only questions`);
+            }
+        });
+    }
+
+    return updatedPages;
 };
