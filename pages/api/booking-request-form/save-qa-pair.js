@@ -392,29 +392,29 @@ const updateBooking = async (booking, qa_pairs = [], flags, bookingService) => {
                         bookingAmended = true;
                     }
                 }
-                
-                if (bookingAmended && !flags?.hasOwnProperty('origin') && flags.origin != 'admin') {
-                    if (currentBookingStatus?.name == 'booking_confirmed') {
-                        bookingService.sendBookingEmail('amendment', booking);
-                    }
-
-                    const bookingAmendedStatus = bookingStatuses.find(status => JSON.parse(status.value).name == 'booking_amended');
-                    const bokkingStatusName = JSON.parse(bookingAmendedStatus.value).name;
-                    await Booking.update({ status_logs: JSON.stringify(updateStatusLogs(statusLogs, 'booking_amended')), status: bookingAmendedStatus.value, status_name: bokkingStatusName }, { where: { id: booking.id } });
-                } else if (currentBookingStatus?.name === 'pending_approval') {
-                    const bookingHasCourse = await bookingService.validateBookingHasCourse(booking);
-
-                    if (booking.type == BOOKING_TYPES.RETURNING_GUEST && !bookingHasCourse && !booking.status.includes('ready_to_process')) {
-                        const readyToProcessStatus = bookingStatuses.find(status => JSON.parse(status.value).name == 'ready_to_process');
-                        const bokkingStatusName = JSON.parse(readyToProcessStatus.value).name;
-                        await Booking.update({ status_logs: JSON.stringify(updateStatusLogs(statusLogs, 'ready_to_process')), status: readyToProcessStatus.value, status_name: bokkingStatusName }, { where: { id: booking.id } });
-                        bookingService.generateBookingStatusChangeNotifications(booking, 'ready_to_process');
-                    }
-                }
             }
 
             console.log('bookingAmended: ', bookingAmended)
             response.bookingAmended = bookingAmended;
+
+            if (bookingAmended && !flags?.hasOwnProperty('origin') && flags.origin != 'admin') {
+                if (currentBookingStatus?.name == 'booking_confirmed') {
+                    bookingService.sendBookingEmail('amendment', booking);
+                }
+
+                const bookingAmendedStatus = bookingStatuses.find(status => JSON.parse(status.value).name == 'booking_amended');
+                const bokkingStatusName = JSON.parse(bookingAmendedStatus.value).name;
+                await Booking.update({ status_logs: JSON.stringify(updateStatusLogs(statusLogs, 'booking_amended')), status: bookingAmendedStatus.value, status_name: bokkingStatusName }, { where: { id: booking.id } });
+            } else if (currentBookingStatus?.name === 'pending_approval') {
+                const bookingHasCourse = await bookingService.validateBookingHasCourse(booking);
+
+                if (booking.type == BOOKING_TYPES.RETURNING_GUEST && !bookingHasCourse && !booking.status.includes('ready_to_process')) {
+                    const readyToProcessStatus = bookingStatuses.find(status => JSON.parse(status.value).name == 'ready_to_process');
+                    const bokkingStatusName = JSON.parse(readyToProcessStatus.value).name;
+                    await Booking.update({ status_logs: JSON.stringify(updateStatusLogs(statusLogs, 'ready_to_process')), status: readyToProcessStatus.value, status_name: bokkingStatusName }, { where: { id: booking.id } });
+                    bookingService.generateBookingStatusChangeNotifications(booking, 'ready_to_process');
+                }
+            }
 
             if (metainfo.notifications == undefined || metainfo.notifications == false) {
                 bookingService.generateNotifications(booking);

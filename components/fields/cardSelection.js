@@ -144,29 +144,38 @@ const CardSelection = ({
 
   const fetchActiveCourses = async () => {
       // Check if we have course offers passed from parent
-      if (courseOffers && courseOffers.length > 0) {
-          console.log('Using course offers passed from parent:', courseOffers.length);
-          
-          const courses = courseOffers.map(offer => ({
-              label: offer.courseName || 'Untitled Course',
-              value: offer.courseId?.toString() || offer.id?.toString(),
-              description: offer.courseDescription || '',
-              imageFilename: offer.courseImage || null,
-              imageUrl: offer.courseImageUrl || null,
-              offerStatus: offer.offerStatus,
-              minStartDate: offer.minStartDate,
-              minEndDate: offer.minEndDate,
-              dateValid: offer.dateValid !== undefined ? offer.dateValid : true,
-              validationMessage: offer.dateValidationMessage,
-              offerId: offer.id,
-              courseId: offer.courseId,
-              // REMOVED: disabled property - courses are never disabled now
-              statusText: offer.dateValid === false ? 'Outside minimum stay period' : 'Within minimum stay period',
-              statusColor: offer.dateValid === false ? 'amber' : 'green' // Changed to amber instead of red
-          }));
-          
-          return courses;
-      }
+    if (courseOffers && courseOffers.length > 0) {
+        console.log('Using course offers passed from parent:', courseOffers.length);
+        
+        const courses = courseOffers.map(offer => ({
+            label: offer.courseName || 'Untitled Course',
+            value: offer.courseId?.toString() || offer.id?.toString(),
+            description: offer.courseDescription || '',
+            imageFilename: offer.courseImage || null,
+            imageUrl: offer.courseImageUrl || null,
+            offerStatus: offer.offerStatus,
+            minStartDate: offer.minStartDate,
+            minEndDate: offer.minEndDate,
+            dateValid: offer.dateValid !== undefined ? offer.dateValid : true,
+            dateValidationSeverity: offer.dateValidationSeverity || null, // ✅ NEW
+            validationMessage: offer.dateValidationMessage,
+            offerId: offer.id,
+            courseId: offer.courseId,
+            // Update status text based on severity
+            statusText: offer.dateValidationSeverity === 'warning' 
+                ? 'May require stay extension' 
+                : offer.dateValid === false 
+                    ? 'Cannot participate with current dates' 
+                    : 'Compatible with your stay',
+            statusColor: offer.dateValidationSeverity === 'warning'
+                ? 'amber'
+                : offer.dateValid === false
+                    ? 'red'
+                    : 'green'
+        }));
+        
+        return courses;
+    }
 
       // Fallback: Only fetch if no course offers provided AND not already fetched globally
       if (coursesFetching) {
@@ -659,16 +668,20 @@ const CardSelection = ({
                     <div className="flex gap-4 text-xs">
                         <span className="flex items-center">
                             <div className="w-2 h-2 bg-green-500 rounded-full mr-1"></div>
-                            {displayItems.filter(item => item.dateValid).length} Within period
+                            {displayItems.filter(item => item.dateValid && !item.dateValidationSeverity).length} Compatible
                         </span>
                         <span className="flex items-center">
                             <div className="w-2 h-2 bg-amber-500 rounded-full mr-1"></div>
-                            {displayItems.filter(item => !item.dateValid).length} Outside period
+                            {displayItems.filter(item => item.dateValidationSeverity === 'warning').length} May need extension
+                        </span>
+                        <span className="flex items-center">
+                            <div className="w-2 h-2 bg-red-500 rounded-full mr-1"></div>
+                            {displayItems.filter(item => !item.dateValid && item.dateValidationSeverity === 'error').length} Cannot participate
                         </span>
                     </div>
                 </div>
                 <div className="mt-2 text-xs text-gray-600">
-                    All courses can be selected. Courses outside the minimum stay period may require extending your stay.
+                    Courses with warnings can still be selected but may require extending your stay dates.
                 </div>
             </div>
         )}
@@ -690,29 +703,13 @@ const CardSelection = ({
                         className={`flex border-2 rounded-xl transition-all duration-200 relative cursor-pointer ${
                             !builderMode && isSelected(item.value) 
                                 ? 'border-blue-600 bg-blue-50 shadow-md ring-2 ring-blue-200' 
-                                : item.dateValid === false
+                                : item.dateValidationSeverity === 'warning'
                                     ? 'border-amber-200 bg-amber-50 hover:border-amber-300 hover:shadow-sm'
-                                    : 'border-gray-200 hover:border-gray-300 hover:shadow-sm'
+                                    : item.dateValid === false
+                                        ? 'border-red-200 bg-red-50 hover:border-red-300 hover:shadow-sm'
+                                        : 'border-gray-200 hover:border-gray-300 hover:shadow-sm'
                         } ${builderMode ? 'cursor-default' : ''} ${currentSize.card}`}
                     >
-                        {/* Rest of card content stays the same... */}
-                        {/* Updated validation indicator */}
-                        {!builderMode && optionType === 'course' && item.hasOwnProperty('dateValid') && (
-                            <div className={`absolute -top-2 -right-2 w-6 h-6 rounded-full flex items-center justify-center ${
-                                item.dateValid ? 'bg-green-500' : 'bg-amber-500'
-                            }`}>
-                                {item.dateValid ? (
-                                    <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
-                                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                    </svg>
-                                ) : (
-                                    <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
-                                        <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                                    </svg>
-                                )}
-                            </div>
-                        )}
-
                         {/* ENHANCED Image Section with Error Handling */}
                         <div className="flex-shrink-0 mr-4">
                             {shouldShowPlaceholder(item, index) ? (
@@ -834,18 +831,55 @@ const CardSelection = ({
                                         </div>
                                     )}
                                     
+                                    {/* Updated validation indicator with severity handling */}
+                                    {!builderMode && optionType === 'course' && item.hasOwnProperty('dateValid') && (
+                                        <div className={`absolute -top-2 -right-2 w-6 h-6 rounded-full flex items-center justify-center ${
+                                            item.dateValidationSeverity === 'warning'
+                                                ? 'bg-amber-500'
+                                                : item.dateValid 
+                                                    ? 'bg-green-500' 
+                                                    : 'bg-red-500'
+                                        }`}>
+                                            {item.dateValidationSeverity === 'warning' ? (
+                                                // Warning icon
+                                                <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                                    <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                                                </svg>
+                                            ) : item.dateValid ? (
+                                                // Success checkmark
+                                                <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                                </svg>
+                                            ) : (
+                                                // Error X
+                                                <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                                    <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                                                </svg>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {/* Update the status badge */}
                                     {!builderMode && optionType === 'course' && item.hasOwnProperty('dateValid') && (
                                         <div className="mt-2">
                                             <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                                                item.dateValid 
-                                                    ? 'bg-green-100 text-green-800' 
-                                                    : 'bg-amber-100 text-amber-800'
+                                                item.dateValidationSeverity === 'warning'
+                                                    ? 'bg-amber-100 text-amber-800'
+                                                    : item.dateValid 
+                                                        ? 'bg-green-100 text-green-800' 
+                                                        : 'bg-red-100 text-red-800'
                                             }`}>
                                                 {item.statusText}
                                             </span>
-                                            {!item.dateValid && (
-                                                <p className="text-xs text-amber-600 mt-1">
-                                                    You can still select this course but may need to extend your stay dates to meet the minimum requirements.
+                                            {item.validationMessage && (
+                                                <p className={`text-xs mt-1 ${
+                                                    item.dateValidationSeverity === 'warning'
+                                                        ? 'text-amber-700'
+                                                        : item.dateValid
+                                                            ? 'text-green-700'
+                                                            : 'text-red-700'
+                                                }`}>
+                                                    {item.validationMessage}
                                                 </p>
                                             )}
                                         </div>

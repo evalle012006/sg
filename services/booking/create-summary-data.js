@@ -37,7 +37,7 @@ export async function getNSWHolidaysV2(startDate, endDate) {
   }
 }
 
-const calculateDaysBreakdown = async (startDateStr, numberOfNights) => {
+export const calculateDaysBreakdown = async (startDateStr, numberOfNights, includeAllDays = false) => {
   const startDate = startDateStr.split(' - ')[0].split('/').reverse().join('-');
 
   const dates = startDateStr.split(' - ');
@@ -50,7 +50,11 @@ const calculateDaysBreakdown = async (startDateStr, numberOfNights) => {
     publicHolidays: holidays.length || 0
   };
 
-  for (let i = 0; i < numberOfNights; i++) {
+  // For care (includeAllDays=true), loop through all calendar days (nights + 1)
+  // For services (includeAllDays=false), use accommodation nights count
+  const daysToCount = includeAllDays ? numberOfNights + 1 : numberOfNights;
+
+  for (let i = 0; i < daysToCount; i++) {
     const currentDate = new Date(startDate);
     currentDate.setDate(currentDate.getDate() + i);
     

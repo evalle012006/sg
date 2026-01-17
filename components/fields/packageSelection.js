@@ -61,15 +61,11 @@ const PackageSelection = ({
   const [packages, setPackages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [fetchError, setFetchError] = useState(null);
-  const [debugInfo, setDebugInfo] = useState(null);
   const [autoSelected, setAutoSelected] = useState(false);
-  const [stableFilterCriteria, setStableFilterCriteria] = useState(null);
-  const [lastCriteriaHash, setLastCriteriaHash] = useState(null);
   const previousValueRef = useRef(value);
   const lastFetchCriteriaRef = useRef(null);
   const abortControllerRef = useRef(null);
   const requestIdRef = useRef(0);
-  const fetchInProgressRef = useRef(false);
   const [dataReady, setDataReady] = useState(false);
   const initialLoadRef = useRef(true);
 
@@ -105,8 +101,7 @@ const PackageSelection = ({
                               (qaData && qaData.length > 0);
         
         const hasCareData = careAnalysisData && 
-                           typeof careAnalysisData.totalHoursPerDay === 'number' &&
-                           careAnalysisData.dataSource !== 'none';
+                   typeof careAnalysisData.totalHoursPerDay === 'number';
         
         if (!hasFunderData || !hasCareData) {
             console.log('📦 Waiting for critical data...');
@@ -620,112 +615,53 @@ const PackageSelection = ({
 
   // Build comprehensive filter criteria
   const enhancedFilterCriteria = useMemo(() => {
-      // ✅ FIX: Check if critical filters have changed before using stableFilterCriteria
-      if (stableFilterCriteria && !builderMode) {
-          const careHoursToUse = careAnalysisData 
-              ? Math.ceil(careAnalysisData.totalHoursPerDay || 0) 
-              : 0;
+    console.log('📦 Calculating filter criteria with:', {
+        careHours: careAnalysisData?.totalHoursPerDay,
+        hasCourse: courseAnalysisData?.hasCourse,
+        courseOffered: courseAnalysisData?.courseOffered,
+        funderType: localFilterState?.funderType || funder
+    });
+    
+    const baseCriteria = packageFilterCriteria || createPackageFilterCriteria(careAnalysisData?.rawCareData || []);
+    
+    const guestRequirements = extractGuestRequirementsFromStableData();
+    
+    const criteria = {
+        ...baseCriteria,
+        ...guestRequirements,
+        
+        funder_type: localFilterState?.funderType || guestRequirements.funder_type || funder,
+        ndis_package_type: localFilterState?.ndisPackageType || guestRequirements.ndis_package_type || ndis_package_type,
+        
+        // CRITICAL: Always use current careAnalysisData
+        care_hours: careAnalysisData ? Math.ceil(careAnalysisData.totalHoursPerDay || 0) : 0,
+        care_pattern: careAnalysisData ? careAnalysisData.carePattern : 'no-care',
+        recommended_packages: careAnalysisData ? (careAnalysisData.recommendedPackages || []) : [],
+        
+        // CRITICAL: Always use current courseAnalysisData  
+        has_course: courseAnalysisData ? (courseAnalysisData.hasCourse || courseAnalysisData.courseOffered) : false,
+        course_offered: courseAnalysisData ? courseAnalysisData.courseOffered : false,
+        course_id: courseAnalysisData ? courseAnalysisData.courseId : null,
+        
+        ...additionalFilters
+    };
 
-          console.log('📦 Filter criteria care hours calculation:', {
-              hasCareAnalysisData: !!careAnalysisData,
-              rawTotalHoursPerDay: careAnalysisData?.totalHoursPerDay,
-              careHoursToUse: careHoursToUse,
-              carePattern: careAnalysisData?.carePattern,
-              dataSource: careAnalysisData?.dataSource
-          });
-
-          // ✅ FIXED: Compare ALL critical values that should trigger a refetch
-          const newCareHours = careAnalysisData ? Math.ceil(careAnalysisData.totalHoursPerDay || 0) : 0;
-          const newHasCourse = courseAnalysisData ? (courseAnalysisData.hasCourse || courseAnalysisData.courseOffered) : false;
-          const newCourseOffered = courseAnalysisData ? courseAnalysisData.courseOffered : false;
-          
-          const criticalValuesChanged = 
-              stableFilterCriteria.ndis_package_type !== (localFilterState?.ndisPackageType || ndis_package_type) ||
-              stableFilterCriteria.funder_type !== (localFilterState?.funderType || funder) ||
-              // ✅ NEW: Also check care hours and course data
-              stableFilterCriteria.care_hours !== newCareHours ||
-              stableFilterCriteria.has_course !== newHasCourse ||
-              stableFilterCriteria.course_offered !== newCourseOffered;
-          
-          if (criticalValuesChanged) {
-              console.log('📦 Critical filter values changed, recalculating criteria:', {
-                  old: {
-                      ndis_package_type: stableFilterCriteria.ndis_package_type,
-                      funder_type: stableFilterCriteria.funder_type,
-                      care_hours: stableFilterCriteria.care_hours,
-                      has_course: stableFilterCriteria.has_course,
-                      course_offered: stableFilterCriteria.course_offered
-                  },
-                  new: {
-                      ndis_package_type: localFilterState?.ndisPackageType || ndis_package_type,
-                      funder_type: localFilterState?.funderType || funder,
-                      care_hours: newCareHours,
-                      has_course: newHasCourse,
-                      course_offered: newCourseOffered
-                  }
-              });
-              // ✅ IMPORTANT: Reset stableFilterCriteria to force recalculation
-              // Don't return stableFilterCriteria - let it recalculate below
-          } else {
-              console.log('📦 Using stable filter criteria (no recalculation needed)');
-              return stableFilterCriteria;
-          }
-      }
-      
-      console.log('📦 Calculating new filter criteria');
-      
-      const baseCriteria = packageFilterCriteria || createPackageFilterCriteria(careAnalysis.rawCareData || []);
-      
-      // Get additional requirements from form data - BUT ONLY USE STABLE QAPAIRS DATA
-      const guestRequirements = extractGuestRequirementsFromStableData();
-      
-      const criteria = {
-          ...baseCriteria,
-          ...guestRequirements,
-          
-          // Override with explicit props if provided
-          funder_type: localFilterState?.funderType || guestRequirements.funder_type || funder,
-          ndis_package_type: localFilterState?.ndisPackageType || guestRequirements.ndis_package_type || ndis_package_type,
-          
-          // Care-specific criteria - ONLY use if careAnalysisData is provided (stable)
-          care_hours: careAnalysisData ? Math.ceil(careAnalysisData.totalHoursPerDay || 0) : 0,
-          care_pattern: careAnalysisData ? careAnalysisData.carePattern : 'no-care',
-          recommended_packages: careAnalysisData ? (careAnalysisData.recommendedPackages || []) : [],
-          
-          // Course-specific criteria - ONLY use if courseAnalysisData is provided (stable)
-          has_course: courseAnalysisData ? (courseAnalysisData.hasCourse || courseAnalysisData.courseOffered) : false,
-          course_offered: courseAnalysisData ? courseAnalysisData.courseOffered : false,
-          course_id: courseAnalysisData ? courseAnalysisData.courseId : null,
-          
-          // Additional filters
-          ...additionalFilters
-      };
-
-      console.log('🎯 New filter criteria calculated:', {
-          funder_type: criteria.funder_type,
-          ndis_package_type: criteria.ndis_package_type,
-          care_hours: criteria.care_hours,
-          has_course: criteria.has_course,
-          course_offered: criteria.course_offered,
-          dataStability: {
-              hasCareAnalysisData: !!careAnalysisData,
-              hasCourseAnalysisData: !!courseAnalysisData,
-              careDataSource: careAnalysisData?.dataSource,
-              courseDataSource: courseAnalysisData?.dataSource
-          }
-      });
-      
-      return criteria;
+    console.log('🎯 Calculated filter criteria:', criteria);
+    return criteria;
   }, [
+      // CRITICAL: Depend on the actual data objects' key properties
       careAnalysisData?.totalHoursPerDay,
       careAnalysisData?.carePattern,
+      careAnalysisData?.dataSource, // Add this to detect when data source changes
       courseAnalysisData?.hasCourse,
       courseAnalysisData?.courseOffered,
+      courseAnalysisData?.courseId,
       localFilterState?.funderType,
       localFilterState?.ndisPackageType,
       funder,
       ndis_package_type,
-      stableFilterCriteria,
+      packageFilterCriteria,
+      additionalFilters,
       builderMode
   ]);
 
@@ -904,229 +840,159 @@ const PackageSelection = ({
   };
 
   const fetchPackages = useCallback(async (forceFetch = false) => {
-      // Cancel any previous pending request
-      if (abortControllerRef.current) {
-          console.log('📦 Cancelling previous request');
-          abortControllerRef.current.abort();
-      }
+    // Cancel any previous pending request
+    if (abortControllerRef.current) {
+        console.log('📦 Cancelling previous request');
+        abortControllerRef.current.abort();
+    }
 
-      // ADDED: Clear packages immediately when fetching to prevent stale descriptions
-      // This ensures we don't show old package descriptions during transition
-      if (!forceFetch) {
-          setPackages([]);
-      }
+    // Clear packages immediately to prevent showing stale data
+    setPackages([]);
+    
+    abortControllerRef.current = new AbortController();
+    const signal = abortControllerRef.current.signal;
+    const currentRequestId = ++requestIdRef.current;
+    
+    console.log(`📦 Fetching packages #${currentRequestId} with:`, {
+        funder_type: enhancedFilterCriteria.funder_type,
+        ndis_package_type: enhancedFilterCriteria.ndis_package_type,
+        care_hours: enhancedFilterCriteria.care_hours,
+        has_course: enhancedFilterCriteria.has_course,
+        course_offered: enhancedFilterCriteria.course_offered
+    });
 
-      // Create new abort controller for this request
-      abortControllerRef.current = new AbortController();
-      const signal = abortControllerRef.current.signal;
+    try {
+        setLoading(true);
+        setFetchError(null);
 
-      // Increment request ID to track this specific request
-      const currentRequestId = ++requestIdRef.current;
-      console.log(`📦 Starting fetch request #${currentRequestId}`);
+        const needsAdvancedFiltering = enhancedFilterCriteria.care_hours > 0;
+        let response;
 
-      try {
-          // Create hash of current criteria
-          const currentHash = JSON.stringify({
-              funder_type: enhancedFilterCriteria.funder_type,
-              ndis_package_type: enhancedFilterCriteria.ndis_package_type,
-              care_hours: enhancedFilterCriteria.care_hours,
-              has_course: enhancedFilterCriteria.has_course,
-              course_offered: enhancedFilterCriteria.course_offered
-          });
+        if (needsAdvancedFiltering) {
+            console.log('🔍 Using advanced package filtering');
+            response = await fetch('/api/packages/filter', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    ...enhancedFilterCriteria,
+                    include_requirements: true,
+                    debug: false
+                }),
+                signal
+            });
+        } else {
+            console.log('🔍 Using basic package filtering');
+            const params = new URLSearchParams();
+            if (enhancedFilterCriteria.funder_type) params.set('funder', enhancedFilterCriteria.funder_type);
+            if (enhancedFilterCriteria.ndis_package_type) params.set('ndis_package_type', enhancedFilterCriteria.ndis_package_type);
+            params.set('include_requirements', 'true');
 
-          // Check if we need to fetch (criteria changed or forced)
-          if (!forceFetch && lastCriteriaHash === currentHash && packages.length > 0) {
-              console.log('📦 Skipping fetch - criteria unchanged and packages already loaded');
-              return;
-          }
+            response = await fetch(`/api/packages?${params.toString()}`, { signal });
+        }
 
-          setLoading(true);
-          setFetchError(null);
+        if (signal.aborted || currentRequestId !== requestIdRef.current) {
+            console.log(`📦 Request #${currentRequestId} aborted/stale`);
+            return;
+        }
 
-          console.log('📦 Fetching packages with criteria:', {
-              funder_type: enhancedFilterCriteria.funder_type,
-              ndis_package_type: enhancedFilterCriteria.ndis_package_type,
-              care_hours: enhancedFilterCriteria.care_hours
-          });
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
 
-          // Determine if we need advanced filtering (care-based)
-          const needsAdvancedFiltering = enhancedFilterCriteria.care_hours > 0;
+        const data = await response.json();
 
-          let response;
+        if (currentRequestId !== requestIdRef.current) {
+            console.log(`📦 Request #${currentRequestId} stale, ignoring`);
+            return;
+        }
 
-          if (needsAdvancedFiltering) {
-              console.log('🔍 Using advanced package filtering with care data');
-              response = await fetch('/api/packages/filter', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                      ...enhancedFilterCriteria,
-                      include_requirements: true,
-                      debug: false
-                  }),
-                  signal // Pass abort signal
-              });
-          } else {
-              console.log('🔍 Using basic package filtering');
-              const params = new URLSearchParams();
-              if (enhancedFilterCriteria.funder_type) params.set('funder', enhancedFilterCriteria.funder_type);
-              if (enhancedFilterCriteria.ndis_package_type) params.set('ndis_package_type', enhancedFilterCriteria.ndis_package_type);
-              params.set('include_requirements', 'true');
+        if (data.success && data.packages) {
+            let fetchedPackages = data.packages.map(pkg => ({
+                ...pkg,
+                formattedPrice: pkg.funder === 'NDIS'
+                    ? 'NDIS Funded'
+                    : selectedFunder === 'icare' || selectedFunder === 'iCare'
+                        ? 'iCare Funded'
+                        : `$${parseFloat(pkg.price || 0).toFixed(2)}`,
+                summary: pkg.description ?
+                    (pkg.description.length > 100 ? pkg.description.substring(0, 100) + '...' : pkg.description) :
+                    'Package details available',
+                ndis_line_items: Array.isArray(pkg.ndis_line_items) ? pkg.ndis_line_items : [],
+                inclusions: Array.isArray(pkg.inclusions) ? pkg.inclusions : [],
+                features: Array.isArray(pkg.features) ? pkg.features : [],
+                hasRequirement: !!(pkg.requirement && typeof pkg.requirement === 'object')
+            }));
 
-              const queryString = params.toString();
-              response = await fetch(`/api/packages${queryString ? `?${queryString}` : '?include_requirements=true'}`, {
-                  signal // Pass abort signal
-              });
-          }
+            fetchedPackages = applyPackageRequirementFiltering(fetchedPackages, enhancedFilterCriteria);
 
-          // Check if this request was aborted or superseded
-          if (signal.aborted) {
-              console.log(`📦 Request #${currentRequestId} was aborted, ignoring response`);
-              return;
-          }
+            // Sort packages
+            fetchedPackages.sort((a, b) => {
+                const careHours = enhancedFilterCriteria.care_hours || 0;
+                if (careHours === 0) {
+                    const aIsNoCarePerfect = a.requirement?.requires_no_care === true;
+                    const bIsNoCarePerfect = b.requirement?.requires_no_care === true;
+                    if (aIsNoCarePerfect && !bIsNoCarePerfect) return -1;
+                    if (!aIsNoCarePerfect && bIsNoCarePerfect) return 1;
+                }
+                if (a.isRecommended && !b.isRecommended) return -1;
+                if (!a.isRecommended && b.isRecommended) return 1;
+                if (a.matchScore !== undefined && b.matchScore !== undefined) {
+                    if (a.matchScore !== b.matchScore) return b.matchScore - a.matchScore;
+                }
+                return (a.name || '').localeCompare(b.name || '');
+            });
 
-          // Check if a newer request has been made
-          if (currentRequestId !== requestIdRef.current) {
-              console.log(`📦 Request #${currentRequestId} is stale (current is #${requestIdRef.current}), ignoring response`);
-              return;
-          }
+            console.log(`📦 Setting ${fetchedPackages.length} packages`);
 
-          if (!response.ok) {
-              throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-          }
-
-          const data = await response.json();
-
-          // Double-check we're still the current request after parsing JSON
-          if (currentRequestId !== requestIdRef.current) {
-              console.log(`📦 Request #${currentRequestId} became stale during JSON parsing, ignoring`);
-              return;
-          }
-
-          if (data.success && data.packages) {
-              console.log(`📦 Request #${currentRequestId}: Successfully fetched ${data.packages.length} packages`);
-
-              let fetchedPackages = data.packages.map(pkg => ({
-                  ...pkg,
-                  formattedPrice: pkg.funder === 'NDIS'
-                      ? 'NDIS Funded'
-                      : selectedFunder === 'icare' || selectedFunder === 'iCare'
-                          ? 'iCare Funded'
-                          : `$${parseFloat(pkg.price || 0).toFixed(2)}`,
-                  summary: pkg.description ?
-                      (pkg.description.length > 100 ? pkg.description.substring(0, 100) + '...' : pkg.description) :
-                      'Package details available',
-                  ndis_line_items: Array.isArray(pkg.ndis_line_items) ? pkg.ndis_line_items : [],
-                  inclusions: Array.isArray(pkg.inclusions) ? pkg.inclusions : [],
-                  features: Array.isArray(pkg.features) ? pkg.features : [],
-                  hasRequirement: !!(pkg.requirement && typeof pkg.requirement === 'object')
-              }));
-
-              // Apply PackageRequirement filtering
-              fetchedPackages = applyPackageRequirementFiltering(fetchedPackages, enhancedFilterCriteria);
-
-              // Sort packages (your existing sorting logic)
-              fetchedPackages.sort((a, b) => {
-                  const careHours = enhancedFilterCriteria.care_hours || 0;
-
-                  // Existing no-care prioritization logic
-                  if (careHours === 0) {
-                      const aIsNoCarePerfect = a.requirement?.requires_no_care === true;
-                      const bIsNoCarePerfect = b.requirement?.requires_no_care === true;
-
-                      if (aIsNoCarePerfect && !bIsNoCarePerfect) return -1;
-                      if (!aIsNoCarePerfect && bIsNoCarePerfect) return 1;
-                  }
-
-                  // Recommended packages priority
-                  if (a.isRecommended && !b.isRecommended) return -1;
-                  if (!a.isRecommended && b.isRecommended) return 1;
-
-                  // Match score priority
-                  if (a.matchScore !== undefined && b.matchScore !== undefined) {
-                      if (a.matchScore !== b.matchScore) {
-                          return b.matchScore - a.matchScore;
-                      }
-                  }
-
-                  // Alphabetical fallback
-                  return (a.name || '').localeCompare(b.name || '');
-              });
-
-              console.log(`📦 Request #${currentRequestId}: Final packages:`, fetchedPackages.map(p => p.package_code));
-
-              if (!builderMode) {
-                  const bestMatch = fetchedPackages.length > 0 ? fetchedPackages[0] : null;
-
-                  if (bestMatch) {
-                      console.log(`🏆 Request #${currentRequestId}: Best match selected:`, {
-                          name: bestMatch.name,
-                          code: bestMatch.package_code
-                      });
-
-                      // Auto-select immediately
-                      if (onChange && value != bestMatch.id) {
-                          onChange(bestMatch.id);
-                          setAutoSelected(true);
-                      }
-
-                      // Show only the single best match
-                      setPackages([bestMatch]);
-                  } else {
-                      console.warn('⚠️ No packages found');
-                      setPackages([]);
-                  }
-              } else {
-                  // Builder mode - show all packages
-                  setPackages(fetchedPackages);
-              }
-
-              // Update stable criteria and hash
-              setStableFilterCriteria({ ...enhancedFilterCriteria });
-              setLastCriteriaHash(currentHash);
-          } else {
-              throw new Error(data.message || 'Failed to fetch packages');
-          }
-      } catch (error) {
-          // Ignore abort errors - they're expected when cancelling requests
-          if (error.name === 'AbortError') {
-              console.log(`📦 Request #${currentRequestId} was aborted`);
-              return;
-          }
-
-          console.error('❌ Error fetching packages:', error);
-          setFetchError(error.message);
-          setPackages([]);
-      } finally {
-          // Only update loading state if this is still the current request
-          if (currentRequestId === requestIdRef.current) {
-              setLoading(false);
-          }
-      }
+            if (!builderMode && fetchedPackages.length > 0) {
+                const bestMatch = fetchedPackages[0];
+                console.log(`🏆 Auto-selecting: ${bestMatch.name} (${bestMatch.package_code})`);
+                if (onChange && value !== bestMatch.id) {
+                    onChange(bestMatch.id);
+                    setAutoSelected(true);
+                }
+                setPackages([bestMatch]);
+            } else {
+                setPackages(fetchedPackages);
+            }
+        } else {
+            throw new Error(data.message || 'Failed to fetch packages');
+        }
+    } catch (error) {
+        if (error.name === 'AbortError') {
+            console.log(`📦 Request #${currentRequestId} aborted`);
+            return;
+        }
+        console.error('❌ Error fetching packages:', error);
+        setFetchError(error.message);
+        setPackages([]);
+    } finally {
+        if (currentRequestId === requestIdRef.current) {
+            setLoading(false);
+        }
+    }
   }, [
       enhancedFilterCriteria,
       builderMode,
       onChange,
       value,
       selectedFunder,
-      lastCriteriaHash,
-      packages.length,
       applyPackageRequirementFiltering
   ]);
 
   // Fetch packages when component mounts or criteria changes
   useEffect(() => {
-    // Don't fetch until data is ready
     if (!dataReady && !builderMode) {
-        console.log('⏳ Skipping fetch - data not ready yet');
+        console.log('⏳ Skipping fetch - data not ready');
         return;
     }
     
     if (!builderMode && !enhancedFilterCriteria.funder_type) {
-        console.log('⏳ Skipping fetch - no funder type available');
+        console.log('⏳ Skipping fetch - no funder type');
         return;
     }
 
+    console.log('🔄 Triggering fetch due to criteria change:', enhancedFilterCriteria);
     fetchPackages();
 
     return () => {
@@ -1134,42 +1000,15 @@ const PackageSelection = ({
             abortControllerRef.current.abort();
         }
     };
-}, [
-    dataReady, // NEW dependency
-    enhancedFilterCriteria.funder_type,
-    enhancedFilterCriteria.ndis_package_type,
-    enhancedFilterCriteria.care_hours,
-    enhancedFilterCriteria.has_course,
-    enhancedFilterCriteria.course_offered,
-    builderMode
-  ]);
-
-  // Reset stable criteria when care or course data changes significantly
-  useEffect(() => {
-      if (!builderMode && stableFilterCriteria) {
-          const newCareHours = careAnalysisData ? Math.ceil(careAnalysisData.totalHoursPerDay || 0) : 0;
-          const newHasCourse = courseAnalysisData ? (courseAnalysisData.hasCourse || courseAnalysisData.courseOffered) : false;
-          
-          const significantChange = 
-              stableFilterCriteria.care_hours !== newCareHours ||
-              stableFilterCriteria.has_course !== newHasCourse;
-          
-          if (significantChange) {
-              console.log('📦 Significant data change detected, resetting stable criteria:', {
-                  oldCareHours: stableFilterCriteria.care_hours,
-                  newCareHours,
-                  oldHasCourse: stableFilterCriteria.has_course,
-                  newHasCourse
-              });
-              setStableFilterCriteria(null);
-              setAutoSelected(false); // Allow re-selection of best match
-              setLastCriteriaHash(null); // Force refetch
-          }
-      }
   }, [
-      careAnalysisData?.totalHoursPerDay,
-      courseAnalysisData?.hasCourse,
-      courseAnalysisData?.courseOffered,
+      dataReady,
+      JSON.stringify({
+          funder_type: enhancedFilterCriteria.funder_type,
+          ndis_package_type: enhancedFilterCriteria.ndis_package_type,
+          care_hours: enhancedFilterCriteria.care_hours,
+          has_course: enhancedFilterCriteria.has_course,
+          course_offered: enhancedFilterCriteria.course_offered
+      }),
       builderMode
   ]);
 
@@ -1206,6 +1045,9 @@ const PackageSelection = ({
         if (abortControllerRef.current) {
             abortControllerRef.current.abort();
         }
+        // FIX: Reset these on unmount so next mount starts fresh
+        initialLoadRef.current = true;
+        lastFetchCriteriaRef.current = null;
     };
   }, []);
 

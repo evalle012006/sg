@@ -74,7 +74,7 @@ export default function Avatar() {
 
     useEffect(() => {
         if (user) {
-            console.log('user user', user)
+            // console.log('user user', user)
             fetchAndUpdateUser();
         }
     }, []);

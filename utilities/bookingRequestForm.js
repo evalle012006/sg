@@ -170,11 +170,21 @@ export const shouldMoveQuestionToNdisPage = (question, isNdisFunded) => {
     return true;
 };
 
-export const postProcessPagesForNdis = (pages, isNdisFunded, calculatePageCompletion) => {
+/**
+ * Post-process pages to create NDIS page with proper answer population
+ * 
+ * @param {Array} pages - Processed form pages
+ * @param {boolean} isNdisFunded - Whether NDIS funding is detected
+ * @param {Function} calculatePageCompletion - Function to calculate page completion
+ * @param {Array} apiSections - Raw API sections with saved QaPairs (for returning guests)
+ * @returns {Array} - Updated pages with NDIS page created
+ */
+export const postProcessPagesForNdis = (pages, isNdisFunded, calculatePageCompletion, apiSections = []) => {
     console.log('🔄 postProcessPagesForNdis called:', { 
         isNdisFunded, 
         pageCount: pages?.length,
-        pageIds: pages?.map(p => p.id || p.title).join(', ')
+        pageIds: pages?.map(p => p.id || p.title).join(', '),
+        apiSectionsCount: apiSections?.length || 0
     });
     
     if (!isNdisFunded) {
@@ -186,6 +196,83 @@ export const postProcessPagesForNdis = (pages, isNdisFunded, calculatePageComple
         console.warn('⚠️ No pages provided to postProcessPagesForNdis');
         return pages;
     }
+
+    // ✅ NEW: Build global QaPairs index from BOTH processed pages AND raw API sections
+    const globalQaPairsIndex = new Map();
+    let totalQaPairsIndexed = 0;
+
+    // Step 1: Index QaPairs from raw API sections (for returning guests)
+    // This ensures we can find saved answers even if they weren't in processed pages
+    apiSections?.forEach(section => {
+        // console.log(`📥 Indexing QaPairs from API section ID ${section.id} with ${section.QaPairs?.length || 0} QaPairs`);
+        section.QaPairs?.forEach(qaPair => {
+            const questionId = qaPair.question_id || qaPair.Question?.id;
+            const questionKey = qaPair.Question?.question_key;
+            const questionText = qaPair.Question?.question || qaPair.question;
+
+            const indexEntry = {
+                answer: qaPair.answer,
+                questionKey: questionKey,
+                questionId: questionId,
+                qaPairId: qaPair.id,
+                sectionId: section.id,
+                origSectionId: section.orig_section_id,
+                questionText: questionText,
+                source: 'apiSections'
+            };
+
+            const question = qaPair.Question || {};
+            if (question?.ndis_only) {
+                // console.log(`📥 Indexing NDIS-only QaPair from API sections:`, indexEntry);
+            }
+
+            // Index by question_id (most reliable)
+            if (questionId) {
+                globalQaPairsIndex.set(questionId, indexEntry);
+                globalQaPairsIndex.set(String(questionId), indexEntry);
+                totalQaPairsIndexed++;
+            }
+            
+            // Also index by question_key
+            if (questionKey) {
+                globalQaPairsIndex.set(questionKey, indexEntry);
+            }
+        });
+    });
+
+    // Step 2: Index QaPairs from processed pages (adds any that weren't in API sections)
+    pages?.forEach(page => {
+        page.Sections?.forEach(section => {
+            section.QaPairs?.forEach(qaPair => {
+                const questionId = qaPair.question_id || qaPair.Question?.id;
+                const questionKey = qaPair.Question?.question_key;
+                
+                // Only add if not already indexed from API sections
+                if (questionId && !globalQaPairsIndex.has(questionId)) {
+                    const indexEntry = {
+                        answer: qaPair.answer,
+                        questionKey: questionKey,
+                        questionId: questionId,
+                        qaPairId: qaPair.id,
+                        sectionId: section.id,
+                        origSectionId: section.orig_section_id,
+                        questionText: qaPair.Question?.question || qaPair.question,
+                        source: 'processedPages'
+                    };
+                    
+                    globalQaPairsIndex.set(questionId, indexEntry);
+                    globalQaPairsIndex.set(String(questionId), indexEntry);
+                    totalQaPairsIndexed++;
+                    
+                    if (questionKey && !globalQaPairsIndex.has(questionKey)) {
+                        globalQaPairsIndex.set(questionKey, indexEntry);
+                    }
+                }
+            });
+        });
+    });
+
+    // console.log(`📋 Global QaPairs index built: ${globalQaPairsIndex.size} unique keys, ${totalQaPairsIndexed} total QaPairs`);
     
     const ndisQuestions = [];
     const filteredPages = [];
@@ -251,14 +338,91 @@ export const postProcessPagesForNdis = (pages, isNdisFunded, calculatePageComple
             section.Questions?.forEach(question => {
                 if (shouldMoveQuestionToNdisPage(question, isNdisFunded)) {
                     movedQuestionsCount++;
-                    // console.log(`📦 Moving question to NDIS page: "${question.question?.substring(0, 60)}..." (ID: ${question.id}, key: ${question.question_key})`);
+                    
+                    // ✅ NEW: Look up saved answer from global index
+                    const questionId = question.question_id || question.id;
+                    const questionKey = question.question_key;
+                    
+                    // Build search keys for this question
+                    const searchKeys = [
+                        questionId,
+                        String(questionId),
+                        questionKey,
+                        question.Question?.id,
+                        question.Question?.question_key
+                    ].filter(Boolean);
+                    
+                    // console.log(`🔍 Searching globally for QaPairs matching:`, {
+                    //     questionId,
+                    //     questionQuestionId: question.Question?.id,
+                    //     questionKey,
+                    //     questionText: question.question?.substring(0, 50) + '...',
+                    //     searchKeys
+                    // });
+                    
+                    // Search the global index
+                    let savedQaPairData = null;
+                    for (const key of searchKeys) {
+                        if (globalQaPairsIndex.has(key)) {
+                            savedQaPairData = globalQaPairsIndex.get(key);
+                            // console.log(`✅ Found matching QaPair in global index:`, {
+                            //     key,
+                            //     answer: savedQaPairData.answer,
+                            //     source: savedQaPairData.source
+                            // });
+                            break;
+                        }
+                    }
+                    
+                    // Secondary search by question_key if primary search failed
+                    if (!savedQaPairData && questionKey) {
+                        // console.log(`🔄 Primary search failed, trying secondary search by question_key: ${questionKey}`);
+                        if (globalQaPairsIndex.has(questionKey)) {
+                            savedQaPairData = globalQaPairsIndex.get(questionKey);
+                            console.log(`✅ Found by question_key:`, savedQaPairData);
+                        }
+                    }
+                    
+                    if (!savedQaPairData) {
+                        // console.log(`⚠️ No matching QaPairs found globally for NDIS question:`, {
+                        //     questionId,
+                        //     questionQuestionId: question.Question?.id,
+                        //     questionKey,
+                        //     questionText: question.question?.substring(0, 100),
+                        //     fromQa: question.fromQa,
+                        //     existingAnswer: question.answer
+                        // });
+                    }
+                    
+                    // Determine the answer to use
+                    const savedAnswer = savedQaPairData?.answer || question.answer || question.oldAnswer || null;
+                    const hasAnswer = savedAnswer !== null && savedAnswer !== undefined && savedAnswer !== '';
+                    
+                    // Process options to mark the correct one as checked if we have a saved answer
+                    let processedOptions = question.options;
+                    if (savedAnswer && Array.isArray(question.options)) {
+                        processedOptions = question.options.map(opt => ({
+                            ...opt,
+                            checked: opt.label === savedAnswer,
+                            value: opt.label === savedAnswer
+                        }));
+                    }
                     
                     // Create section for NDIS page
                     const ndisSection = {
                         id: section.id,
                         orig_section_id: section.orig_section_id,
                         label: section.label || 'NDIS Requirements',
-                        Questions: [{ ...question, hidden: false }],
+                        Questions: [{
+                            ...question,
+                            hidden: false,
+                            answer: savedAnswer,
+                            oldAnswer: savedAnswer,
+                            options: processedOptions,
+                            fromQa: hasAnswer || question.fromQa,
+                            _savedFromGlobalIndex: !!savedQaPairData,
+                            _globalIndexSource: savedQaPairData?.source
+                        }],
                         QaPairs: []
                     };
                     ndisQuestions.push(ndisSection);
@@ -272,7 +436,6 @@ export const postProcessPagesForNdis = (pages, isNdisFunded, calculatePageComple
                 const question = qaPair.Question;
                 if (question && shouldMoveQuestionToNdisPage(question, isNdisFunded)) {
                     movedQuestionsCount++;
-                    // console.log(`📦 Moving QaPair to NDIS page: "${question.question?.substring(0, 60)}..."`);
                     
                     // Find or create section for NDIS page
                     let ndisSection = ndisQuestions.find(ns => ns.id === section.id);
@@ -287,21 +450,38 @@ export const postProcessPagesForNdis = (pages, isNdisFunded, calculatePageComple
                         ndisQuestions.push(ndisSection);
                     }
                     
+                    // Process options
+                    let processedOptions = question.options;
+                    if (qaPair.answer && Array.isArray(question.options)) {
+                        processedOptions = question.options.map(opt => ({
+                            ...opt,
+                            checked: opt.label === qaPair.answer,
+                            value: opt.label === qaPair.answer
+                        }));
+                    }
+                    
                     ndisSection.Questions.push({
                         ...question,
                         answer: qaPair.answer,
                         oldAnswer: qaPair.answer,
                         fromQa: true,
                         id: qaPair.id,
+                        question_id: qaPair.question_id,
+                        options: processedOptions,
                         hidden: false
                     });
-                    ndisSection.QaPairs.push(qaPair);
+                    
+                    // Also store the QaPair reference
+                    ndisSection.QaPairs.push({
+                        ...qaPair,
+                        section_id: section.id
+                    });
                 } else {
                     remainingQaPairs.push(qaPair);
                 }
             });
             
-            // Only add section if it has remaining content
+            // Only keep section if it has remaining content
             if (remainingQuestions.length > 0 || remainingQaPairs.length > 0) {
                 filteredSections.push({
                     ...section,
@@ -311,27 +491,58 @@ export const postProcessPagesForNdis = (pages, isNdisFunded, calculatePageComple
             }
         });
         
-        const filteredPage = {
+        // Add page with filtered sections
+        filteredPages.push({
             ...page,
             Sections: filteredSections
-        };
-        
-        // Preserve completion status
-        if (page.completed && !page.title.includes('NDIS')) {
-            filteredPage.completed = true;
-        } else {
-            filteredPage.completed = false;
-        }
-        
-        filteredPages.push(filteredPage);
+        });
     });
     
-    // console.log(`📊 NDIS processing summary: ${movedQuestionsCount} questions moved, ${ndisQuestions.length} sections collected`);
+    // console.log(`📋 Moved ${movedQuestionsCount} NDIS questions and collected ${ndisQuestions.reduce((sum, s) => sum + (s.QaPairs?.length || 0), 0)} QaPairs`);
+    // console.log(`🔄 Moving ${ndisQuestions.reduce((sum, s) => sum + s.Questions.length, 0)} NDIS questions and ${ndisQuestions.reduce((sum, s) => sum + (s.QaPairs?.length || 0), 0)} QaPairs to NDIS page...`);
     
     // Create NDIS page if we have NDIS questions
     if (ndisQuestions.length > 0 && fundingPageIndex !== -1) {
-        // Sort questions by order
-        const sortedNdisQuestions = ndisQuestions.map(section => {
+        // Consolidate sections - merge questions from sections with same ID
+        const consolidatedSections = [];
+        const sectionMap = new Map();
+        
+        ndisQuestions.forEach(section => {
+            const existingSection = sectionMap.get(section.id);
+            if (existingSection) {
+                // Merge questions, avoiding duplicates
+                section.Questions.forEach(q => {
+                    const isDuplicate = existingSection.Questions.some(eq => 
+                        eq.question_key === q.question_key || 
+                        eq.id === q.id ||
+                        eq.question_id === q.question_id
+                    );
+                    if (!isDuplicate) {
+                        existingSection.Questions.push(q);
+                    }
+                });
+                // Merge QaPairs
+                section.QaPairs?.forEach(qa => {
+                    const isDuplicate = existingSection.QaPairs.some(eqa => 
+                        eqa.id === qa.id || eqa.question_id === qa.question_id
+                    );
+                    if (!isDuplicate) {
+                        existingSection.QaPairs.push(qa);
+                    }
+                });
+            } else {
+                const newSection = {
+                    ...section,
+                    Questions: [...section.Questions],
+                    QaPairs: [...(section.QaPairs || [])]
+                };
+                sectionMap.set(section.id, newSection);
+                consolidatedSections.push(newSection);
+            }
+        });
+        
+        // Sort questions within each section by their order property
+        const sortedNdisQuestions = consolidatedSections.map(section => {
             const sortedQuestions = [...section.Questions].sort((a, b) => {
                 const orderA = a.order !== undefined ? a.order : 999;
                 const orderB = b.order !== undefined ? b.order : 999;
@@ -351,10 +562,28 @@ export const postProcessPagesForNdis = (pages, isNdisFunded, calculatePageComple
             };
         });
         
+        // // Log the structure for debugging
+        // console.log(`✅ NDIS page created with structure:`, {
+        //     totalSections: sortedNdisQuestions.length,
+        //     sectionsDetail: sortedNdisQuestions.map(s => ({
+        //         id: s.id,
+        //         label: s.label,
+        //         questionsCount: s.Questions.length,
+        //         qaPairsCount: s.QaPairs?.length || 0,
+        //         questionsWithAnswers: s.Questions.filter(q => q.answer).length,
+        //         questionDetails: s.Questions.map(q => ({
+        //             key: q.question_key,
+        //             answer: q.answer,
+        //             fromQa: q.fromQa,
+        //             savedFromGlobalIndex: q._savedFromGlobalIndex
+        //         }))
+        //     }))
+        // });
+        
         const ndisPage = {
             id: 'ndis_packages_page',
             title: 'NDIS Requirements',
-            description: '',
+            description: 'NDIS-specific requirements for your booking',
             Sections: sortedNdisQuestions,
             url: "&&page_id=ndis_packages_page",
             active: false,
@@ -372,7 +601,7 @@ export const postProcessPagesForNdis = (pages, isNdisFunded, calculatePageComple
         // Insert NDIS page after funding page
         filteredPages.splice(fundingPageIndex + 1, 0, ndisPage);
         
-        // console.log(`✅ Created NDIS page with ${ndisPage.noItems} questions, inserted at index ${fundingPageIndex + 1}`);
+        console.log(`✅ NDIS page created successfully with ${sortedNdisQuestions.length} sections containing ${sortedNdisQuestions.reduce((sum, s) => sum + (s.QaPairs?.length || 0), 0)} QaPairs`);
         
         // Update navigation properties
         filteredPages.forEach((page, index) => {
@@ -384,7 +613,7 @@ export const postProcessPagesForNdis = (pages, isNdisFunded, calculatePageComple
         console.warn(`⚠️ NDIS page NOT created: ndisQuestions.length=${ndisQuestions.length}, fundingPageIndex=${fundingPageIndex}`);
     }
     
-    // console.log(`📋 Final page count: ${filteredPages.length}, Pages: ${filteredPages.map(p => p.title || p.id).join(', ')}`);
+    console.log(`📋 Final page count: ${filteredPages.length}, Pages: ${filteredPages.map(p => p.title || p.id).join(', ')}`);
     
     return filteredPages;
 };

@@ -376,7 +376,7 @@ const QuestionPage = ({
             additionalFilters: localFilterState.additionalFilters
         };
         
-        console.log('📊 Local filters calculated:', newFilters);
+        // console.log('📊 Local filters calculated:', newFilters);
         return newFilters;
     };
 

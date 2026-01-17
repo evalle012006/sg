@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useSelector } from 'react-redux';
 import { toast } from 'react-toastify';
 import SignatureInput from './signature-pad';
-import { getNSWHolidaysV2 } from '../../services/booking/create-summary-data';
+import { getNSWHolidaysV2, calculateDaysBreakdown } from '../../services/booking/create-summary-data';
 import { serializePackage } from '../../utilities/common';
 import { findByQuestionKey, QUESTION_KEYS } from '../../services/booking/question-helper';
 import { scroller, Element } from 'react-scroll';
@@ -25,6 +25,7 @@ const SummaryOfStay = ({
   const [signaturePad, setSignaturePad] = useState(null);
   const signatureRef = useRef();
   const signatureSectionRef = useRef();
+  const [signatureValidationError, setSignatureValidationError] = useState(false);
   const [signatureType, setSignatureType] = useState('drawn');
   const [totalPackageCost, setTotalPackageCost] = useState(0);
   const [totalRoomCosts, setTotalRoomCosts] = useState({
@@ -248,14 +249,31 @@ const SummaryOfStay = ({
         return;
     }
     
-    const hasValidSignature = signaturePad && 
-      typeof signaturePad.isEmpty === 'function' && 
-      !signaturePad.isEmpty();
+    // Validate signature based on type
+    let hasValidSignature = false;
     
+    if (signatureType === 'drawn') {
+        // For drawn signatures, check if signature pad has content
+        hasValidSignature = signaturePad && 
+            typeof signaturePad.isEmpty === 'function' && 
+            !signaturePad.isEmpty();
+    } else if (signatureType === 'upload') {
+        // For uploaded signatures, check if signature pad has been populated with image
+        hasValidSignature = signaturePad && 
+            typeof signaturePad.isEmpty === 'function' && 
+            !signaturePad.isEmpty();
+    }
+    
+    // Also check if there's an existing signature from previous submission
     if (!hasValidSignature && !hasExistingSignature) {
-        toast.error('Please sign the agreement before continuing.');
+        setSignatureValidationError(true); // Show visual error
+        toast.error('Please sign the agreement before continuing. You can either draw your signature or upload an image of your signature.');
+        scrollToSignature();
         return;
     }
+
+    // Clear error if validation passes
+    setSignatureValidationError(false);
 
     if (isSignatureLoading) {
         toast.info('Loading signature, please wait...');
@@ -265,9 +283,11 @@ const SummaryOfStay = ({
 
     console.log('Signature is valid, proceeding to save...');
     try {
+        // Validate we can get the canvas data
         const trimmedCanvas = signaturePad.getTrimmedCanvas();
         if (!trimmedCanvas) {
-            throw new Error('Could not get signature image');
+            toast.error('Unable to process signature. Please try signing again.');
+            return;
         }
 
         const signatureData = {
@@ -294,7 +314,7 @@ const SummaryOfStay = ({
         console.error('Error saving signature:', error);
         toast.error('Failed to save signature. Please try again.');
     }
-  };
+};
 
   const saveVerbalConsent = async () => {
     if (origin != 'admin') {
@@ -600,6 +620,13 @@ const SummaryOfStay = ({
     
     return totalRoomCosts.roomUpgrade + totalRoomCosts.additionalRoom;
   };
+
+  useEffect(() => {
+    // Clear validation error when user provides signature
+    if ((signaturePad && !signaturePad.isEmpty()) || hasExistingSignature) {
+        setSignatureValidationError(false);
+    }
+  }, [signaturePad, hasExistingSignature]);
 
   const getGrandTotal = () => {
     // For HOLIDAY_SUPPORT_PLUS, don't include package cost in grand total
@@ -942,13 +969,32 @@ const SummaryOfStay = ({
 
       <div ref={signatureSectionRef} className="mt-8 space-y-4 pt-4 border-t-2 border-gray-200">
         <div className="flex items-center space-x-2">
-          <label className="text-sm text-slate-700">
-            I have read, understood and agreed to{' '}
-            <a href="https://sargoodoncollaroy.com.au/terms-and-conditions/" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">
-              Sargood on Collaroy&apos;s Terms and Conditions
-            </a>
-          </label>
+            <label className="text-sm text-slate-700">
+                I have read, understood and agreed to{' '}
+                <a href="https://sargoodoncollaroy.com.au/terms-and-conditions/" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">
+                    Sargood on Collaroy&apos;s Terms and Conditions
+                </a>
+            </label>
         </div>
+
+        {/* Show validation error if signature is missing */}
+        {signatureValidationError && (
+            <div className="p-4 bg-red-50 border-2 border-red-400 rounded-lg">
+                <div className="flex items-start space-x-3">
+                    <div className="flex-shrink-0">
+                        <svg className="h-6 w-6 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                    </div>
+                    <div>
+                        <h3 className="text-lg font-semibold text-red-800 mb-1">Signature Required</h3>
+                        <p className="text-base text-red-900">
+                            Please {signatureType === 'drawn' ? 'draw your signature' : 'upload your signature'} before submitting your booking.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        )}
 
         {(origin == 'admin') && (
           <div className="flex items-center space-x-2">
@@ -1017,7 +1063,6 @@ const SummaryOfStay = ({
 
 export default SummaryOfStay;
 
-// Updated PricingTable component
 const PricingTable = ({ 
   option, 
   datesOfStay, 
@@ -1036,14 +1081,33 @@ const PricingTable = ({
     publicHolidays: 0
   });
 
+  // Separate breakdown for care that includes all calendar days
+  const [careDaysBreakdown, setCareDaysBreakdown] = useState({
+    weekdays: 0,
+    saturdays: 0,
+    sundays: 0,
+    publicHolidays: 0
+  });
+
   const shouldUseApiLogic = packageData && packageData.ndis_line_items && packageData.ndis_line_items.length > 0;
 
   const calculateStayDatesBreakdown = async () => {
     if (!datesOfStay || nights <= 0) return;
     
     try {
-      const breakdown = await calculateDaysBreakdown(datesOfStay, nights);
+      // Service days breakdown (excludes check-in day)
+      const breakdown = await calculateDaysBreakdown(datesOfStay, nights, false);
       setDaysBreakdown(breakdown);
+      
+      // ✅ Care days breakdown (includes ALL calendar days: check-in through check-out)
+      const careBreakdown = await calculateDaysBreakdown(datesOfStay, nights, true);
+      setCareDaysBreakdown(careBreakdown);
+      
+      console.log('📅 Days breakdown calculated:', {
+        serviceDays: breakdown,
+        careDays: careBreakdown,
+        nights
+      });
     } catch (error) {
       console.error('Error calculating stay dates breakdown:', error);
     }
@@ -1201,7 +1265,6 @@ const PricingTable = ({
   };
 
   const processApiPackageData = () => {
-    console.log(courseAnalysisData)
     const processedRows = packageData.ndis_line_items
       .filter(lineItem => {
         // Filter out room line items for Support Holiday Packages
@@ -1218,7 +1281,7 @@ const PricingTable = ({
         return true;
       })
       .map(lineItem => {
-        const quantity = calculateApiQuantity(lineItem, daysBreakdown, careAnalysisData, courseAnalysisData);
+        const quantity = calculateApiQuantity(lineItem, daysBreakdown, careAnalysisData, courseAnalysisData, careDaysBreakdown);
         const rate = parseFloat(lineItem.price_per_night || 0);
         const total = rate * quantity;
         const funder = getFunder(packageData, lineItem);
@@ -1253,7 +1316,7 @@ const PricingTable = ({
     return filteredRows;
   };
 
-  const calculateApiQuantity = (lineItem, daysBreakdown, careAnalysisData, courseAnalysisData) => {
+  const calculateApiQuantity = (lineItem, daysBreakdown, careAnalysisData, courseAnalysisData, careDaysBreakdown) => {
     const { line_item_type, rate_type, rate_category, care_time } = lineItem;
     
     if (!rate_type || rate_type === '') {
@@ -1280,10 +1343,11 @@ const PricingTable = ({
         
       case 'care':
         if (!careAnalysisData?.requiresCare) return 0;
-        return calculateCareQuantity(lineItem, careAnalysisData, daysBreakdown);
+        return calculateCareQuantity(lineItem, careAnalysisData, careDaysBreakdown);
         
       default:
         if (rate_category === 'day') {
+          // Use regular daysBreakdown for service days
           const dayQty = getDaysForRateType(rate_type, daysBreakdown);
           return dayQty;
         } else if (rate_category === 'hour') {
@@ -1399,7 +1463,7 @@ const PricingTable = ({
     }
   };
 
-  const generateStayDates = (datesOfStay, nights) => {
+  const generateStayDates = (datesOfStay, nights, includeAllDays = true) => {
     if (!datesOfStay) return [];
     
     const startDateStr = datesOfStay.split(' - ')[0];
@@ -1407,7 +1471,10 @@ const PricingTable = ({
     const startDate = new Date(year, month - 1, day);
     
     const dates = [];
-    for (let i = 0; i < nights; i++) {
+    // ✅ For activities and care, we need all calendar days
+    const daysToGenerate = includeAllDays ? nights + 1 : nights;
+    
+    for (let i = 0; i < daysToGenerate; i++) {
       const currentDate = new Date(startDate);
       currentDate.setDate(currentDate.getDate() + i);
       dates.push(currentDate);
@@ -1459,13 +1526,13 @@ const PricingTable = ({
 
   useEffect(() => {
     const canProcess = shouldUseApiLogic 
-      ? (packageData && Object.keys(daysBreakdown).some(key => daysBreakdown[key] > 0))
-      : Object.keys(daysBreakdown).some(key => daysBreakdown[key] > 0);
+      ? (packageData && Object.keys(careDaysBreakdown).some(key => careDaysBreakdown[key] > 0))
+      : Object.keys(careDaysBreakdown).some(key => careDaysBreakdown[key] > 0);
       
     if (canProcess) {
       processPackageData();
     }
-  }, [packageData, daysBreakdown, careAnalysisData, courseAnalysisData, shouldUseApiLogic, isSupportHolidayPackage]);
+  }, [packageData, daysBreakdown, careDaysBreakdown, careAnalysisData, courseAnalysisData, shouldUseApiLogic, isSupportHolidayPackage]);
 
   if (!tableData || tableData.length === 0) {
     return (
@@ -1561,64 +1628,6 @@ const PricingTable = ({
       )}
     </div>
   );
-};
-
-const calculateDaysBreakdown = async (startDateStr, numberOfNights) => {
-  let startDateParsed;
-  if (startDateStr.includes(' - ')) {
-    const startDatePart = startDateStr.split(' - ')[0];
-    if (startDatePart.includes('/')) {
-      const [day, month, year] = startDatePart.split('/');
-      startDateParsed = new Date(year, month - 1, day);
-    } else {
-      startDateParsed = new Date(startDatePart);
-    }
-  } else {
-    startDateParsed = new Date(startDateStr);
-  }
-
-  if (isNaN(startDateParsed.getTime())) {
-    console.error('Invalid start date:', startDateStr);
-    return {
-      weekdays: 0,
-      saturdays: 0,
-      sundays: 0,
-      publicHolidays: 0
-    };
-  }
-
-  const dates = startDateStr.split(' - ');
-  let holidays = [];
-  try {
-    holidays = await getNSWHolidaysV2(dates[0], dates[1]);
-  } catch (error) {
-    console.warn('Could not fetch holidays:', error);
-    holidays = [];
-  }
-  
-  let breakdown = {
-    weekdays: 0,
-    saturdays: 0,
-    sundays: 0,
-    publicHolidays: holidays.length || 0
-  };
-
-  for (let i = 0; i < numberOfNights; i++) {
-    const currentDate = new Date(startDateParsed);
-    currentDate.setDate(currentDate.getDate() + i);
-    
-    const dayOfWeek = currentDate.getDay();
-    
-    if (dayOfWeek === 6) {
-      breakdown.saturdays++;
-    } else if (dayOfWeek === 0) {
-      breakdown.sundays++;
-    } else {
-      breakdown.weekdays++;
-    }
-  }
-
-  return breakdown;
 };
 
 const formatAUDate = (dateStr) => {

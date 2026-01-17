@@ -79,8 +79,17 @@ export default async function handler(req, res) {
             // Date validation logic - only run if both check-in and check-out dates provided
             let dateValid = true;
             let dateValidationMessage = null;
+            let dateValidationSeverity = null; // NEW: Add severity level
 
-            if (checkInDate && checkOutDate && course.min_start_date && course.min_end_date) {
+            // ✅ NEW: Check if this is a historical booking (skip validation)
+            const isHistoricalBooking = checkOutDate && moment.utc(checkOutDate, 'YYYY-MM-DD').startOf('day').isBefore(moment.utc().startOf('day'));
+
+            if (isHistoricalBooking) {
+                console.log(`⏭️ Skipping validation for historical booking (checkout: ${checkOutDate} is in the past)`);
+                dateValid = true;
+                dateValidationSeverity = null;
+                dateValidationMessage = null;
+            } else if (checkInDate && checkOutDate && course.min_start_date && course.min_end_date) {
                 try {
                     // Use moment to parse all dates consistently in UTC, then convert to date-only for comparison
                     const checkIn = moment.utc(checkInDate, 'YYYY-MM-DD').startOf('day');
@@ -100,43 +109,56 @@ export default async function handler(req, res) {
                     });
                     
                     // IMPROVED VALIDATION LOGIC:
-                    // 1. Guest must check in within the allowed window (min_start_date to course_start_date)
-                    const canCheckIn = checkIn.isSameOrAfter(minStartDate) && checkIn.isSameOrBefore(courseStartDate);
+                    // 1. Guest must check in on or before course start date
+                    const checkInOnTime = checkIn.isSameOrBefore(courseStartDate);
                     
-                    // 2. Guest must stay until course ends or longer
+                    // 2. Guest must stay until minimum end date (minimum stay requirement)
+                    const meetsMinimumStay = checkOut.isSameOrAfter(minEndDate);
+                    
+                    // 3. Guest should ideally stay until course ends (warning if not)
                     const staysUntilCourseEnds = checkOut.isSameOrAfter(courseEndDate);
                     
-                    // 3. Guest must meet minimum stay requirement
-                    const staysMinimumPeriod = checkOut.isSameOrAfter(minEndDate);
-                    
-                    dateValid = canCheckIn && staysUntilCourseEnds && staysMinimumPeriod;
-                    
-                    if (!dateValid) {
-                        const minStartFormatted = minStartDate.format('D MMM YYYY');
+                    // Determine severity and message
+                    if (!checkInOnTime) {
+                        // ERROR: Check-in too late - cannot participate
+                        dateValid = false;
+                        dateValidationSeverity = 'error';
                         const courseStartFormatted = courseStartDate.format('D MMM YYYY');
-                        const courseEndFormatted = courseEndDate.format('D MMM YYYY');
+                        dateValidationMessage = `Check-in must be on or before ${courseStartFormatted} to participate in ${course.title}.`;
+                    } else if (!meetsMinimumStay) {
+                        // ERROR: Stay too short - doesn't meet minimum requirement
+                        dateValid = false;
+                        dateValidationSeverity = 'error';
                         const minEndFormatted = minEndDate.format('D MMM YYYY');
-                        
-                        if (!canCheckIn) {
-                            dateValidationMessage = `Check-in must be on or before ${courseStartFormatted} to participate in ${course.title}.`;
-                        } else if (!staysUntilCourseEnds) {
-                            dateValidationMessage = `You must stay until course ends on ${courseEndFormatted} for ${course.title}.`;
-                        } else if (!staysMinimumPeriod) {
-                            dateValidationMessage = `Minimum stay until ${minEndFormatted} required for ${course.title}.`;
-                        }
+                        const checkOutFormatted = checkOut.format('D MMM YYYY');
+                        dateValidationMessage = `Your stay ends on ${checkOutFormatted}, but minimum stay until ${minEndFormatted} is required for ${course.title}.`;
+                    } else if (!staysUntilCourseEnds) {
+                        // WARNING: Meets minimum stay but leaves before course ends
+                        dateValid = true; // ✅ Still valid, just a warning
+                        dateValidationSeverity = 'warning';
+                        const courseEndFormatted = courseEndDate.format('D MMM YYYY');
+                        const checkOutFormatted = checkOut.format('D MMM YYYY');
+                        dateValidationMessage = `Your stay ends on ${checkOutFormatted}, but ${course.title} runs until ${courseEndFormatted}. You may need to extend your checkout date to complete the course.`;
+                    } else {
+                        // All checks passed
+                        dateValid = true;
+                        dateValidationSeverity = null;
+                        dateValidationMessage = null;
                     }
 
                     console.log(`Date validation result for "${course.title}":`, {
                         dateValid,
-                        canCheckIn,
+                        severity: dateValidationSeverity,
+                        checkInOnTime,
+                        meetsMinimumStay,
                         staysUntilCourseEnds,
-                        staysMinimumPeriod,
                         message: dateValidationMessage
                     });
                     
                 } catch (error) {
                     console.error('Error validating dates for course:', course.title, error);
                     dateValid = false;
+                    dateValidationSeverity = 'error';
                     dateValidationMessage = 'Error validating course dates';
                 }
             }
@@ -175,6 +197,7 @@ export default async function handler(req, res) {
                 offerStatus: offer.status,
                 // Enhanced validation data
                 dateValid: dateValid,
+                dateValidationSeverity: dateValidationSeverity, 
                 dateValidationMessage: dateValidationMessage,
                 // Additional course details
                 courseDuration: course.duration_hours || null,

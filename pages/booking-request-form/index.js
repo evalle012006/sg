@@ -179,14 +179,12 @@ const BookingRequestForm = () => {
     // Callback to immediately update stay dates when changed in child component
     const updateStayDatesImmediate = useCallback((newDates) => {
         if (newDates.checkInDate || newDates.checkOutDate) {
-            // console.log('📅 Immediate stay dates update:', newDates);
-            
             const updatedDates = {
                 checkInDate: newDates.checkInDate || stayDatesRef.current?.checkInDate || null,
                 checkOutDate: newDates.checkOutDate || stayDatesRef.current?.checkOutDate || null
             };
             
-            // console.log('📅 Final updated dates:', updatedDates);
+            console.log('📅 Immediate stay dates update:', updatedDates);
             
             // Update both state and ref immediately
             stayDatesRef.current = updatedDates;
@@ -198,8 +196,142 @@ const BookingRequestForm = () => {
             if (updatedDates.checkOutDate) {
                 dispatch(bookingRequestFormActions.setCheckoutDate(updatedDates.checkOutDate));
             }
+            
+            // ✅ NEW: Clear course-related validation errors when dates change
+            if (stableProcessedFormData && stableProcessedFormData.length > 0) {
+                const updatedPages = stableProcessedFormData.map(page => {
+                    const updatedSections = page.Sections.map(section => {
+                        const updatedQuestions = section.Questions.map(question => {
+                            // Clear errors on course-related questions
+                            if (questionHasKey(question, QUESTION_KEYS.COURSE_OFFER_QUESTION) ||
+                                questionHasKey(question, QUESTION_KEYS.WHICH_COURSE)) {
+                                return {
+                                    ...question,
+                                    error: null, // Clear the error
+                                    validationAttempted: false // Reset validation flag
+                                };
+                            }
+                            
+                            // Update the check-in/check-out date question
+                            if (questionHasKey(question, QUESTION_KEYS.CHECK_IN_OUT_DATE)) {
+                                const formattedAnswer = updatedDates.checkInDate && updatedDates.checkOutDate 
+                                    ? `${updatedDates.checkInDate} - ${updatedDates.checkOutDate}`
+                                    : question.answer;
+                                
+                                return {
+                                    ...question,
+                                    answer: formattedAnswer,
+                                    dirty: true,
+                                    error: null // Clear any date validation errors too
+                                };
+                            }
+                            return question;
+                        });
+                        return { ...section, Questions: updatedQuestions };
+                    });
+                    
+                    // Also clear page-level validation flag
+                    return { 
+                        ...page, 
+                        Sections: updatedSections,
+                        validationAttempted: false // Clear page validation flag
+                    };
+                });
+                
+                // Update the processed form data immediately
+                setProcessedFormData(updatedPages);
+                safeDispatchData(updatedPages, 'Stay dates updated - cleared course validation errors');
+                
+                console.log('✅ Form data updated with new stay dates and cleared course errors');
+            }
         }
-    }, [dispatch]);
+    }, [dispatch, stableProcessedFormData, setProcessedFormData, safeDispatchData]);
+
+    // Re-validate course questions when course offers change (with updated validation)
+    useEffect(() => {
+        if (courseOffersLoaded && courseOffers && courseOffers.length > 0 && 
+            stableProcessedFormData && stableProcessedFormData.length > 0) {
+            
+            console.log('🎓 Course offers updated, checking if validation errors need to be cleared...');
+            
+            let needsUpdate = false;
+            const updatedPages = stableProcessedFormData.map(page => {
+                const updatedSections = page.Sections.map(section => {
+                    const updatedQuestions = section.Questions.map(question => {
+                        // Check the "which course" question
+                        if (questionHasKey(question, QUESTION_KEYS.WHICH_COURSE) && question.answer) {
+                            const selectedCourseId = question.answer;
+                            
+                            // Find the matching course offer with updated validation
+                            const matchingOffer = courseOffers.find(offer => 
+                                offer.courseId?.toString() === selectedCourseId?.toString() ||
+                                offer.id?.toString() === selectedCourseId?.toString()
+                            );
+                            
+                            if (matchingOffer) {
+                                // If the course is now valid or has a warning (not an error), clear the error
+                                const shouldClearError = matchingOffer.dateValid === true || 
+                                                        matchingOffer.dateValidationSeverity === 'warning';
+                                
+                                if (shouldClearError && question.error) {
+                                    console.log(`✅ Clearing error for course "${matchingOffer.courseName}" - now valid/warning`);
+                                    needsUpdate = true;
+                                    return {
+                                        ...question,
+                                        error: null,
+                                        validationAttempted: false
+                                    };
+                                }
+                                
+                                // If the course now has an error, update the error message
+                                if (matchingOffer.dateValid === false && 
+                                    matchingOffer.dateValidationSeverity === 'error' &&
+                                    matchingOffer.dateValidationMessage !== question.error) {
+                                    console.log(`⚠️ Updating error message for course "${matchingOffer.courseName}"`);
+                                    needsUpdate = true;
+                                    return {
+                                        ...question,
+                                        error: matchingOffer.dateValidationMessage
+                                    };
+                                }
+                            }
+                        }
+                        
+                        // Check the "have you been offered" question
+                        if (questionHasKey(question, QUESTION_KEYS.COURSE_OFFER_QUESTION) && 
+                            question.answer?.toLowerCase() === 'yes') {
+                            
+                            // If ANY course offer is now valid, clear the error on this question
+                            const hasValidOffer = courseOffers.some(offer => 
+                                offer.dateValid === true || 
+                                offer.dateValidationSeverity === 'warning'
+                            );
+                            
+                            if (hasValidOffer && question.error) {
+                                console.log(`✅ Clearing error on "offered a place" question - valid offers available`);
+                                needsUpdate = true;
+                                return {
+                                    ...question,
+                                    error: null,
+                                    validationAttempted: false
+                                };
+                            }
+                        }
+                        
+                        return question;
+                    });
+                    return { ...section, Questions: updatedQuestions };
+                });
+                return { ...page, Sections: updatedSections };
+            });
+            
+            if (needsUpdate) {
+                console.log('🔄 Updating form data with cleared/updated course validation errors');
+                setProcessedFormData(updatedPages);
+                safeDispatchData(updatedPages, 'Course offers updated - validation errors refreshed');
+            }
+        }
+    }, [courseOffersLoaded, courseOffers, stableProcessedFormData, setProcessedFormData, safeDispatchData]);
 
     const fetchAllFutureCourseOffers = useCallback(async () => {
         const guestId = getGuestId();
@@ -413,6 +545,19 @@ const BookingRequestForm = () => {
             return { valid: true, message: null };
         }
 
+        // ✅ NEW: Skip validation for confirmed bookings with past dates
+        const isHistoricalBooking = currentBookingStatus?.name === 'booking_confirmed' && 
+                                    new Date(checkOutDate) < new Date();
+        
+        if (isHistoricalBooking) {
+            console.log('⏭️ Skipping validation for historical confirmed booking');
+            return { 
+                valid: true, 
+                message: null,
+                skipValidation: true 
+            };
+        }
+
         try {
             const guestId = getGuestId();
             if (!guestId) {
@@ -439,8 +584,13 @@ const BookingRequestForm = () => {
                 );
                 
                 if (targetOffer) {
+                    // ✅ UPDATED: Handle warning severity
+                    const severity = targetOffer.dateValidationSeverity || 'error';
+                    const isWarning = severity === 'warning';
+                    
                     return {
-                        valid: targetOffer.dateValid !== false,
+                        valid: isWarning ? true : (targetOffer.dateValid !== false),
+                        severity: severity,
                         message: targetOffer.dateValidationMessage || null,
                         courseOffer: {
                             id: targetOffer.id,
@@ -469,7 +619,7 @@ const BookingRequestForm = () => {
                 message: 'Unable to validate dates against course offer. Please try again.'
             };
         }
-    }, [getGuestId]);
+    }, [getGuestId, currentBookingStatus]);
 
     const isCareRelatedQuestion = useCallback((question) => {
         if (!question) return false;
@@ -1255,28 +1405,9 @@ const BookingRequestForm = () => {
                 }
             });
         });
-
-        // CRITICAL DEBUG: Log all care-related QA pairs found
-        // const careRelatedQAs = allQAPairs.filter(qa => 
-        //     qa.question_key?.includes('care') || 
-        //     qa.question?.toLowerCase().includes('care')
-        // );
-        // console.log('🏥 Care-related QA pairs found:', careRelatedQAs.map(qa => ({
-        //     key: qa.question_key,
-        //     question: qa.question?.substring(0, 50),
-        //     hasAnswer: !!qa.answer,
-        //     answerType: typeof qa.answer,
-        //     source: qa.source
-        // })));
         
         // Look for care schedule data
         const careScheduleQA = findByQuestionKey(allQAPairs, QUESTION_KEYS.WHEN_DO_YOU_REQUIRE_CARE);
-        // console.log('🏥 Care schedule search result:', {
-        //     found: !!careScheduleQA,
-        //     searchKey: QUESTION_KEYS.WHEN_DO_YOU_REQUIRE_CARE,
-        //     answer: careScheduleQA?.answer ? 'HAS_DATA' : 'NO_DATA',
-        //     answerType: typeof careScheduleQA?.answer
-        // });
         const personalCareQA = findByQuestionKey(allQAPairs, QUESTION_KEYS.DO_YOU_REQUIRE_ASSISTANCE_WITH_PERSONAL_CARE) ||
                         allQAPairs.find(qa => 
                             qa.question_key === QUESTION_KEYS.ASSISTANCE_WITH_PERSONAL_CARE ||
@@ -1318,17 +1449,8 @@ const BookingRequestForm = () => {
                 // This is the nested structure: { careData: [...], defaultValues: {...}, careVaries: false }
                 careDataArray = careData.careData || [];
                 
-                // ========== THE FIX ==========
                 // Pass the FULL object to calculateCareHours so it can access defaultValues
-                // when careVaries is false and individual entries have empty duration
                 dataForCalculation = careData;
-                // ========== END FIX ==========
-                
-                // console.log('🏥 Passing full care object to calculateCareHours:', {
-                //     careDataLength: careDataArray.length,
-                //     hasDefaultValues: !!careData.defaultValues,
-                //     careVaries: careData.careVaries
-                // });
             } else if (Array.isArray(careData)) {
                 // Legacy format - just an array
                 careDataArray = careData;
@@ -1364,7 +1486,7 @@ const BookingRequestForm = () => {
                 }
             }
 
-            // Calculate care hours - now passing the FULL object!
+            // Calculate care hours
             const analysis = calculateCareHours(dataForCalculation);
             
             console.log('🏥 Care analysis result:', {
@@ -1391,10 +1513,10 @@ const BookingRequestForm = () => {
             };
         }
     }, [
-        // Keep your existing dependencies
+        // ✅ FIX: Use properly stringified dependencies
         bookingRequestFormData?.length || 0,
         processedFormData?.length || 0,
-        // Your existing enhanced dependency tracking...
+        // ✅ FIX: Stringify the entire answer object to detect changes
         bookingRequestFormData?.map(p => {
             const careQuestions = [];
             p.Sections?.forEach(s => {
@@ -1402,14 +1524,16 @@ const BookingRequestForm = () => {
                     if (questionHasKey(q, QUESTION_KEYS.WHEN_DO_YOU_REQUIRE_CARE) || 
                         questionHasKey(q, QUESTION_KEYS.DO_YOU_REQUIRE_ASSISTANCE_WITH_PERSONAL_CARE) ||
                         q.question_key === 'do-you-require-assistance-with-personal-care') {
-                        careQuestions.push(`${q.question_key}:${q.answer}`);
+                        // ✅ FIX: Use JSON.stringify to properly track object changes
+                        careQuestions.push(`${q.question_key}:${JSON.stringify(q.answer)}`);
                     }
                 });
                 s.QaPairs?.forEach(qa => {
                     if (questionHasKey(qa.Question, QUESTION_KEYS.WHEN_DO_YOU_REQUIRE_CARE) || 
                         questionHasKey(qa.Question, QUESTION_KEYS.DO_YOU_REQUIRE_ASSISTANCE_WITH_PERSONAL_CARE) ||
                         qa.Question?.question_key === 'do-you-require-assistance-with-personal-care') {
-                        careQuestions.push(`${qa.Question?.question_key}:${qa.answer}`);
+                        // ✅ FIX: Use JSON.stringify to properly track object changes
+                        careQuestions.push(`${qa.Question?.question_key}:${JSON.stringify(qa.answer)}`);
                     }
                 });
             });
@@ -1422,14 +1546,16 @@ const BookingRequestForm = () => {
                     if (questionHasKey(q, QUESTION_KEYS.WHEN_DO_YOU_REQUIRE_CARE) || 
                         questionHasKey(q, QUESTION_KEYS.DO_YOU_REQUIRE_ASSISTANCE_WITH_PERSONAL_CARE) ||
                         q.question_key === 'do-you-require-assistance-with-personal-care') {
-                        careQuestions.push(`${q.question_key}:${q.answer}`);
+                        // ✅ FIX: Use JSON.stringify to properly track object changes
+                        careQuestions.push(`${q.question_key}:${JSON.stringify(q.answer)}`);
                     }
                 });
                 s.QaPairs?.forEach(qa => {
                     if (questionHasKey(qa.Question, QUESTION_KEYS.WHEN_DO_YOU_REQUIRE_CARE) || 
                         questionHasKey(qa.Question, QUESTION_KEYS.DO_YOU_REQUIRE_ASSISTANCE_WITH_PERSONAL_CARE) ||
                         qa.Question?.question_key === 'do-you-require-assistance-with-personal-care') {
-                        careQuestions.push(`${qa.Question?.question_key}:${qa.answer}`);
+                        // ✅ FIX: Use JSON.stringify to properly track object changes
+                        careQuestions.push(`${qa.Question?.question_key}:${JSON.stringify(qa.answer)}`);
                     }
                 });
             });
@@ -1631,7 +1757,7 @@ const BookingRequestForm = () => {
                 const lastDataStr = JSON.stringify(lastDispatchedDataRef.current);
                 
                 if (dataStr !== lastDataStr) {
-                    console.log(`📤 Dispatching cleaned data to Redux: ${context}`);
+                    // console.log(`📤 Dispatching cleaned data to Redux: ${context}`);
                     dispatch(bookingRequestFormActions.setData(cleanedData));
                     lastDispatchedDataRef.current = structuredClone(cleanedData);
                 }
@@ -1827,7 +1953,7 @@ const BookingRequestForm = () => {
             });
             if (response.ok) {
                 const profileData = await response.json();
-                console.log('✅ Fresh profile data loaded for guest:', guestId, 'Fields:', Object.keys(profileData));
+                // console.log('✅ Fresh profile data loaded for guest:', guestId, 'Fields:', Object.keys(profileData));
                 return profileData;
             }
             console.warn('⚠️ Failed to fetch profile data, status:', response.status);
@@ -3104,9 +3230,6 @@ const BookingRequestForm = () => {
             const pageToValidate = currentPageInProcessed || currentPage;
 
             try {
-                // ============================================
-                // EQUIPMENT PAGE - Special validation via ref
-                // ============================================
                 if (pageToValidate.title === 'Equipment') {
                     console.log('🔧 Validating Equipment page before navigation...');
                     
@@ -3136,33 +3259,44 @@ const BookingRequestForm = () => {
                         }
                     }
                     
-                    // Equipment validation passed, save and continue
-                    console.log('✅ Equipment validation passed - proceeding');
+                    // ✅ Equipment validation passed
+                    console.log('✅ Equipment validation passed - saving page');
                     await saveCurrentPage(pageToValidate, false);
                     
-                    // Handle returning guest completion update
+                    // ✅ ADD THIS: Explicitly mark Equipment page as completed and saved
                     if (prevBookingId && currentBookingType === BOOKING_TYPES.RETURNING_GUEST && pageToValidate?.id) {
+                        console.log('🔧 Marking Equipment page as saved and forcing completion update...');
+                        
+                        // First, add to saved pages
                         const newSavedPages = new Set([...pagesWithSavedData, pageToValidate.id]);
                         setPagesWithSavedData(newSavedPages);
                         
-                        const updatedPages = batchUpdateReturningGuestCompletions(
-                            stableProcessedFormData,
-                            {
-                                visitedPages,
-                                pagesWithSavedData: newSavedPages,
-                                equipmentPageCompleted,
-                                equipmentChangesState,
-                                prevBookingId,
-                                currentBookingType
+                        // Then, explicitly update just the Equipment page with forced completion
+                        const updatedPages = stableProcessedFormData.map(page => {
+                            if (page.id === pageToValidate.id) {
+                                // For Equipment page specifically, use the helper
+                                const newCompletion = calculateReturningGuestPageCompletion(page, {
+                                    visitedPages,
+                                    pagesWithSavedData: newSavedPages,
+                                    equipmentPageCompleted: true, // ⬅️ FORCE TRUE after validation passed
+                                    equipmentChangesState,
+                                    prevBookingId,
+                                    currentBookingType
+                                });
+                                
+                                console.log(`🔧 Equipment page completion updated: ${page.completed} → ${newCompletion}`);
+                                
+                                return {
+                                    ...page,
+                                    completed: newCompletion
+                                };
                             }
-                        );
+                            return page;
+                        });
                         
                         setProcessedFormData(updatedPages);
-                        safeDispatchData(updatedPages, 'completion update before navigation');
+                        safeDispatchData(updatedPages, 'Equipment page marked complete after validation');
                     }
-                    
-                    // DON'T return here - let it fall through to navigation below
-                    
                 } else {
                     // ============================================
                     // NON-EQUIPMENT PAGES - Normal validation
@@ -3836,8 +3970,14 @@ const BookingRequestForm = () => {
                         
                         const hasPrefilled = question.temporaryFromPreviousBooking || question.prefill;
                         
+                        // ✅ NEW: Check if this is a historical booking
+                        const isHistoricalBooking = currentBookingStatus?.name === 'booking_confirmed' && 
+                                                    stayDates?.checkOutDate && 
+                                                    new Date(stayDates.checkOutDate) < new Date();
+                        
                         // Validate if course offer is "Yes" OR if there's a prefilled answer (for returning guests)
-                        if ((courseOfferQuestion || hasPrefilled) && question.answer) {
+                        // BUT skip validation for historical bookings
+                        if ((courseOfferQuestion || hasPrefilled) && question.answer && !isHistoricalBooking) {
                             const selectedOffer = courseOffers.find(offer => 
                                 ['offered', 'accepted'].includes(offer.offerStatus) &&
                                 (offer.courseId?.toString() === question.answer.toString() || 
@@ -3845,16 +3985,22 @@ const BookingRequestForm = () => {
                             );
                             
                             if (selectedOffer) {
-                                if (selectedOffer.dateValid === false) {
-                                    console.log(`⚠️ Course "${selectedOffer.courseName}" is outside minimum stay period - allowing selection (user acknowledged warning)`);
-                                    // console.log(`❌ Course "${selectedOffer.courseName}" is incompatible with stay dates`);
-                                    // errorMessage.add({
-                                    //     pageId: page.id,
-                                    //     pageTitle: page.title,
-                                    //     message: selectedOffer.dateValidationMessage || 'Selected course is not compatible with your stay dates. Please update your dates or remove this course selection.',
-                                    //     question: question.question,
-                                    //     type: question.type
-                                    // });
+                                // ✅ UPDATED: Handle warning severity vs error
+                                const severity = selectedOffer.dateValidationSeverity || 'error';
+                                const isWarning = severity === 'warning';
+                                
+                                if (selectedOffer.dateValid === false && !isWarning) {
+                                    console.log(`❌ Course "${selectedOffer.courseName}" is incompatible with stay dates`);
+                                    errorMessage.add({
+                                        pageId: page.id,
+                                        pageTitle: page.title,
+                                        message: selectedOffer.dateValidationMessage || 'Selected course is not compatible with your stay dates.',
+                                        question: question.question,
+                                        type: question.type
+                                    });
+                                } else if (isWarning) {
+                                    console.log(`⚠️ Course "${selectedOffer.courseName}" has date warning (non-blocking)`);
+                                    // Don't add to errorMessage - it's just a warning
                                 } else {
                                     console.log(`✅ Course "${selectedOffer.courseName}" is compatible with stay dates`);
                                 }
@@ -3868,6 +4014,8 @@ const BookingRequestForm = () => {
                                     type: question.type
                                 });
                             }
+                        } else if (isHistoricalBooking) {
+                            console.log(`⏭️ Skipping course validation for historical booking`);
                         }
                         
                         // ADDITIONAL: If there's an answer but no valid course offer question, that's also an error
@@ -5486,29 +5634,28 @@ const BookingRequestForm = () => {
             // APPLY EXISTING DEPENDENCIES
             const pagesWithDependencies = applyQuestionDependencies(pagesArr);
             
-            // ✅ FIX: Add missing ndis_only template questions before NDIS processing
-            // This ensures questions like "Do you live in SIL?" are present even if
-            // their section had no saved QaPairs
             // Pass API sections to retrieve saved answers
-            const apiSections = data?.booking?.Sections || data?.newBooking?.Sections || [];
+            const apiSections = data?.newBooking?.Sections || data?.booking?.Sections || [];
             const pagesWithAllNdisQuestions = isNdisFunded && data?.template?.Pages ?
                 addMissingNdisOnlyTemplateQuestions(
                     pagesWithDependencies, 
                     data.template.Pages, 
                     isNdisFunded,
-                    apiSections  // ✅ Pass API sections to find saved QaPairs
+                    apiSections
                 ) : 
                 pagesWithDependencies;
             
             const finalPages = isNdisFunded ? 
-                postProcessPagesForNdis(pagesWithAllNdisQuestions, isNdisFunded, 
-                    // Pass a guarded completion function
+                postProcessPagesForNdis(
+                    pagesWithAllNdisQuestions, 
+                    isNdisFunded, 
                     (page) => {
                         if (bookingType === BOOKING_TYPES.RETURNING_GUEST && prevBookingId) {
                             return false;
                         }
                         return calculatePageCompletion(page);
-                    }
+                    },
+                    apiSections
                 ) : 
                 pagesWithAllNdisQuestions;
 
@@ -5565,12 +5712,12 @@ const BookingRequestForm = () => {
                 stableProcessedFormData,
                 true, // isNdisFunded
                 (page) => {
-                    // Guard completion calculation for returning guests
                     if (currentBookingType === BOOKING_TYPES.RETURNING_GUEST && prevBookingId) {
-                        return false; // Let the helper handle it later
+                        return false;
                     }
                     return calculatePageCompletion(page);
-                }
+                },
+                [] // No apiSections available in this context, but the answers should already be in the form
             );
             
             // Verify NDIS page was created
@@ -5992,19 +6139,37 @@ const BookingRequestForm = () => {
         if (currentPage && stableProcessedFormData.length > 0) {
             // Small delay to allow page to settle after navigation
             const refreshTimer = setTimeout(() => {
+                // ✅ STORE the current completion status BEFORE refresh
+                const completionMap = new Map();
+                if (currentBookingType === BOOKING_TYPES.RETURNING_GUEST && prevBookingId) {
+                    stableProcessedFormData.forEach(page => {
+                        completionMap.set(page.id, page.completed);
+                    });
+                }
+                
                 // Apply comprehensive dependency refresh
                 const refreshedData = forceRefreshAllDependencies(stableProcessedFormData, bookingFormRoomSelected);
                 
+                // ✅ RESTORE completion status for returning guests
+                let finalData = refreshedData;
+                if (currentBookingType === BOOKING_TYPES.RETURNING_GUEST && prevBookingId) {
+                    finalData = refreshedData.map(page => ({
+                        ...page,
+                        completed: completionMap.get(page.id) ?? page.completed
+                    }));
+                    console.log('🔒 Preserved completion status during dependency refresh for returning guest');
+                }
+                
                 // Only update if there are actual changes to avoid unnecessary re-renders
-                if (JSON.stringify(refreshedData) !== JSON.stringify(stableProcessedFormData)) {
-                    setProcessedFormData(refreshedData);
-                    safeDispatchData(refreshedData, 'page change dependency refresh');
+                if (JSON.stringify(finalData) !== JSON.stringify(stableProcessedFormData)) {
+                    setProcessedFormData(finalData);
+                    safeDispatchData(finalData, 'page change dependency refresh with preserved completion');
                 }
             }, 100);
 
             return () => clearTimeout(refreshTimer);
         }
-    }, [currentPage?.id]);
+    }, [currentPage?.id, currentBookingType, prevBookingId]);
 
     useEffect(() => {
         // If booking type changes and we have form data, force profile reload
@@ -6106,11 +6271,57 @@ const BookingRequestForm = () => {
             });
         }
     }, [
-        stableProcessedFormData, 
-        stableBookingRequestFormData, 
+        // ✅ FIX: Add proper dependencies that track course question changes
+        stableProcessedFormData?.length || 0,
+        stableBookingRequestFormData?.length || 0,
         funder, 
         isNdisFunded, 
-        extractAllQAPairsFromForm
+        extractAllQAPairsFromForm,
+        // ✅ FIX: Add stringified tracking of course-related questions
+        stableProcessedFormData?.map(p => {
+            const courseQuestions = [];
+            p.Sections?.forEach(s => {
+                s.Questions?.forEach(q => {
+                    if (q.question_key === QUESTION_KEYS.COURSE_OFFER_QUESTION || 
+                        q.question_key === QUESTION_KEYS.WHICH_COURSE ||
+                        q.question_key?.includes('course')) {
+                        // ✅ Use JSON.stringify to properly track changes
+                        courseQuestions.push(`${q.question_key}:${JSON.stringify(q.answer)}`);
+                    }
+                });
+                s.QaPairs?.forEach(qa => {
+                    if (qa.Question?.question_key === QUESTION_KEYS.COURSE_OFFER_QUESTION || 
+                        qa.Question?.question_key === QUESTION_KEYS.WHICH_COURSE ||
+                        qa.Question?.question_key?.includes('course')) {
+                        // ✅ Use JSON.stringify to properly track changes
+                        courseQuestions.push(`${qa.Question?.question_key}:${JSON.stringify(qa.answer)}`);
+                    }
+                });
+            });
+            return `${p.id}-${courseQuestions.join(',')}`;
+        }).join('|') || '',
+        stableBookingRequestFormData?.map(p => {
+            const courseQuestions = [];
+            p.Sections?.forEach(s => {
+                s.Questions?.forEach(q => {
+                    if (q.question_key === QUESTION_KEYS.COURSE_OFFER_QUESTION || 
+                        q.question_key === QUESTION_KEYS.WHICH_COURSE ||
+                        q.question_key?.includes('course')) {
+                        // ✅ Use JSON.stringify to properly track changes
+                        courseQuestions.push(`${q.question_key}:${JSON.stringify(q.answer)}`);
+                    }
+                });
+                s.QaPairs?.forEach(qa => {
+                    if (qa.Question?.question_key === QUESTION_KEYS.COURSE_OFFER_QUESTION || 
+                        qa.Question?.question_key === QUESTION_KEYS.WHICH_COURSE ||
+                        qa.Question?.question_key?.includes('course')) {
+                        // ✅ Use JSON.stringify to properly track changes
+                        courseQuestions.push(`${qa.Question?.question_key}:${JSON.stringify(qa.answer)}`);
+                    }
+                });
+            });
+            return `${p.id}-${courseQuestions.join(',')}`;
+        }).join('|') || ''
     ]);
 
     useEffect(() => {
@@ -6197,15 +6408,17 @@ const BookingRequestForm = () => {
             }
         };
     }, [
-        // ONLY include primitive values and stable references
+        // ✅ Keep existing primitive values
         careAnalysisData?.totalHoursPerDay,
         careAnalysisData?.carePattern,
         courseAnalysisData?.hasCourse,
         courseAnalysisData?.courseOffered,
+        // ✅ ADD: Also depend on courseId to detect which course changed
+        courseAnalysisData?.courseId,
         isNdisFunded,
         ndisFormFilters?.ndisPackageType,
-        stableProcessedFormData?.length, // Only length to detect major changes
-        autoUpdatePackageSelection // This is now stable due to useCallback
+        stableProcessedFormData?.length,
+        autoUpdatePackageSelection
     ]);
 
     useEffect(() => {
@@ -6305,9 +6518,14 @@ const BookingRequestForm = () => {
     useEffect(() => {
         // Re-fetch course offers when stay dates change (for validation)
         if (guest || booking || currentUser) {
-            // Clear the cache to force re-fetch with new dates
+            // ✅ ENHANCED: Clear the cache AND log the new dates being used
+            console.log('📅 Stay dates changed, re-fetching course offers with:', stayDates);
             lastFetchParamsRef.current = null;
-            fetchCourseOffers();
+            
+            // Add a small delay to ensure state has propagated
+            setTimeout(() => {
+                fetchCourseOffers();
+            }, 100);
         }
     }, [stayDates?.checkInDate, stayDates?.checkOutDate, guest, booking, currentUser, fetchCourseOffers]);
 

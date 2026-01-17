@@ -44,8 +44,6 @@ export default function GuestBookingsV2() {
     const [courseBookingContext, setCourseBookingContext] = useState(null);
     const [promotions, setPromotions] = useState([]);
     const [loadingPromotions, setLoadingPromotions] = useState(true);
-    const [openCancelDropdown, setOpenCancelDropdown] = useState(null);
-    const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
 
     const [healthInfo, setHealthInfo] = useState([]);
     const [healthInfoLastUpdated, setHealthInfoLastUpdated] = useState(null);
@@ -62,6 +60,9 @@ export default function GuestBookingsV2() {
 
     const [showCourseDetailsModal, setShowCourseDetailsModal] = useState(false);
     const [selectedCourseForDetails, setSelectedCourseForDetails] = useState(null);
+
+    const [showCancelConfirmation, setShowCancelConfirmation] = useState(false);
+    const [bookingToCancel, setBookingToCancel] = useState(null);
 
     const handleViewCourseDetails = (course, offer) => {
         setSelectedCourseForDetails({ course, offer });
@@ -239,10 +240,10 @@ export default function GuestBookingsV2() {
         handleCheckPrevBookingStatus(courseContext);
     };
 
-    const handleCancelBooking = async (bookingId, isFullCharge = false) => {
-        if (bookingId) {
+    const handleCancelBooking = async (bookingUuid) => {
+        if (bookingUuid) {
             try {
-                const response = await fetch(`/api/bookings/${bookingId}/update-status`, {
+                const response = await fetch(`/api/bookings/${bookingUuid}/update-status`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -252,8 +253,7 @@ export default function GuestBookingsV2() {
                             "name": "guest_cancelled", 
                             "label": "Cancellation Requested", 
                             "color": "orange" 
-                        },
-                        isFullChargeCancellation: isFullCharge
+                        }
                     })
                 });
 
@@ -275,13 +275,25 @@ export default function GuestBookingsV2() {
                 }
 
                 fetchBookings();
-                const chargeType = isFullCharge ? 'Full Charge' : 'No Charge';
-                toast.success(`${chargeType} Booking Cancellation has been requested.`);
+                toast.success('Booking cancellation has been requested.');
             } catch (err) {
                 console.error('Network error cancelling booking:', err);
                 toast.error('Network error occurred. Please check your connection and try again.');
             }
         }
+    };
+
+    const handleCancelClick = (booking) => {
+        setBookingToCancel(booking);
+        setShowCancelConfirmation(true);
+    };
+
+    const confirmCancellation = () => {
+        if (bookingToCancel) {
+            handleCancelBooking(bookingToCancel.uuid);
+        }
+        setShowCancelConfirmation(false);
+        setBookingToCancel(null);
     };
 
     const handleDownloadPDF = async (bookingId) => {
@@ -614,87 +626,20 @@ export default function GuestBookingsV2() {
                             );
                             
                             customButtons.push(
-                                <div key="cancel-booking" className="relative">
-                                    <button 
-                                        className="inline-flex items-center justify-center p-2 border border-red-600 text-red-600 rounded hover:bg-red-50 transition-colors"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            const rect = e.currentTarget.getBoundingClientRect();
-                                            const dropdownWidth = 240;
-                                            const viewportWidth = window.innerWidth;
-                                            const spaceOnRight = viewportWidth - rect.right;
-                                            
-                                            // Calculate left position - align to right of button, but adjust if it would overflow
-                                            let leftPosition = rect.right - dropdownWidth + window.scrollX;
-                                            
-                                            // If dropdown would overflow on the left, align it to the left edge with padding
-                                            if (leftPosition < 16) {
-                                                leftPosition = 16;
-                                            }
-                                            
-                                            // If dropdown would overflow on the right, align to right edge with padding
-                                            if (rect.right - dropdownWidth + window.scrollX + dropdownWidth > viewportWidth - 16) {
-                                                leftPosition = viewportWidth - dropdownWidth - 16 + window.scrollX;
-                                            }
-                                            
-                                            setDropdownPosition({
-                                                top: rect.bottom + window.scrollY + 8,
-                                                left: leftPosition
-                                            });
-                                            setOpenCancelDropdown(openCancelDropdown === booking.id ? null : booking.id);
-                                        }}
-                                        aria-label="Cancel Booking"
-                                        title="Cancel Booking"
-                                    >
-                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
-                                            <path fillRule="evenodd" d="M12 2.25c-5.385 0-9.75 4.365-9.75 9.75s4.365 9.75 9.75 9.75 9.75-4.365 9.75-9.75S17.385 2.25 12 2.25zm-1.72 6.97a.75.75 0 10-1.06 1.06L10.94 12l-1.72 1.72a.75.75 0 101.06 1.06L12 13.06l1.72 1.72a.75.75 0 101.06-1.06L13.06 12l1.72-1.72a.75.75 0 10-1.06-1.06L12 10.94l-1.72-1.72z" clipRule="evenodd" />
-                                        </svg>
-                                    </button>
-                                    
-                                    {openCancelDropdown === booking.id && (
-                                        <>
-                                            <div 
-                                                className="fixed inset-0 z-[9998]" 
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    setOpenCancelDropdown(null);
-                                                }} 
-                                            />
-                                            <div 
-                                                className="fixed bg-white rounded-md shadow-xl border border-gray-200 z-[9999]"
-                                                style={{
-                                                    top: `${dropdownPosition.top}px`,
-                                                    left: `${dropdownPosition.left}px`,
-                                                    width: 'min(240px, calc(100vw - 32px))',
-                                                    maxWidth: '240px'
-                                                }}
-                                            >
-                                                <div className="py-1">
-                                                    <button
-                                                        className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors whitespace-nowrap"
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            handleCancelBooking(booking.id, false); // No charge
-                                                            setOpenCancelDropdown(null);
-                                                        }}
-                                                    >
-                                                        No Charge Cancellation
-                                                    </button>
-                                                    <button
-                                                        className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors whitespace-nowrap"
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            handleCancelBooking(booking.id, true); // Full charge - reverses nights
-                                                            setOpenCancelDropdown(null);
-                                                        }}
-                                                    >
-                                                        Full Charge Cancellation
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        </>
-                                    )}
-                                </div>
+                                <button 
+                                    key="cancel-booking"
+                                    className="inline-flex items-center justify-center p-2 border border-red-600 text-red-600 rounded hover:bg-red-50 transition-colors"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleCancelClick(booking);
+                                    }}
+                                    aria-label="Request Cancellation"
+                                    title="Request Cancellation"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
+                                        <path fillRule="evenodd" d="M12 2.25c-5.385 0-9.75 4.365-9.75 9.75s4.365 9.75 9.75 9.75 9.75-4.365 9.75-9.75S17.385 2.25 12 2.25zm-1.72 6.97a.75.75 0 10-1.06 1.06L10.94 12l-1.72 1.72a.75.75 0 101.06 1.06L12 13.06l1.72 1.72a.75.75 0 101.06-1.06L13.06 12l1.72-1.72a.75.75 0 10-1.06-1.06L12 10.94l-1.72-1.72z" clipRule="evenodd" />
+                                    </svg>
+                                </button>
                             );
                         }
                         
@@ -1011,21 +956,6 @@ export default function GuestBookingsV2() {
         };
     }, []);
 
-    useEffect(() => {
-        const handleClickOutside = (event) => {
-            if (openCancelDropdown !== null) {
-                setOpenCancelDropdown(null);
-            }
-        };
-
-        if (openCancelDropdown !== null) {
-            document.addEventListener('click', handleClickOutside);
-            return () => {
-                document.removeEventListener('click', handleClickOutside);
-            };
-        }
-    }, [openCancelDropdown]);
-
     return (
         <Layout title={"My Bookings"} hideSidebar={true}>
             {loading ? (
@@ -1158,6 +1088,28 @@ export default function GuestBookingsV2() {
                         allCourses={allCourses}
                         guestData={user}
                     />
+
+                    {/* Cancel Booking Confirmation Modal */}
+                    {showCancelConfirmation && bookingToCancel && (
+                        <Modal 
+                            title="Confirm Cancellation"
+                            titleColor="text-red-600"
+                            description={`Are you sure you want to request cancellation for booking ${bookingToCancel.reference_id}? This action cannot be undone and will be reviewed by our team.`}
+                            modalHide={() => {
+                                setShowCancelConfirmation(false);
+                                setBookingToCancel(null);
+                            }}
+                            onClose={() => {
+                                setShowCancelConfirmation(false);
+                                setBookingToCancel(null);
+                            }}
+                            cancelLabel="No, Keep Booking"
+                            cancelColor="text-gray-600"
+                            onConfirm={confirmCancellation}
+                            confirmLabel="Yes, Request Cancellation"
+                            confirmColor="text-red-600"
+                        />
+                    )}
 
                     {showCourseDetailsModal && selectedCourseForDetails && (
                         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50 p-4">

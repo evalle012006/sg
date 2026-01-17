@@ -174,8 +174,18 @@ const DetailSidebar = ({ booking, callback, guest, address, setEditBooking }) =>
   };
 
   const handleSelectBookingLabel = async (selectedLabels) => {
+    // Ensure selectedLabels is an array of strings
+    const labelStrings = selectedLabels.map(item => {
+      // Handle case where item might be an object with a 'label' property
+      if (typeof item === 'object' && item !== null) {
+        return item.label || item.value || String(item);
+      }
+      // Handle case where item is already a string
+      return String(item);
+    });
+
     // Convert display labels back to original format for API
-    const apiLabels = selectedLabels.map(displayLabel => {
+    const apiLabels = labelStrings.map(displayLabel => {
       // Find the original flag value from the display label
       const matchingFlag = settingsFlags.find(flag => 
         _.startCase(flag) === displayLabel
