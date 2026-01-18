@@ -17,7 +17,7 @@ export const detectNdisFundingFromSections = (sections) => {
                 const isNdis = qaPair.answer?.toLowerCase().includes('ndis') || 
                                qaPair.answer?.toLowerCase().includes('ndia');
                 if (isNdis) {
-                    console.log('✅ NDIS detected from QaPairs:', qaPair.answer);
+                    // console.log('✅ NDIS detected from QaPairs:', qaPair.answer);
                     return true;
                 }
                 return false; // Found funding question but answer is not NDIS
@@ -29,7 +29,7 @@ export const detectNdisFundingFromSections = (sections) => {
                 const isNdis = qaPair.answer?.toLowerCase().includes('ndis') || 
                                qaPair.answer?.toLowerCase().includes('ndia');
                 if (isNdis) {
-                    console.log('✅ NDIS detected from QaPairs (text match):', qaPair.answer);
+                    // console.log('✅ NDIS detected from QaPairs (text match):', qaPair.answer);
                     return true;
                 }
                 return false;
@@ -43,7 +43,7 @@ export const detectNdisFundingFromSections = (sections) => {
                 const isNdis = question.answer?.toLowerCase().includes('ndis') || 
                                question.answer?.toLowerCase().includes('ndia');
                 if (isNdis) {
-                    console.log('✅ NDIS detected from Questions:', question.answer);
+                    // console.log('✅ NDIS detected from Questions:', question.answer);
                     return true;
                 }
                 return false; // Found funding question but answer is not NDIS
@@ -55,7 +55,7 @@ export const detectNdisFundingFromSections = (sections) => {
                 const isNdis = question.answer?.toLowerCase().includes('ndis') || 
                                question.answer?.toLowerCase().includes('ndia');
                 if (isNdis) {
-                    console.log('✅ NDIS detected from Questions (text match):', question.answer);
+                    // console.log('✅ NDIS detected from Questions (text match):', question.answer);
                     return true;
                 }
                 return false;
@@ -313,7 +313,7 @@ export const postProcessPagesForNdis = (pages, isNdisFunded, calculatePageComple
         
         if (found) {
             fundingPageIndex = i;
-            console.log(`✅ Found funding page at index ${i}: "${page.title}"`);
+            // console.log(`✅ Found funding page at index ${i}: "${page.title}"`);
             break;
         }
     }

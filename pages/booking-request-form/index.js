@@ -57,6 +57,7 @@ import { BOOKING_TYPES } from "../../components/constants";
 import { calculateCareHours, createPackageFilterCriteria } from '../../utilities/careHoursCalculator';
 import { getBestMatchPackageId, getCurrentPackageAnswer } from "../../utilities/packageMatchChecker";
 import { scroller, Element } from 'react-scroll';
+import { regenerateCareDataForNewDates } from "../../utilities/careTableUtils";
 
 const BookingProgressHeader = dynamic(() => import('../../components/booking-request-form/booking-progress-header'));
 const QuestionPage = dynamic(() => import('../../components/booking-request-form/questions'));
@@ -157,63 +158,241 @@ const BookingRequestForm = () => {
 
     const initialDatesExtractedRef = useRef(false);
     const stayDatesRef = useRef(stayDates);
-
+    const pendingDatesRef = useRef(null);
     const equipmentFieldRef = useRef(null);
-    
-    useEffect(() => {
-        console.log('📊 CARE DATA DEBUG:', {
-            currentCareAnalysis: {
-                totalHours: currentCareAnalysis?.totalHoursPerDay,
-                dataSource: currentCareAnalysis?.dataSource,
-                pattern: currentCareAnalysis?.carePattern
-            },
-            careAnalysisData: {
-                totalHours: careAnalysisData?.totalHoursPerDay,
-                dataSource: careAnalysisData?.dataSource,
-                pattern: careAnalysisData?.carePattern
-            },
-            formDataLength: processedFormData?.length || bookingRequestFormData?.length || 0
-        });
-    }, [currentCareAnalysis, careAnalysisData, processedFormData?.length, bookingRequestFormData?.length]);
+    const careSaveTimeoutRef = useRef(null);
+    const originalSavedDatesRef = useRef({ checkInDate: null, checkOutDate: null });
+    const isCommittingDatesRef = useRef(false);
+
+    const saveCareDataToAPI = async (careQuestion, sectionId, pageId, templateId) => {
+        try {
+            console.log('💾 Saving care data to API...');
+            
+            const qa_pair = {
+                question: careQuestion.question,
+                answer: typeof careQuestion.answer === 'string' 
+                    ? careQuestion.answer 
+                    : JSON.stringify(careQuestion.answer),
+                question_type: careQuestion.type || 'care-table',
+                question_id: careQuestion.question_id || careQuestion.id,
+                section_id: sectionId,
+                submit: false,
+                updatedAt: new Date().toISOString(),
+                dirty: true,
+                question_key: careQuestion.question_key
+            };
+
+            if (careQuestion.fromQa && careQuestion.id) {
+                qa_pair.id = careQuestion.id;
+            }
+
+            const saveData = {
+                qa_pairs: [qa_pair],
+                flags: { 
+                    origin: origin,
+                    bookingUuid: uuid || null,
+                    pageId: pageId,
+                    templateId: templateId,
+                    autoUpdate: true
+                }
+            };
+
+            const response = await fetch('/api/booking-request-form/save-qa-pair', {
+                method: 'POST',
+                body: JSON.stringify(saveData),
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (response.ok) {
+                console.log('✅ Care data saved to API successfully');
+            } else {
+                console.error('❌ Failed to save care data:', await response.text());
+            }
+        } catch (error) {
+            console.error('❌ Error saving care data:', error);
+        }
+    };
+
+    const commitPendingDatesAndCareData = useCallback(async () => {
+        const pendingDates = pendingDatesRef.current;
+        if (!pendingDates) {
+            console.log('📅 No pending dates to commit');
+            return;
+        }
+        
+        // ✅ Set flag to prevent interference from form refresh
+        isCommittingDatesRef.current = true;
+        console.log('📅 Starting commit of pending dates:', pendingDates);
+        
+        try {
+            // Update originalSavedDatesRef FIRST
+            originalSavedDatesRef.current = {
+                checkInDate: pendingDates.checkInDate,
+                checkOutDate: pendingDates.checkOutDate
+            };
+            
+            // Update stayDates state and Redux
+            stayDatesRef.current = pendingDates;
+            setStayDates(pendingDates);
+            
+            if (pendingDates.checkInDate) {
+                dispatch(bookingRequestFormActions.setCheckinDate(pendingDates.checkInDate));
+            }
+            if (pendingDates.checkOutDate) {
+                dispatch(bookingRequestFormActions.setCheckoutDate(pendingDates.checkOutDate));
+            }
+            
+            // Copy dates and clear pending
+            const datesToUse = { ...pendingDates };
+            pendingDatesRef.current = null;
+            
+            // Regenerate and save care data
+            const currentFormData = processedFormData;
+            if (currentFormData && currentFormData.length > 0) {
+                let careQuestionToSave = null;
+                let careSectionId = null;
+                let carePageId = null;
+                let careTemplateId = null;
+                
+                const updatedPages = currentFormData.map(page => {
+                    const updatedSections = page.Sections.map(section => {
+                        const updatedQuestions = section.Questions.map(question => {
+                            if (questionHasKey(question, QUESTION_KEYS.WHEN_DO_YOU_REQUIRE_CARE)) {
+                                console.log('📅 Regenerating care data for committed dates');
+                                
+                                let existingCareData = null;
+                                try {
+                                    if (question.answer && typeof question.answer === 'string') {
+                                        existingCareData = JSON.parse(question.answer);
+                                    } else if (question.answer && typeof question.answer === 'object') {
+                                        existingCareData = question.answer;
+                                    }
+                                } catch (e) {
+                                    console.error('Error parsing existing care data:', e);
+                                }
+                                
+                                const newCareData = regenerateCareDataForNewDates(
+                                    existingCareData,
+                                    datesToUse.checkInDate,
+                                    datesToUse.checkOutDate
+                                );
+                                
+                                console.log('📅 Care data regenerated:', {
+                                    entries: newCareData.careData.length,
+                                    dates: `${datesToUse.checkInDate} - ${datesToUse.checkOutDate}`
+                                });
+                                
+                                const updatedCareQuestion = {
+                                    ...question,
+                                    answer: JSON.stringify(newCareData),
+                                    dirty: true,
+                                    prefilledAnswerChange: true,
+                                    error: null
+                                };
+                                
+                                careQuestionToSave = updatedCareQuestion;
+                                careSectionId = section.id;
+                                carePageId = page.id;
+                                careTemplateId = page.template_id;
+                                
+                                return updatedCareQuestion;
+                            }
+                            return question;
+                        });
+                        return { ...section, Questions: updatedQuestions };
+                    });
+                    return { ...page, Sections: updatedSections };
+                });
+                
+                setProcessedFormData(updatedPages);
+                safeDispatchData(updatedPages, 'Dates committed - care data regenerated');
+                
+                // Save care data to API
+                if (careQuestionToSave && careSectionId) {
+                    await saveCareDataToAPI(careQuestionToSave, careSectionId, carePageId, careTemplateId);
+                }
+            }
+            
+            console.log('✅ Dates and care data committed successfully');
+        } finally {
+            // ✅ Clear flag after a short delay to let form settle
+            setTimeout(() => {
+                isCommittingDatesRef.current = false;
+                console.log('📅 Commit process complete - date change detection re-enabled');
+            }, 500);
+        }
+    }, [dispatch, processedFormData, safeDispatchData]);
 
     // Callback to immediately update stay dates when changed in child component
     const updateStayDatesImmediate = useCallback((newDates) => {
+        // ✅ IGNORE all date changes while committing
+        if (isCommittingDatesRef.current) {
+            console.log('📅 Ignoring date change - commit in progress');
+            return;
+        }
+        
         if (newDates.checkInDate || newDates.checkOutDate) {
             const updatedDates = {
                 checkInDate: newDates.checkInDate || stayDatesRef.current?.checkInDate || null,
                 checkOutDate: newDates.checkOutDate || stayDatesRef.current?.checkOutDate || null
             };
             
-            console.log('📅 Immediate stay dates update:', updatedDates);
+            const originalDates = originalSavedDatesRef.current;
             
-            // Update both state and ref immediately
-            stayDatesRef.current = updatedDates;
-            setStayDates(updatedDates);
+            console.log('📅 Date change detected:', {
+                newDates: updatedDates,
+                originalSaved: originalDates,
+                hasPending: !!pendingDatesRef.current
+            });
             
-            if (updatedDates.checkInDate) {
-                dispatch(bookingRequestFormActions.setCheckinDate(updatedDates.checkInDate));
+            // Check if dates match the original saved dates
+            const datesMatchOriginal = 
+                updatedDates.checkInDate === originalDates.checkInDate &&
+                updatedDates.checkOutDate === originalDates.checkOutDate;
+            
+            if (datesMatchOriginal) {
+                // ✅ If we have pending dates, this is a form refresh with old data - IGNORE
+                if (pendingDatesRef.current) {
+                    console.log('📅 Ignoring form refresh with old data - pending dates preserved');
+                    return;
+                }
+                
+                console.log('📅 Dates match original - no changes needed');
+                return;
             }
-            if (updatedDates.checkOutDate) {
-                dispatch(bookingRequestFormActions.setCheckoutDate(updatedDates.checkOutDate));
+            
+            // Check if dates match pending dates (already tracked)
+            if (pendingDatesRef.current &&
+                updatedDates.checkInDate === pendingDatesRef.current.checkInDate &&
+                updatedDates.checkOutDate === pendingDatesRef.current.checkOutDate) {
+                console.log('📅 Dates match pending - already tracked');
+                return;
             }
             
-            // ✅ NEW: Clear course-related validation errors when dates change
-            if (stableProcessedFormData && stableProcessedFormData.length > 0) {
-                const updatedPages = stableProcessedFormData.map(page => {
+            console.log('📅 New pending dates stored:', updatedDates);
+            pendingDatesRef.current = updatedDates;
+            
+            // Update only the date question in form data
+            const currentFormData = processedFormData;
+            
+            if (currentFormData && currentFormData.length > 0) {
+                const updatedPages = currentFormData.map(page => {
                     const updatedSections = page.Sections.map(section => {
                         const updatedQuestions = section.Questions.map(question => {
-                            // Clear errors on course-related questions
                             if (questionHasKey(question, QUESTION_KEYS.COURSE_OFFER_QUESTION) ||
                                 questionHasKey(question, QUESTION_KEYS.WHICH_COURSE)) {
                                 return {
                                     ...question,
-                                    error: null, // Clear the error
-                                    validationAttempted: false // Reset validation flag
+                                    error: null,
+                                    validationAttempted: false
                                 };
                             }
                             
-                            // Update the check-in/check-out date question
-                            if (questionHasKey(question, QUESTION_KEYS.CHECK_IN_OUT_DATE)) {
+                            if (questionHasKey(question, QUESTION_KEYS.CHECK_IN_OUT_DATE) ||
+                                questionHasKey(question, QUESTION_KEYS.CHECK_IN_DATE) ||
+                                questionHasKey(question, QUESTION_KEYS.CHECK_OUT_DATE)) {
                                 const formattedAnswer = updatedDates.checkInDate && updatedDates.checkOutDate 
                                     ? `${updatedDates.checkInDate} - ${updatedDates.checkOutDate}`
                                     : question.answer;
@@ -222,30 +401,29 @@ const BookingRequestForm = () => {
                                     ...question,
                                     answer: formattedAnswer,
                                     dirty: true,
-                                    error: null // Clear any date validation errors too
+                                    error: null
                                 };
                             }
+                            
                             return question;
                         });
                         return { ...section, Questions: updatedQuestions };
                     });
-                    
-                    // Also clear page-level validation flag
-                    return { 
-                        ...page, 
-                        Sections: updatedSections,
-                        validationAttempted: false // Clear page validation flag
-                    };
+                    return { ...page, Sections: updatedSections };
                 });
                 
-                // Update the processed form data immediately
                 setProcessedFormData(updatedPages);
-                safeDispatchData(updatedPages, 'Stay dates updated - cleared course validation errors');
-                
-                console.log('✅ Form data updated with new stay dates and cleared course errors');
             }
         }
-    }, [dispatch, stableProcessedFormData, setProcessedFormData, safeDispatchData]);
+    }, [processedFormData]);
+
+    useEffect(() => {
+        return () => {
+            if (careSaveTimeoutRef.current) {
+                clearTimeout(careSaveTimeoutRef.current);
+            }
+        };
+    }, []);
 
     // Re-validate course questions when course offers change (with updated validation)
     useEffect(() => {
@@ -4636,8 +4814,24 @@ const BookingRequestForm = () => {
             });
 
             if (response.ok) {
-                dispatch(bookingRequestFormActions.clearEquipmentChanges());
                 const result = await response.json();
+
+                // Check if this page has date question and we have pending dates
+                const hasDateQuestion = cPage?.Sections?.some(section =>
+                    section.Questions?.some(question =>
+                        questionHasKey(question, QUESTION_KEYS.CHECK_IN_OUT_DATE) ||
+                        questionHasKey(question, QUESTION_KEYS.CHECK_IN_DATE) ||
+                        questionHasKey(question, QUESTION_KEYS.CHECK_OUT_DATE)
+                    )
+                );
+                
+                if (hasDateQuestion && pendingDatesRef.current) {
+                    console.log('📅 Date page saved - committing dates and updating care data');
+                    await commitPendingDatesAndCareData();
+                }
+
+                dispatch(bookingRequestFormActions.clearEquipmentChanges());
+                
                 if (result.success && result.bookingAmended && bookingAmended == false) {
                     setBookingAmended(true);
                 }
@@ -6021,10 +6215,15 @@ const BookingRequestForm = () => {
             
             const extractedDates = getStayDatesFromForm(stableProcessedFormData);
             
-            // Only set if we found dates and haven't set them yet
             if (extractedDates.checkInDate || extractedDates.checkOutDate) {
                 console.log('📅 Initial stay dates extraction:', extractedDates);
                 setStayDates(extractedDates);
+                
+                // Store original saved dates
+                originalSavedDatesRef.current = {
+                    checkInDate: extractedDates.checkInDate,
+                    checkOutDate: extractedDates.checkOutDate
+                };
                 
                 if (extractedDates.checkInDate) {
                     dispatch(bookingRequestFormActions.setCheckinDate(extractedDates.checkInDate));

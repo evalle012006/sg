@@ -86,22 +86,73 @@ const isPackagesPage = (page) => {
 const calculatePackagesPageCompletion = (page, context) => {
     const { visitedPages, pagesWithSavedData } = context;
 
-    // CRITICAL: User must have visited the page at least once
-    // This ensures they've seen and can review the auto-selected package
+    // Check if page has real interaction indicators
     const hasBeenVisited = visitedPages.has(page.id);
+    const hasSavedData = pagesWithSavedData.has(page.id);
+    const hasRealQaPairs = hasRealUserInteractionQaPairs(page);
     
+    // ✅ NEW: Check if Packages page has questions with saved answers (fromQa: true)
+    // This indicates a package was previously selected and saved
+    const hasSavedPackageSelection = page.Sections?.some(section =>
+        section.Questions?.some(question =>
+            (question.type === 'package-selection' || question.type === 'package-selection-multi') &&
+            question.fromQa === true && 
+            question.answer !== null && 
+            question.answer !== undefined && 
+            question.answer !== ''
+        )
+    );
+    
+    // ✅ NEW: Also check QaPairs directly for saved package selections
+    const hasQaPairWithPackageSelection = page.Sections?.some(section =>
+        section.QaPairs?.some(qaPair =>
+            (qaPair.question_type === 'package-selection' || 
+             qaPair.question_type === 'package-selection-multi' ||
+             qaPair.Question?.type === 'package-selection' ||
+             qaPair.Question?.type === 'package-selection-multi') &&
+            qaPair.answer !== null && 
+            qaPair.answer !== undefined && 
+            qaPair.answer !== '' &&
+            (qaPair.createdAt || qaPair.updatedAt) // Has been saved to DB
+        )
+    );
+
+    console.log(`📦 Packages page completion check:`, {
+        pageId: page.id,
+        pageTitle: page.title,
+        hasBeenVisited,
+        hasSavedData,
+        hasRealQaPairs,
+        hasSavedPackageSelection,
+        hasQaPairWithPackageSelection
+    });
+
+    // ✅ UPDATED: If there's a saved package selection (from previous booking),
+    // mark as complete without requiring a visit
+    if (hasSavedPackageSelection || hasQaPairWithPackageSelection) {
+        // Verify the package selection answer is still valid
+        const allRequiredAnswered = checkAllRequiredQuestionsAnswered(page);
+        
+        if (allRequiredAnswered) {
+            console.log(`📦 Packages page complete - has saved package selection:`, {
+                pageId: page.id,
+                hasSavedPackageSelection,
+                hasQaPairWithPackageSelection
+            });
+            return true;
+        }
+    }
+
+    // Original logic: User must have visited the page at least once
+    // This ensures they've seen and can review the auto-selected package
     if (!hasBeenVisited) {
-        console.log(`📦 Packages page not complete - user hasn't visited yet:`, {
+        console.log(`📦 Packages page not complete - user hasn't visited yet and no saved selection:`, {
             pageId: page.id,
             pageTitle: page.title
         });
         return false;
     }
 
-    // Check if page has real interaction indicators
-    const hasSavedData = pagesWithSavedData.has(page.id);
-    const hasRealQaPairs = hasRealUserInteractionQaPairs(page);
-    
     // Since auto-select may have created QaPairs, we need to be more flexible
     // User visited + (has saved data OR has QaPairs) = complete
     if (hasSavedData || hasRealQaPairs) {
@@ -118,7 +169,7 @@ const calculatePackagesPageCompletion = (page, context) => {
     // This handles cases where auto-select populated answers but didn't trigger save flags
     const allRequiredAnswered = checkAllRequiredQuestionsAnswered(page);
     
-    console.log(`📦 Packages page completion check:`, {
+    console.log(`📦 Packages page final completion check:`, {
         pageId: page.id,
         pageTitle: page.title,
         hasBeenVisited,

@@ -68,6 +68,7 @@ const PackageSelection = ({
   const requestIdRef = useRef(0);
   const [dataReady, setDataReady] = useState(false);
   const initialLoadRef = useRef(true);
+  const [stableFilterCriteria, setStableFilterCriteria] = useState(null);
 
   useEffect(() => {
       console.log('📦 PackageSelection received careAnalysisData:', {
