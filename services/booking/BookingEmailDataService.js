@@ -51,6 +51,7 @@ class BookingEmailDataService {
       this.addRoomData(emailData, bookingData);
       this.addPropertyData(emailData);
       await this.addQuestionAnswers(emailData, bookingData, includeSectionSpecific);
+      await this.enrichPackageData(emailData, qaPairs);
       this.addCalculatedFields(emailData, bookingData, formatDates);
 
       Object.assign(emailData, additionalData);
@@ -639,12 +640,29 @@ class BookingEmailDataService {
     }
   }
 
-  addPropertyData(emailData) {
-    emailData.property_name = 'Sargood On Collaroy';
-    emailData.property_address = '1 Pittwater Road, Collaroy, NSW 2097';
-    emailData.property_phone = '(02) 9972 9999';
-    emailData.property_email = 'info@sargoodoncollaroy.com.au';
-    emailData.property_website = 'https://sargoodoncollaroy.com.au';
+  async addPropertyData(emailData) {
+    const fs = require('fs').promises;
+    const path = require('path');
+    
+    try {
+      // Read logo file
+      const logoPath = path.join(process.env.APP_ROOT, 'public', 'sargood-logo-full.svg');
+      const logoBuffer = await fs.readFile(logoPath);
+      const logoBase64 = logoBuffer.toString('base64');
+      
+      // Add to email data
+      emailData.logo_base64 = `data:image/svg+xml;base64,${logoBase64}`;
+      emailData.logo_url = `${process.env.APP_URL}/sargood-logo-full.svg`;
+      
+      // Property information
+      emailData.property_name = 'Sargood on Collaroy';
+      emailData.property_address = '1 Brissenden Avenue, Collaroy NSW 2097, Australia';
+      emailData.property_phone = '02 8597 0600';
+      emailData.property_email = 'info@sargoodoncollaroy.com.au';
+    } catch (error) {
+      console.error('Error loading logo:', error);
+      emailData.logo_url = ''; // Fallback
+    }
   }
 
   async addQuestionAnswers(emailData, bookingData, includeSectionSpecific) {
@@ -694,6 +712,47 @@ class BookingEmailDataService {
         }
       }
     });
+  }
+
+  async enrichPackageData(emailData, qaPairs) {
+    // Import Package model at top of file
+    const { Package } = require('../../models');
+    
+    // Find package-selection questions
+    const packageQaPairs = qaPairs.filter(qa => 
+      qa.Question?.question_type === 'package-selection' || 
+      qa.Question?.type === 'package-selection' ||
+      qa.question_key === QUESTION_KEYS.ACCOMMODATION_PACKAGE_COURSES ||
+      qa.question_key === QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL
+    );
+
+    for (const qaPair of packageQaPairs) {
+      const answer = qaPair.answer;
+      const questionKey = qaPair.Question?.question_key || qaPair.question_key;
+      
+      // Check if answer looks like a package ID
+      if (answer && /^\d+$/.test(answer.toString().trim())) {
+        try {
+          const packageId = parseInt(answer);
+          const packageData = await Package.findByPk(packageId, {
+            attributes: ['id', 'name', 'package_code', 'funder', 'price', 'description']
+          });
+          
+          if (packageData) {
+            // Add both ID and name
+            emailData[`${questionKey}`] = answer; // Keep original ID
+            emailData[`${questionKey}_name`] = packageData.name;
+            emailData['package_id'] = packageData.id;
+            emailData['package_name'] = packageData.name;
+            emailData['package_code'] = packageData.package_code;
+            emailData['package_price'] = packageData.price;
+            emailData['package_funder'] = packageData.funder;
+          }
+        } catch (error) {
+          console.error('Error enriching package data:', error);
+        }
+      }
+    }
   }
 
   addCalculatedFields(emailData, bookingData, dateFormat) {

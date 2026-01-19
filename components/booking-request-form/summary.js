@@ -1417,20 +1417,43 @@ const PricingTable = ({
 
   const calculateCareQuantity = (lineItem, careAnalysisData, daysBreakdown) => {
     const { rate_type, care_time } = lineItem;
+    
+    // 🔧 FIX: For care, if the care schedule applies to all days (not rate-specific),
+    // use the total of all days instead of filtering by rate_type
+    const careHoursPerDay = getCareHoursForTime(care_time, careAnalysisData);
+    
+    if (careHoursPerDay === 0) return 0;
+    
+    // Check if rate_type is specified and should be filtered
+    if (!rate_type || rate_type === '') {
+      // No rate_type specified = care applies to ALL days
+      const totalDays = daysBreakdown.weekdays + daysBreakdown.saturdays + 
+                      daysBreakdown.sundays + daysBreakdown.publicHolidays;
+      return careHoursPerDay * totalDays;
+    }
+    
+    // Rate-specific care (e.g., "weekday" care vs "saturday" care)
     const daysForType = getDaysForRateType(rate_type, daysBreakdown);
     
     if (daysForType === 0) return 0;
-    
-    const careHoursPerDay = getCareHoursForTime(care_time, careAnalysisData);
     
     return careHoursPerDay * daysForType;
   };
 
   const getCareHoursForTime = (careTime, careAnalysisData) => {
-    if (!careTime || !careAnalysisData?.sampleDay) return 0;
+    if (!careAnalysisData?.sampleDay) return 0;
     
     const sampleDay = careAnalysisData.sampleDay;
     
+    // If care_time is empty, return TOTAL care hours per day (all time periods)
+    if (!careTime || careTime === '') {
+      const totalHours = (sampleDay.morning || 0) + 
+                        (sampleDay.afternoon || 0) + 
+                        (sampleDay.evening || 0);
+      return totalHours;
+    }
+    
+    // Otherwise, return hours for specific time period
     switch (careTime.toLowerCase()) {
       case 'morning':
         return sampleDay.morning || 0;

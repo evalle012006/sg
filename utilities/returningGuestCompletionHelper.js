@@ -32,6 +32,20 @@ export const calculateReturningGuestPageCompletion = (
         return false;
     }
 
+    // ✅ CRITICAL: Check for validation errors FIRST - this takes precedence over everything
+    const hasValidationErrors = page.Sections?.some(section =>
+        section.Questions?.some(question =>
+            !question.hidden && // Only check visible questions
+            question.error && 
+            question.error !== ''
+        )
+    );
+    
+    if (hasValidationErrors) {
+        console.log(`❌ [Returning Guest] Page "${page.title}" has validation errors - marking as incomplete`);
+        return false;
+    }
+
     // SPECIAL CASE 1: Equipment Page
     if (page.title === 'Equipment') {
         return calculateEquipmentPageCompletion(page, {
@@ -199,7 +213,6 @@ const calculateEquipmentPageCompletion = (page, context) => {
     // are saved in the database (equipmentPageCompleted = true), 
     // then the page is complete - this persists across refreshes
     if (equipmentPageCompleted === true) {
-        // console.log('🔧 Equipment page complete: acknowledgement equipments saved in database');
         return true;
     }
 
@@ -296,16 +309,6 @@ const calculateNdisPageCompletionForReturningGuest = (page, context) => {
         )
     );
     
-    // console.log(`📋 NDIS Page completion check:`, {
-    //     pageId: page.id,
-    //     hasBeenVisited,
-    //     hasSavedData,
-    //     hasRealQaPairs,
-    //     hasMovedQuestionsWithSavedAnswers,
-    //     sectionsCount: page.Sections.length,
-    //     totalQuestions: page.Sections.reduce((sum, s) => sum + (s.Questions?.length || 0), 0)
-    // });
-    
     // ✅ UPDATED: Include hasMovedQuestionsWithSavedAnswers as a valid interaction indicator
     // This allows NDIS page to be complete on initial load if questions were moved
     // from saved QaPairs
@@ -348,26 +351,10 @@ const calculateStandardPageCompletionForReturningGuest = (page, context) => {
     // If page has saved data, check if questions are answered (with or without QaPairs)
     if (hasSavedData) {
         const allRequiredAnswered = checkAllRequiredQuestionsAnswered(page);
-        // console.log(`📋 Page "${page.title}" completion result:`, {
-        //     pageId: page.id,
-        //     hasSavedData,
-        //     hasBeenVisited,
-        //     hasRealQaPairs,
-        //     allRequiredAnsweredWithQaPairs,
-        //     finalCompletion: allRequiredAnswered
-        // });
         return allRequiredAnswered;
     }
 
     const allRequiredAnsweredWithQaPairs = checkAllRequiredQuestionsAnsweredWithQaPairs(page);
-    // console.log(`📋 Page "${page.title}" completion result:`, {
-    //     pageId: page.id,
-    //     hasSavedData,
-    //     hasBeenVisited,
-    //     hasRealQaPairs,
-    //     allRequiredAnsweredWithQaPairs,
-    //     finalCompletion: allRequiredAnsweredWithQaPairs
-    // });
     // If page was visited or has real QaPairs, require QaPairs backing
     return allRequiredAnsweredWithQaPairs;
 };
@@ -413,15 +400,6 @@ const hasRealUserInteractionQaPairs = (page) => {
         );
         
         if (hasDirtyAnsweredQuestions) {
-            // console.log('✅ Found dirty answered questions:', {
-            //     sectionId: section.id,
-            //     dirtyQuestions: section.Questions?.filter(q => q.dirty).map(q => ({
-            //         id: q.id,
-            //         question: q.question,
-            //         answer: q.answer,
-            //         dirty: q.dirty
-            //     }))
-            // });
             return true;
         }
         
@@ -548,14 +526,6 @@ const isQuestionAnswered = (question) => {
  * Check if question has corresponding saved QaPairs
  */
 const questionHasSavedQaPairs = (question, section) => {
-    // console.log(`🔍 Checking QaPairs for question:`, {
-    //     questionId: question.id,
-    //     questionKey: question.question_key,
-    //     sectionId: section.id,
-    //     questionFromQa: question.fromQa,
-    //     questionAnswer: question.answer,
-    //     sectionQaPairsCount: section.QaPairs ? section.QaPairs.length : 0
-    // });
     // Check 1: Question itself has fromQa flag (loaded from QaPair during template load)
     if (question.fromQa === true && 
         question.answer !== null && 
@@ -590,9 +560,9 @@ export const batchUpdateReturningGuestCompletions = (pages, context) => {
         const wasCompleted = page.completed;
         const newCompleted = calculateReturningGuestPageCompletion(page, context);
         
-        // if (wasCompleted !== newCompleted) {
-        //     console.log(`📊 RETURNING GUEST: Page "${page.title}" completion: ${wasCompleted} → ${newCompleted}`);
-        // }
+        if (wasCompleted !== newCompleted) {
+            console.log(`📊 RETURNING GUEST: Page "${page.title}" completion: ${wasCompleted} → ${newCompleted}`);
+        }
         
         return { ...page, completed: newCompleted };
     });

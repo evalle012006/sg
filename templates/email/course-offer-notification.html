@@ -91,10 +91,34 @@
         a {
             color: #075985;
         }
+        .logo {
+            text-align: center;
+            margin-bottom: 32px;
+        }
+        .logo img {
+            max-width: 200px;
+            height: auto;
+        }
+        @media only screen and (max-width: 600px) {
+            .container {
+                width: 100% !important;
+                padding: 20px !important;
+            }
+            .btn {
+                display: block !important;
+                width: 100% !important;
+                margin-bottom: 10px !important;
+            }
+        }
     </style>
 </head>
 <body>
     <div class="container">
+        {{#if logo_base64}}
+        <div class="logo">
+            <img src="{{logo_base64}}" alt="Sargood on Collaroy" />
+        </div>
+        {{/if}}
         <h1>Course Opportunity</h1>
 
         <p>Dear {{guest_name}},</p>
@@ -129,8 +153,17 @@
         </div>
 
         <p>
+            {{#if accept_link}}
             <a href="{{accept_link}}" class="btn">Accept Offer</a>
+            {{else}}
+            <p style="color: #dc2626;">Please contact us to accept this offer.</p>
+            {{/if}}
+
+            {{#if decline_link}}
             <a href="{{decline_link}}" class="btn btn-outline">Decline</a>
+            {{else}}
+            <p style="color: #6b7280;">To decline, please contact us directly.</p>
+            {{/if}}
         </p>
 
         <p style="margin-top: 24px;">If you have any questions about the course, please contact us.</p>

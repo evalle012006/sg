@@ -1,5 +1,6 @@
 import { Course, Guest, CourseEOI } from '../../../models';
 import SendEmail from '../../../utilities/mail';
+import moment from 'moment';
 
 export default async function handler(req, res) {
     const { method } = req;
@@ -154,33 +155,35 @@ async function createEOI(req, res) {
             courses: courseNames
         });
 
-        // Send notification email to admin
+        // ✅ FIXED: Send notification email to admin with CORRECT field names
         try {
             const adminEmail = process.env.ADMIN_EMAIL || 'bookings@sargoodoncollaroy.com';
+            const baseUrl = process.env.APP_URL || 'https://booking.sargoodoncollaroy.com.au';
             
             await SendEmail(
                 adminEmail,
                 `New Course EOI: ${guest_name}`,
                 'course-eoi-admin',
                 {
-                    eoiId: eoiRecord.id,
-                    guestName: guest_name,
-                    guestEmail: guest_email,
-                    guestPhone: guest_phone,
-                    fundingType: funding_type || 'Not specified',
-                    hasSCI: has_sci === 'yes' || has_sci === true ? 'Yes' : 'No',
-                    sciLevels: sciLevels || 'Not specified',
-                    courseNames: courseNames,
-                    isCompletingForOther: completing_for === 'other',
-                    supportName: support_name,
-                    supportEmail: support_email,
-                    supportPhone: support_phone,
-                    supportRole: support_role,
-                    comments: comments,
-                    submittedAt: new Date(submitted_at || Date.now()).toLocaleString('en-AU', {
-                        dateStyle: 'full',
-                        timeStyle: 'short'
-                    })
+                    // ✅ FIXED: Match template variable names exactly
+                    guest_name: guest_name,
+                    guest_email: guest_email,
+                    guest_phone: guest_phone,
+                    funding_type: funding_type || 'Not specified',
+                    has_sci: has_sci === 'yes' || has_sci === true ? 'Yes' : 'No',
+                    sci_levels: sciLevels || 'Not specified',
+                    course_name: courseNames,
+                    is_completing_for_other: completing_for === 'other',
+                    support_name: support_name,
+                    support_email: support_email,
+                    support_phone: support_phone,
+                    support_role: support_role,
+                    preferred_dates: course_date_preferences ? JSON.stringify(course_date_preferences) : 'Not specified',
+                    comments: comments || 'None provided',
+                    // ✅ FIXED: Add admin link with proper base URL
+                    admin_link: `${baseUrl}/admin/course-eoi/${eoiRecord.id}`,
+                    // ✅ FIXED: Standardized date format
+                    submitted_at: moment(submitted_at || Date.now()).format('dddd, D MMMM YYYY [at] h:mm A')
                 }
             );
             console.log('✅ Admin notification email sent');
@@ -189,15 +192,16 @@ async function createEOI(req, res) {
             // Don't fail the request if email fails
         }
 
-        // Send confirmation email to guest
+        // ✅ FIXED: Send confirmation email to guest with CORRECT field names
         try {
             await SendEmail(
                 guest_email,
                 'Your Course Interest Has Been Received - Sargood on Collaroy',
                 'course-eoi-confirmation',
                 {
-                    guestName: guest_name,
-                    courseNames: courseNames
+                    // ✅ FIXED: Match template variable names exactly
+                    guest_name: guest_name,
+                    course_name: courseNames
                 }
             );
             console.log('✅ Guest confirmation email sent');

@@ -48,17 +48,6 @@ async function createCourseOffer(req, res) {
   const isBulkOperation = Array.isArray(guest_ids) && guest_ids.length > 0;
   const targetGuestIds = isBulkOperation ? guest_ids : [guest_id];
 
-  const course = await Course.findByPk(course_id);
-
-  if (!course || course.deleted_at) {
-      await transaction.rollback();
-      return res.status(404).json({
-          error: 'Course not found',
-          message: 'The specified course does not exist or has been deleted'
-      });
-  }
-
-
   // Validate required fields
   if (!course_id) {
     return res.status(400).json({
@@ -104,11 +93,12 @@ async function createCourseOffer(req, res) {
   try {
     // Check if course exists and is active
     const course = await Course.findByPk(course_id, { transaction });
-    if (!course) {
+    
+    if (!course || course.deleted_at) {
       await transaction.rollback();
       return res.status(404).json({
         error: 'Course not found',
-        message: 'The specified course does not exist'
+        message: 'The specified course does not exist or has been deleted'
       });
     }
 
@@ -316,9 +306,10 @@ async function createCourseOffer(req, res) {
   }
 }
 
-// Send course offer emails to guests
+// ✅ FIXED: Send course offer emails to guests with CORRECT field names
 async function sendCourseOfferEmails(createdOffers, course, guests) {
   const storage = new StorageService({ bucketType: 'restricted' });
+  const baseUrl = process.env.APP_URL || 'https://booking.sargoodoncollaroy.com.au';
   let emailResults = { sent: 0, failed: 0, errors: [] };
 
   // Generate course image URL if available
@@ -345,17 +336,41 @@ async function sendCourseOfferEmails(createdOffers, course, guests) {
     }
 
     try {
+      // ✅ FIXED: Format dates consistently (DD MMMM YYYY format)
+      const startDate = moment(course.min_start_date);
+      const endDate = moment(course.min_end_date);
+      
       const emailData = {
+        // ✅ FIXED: Match template variable names exactly
         guest_name: guest.first_name,
-        course_title: course.title,
-        course_description: course.description,
-        start_date: moment(course.min_start_date).format('dddd, MMMM Do YYYY'),
-        end_date: moment(course.min_end_date).format('dddd, MMMM Do YYYY'),
+        course_name: course.title,
+        
+        // ✅ FIXED: Provide course_dates as a single formatted range
+        course_dates: `${startDate.format('D MMMM YYYY')} - ${endDate.format('D MMMM YYYY')}`,
+        
+        // ✅ FIXED: Add course_location (standard for all courses)
+        course_location: 'Sargood on Collaroy',
+        
+        // ✅ FIXED: Add course_description
+        course_description: course.description || '',
+        
+        // ✅ FIXED: Rename booking_deadline to response_deadline and use consistent format
+        response_deadline: endDate.format('D MMMM YYYY'),
+        
+        // Optional fields
         duration_hours: course.duration_hours,
-        booking_deadline: moment(course.min_end_date).format('dddd, MMMM Do YYYY [at] h:mm A'),
-        notes: offer.notes,
+        notes: offer.notes || '',
         course_image_url: courseImageUrl,
-        course_offer_link: `${process.env.APP_URL}/course-offers/${offer.uuid}`
+        
+        // ✅ FIXED: Add accept_link and decline_link (was missing decline_link)
+        accept_link: `${baseUrl}/course-offers/${offer.uuid}/accept`,
+        decline_link: `${baseUrl}/course-offers/${offer.uuid}/decline`,
+        
+        // Additional helper fields
+        start_date: startDate.format('D MMMM YYYY'),
+        end_date: endDate.format('D MMMM YYYY'),
+        start_date_long: startDate.format('dddd, D MMMM YYYY'),
+        end_date_long: endDate.format('dddd, D MMMM YYYY')
       };
 
       await sendMail(
@@ -366,12 +381,12 @@ async function sendCourseOfferEmails(createdOffers, course, guests) {
       );
 
       emailResults.sent++;
-      console.log(`Course offer email sent successfully to ${guest.email} for course ${course.title}`);
+      console.log(`✅ Course offer email sent successfully to ${guest.email} for course ${course.title}`);
 
     } catch (error) {
       emailResults.failed++;
       emailResults.errors.push(`Failed to send email to ${guest.email}: ${error.message}`);
-      console.error(`Error sending course offer email to ${guest.email}:`, error);
+      console.error(`❌ Error sending course offer email to ${guest.email}:`, error);
     }
   }
 

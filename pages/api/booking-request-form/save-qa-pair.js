@@ -23,7 +23,7 @@
  * - Notifications
  */
 
-import { Booking, Equipment, EquipmentCategory, Guest, Log, QaPair, Section, Setting, CourseOffer, Course, sequelize } from "../../../models"
+import { Booking, Equipment, EquipmentCategory, Guest, Log, QaPair, Section, Setting, CourseOffer, Course, sequelize, BookingEquipment } from "../../../models"
 import { BookingService } from "../../../services/booking/booking";
 import { dispatchHttpTaskHandler } from "../../../services/queues/dispatchHttpTask";
 import StorageService from "../../../services/storage/storage";
@@ -162,11 +162,42 @@ export default async function handler(req, res) {
                 bookingAmended = updatedBooking?.bookingAmended ? updatedBooking.bookingAmended : false;
             }
 
+            // Check equipment completion status after save
+            let completedEquipments = false;
+            const bookingType = booking.type;
+            
+            if (bookingType === BOOKING_TYPES.FIRST_TIME_GUEST) {
+                // For first-time guests, any equipment saved = complete
+                const bookingEquipments = await BookingEquipment.findAll({ 
+                    where: { booking_id: booking.id } 
+                });
+                completedEquipments = bookingEquipments.length > 0;
+            } else {
+                // For returning guests, check for acknowledgement-type equipments specifically
+                const acknowledgementEquipments = await BookingEquipment.findAll({ 
+                    where: { booking_id: booking.id },
+                    include: [{
+                        model: Equipment,
+                        where: { type: 'acknowledgement' },
+                        required: true
+                    }]
+                });
+                
+                completedEquipments = acknowledgementEquipments.length > 0;
+            }
+            
+            console.log('🔧 Equipment completion status after save:', {
+                bookingId: booking.id,
+                bookingType: bookingType,
+                completedEquipments
+            });
+
             return res.status(201).json({ 
                 success: true, 
                 bookingAmended: bookingAmended,
                 courseOfferLinked: courseOfferUpdated,
-                emailTriggersQueued: true
+                emailTriggersQueued: true,
+                completedEquipments: completedEquipments
             });
         }
 

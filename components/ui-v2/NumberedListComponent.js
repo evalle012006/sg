@@ -19,7 +19,8 @@ const Step = ({
   onClick, 
   isLast, 
   isClickable = true,
-  allowClickOnlyCompleted = false 
+  allowClickOnlyCompleted = false,
+  allowClickBasedOnStatus = [] 
 }) => {
   const getNumberStyle = () => {
     switch (state) {
@@ -38,7 +39,7 @@ const Step = ({
       const clickable = state === StepState.COMPLETED || state === StepState.SELECTED;
       return clickable ? 'cursor-pointer' : 'cursor-default';
     }
-    return isClickable ? 'cursor-pointer' : 'cursor-default';
+    return isClickable || allowClickBasedOnStatus.includes(statusType) ? 'cursor-pointer' : 'cursor-default';
   };
 
   const handleClick = () => {
@@ -47,7 +48,7 @@ const Step = ({
       if (state === StepState.COMPLETED || state === StepState.SELECTED) {
         onClick?.();
       }
-    } else if (isClickable) {
+    } else if (isClickable || allowClickBasedOnStatus.includes(statusType)) {
       onClick?.();
     }
   };
@@ -104,6 +105,7 @@ const NumberedListComponent = ({
   steps = [], 
   onStepClick = null,
   allowClickOnlyCompleted = false,
+  allowClickBasedOnStatus = [],
   showForms = false // New prop to control form display
 }) => {
   const [activeStep, setActiveStep] = useState(null);
@@ -140,6 +142,7 @@ const NumberedListComponent = ({
             onClick={() => handleStepClick(step.id)}
             isLast={index === steps.length - 1}
             allowClickOnlyCompleted={allowClickOnlyCompleted}
+            allowClickBasedOnStatus={allowClickBasedOnStatus || []}
           />
           
           {/* Form container - shows when step is active and showForms is true */}

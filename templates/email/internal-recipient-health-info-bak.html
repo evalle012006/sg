@@ -14,6 +14,11 @@
 
 <body marginheight="0" topmargin="0" marginwidth="0" style="margin: 0px; background-color: #f2f3f8;" leftmargin="0">
     <div>
+        {{#if logo_base64}}
+        <div class="logo">
+            <img src="{{logo_base64}}" alt="Sargood on Collaroy" />
+        </div>
+        {{/if}}
         <p>Hi,</p>
         <p>{{guest_name}}, staying from {{ check_in_date }} - {{ check_out_date }} has answered <span
                 style="font-weight: bold;">yes</span> to the following:</p>

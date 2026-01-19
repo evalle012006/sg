@@ -166,7 +166,7 @@ const BookingRequestForm = () => {
 
     const saveCareDataToAPI = async (careQuestion, sectionId, pageId, templateId) => {
         try {
-            console.log('💾 Saving care data to API...');
+            // console.log('💾 Saving care data to API...');
             
             const qa_pair = {
                 question: careQuestion.question,
@@ -206,7 +206,7 @@ const BookingRequestForm = () => {
             });
 
             if (response.ok) {
-                console.log('✅ Care data saved to API successfully');
+                // console.log('✅ Care data saved to API successfully');
             } else {
                 console.error('❌ Failed to save care data:', await response.text());
             }
@@ -224,7 +224,7 @@ const BookingRequestForm = () => {
         
         // ✅ Set flag to prevent interference from form refresh
         isCommittingDatesRef.current = true;
-        console.log('📅 Starting commit of pending dates:', pendingDates);
+        // console.log('📅 Starting commit of pending dates:', pendingDates);
         
         try {
             // Update originalSavedDatesRef FIRST
@@ -260,7 +260,7 @@ const BookingRequestForm = () => {
                     const updatedSections = page.Sections.map(section => {
                         const updatedQuestions = section.Questions.map(question => {
                             if (questionHasKey(question, QUESTION_KEYS.WHEN_DO_YOU_REQUIRE_CARE)) {
-                                console.log('📅 Regenerating care data for committed dates');
+                                // console.log('📅 Regenerating care data for committed dates');
                                 
                                 let existingCareData = null;
                                 try {
@@ -279,10 +279,10 @@ const BookingRequestForm = () => {
                                     datesToUse.checkOutDate
                                 );
                                 
-                                console.log('📅 Care data regenerated:', {
-                                    entries: newCareData.careData.length,
-                                    dates: `${datesToUse.checkInDate} - ${datesToUse.checkOutDate}`
-                                });
+                                // console.log('📅 Care data regenerated:', {
+                                //     entries: newCareData.careData.length,
+                                //     dates: `${datesToUse.checkInDate} - ${datesToUse.checkOutDate}`
+                                // });
                                 
                                 const updatedCareQuestion = {
                                     ...question,
@@ -315,12 +315,12 @@ const BookingRequestForm = () => {
                 }
             }
             
-            console.log('✅ Dates and care data committed successfully');
+            // console.log('✅ Dates and care data committed successfully');
         } finally {
             // ✅ Clear flag after a short delay to let form settle
             setTimeout(() => {
                 isCommittingDatesRef.current = false;
-                console.log('📅 Commit process complete - date change detection re-enabled');
+                // console.log('📅 Commit process complete - date change detection re-enabled');
             }, 500);
         }
     }, [dispatch, processedFormData, safeDispatchData]);
@@ -367,7 +367,7 @@ const BookingRequestForm = () => {
             if (pendingDatesRef.current &&
                 updatedDates.checkInDate === pendingDatesRef.current.checkInDate &&
                 updatedDates.checkOutDate === pendingDatesRef.current.checkOutDate) {
-                console.log('📅 Dates match pending - already tracked');
+                // console.log('📅 Dates match pending - already tracked');
                 return;
             }
             
@@ -461,16 +461,19 @@ const BookingRequestForm = () => {
                                     };
                                 }
                                 
-                                // If the course now has an error, update the error message
+                                // ✅ FIX: Set error even if question.error is currently null
                                 if (matchingOffer.dateValid === false && 
-                                    matchingOffer.dateValidationSeverity === 'error' &&
-                                    matchingOffer.dateValidationMessage !== question.error) {
-                                    console.log(`⚠️ Updating error message for course "${matchingOffer.courseName}"`);
-                                    needsUpdate = true;
-                                    return {
-                                        ...question,
-                                        error: matchingOffer.dateValidationMessage
-                                    };
+                                    matchingOffer.dateValidationSeverity === 'error') {
+                                    // Only update if error message actually changed OR if there was no error before
+                                    if (matchingOffer.dateValidationMessage !== question.error) {
+                                        console.log(`⚠️ Setting/updating error for course "${matchingOffer.courseName}":`, matchingOffer.dateValidationMessage);
+                                        needsUpdate = true;
+                                        return {
+                                            ...question,
+                                            error: matchingOffer.dateValidationMessage,
+                                            validationAttempted: true  // ✅ Mark as validated
+                                        };
+                                    }
                                 }
                             }
                         }
@@ -494,6 +497,17 @@ const BookingRequestForm = () => {
                                     validationAttempted: false
                                 };
                             }
+                            
+                            // ✅ FIX: Also set error if no valid offers exist
+                            if (!hasValidOffer && !question.error) {
+                                console.log(`⚠️ Setting error on "offered a place" question - no valid offers`);
+                                needsUpdate = true;
+                                return {
+                                    ...question,
+                                    error: 'None of your course offers are compatible with your selected stay dates.',
+                                    validationAttempted: true
+                                };
+                            }
                         }
                         
                         return question;
@@ -505,11 +519,62 @@ const BookingRequestForm = () => {
             
             if (needsUpdate) {
                 console.log('🔄 Updating form data with cleared/updated course validation errors');
-                setProcessedFormData(updatedPages);
-                safeDispatchData(updatedPages, 'Course offers updated - validation errors refreshed');
+                
+                // ✅ FIX: Recalculate page completion after setting errors
+                const pagesWithUpdatedCompletion = updatedPages.map(page => {
+                    // For returning guests, use the helper
+                    if (currentBookingType === BOOKING_TYPES.RETURNING_GUEST && prevBookingId) {
+                        const newCompletion = calculateReturningGuestPageCompletion(page, {
+                            visitedPages,
+                            pagesWithSavedData,
+                            equipmentPageCompleted,
+                            equipmentChangesState,
+                            prevBookingId,
+                            currentBookingType
+                        });
+                        
+                        if (newCompletion !== page.completed) {
+                            console.log(`📊 Course page completion changed: ${page.completed} → ${newCompletion} (due to validation error)`);
+                        }
+                        
+                        return { ...page, completed: newCompletion };
+                    } else {
+                        // For first-time guests
+                        const newCompletion = calculateFirstTimeGuestPageCompletion(page, {
+                            visitedPages,
+                            pagesWithSavedData,
+                            completedEquipments,
+                            currentBookingType
+                        });
+                        
+                        if (newCompletion !== page.completed) {
+                            console.log(`📊 Course page completion changed: ${page.completed} → ${newCompletion} (due to validation error)`);
+                        }
+                        
+                        return { ...page, completed: newCompletion };
+                    }
+                });
+                
+                setProcessedFormData(pagesWithUpdatedCompletion);
+                safeDispatchData(pagesWithUpdatedCompletion, 'Course offers updated - validation errors and completion refreshed');
             }
         }
-    }, [courseOffersLoaded, courseOffers, stableProcessedFormData, setProcessedFormData, safeDispatchData]);
+    }, [
+        courseOffersLoaded, 
+        courseOffers, 
+        stableProcessedFormData, 
+        setProcessedFormData, 
+        safeDispatchData,
+        currentBookingType,
+        prevBookingId,
+        visitedPages,
+        pagesWithSavedData,
+        equipmentPageCompleted,
+        equipmentChangesState,
+        completedEquipments,
+        calculateReturningGuestPageCompletion,
+        calculateFirstTimeGuestPageCompletion
+    ]);
 
     const fetchAllFutureCourseOffers = useCallback(async () => {
         const guestId = getGuestId();
@@ -4278,11 +4343,34 @@ const BookingRequestForm = () => {
             setProcessedFormData(updatedPages);
             safeDispatchData(updatedPages, 'Validation errors applied');
 
-            // Navigate to first page with errors
+            // ✅ CRITICAL FIX: Navigate to first page with errors (same as handleAccordionNavigation)
             if (firstErrorPage) {
-                const pageIndex = stableProcessedFormData.findIndex(p => p.id === firstErrorPage.id);
-                setActiveAccordionIndex(pageIndex);
-                dispatch(bookingRequestFormActions.setCurrentPage(firstErrorPage));
+                const pageIndex = updatedPages.findIndex(p => p.id === firstErrorPage.id);
+                
+                if (pageIndex !== -1) {
+                    console.log(`🔄 Navigating to first error page: "${firstErrorPage.title}" (index: ${pageIndex})`);
+                    
+                    // Update accordion index
+                    setActiveAccordionIndex(pageIndex);
+                    
+                    // Update Redux current page
+                    dispatch(bookingRequestFormActions.setCurrentPage(firstErrorPage));
+                    
+                    // ✅ CRITICAL: Update the URL via router (this was missing!)
+                    const paths = router.asPath.split('&&');
+                    const baseUrl = paths[0];
+                    const newUrl = `${baseUrl}&&page_id=${firstErrorPage.id}`;
+                    
+                    // Use shallow routing to prevent full page reload
+                    router.push(newUrl, undefined, { shallow: true });
+                    
+                    // ✅ BONUS: Scroll to top of page after navigation
+                    setTimeout(() => {
+                        scrollToAccordionItemInLayout(pageIndex);
+                    }, 150);
+                } else {
+                    console.warn('⚠️ Could not find page index for first error page:', firstErrorPage.id);
+                }
             }
 
             // Create user-friendly error message
@@ -4826,8 +4914,14 @@ const BookingRequestForm = () => {
                 );
                 
                 if (hasDateQuestion && pendingDatesRef.current) {
-                    console.log('📅 Date page saved - committing dates and updating care data');
+                    // console.log('📅 Date page saved - committing dates and updating care data');
                     await commitPendingDatesAndCareData();
+                }
+
+                // Update equipment completion state from API response
+                if (result.completedEquipments !== undefined) {
+                    console.log('🔧 Updating equipmentPageCompleted from API response:', result.completedEquipments);
+                    setEquipmentPageCompleted(result.completedEquipments);
                 }
 
                 dispatch(bookingRequestFormActions.clearEquipmentChanges());

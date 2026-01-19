@@ -30,6 +30,20 @@ export const calculateFirstTimeGuestPageCompletion = (
         return false;
     }
 
+    // ✅ CRITICAL: Check for validation errors FIRST - this takes precedence over everything
+    const hasValidationErrors = page.Sections?.some(section =>
+        section.Questions?.some(question =>
+            !question.hidden && // Only check visible questions
+            question.error && 
+            question.error !== ''
+        )
+    );
+    
+    if (hasValidationErrors) {
+        console.log(`❌ Page "${page.title}" has validation errors - marking as incomplete`);
+        return false;
+    }
+
     // SPECIAL CASE 1: Equipment Page - use API flag
     if (page.title === 'Equipment') {
         return calculateEquipmentPageCompletionForFirstTime(page, {
@@ -69,14 +83,6 @@ export const calculateFirstTimeGuestPageCompletion = (
 const calculateEquipmentPageCompletionForFirstTime = (page, context) => {
     const { completedEquipments, visitedPages, pagesWithSavedData } = context;
 
-    // console.log(`🔧 Equipment completion for first-time guest:`, {
-    //     pageId: page.id,
-    //     pageTitle: page.title,
-    //     completedEquipments,
-    //     hasVisited: visitedPages.has(page.id),
-    //     hasSavedData: pagesWithSavedData.has(page.id)
-    // });
-
     // For first-time guests, rely on the API flag completedEquipments
     return completedEquipments === true;
 };
@@ -86,11 +92,6 @@ const calculateEquipmentPageCompletionForFirstTime = (page, context) => {
  * Based on required and not hidden questions
  */
 const calculateNdisPageCompletionForFirstTime = (page, context) => {
-    // console.log(`📋 NDIS page completion for first-time guest:`, {
-    //     pageId: page.id,
-    //     pageTitle: page.title
-    // });
-
     // For first-time guests, check if all required questions are answered
     return checkAllRequiredQuestionsAnswered(page);
 };
@@ -113,11 +114,6 @@ const isPackagesPage = (page) => {
  * Based on required and not hidden questions
  */
 const calculatePackagesPageCompletionForFirstTime = (page, context) => {
-    // console.log(`📦 Packages page completion for first-time guest:`, {
-    //     pageId: page.id,
-    //     pageTitle: page.title
-    // });
-
     // For first-time guests, check if all required questions are answered
     return checkAllRequiredQuestionsAnswered(page);
 };
@@ -127,11 +123,6 @@ const calculatePackagesPageCompletionForFirstTime = (page, context) => {
  * Based on required and not hidden questions only
  */
 const calculateStandardPageCompletionForFirstTime = (page, context) => {
-    // console.log(`📄 Standard page completion for first-time guest:`, {
-    //     pageId: page.id,
-    //     pageTitle: page.title
-    // });
-
     // For first-time guests, simply check if all required questions are answered
     return checkAllRequiredQuestionsAnswered(page);
 };
@@ -161,12 +152,6 @@ const checkAllRequiredQuestionsAnswered = (page) => {
 
     const isComplete = totalRequired > 0 && answeredRequired === totalRequired;
     
-    // console.log(`📊 Required questions check:`, {
-    //     totalRequired,
-    //     answeredRequired,
-    //     isComplete
-    // });
-
     return isComplete;
 };
 
@@ -257,7 +242,6 @@ export const forceUpdateFirstTimeGuestPageCompletion = (pages, pageId, context) 
  */
 export const debugFirstTimeGuestCompletion = (pages, context) => {
     if (context.currentBookingType === BOOKING_TYPES.RETURNING_GUEST) {
-        // console.log('🚫 Not a first-time guest - debug skipped');
         return;
     }
 

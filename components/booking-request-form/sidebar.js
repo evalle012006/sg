@@ -15,6 +15,19 @@ export default function RequestFormSidebar({ setBookingSubmittedState, prevBooki
         await router.push(cleanedUrl);
     }
 
+    // ✅ ADD: Helper function to check for validation errors (same logic as accordion)
+    const hasValidationErrors = (page) => {
+        if (!page || !page.Sections) return false;
+        
+        return page.Sections.some(section =>
+            section.Questions?.some(question =>
+                !question.hidden && // Only check visible questions
+                question.error && 
+                question.error !== ''
+            )
+        );
+    };
+
     const setCurrentPage = () => {
         // If URL contains submit=true and we're in submission mode, return null or early
         if (router.asPath.includes('&submit=true')) {
@@ -137,30 +150,43 @@ export default function RequestFormSidebar({ setBookingSubmittedState, prevBooki
         const stablePages = bookingRequestFormData.filter(page => page.id && page.title);
 
         return stablePages.map((page, index) => {
-            // console.log(`Preparing step for sidebar:`, {
-            //     pageId: page.id,
-            //     pageTitle: page.title,
-            //     completed: page.completed
-            // });
             // Determine the step state based on page properties
             let stepState = StepState.NOT_SELECTED;
             let status = null;
             let statusType = null;
+            
+            // ✅ CRITICAL FIX: Check for validation errors FIRST (before completion check)
+            const hasErrors = hasValidationErrors(page);
             const isCompleted = Boolean(page.completed);
 
             if (currentUrl && currentUrl === page.url) {
+                // Currently selected page
                 stepState = StepState.SELECTED;
-                if (page.completed) {
+                
+                // ✅ UPDATED: Check errors before completion
+                if (hasErrors) {
+                    status = 'Error';
+                    statusType = 'error';
+                } else if (isCompleted) {
                     status = 'Complete';
                     statusType = 'success';
                 } else {
                     status = 'Pending';
                     statusType = 'pending';
                 }
-            } else if (isCompleted) {
-                stepState = StepState.COMPLETED;
-                status = 'Complete';
-                statusType = 'success';
+            } else {
+                // Not currently selected
+                // ✅ UPDATED: Check errors before completion
+                if (hasErrors) {
+                    stepState = StepState.NOT_SELECTED; // Or could use a specific ERROR state
+                    status = 'Error';
+                    statusType = 'error';
+                } else if (isCompleted) {
+                    stepState = StepState.COMPLETED;
+                    status = 'Complete';
+                    statusType = 'success';
+                }
+                // else: remains NOT_SELECTED with no status
             }
 
             return {
@@ -174,7 +200,7 @@ export default function RequestFormSidebar({ setBookingSubmittedState, prevBooki
                 placeholder: false
             };
         });
-    }, [bookingRequestFormData, currentUrl, prevBookingId]);
+    }, [bookingRequestFormData, currentUrl, prevBookingId]); // ✅ Note: hasValidationErrors is stable
 
     // Handle step click for navigation
     const handleStepClick = (stepId) => {
@@ -184,8 +210,13 @@ export default function RequestFormSidebar({ setBookingSubmittedState, prevBooki
             return;
         }
 
-        // Only allow navigation to completed pages or current page
-        if (step.pageData.completed || (currentUrl && currentUrl === step.url)) {
+        // ✅ UPDATED: Allow navigation to error pages too (so users can fix them)
+        // Only block navigation to incomplete pages without errors
+        const canNavigate = step.pageData.completed || 
+                           hasValidationErrors(step.pageData) ||
+                           (currentUrl && currentUrl === step.url);
+        
+        if (canNavigate) {
             let url = router.asPath;
             const paths = router.asPath.split('&&');
             if (paths.length === 2) {
@@ -195,10 +226,12 @@ export default function RequestFormSidebar({ setBookingSubmittedState, prevBooki
             // Remove any submit=true parameter
             const cleanUrl = getCleanUrl(url);
             
-            // console.log('🔄 Sidebar navigation to:', step.label, 'URL:', cleanUrl);
+            console.log('🔄 Sidebar navigation to:', step.label, 'URL:', cleanUrl);
             
             setBookingSubmittedState(false);
             handleRouterChange(cleanUrl);
+        } else {
+            console.log('❌ Navigation blocked - page not complete and has no errors:', step.label);
         }
     };
 
@@ -242,7 +275,8 @@ export default function RequestFormSidebar({ setBookingSubmittedState, prevBooki
                     <NumberedListComponent 
                         steps={steps} 
                         onStepClick={handleStepClick}
-                        allowClickOnlyCompleted={true}
+                        allowClickOnlyCompleted={false}
+                        allowClickBasedOnStatus={['success', 'error']}
                         showForms={false}
                     />
                 </div>

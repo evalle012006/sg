@@ -3,7 +3,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { RenderPDF } from '../../../../services/booking/exports/pdf-render';
 import handlebars from 'handlebars';
-import { Address, Booking, Guest, QaPair, Question, QuestionDependency, Room, RoomType, Section } from '../../../../models';
+import { Address, Booking, Guest, Package, QaPair, Question, QuestionDependency, Room, RoomType, Section } from '../../../../models';
 import { createSummaryData } from '../../../../services/booking/create-summary-data';
 
 export const config = {
@@ -80,8 +80,45 @@ export default async function handler(req, res) {
     if (!booking) {
       return res.status(404).json({ message: 'Booking not found' });
     }
+    
+    let resolvedPackage = null;
+    
+    // Look for package selection in Q&A pairs
+    for (const section of booking.Sections) {
+      for (const pair of section.QaPairs) {
+        const questionKey = pair.Question?.question_key;
+        const questionType = pair.Question?.question_type;
+        
+        // Check if this is a package selection question
+        if (questionType === 'package-selection' || 
+            questionKey?.startsWith('please-select-your-accommodation-and-assistance-package')) {
+          const packageId = pair.answer;
+          
+          if (packageId) {
+            console.log('📦 Found package selection, resolving package ID:', packageId);
+            
+            try {
+              resolvedPackage = await Package.findByPk(packageId);
+              
+              if (resolvedPackage) {
+                console.log('✅ Package resolved:', resolvedPackage.name);
+                // Convert to plain object
+                resolvedPackage = resolvedPackage.toJSON();
+              } else {
+                console.error('❌ Package not found for ID:', packageId);
+              }
+            } catch (error) {
+              console.error('❌ Error fetching package:', error);
+            }
+          }
+          break;
+        }
+      }
+      if (resolvedPackage) break;
+    }
 
-    const summaryData = await createSummaryData(booking);
+    // Pass resolved package to createSummaryData
+    const summaryData = await createSummaryData(booking, resolvedPackage);
 
     const isNDISFunder = summaryData.data.funder.includes('NDIS') || summaryData.data.funder.includes('NDIA') ? true : false;
 
@@ -124,6 +161,11 @@ export default async function handler(req, res) {
       });
     }
 
+    const isHSP = summaryData.data.resolvedPackageData?.package_code === 'HOLIDAY_SUPPORT_PLUS' || 
+              summaryData.data.resolvedPackageData?.package_code === 'HOLIDAY_SUPPORT';
+
+    const isHolidaySupportPlus = summaryData.data.resolvedPackageData?.package_code === 'HOLIDAY_SUPPORT_PLUS';
+
     const formattedData = {
       logo_base64: `data:image/png;base64,${logoBase64}`,
       logo_footer_base64: `data:image/jpeg;base64,${logoFooterBase64}`,
@@ -149,12 +191,22 @@ export default async function handler(req, res) {
       additional_room: summaryData.roomCosts.additionalRoom.perNight.toFixed(2) || 0,
       total: (summaryData.roomCosts.roomUpgrade.total + summaryData.roomCosts.additionalRoom.total).toFixed(2) || 0,
       
+      isHSP: isHSP,
+      isHolidaySupportPlus: isHolidaySupportPlus,
+      hsp_accommodation_total: summaryData.roomCosts.hspAccommodation?.total?.toFixed(2) || '0.00',
+      
+      // Update total_room_costs to handle HSP
       total_room_costs: {
-        roomUpgrade: summaryData.roomCosts.roomUpgrade.total.toFixed(2),
-        additionalRoom: summaryData.roomCosts.additionalRoom.total.toFixed(2),
-        total: (summaryData.roomCosts.roomUpgrade.total + summaryData.roomCosts.additionalRoom.total).toFixed(2)
+        roomUpgrade: summaryData.roomCosts.roomUpgrade?.total?.toFixed(2) || '0.00',
+        additionalRoom: summaryData.roomCosts.additionalRoom?.total?.toFixed(2) || '0.00',
+        hspAccommodation: summaryData.roomCosts.hspAccommodation?.total?.toFixed(2) || '0.00',
+        total: summaryData.totalOutOfPocket?.toFixed(2) || '0.00'
       },
-      grand_total: (summaryData.packageCosts.totalCost + summaryData.totalOutOfPocket).toFixed(2) || 0,
+      
+      // Update grand_total to exclude package cost for Holiday Support Plus
+      grand_total: isHolidaySupportPlus 
+        ? summaryData.totalOutOfPocket?.toFixed(2) || '0.00'
+        : (summaryData.packageCosts.totalCost + summaryData.totalOutOfPocket).toFixed(2) || '0.00',
       
       // NDIS Questions if applicable
       ndis_questions: ndisQuestions,

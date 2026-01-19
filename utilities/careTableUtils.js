@@ -19,13 +19,13 @@ export const regenerateCareDataForNewDates = (existingCareData, checkInDate, che
     // Generate new date range
     const newDates = generateDateRangeForCare(checkInDate, checkOutDate);
     
-    console.log('📅 Generating care data for dates:', {
-        checkInDate,
-        checkOutDate,
-        dateCount: newDates.length,
-        careVaries,
-        defaultValues
-    });
+    // console.log('📅 Generating care data for dates:', {
+    //     checkInDate,
+    //     checkOutDate,
+    //     dateCount: newDates.length,
+    //     careVaries,
+    //     defaultValues
+    // });
     
     // If no dates generated, return with empty careData
     if (newDates.length === 0) {
@@ -61,7 +61,7 @@ export const regenerateCareDataForNewDates = (existingCareData, checkInDate, che
         });
     });
     
-    console.log('📅 Generated care data entries:', newCareData.length);
+    // console.log('📅 Generated care data entries:', newCareData.length);
     
     return {
         careData: newCareData,
