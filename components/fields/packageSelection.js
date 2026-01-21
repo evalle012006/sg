@@ -56,6 +56,7 @@ const PackageSelection = ({
   allBookingData = null, // Complete booking data with all sections
   currentPage = null, // Current page data for context
   forceShowErrors = false,
+  origin = null,
   ...restProps
 }) => {
   const [packages, setPackages] = useState([]);
@@ -69,6 +70,7 @@ const PackageSelection = ({
   const [dataReady, setDataReady] = useState(false);
   const initialLoadRef = useRef(true);
   const [stableFilterCriteria, setStableFilterCriteria] = useState(null);
+  const isAdminMode = origin === 'admin';
 
   useEffect(() => {
       console.log('📦 PackageSelection received careAnalysisData:', {
@@ -351,7 +353,7 @@ const PackageSelection = ({
           if (!qa || !qa.question_key || !qa.answer) return;
           
           // Check for holiday-indicating questions
-          if (['do-you-live-alone', 'do-you-live-in-sil', 'are-you-staying-with-informal-supports'].includes(qa.question_key) &&
+          if ([QUESTION_KEYS.DO_YOU_LIVE_ALONE, QUESTION_KEYS.DO_YOU_LIVE_IN_SIL, QUESTION_KEYS.ARE_YOU_STAYING_WITH_INFORMAL_SUPPORTS].includes(qa.question_key) &&
               qa.answer.toLowerCase().includes('yes')) {
               isHolidayType = true;
           }
@@ -877,7 +879,8 @@ const PackageSelection = ({
                 body: JSON.stringify({
                     ...enhancedFilterCriteria,
                     include_requirements: true,
-                    debug: false
+                    debug: false,
+                    admin: isAdminMode
                 }),
                 signal
             });
@@ -924,7 +927,12 @@ const PackageSelection = ({
                 hasRequirement: !!(pkg.requirement && typeof pkg.requirement === 'object')
             }));
 
-            fetchedPackages = applyPackageRequirementFiltering(fetchedPackages, enhancedFilterCriteria);
+            // ADMIN MODE: Skip requirement filtering to show all packages for the funder
+            if (!isAdminMode) {
+                fetchedPackages = applyPackageRequirementFiltering(fetchedPackages, enhancedFilterCriteria);
+            } else {
+                console.log('👤 Admin mode: Showing all packages for funder type (skipping requirement filtering)');
+            }
 
             // Sort packages
             fetchedPackages.sort((a, b) => {
@@ -945,7 +953,11 @@ const PackageSelection = ({
 
             console.log(`📦 Setting ${fetchedPackages.length} packages`);
 
-            if (!builderMode && fetchedPackages.length > 0) {
+            // ADMIN MODE: Show all packages and don't auto-select
+            if (isAdminMode) {
+                console.log('👤 Admin mode: Showing all packages, no auto-selection');
+                setPackages(fetchedPackages);
+            } else if (!builderMode && fetchedPackages.length > 0) {
                 const bestMatch = fetchedPackages[0];
                 console.log(`🏆 Auto-selecting: ${bestMatch.name} (${bestMatch.package_code})`);
                 if (onChange && value !== bestMatch.id) {
@@ -1014,13 +1026,17 @@ const PackageSelection = ({
   ]);
 
   useEffect(() => {
-      if (!builderMode && packages.length === 1 && onChange && !value && !autoSelected) {
-          const bestMatch = packages[0];
-          onChange(bestMatch.id);
-          setAutoSelected(true);
-          console.log('✅ Auto-selected single package:', bestMatch.id);
-      }
-  }, [packages, value, autoSelected, builderMode, onChange]);
+    // ADMIN MODE: Don't auto-select packages
+    if (isAdminMode) {
+        return;
+    }
+    if (!builderMode && packages.length === 1 && onChange && !value && !autoSelected) {
+        const bestMatch = packages[0];
+        onChange(bestMatch.id);
+        setAutoSelected(true);
+        console.log('✅ Auto-selected single package:', bestMatch.id);
+    }
+  }, [packages, value, autoSelected, builderMode, onChange, isAdminMode]);
 
   // Track value changes to prevent unnecessary auto-selection
   useEffect(() => {
@@ -1069,6 +1085,10 @@ const PackageSelection = ({
 
   // Auto-select package when available and no selection exists
   useEffect(() => {
+    // ADMIN MODE: Don't auto-select packages
+    if (isAdminMode) {
+      return;
+    }
     // Auto-select package when available and no selection exists
     if (!builderMode && !value && packages.length === 1 && !autoSelected && onChange) {
       const pkg = packages[0];
@@ -1084,7 +1104,7 @@ const PackageSelection = ({
         setAutoSelected(true);
       }, 200);
     }
-  }, [packages, value, autoSelected, builderMode, onChange]);
+  }, [packages, value, autoSelected, builderMode, onChange, isAdminMode]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -1144,7 +1164,8 @@ const PackageSelection = ({
 
   // Unified Package Card Component
   const renderPackageCard = (pkg) => {
-    const isSelected = isPackageSelected(pkg) || (!builderMode && packages.length === 1);
+    // ADMIN MODE: Don't auto-mark single package as selected
+    const isSelected = isPackageSelected(pkg) || (!builderMode && !isAdminMode && packages.length === 1);
     const isNdis = pkg.funder === 'NDIS';
     
     return (

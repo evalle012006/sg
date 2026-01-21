@@ -19,7 +19,6 @@ export async function getNSWHolidaysV2(startDate, endDate) {
     const formattedStartDate = `${currentYear}-${startMonth.padStart(2, '0')}-${startDay.padStart(2, '0')}`;
     const formattedEndDate = `${currentYear}-${endMonth.padStart(2, '0')}-${endDay.padStart(2, '0')}`;
 
-    // Filter NSW holidays within the date range
     const holidays = data.filter(holiday => 
       (holiday.counties?.includes('AU-NSW') || holiday.counties == null) &&
       holiday.date >= formattedStartDate &&
@@ -38,8 +37,7 @@ export async function getNSWHolidaysV2(startDate, endDate) {
 }
 
 export const calculateDaysBreakdown = async (startDateStr, numberOfNights, includeAllDays = false) => {
-  console.log("calculateDaysBreakdown -> ", startDateStr, numberOfNights, includeAllDays)
-  // ✅ Validate inputs
+  // Validate inputs
   if (!startDateStr) {
     console.error('calculateDaysBreakdown: startDateStr is undefined');
     return {
@@ -78,7 +76,6 @@ export const calculateDaysBreakdown = async (startDateStr, numberOfNights, inclu
     currentDate.setDate(currentDate.getDate() + i);
     
     const day = currentDate.getDay();
-    
     if (day === 6) {
       breakdown.saturdays++;
     } else if (day === 0) {
@@ -91,45 +88,274 @@ export const calculateDaysBreakdown = async (startDateStr, numberOfNights, inclu
   return breakdown;
 };
 
-const getPricing = (option, packageData = null) => {
-  // PRIORITY 1: If we have resolved package data with ndis_line_items, use that
-  if (packageData && packageData.ndis_line_items && packageData.ndis_line_items.length > 0) {
-    console.log('Using package line items for pricing:', packageData.ndis_line_items);
+// Helper to extract care analysis from Q&A pairs
+const extractCareAnalysisData = (qaPairs) => {
+  const careQuestion = qaPairs.find(pair => 
+    pair.Question?.question_key === 'when-do-you-require-care'
+  );
+  
+  if (!careQuestion || !careQuestion.answer) {
+    return null;
+  }
+  
+  try {
+    const careData = typeof careQuestion.answer === 'string' 
+      ? JSON.parse(careQuestion.answer) 
+      : careQuestion.answer;
     
-    // Map the line items to the expected format
-    const lineItems = packageData.ndis_line_items.map(lineItem => ({
-      package: lineItem.description || lineItem.name || lineItem.package_name,
-      lineItem: lineItem.line_item_code || lineItem.code || lineItem.lineItem,
-      price: parseFloat(lineItem.price_per_night || lineItem.price || lineItem.cost || 0),
-      type: determineLineItemType(lineItem)
-    }));
+    if (!careData.careData || careData.careData.length === 0) {
+      return null;
+    }
     
-    // Ensure we have all 4 types (weekday, saturday, sunday, publicHoliday)
-    // If not, pad with default values
-    const requiredTypes = ['weekday', 'saturday', 'sunday', 'publicHoliday'];
-    const existingTypes = lineItems.map(item => item.type);
+    // Calculate care hours by time period across all days
+    const sampleDay = { morning: 0, afternoon: 0, evening: 0 };
+    let totalHoursPerDay = 0;
     
-    requiredTypes.forEach(requiredType => {
-      if (!existingTypes.includes(requiredType)) {
-        // Find a similar line item to use as base price
-        const baseItem = lineItems[0] || { package: 'STA Package', lineItem: '', price: 0 };
-        lineItems.push({
-          package: `${baseItem.package} - ${requiredType}`,
-          lineItem: baseItem.lineItem,
-          price: baseItem.price,
-          type: requiredType
-        });
+    // Aggregate care across all days
+    const careByPeriod = {};
+    careData.careData.forEach(daycare => {
+      const period = (daycare.care || '').toLowerCase();
+      const duration = parseFloat(daycare.values?.duration) || 0;
+      
+      if (!careByPeriod[period]) {
+        careByPeriod[period] = duration;
       }
     });
     
-    // Sort to ensure consistent order: weekday, saturday, sunday, publicHoliday
-    const sortOrder = { 'weekday': 0, 'saturday': 1, 'sunday': 2, 'publicHoliday': 3 };
-    lineItems.sort((a, b) => (sortOrder[a.type] || 999) - (sortOrder[b.type] || 999));
+    // Map to time periods
+    Object.keys(careByPeriod).forEach(period => {
+      const duration = careByPeriod[period];
+      totalHoursPerDay += duration;
+      
+      if (period.includes('morning')) {
+        sampleDay.morning = duration;
+      } else if (period.includes('afternoon')) {
+        sampleDay.afternoon = duration;
+      } else if (period.includes('evening')) {
+        sampleDay.evening = duration;
+      }
+    });
     
-    return lineItems;
+    console.log('📊 Extracted care analysis:', { totalHoursPerDay, sampleDay });
+    
+    return {
+      requiresCare: true,
+      totalHoursPerDay,
+      sampleDay
+    };
+  } catch (error) {
+    console.error('Error parsing care data:', error);
+    return null;
+  }
+};
+
+// Helper to extract course analysis from Q&A pairs
+const extractCourseAnalysisData = (qaPairs) => {
+  const courseQuestion = qaPairs.find(pair => 
+    pair.Question?.question_key === 'have-you-been-offered-a-place-in-a-course-for-this-stay'
+  );
+  
+  if (!courseQuestion) {
+    return { hasCourse: false };
+  }
+  
+  const hasCourse = courseQuestion.answer?.toLowerCase() === 'yes';
+  
+  console.log('🎓 Extracted course analysis:', { hasCourse });
+  
+  return {
+    hasCourse,
+    courseDay: 1 // Typically second day of stay
+  };
+};
+
+const getCareHoursForTime = (careTime, careAnalysisData) => {
+  if (!careAnalysisData?.sampleDay) return 0;
+  
+  const sampleDay = careAnalysisData.sampleDay;
+  
+  // If care_time is empty, return TOTAL care hours per day (all time periods)
+  if (!careTime || careTime === '') {
+    const totalHours = (sampleDay.morning || 0) + 
+                       (sampleDay.afternoon || 0) + 
+                       (sampleDay.evening || 0);
+    return totalHours;
+  }
+  
+  // Otherwise, return hours for specific time period
+  switch (careTime.toLowerCase()) {
+    case 'morning':
+      return sampleDay.morning || 0;
+    case 'afternoon':
+      return sampleDay.afternoon || 0;
+    case 'evening':
+      return sampleDay.evening || 0;
+    default:
+      return 0;
+  }
+};
+
+const getDaysForRateType = (rateType, daysBreakdown) => {
+  if (!rateType || rateType === '') {
+    return daysBreakdown.weekdays + daysBreakdown.saturdays + daysBreakdown.sundays + daysBreakdown.publicHolidays;
+  }
+  
+  switch (rateType) {
+    case 'weekday':
+      return daysBreakdown.weekdays;
+    case 'saturday':
+      return daysBreakdown.saturdays;
+    case 'sunday':
+      return daysBreakdown.sundays;
+    case 'public_holiday':
+    case 'publicHoliday':
+      return daysBreakdown.publicHolidays;
+    default:
+      return 0;
+  }
+};
+
+const calculateCareQuantity = (lineItem, careAnalysisData, daysBreakdown) => {
+  const { rate_type, care_time } = lineItem;
+  
+  const careHoursPerDay = getCareHoursForTime(care_time, careAnalysisData);
+  
+  if (careHoursPerDay === 0) return 0;
+  
+  // Check if rate_type is specified
+  if (!rate_type || rate_type === '') {
+    // No rate_type specified = care applies to ALL days
+    const totalDays = daysBreakdown.weekdays + daysBreakdown.saturdays + 
+                     daysBreakdown.sundays + daysBreakdown.publicHolidays;
+    return careHoursPerDay * totalDays;
+  }
+  
+  // Rate-specific care
+  const daysForType = getDaysForRateType(rate_type, daysBreakdown);
+  
+  if (daysForType === 0) return 0;
+  
+  return careHoursPerDay * daysForType;
+};
+
+const calculateApiQuantity = (lineItem, daysBreakdown, careAnalysisData, courseAnalysisData, careDaysBreakdown) => {
+  const { line_item_type, rate_type, rate_category } = lineItem;
+  
+  switch (line_item_type) {
+    case 'room':
+      // Room line items use accommodation nights
+      return daysBreakdown.weekdays + daysBreakdown.saturdays + daysBreakdown.sundays + daysBreakdown.publicHolidays;
+      
+    case 'course':
+      if (!courseAnalysisData?.hasCourse) return 0;
+      return 6; // Standard course hours
+      
+    case 'care':
+      if (!careAnalysisData?.requiresCare) return 0;
+      return calculateCareQuantity(lineItem, careAnalysisData, careDaysBreakdown);
+      
+    default:
+      if (rate_category === 'day') {
+        const dayQty = getDaysForRateType(rate_type, daysBreakdown);
+        return dayQty;
+      } else if (rate_category === 'hour') {
+        const daysForType = getDaysForRateType(rate_type, daysBreakdown);
+        const hourQty = daysForType * 12;
+        return hourQty;
+      }
+      return 0;
+  }
+};
+
+const processApiPackageData = (packageData, daysBreakdown, careDaysBreakdown, nights, careAnalysisData, courseAnalysisData) => {
+  console.log('🔍 processApiPackageData called with:', {
+    lineItemsCount: packageData.ndis_line_items.length,
+    daysBreakdown,
+    careDaysBreakdown,
+    careAnalysisData,
+    courseAnalysisData
+  });
+
+  const processedRows = packageData.ndis_line_items
+    .filter(lineItem => {
+      // Filter out course line items when there's no course
+      if (lineItem.line_item_type === 'course' && (!courseAnalysisData || !courseAnalysisData.hasCourse)) {
+        console.log(`🎓 Filtering out course line item (no course in booking): "${lineItem.sta_package}"`);
+        return false;
+      }
+      
+      return true;
+    })
+    .map(lineItem => {
+      const quantity = calculateApiQuantity(lineItem, daysBreakdown, careAnalysisData, courseAnalysisData, careDaysBreakdown);
+      const rate = parseFloat(lineItem.price_per_night || 0);
+      const total = rate * quantity;
+
+      const rateCategoryLabel = lineItem.rate_category === 'hour' ? '/hour' : lineItem.rate_category === 'day' ? '/day' : '/night';
+      const rateCategoryQtyLabel = lineItem.rate_category === 'hour' ? 'hrs' : lineItem.rate_category === 'day' ? 'days' : 'nights';
+
+      const row = {
+        // Template expects these specific property names
+        package: lineItem.sta_package || lineItem.description || 'Package Item',
+        lineItem: lineItem.line_item || lineItem.line_item_code || 'N/A',
+        price: rate,
+        nights: quantity, // Template uses "nights" for quantity
+        subtotal: total, // Template uses "subtotal" for total
+        
+        // Keep these for internal use
+        description: lineItem.sta_package || lineItem.description || 'Package Item',
+        rate: rate,
+        quantity: quantity,
+        total: total,
+        rateCategory: lineItem.rate_category || 'day',
+        rateCategoryLabel: rateCategoryLabel,
+        rateCategoryQtyLabel: rateCategoryQtyLabel,
+        lineItemType: lineItem.line_item_type || '',
+        rateType: lineItem.rate_type || 'BLANK'
+      };
+
+      console.log(`📊 Processed line item:`, {
+        package: row.package,
+        lineItem: row.lineItem,
+        quantity,
+        rate,
+        total,
+        lineItemType: lineItem.line_item_type,
+        rateType: lineItem.rate_type,
+        rateCategory: lineItem.rate_category
+      });
+
+      return row;
+    });
+
+  console.log(`📊 Processed ${processedRows.length} rows before filtering`);
+
+  const filteredRows = processedRows.filter(row => row.quantity > 0);
+
+  console.log(`✅ After filtering (quantity > 0): ${filteredRows.length} rows`);
+  console.log('📊 Filtered rows:', filteredRows.map(r => ({
+    package: r.package,
+    quantity: r.nights,
+    price: r.price,
+    subtotal: r.subtotal
+  })));
+
+  const totalCost = filteredRows.reduce((sum, row) => sum + row.total, 0);
+  
+  console.log(`💰 Total cost: $${totalCost.toFixed(2)}`);
+  
+  return {
+    details: filteredRows,
+    totalCost: totalCost
+  };
+};
+
+const getPricing = (option, packageData = null) => {
+  if (packageData && packageData.ndis_line_items && packageData.ndis_line_items.length > 0) {
+    console.log('Using package line items for pricing:', packageData.ndis_line_items);
+    return []; // API data will be processed separately
   }
 
-  // PRIORITY 2: Fallback to hardcoded pricing based on option
   console.log('Using hardcoded pricing for option:', option);
   switch (option) {
     case 'SP':
@@ -158,31 +384,23 @@ const getPricing = (option, packageData = null) => {
   }
 };
 
-// Helper function to determine line item type from the line item data
-const determineLineItemType = (lineItem) => {
-  const description = (lineItem.description || lineItem.name || lineItem.package_name || '').toLowerCase();
-  const code = (lineItem.line_item_code || lineItem.code || lineItem.lineItem || '').toLowerCase();
-  
-  // Check both description and code for type indicators
-  const fullText = `${description} ${code}`.toLowerCase();
-  
-  if (fullText.includes('public') || fullText.includes('holiday')) {
-    return 'publicHoliday';
-  } else if (fullText.includes('sunday')) {
-    return 'sunday';
-  } else if (fullText.includes('saturday') || fullText.includes('weekend')) {
-    return 'saturday';
-  } else if (fullText.includes('weekday') || fullText.includes('monday') || fullText.includes('tuesday') || 
-             fullText.includes('wednesday') || fullText.includes('thursday') || fullText.includes('friday')) {
-    return 'weekday';
+const calculatePackageCosts = async (packageType, datesOfStay, nights, packageCost, packageData = null, careAnalysisData = null, courseAnalysisData = null) => {
+  if (!datesOfStay) {
+    console.error('calculatePackageCosts: datesOfStay is undefined');
+    return {
+      details: [],
+      totalCost: 0
+    };
   }
   
-  // If no specific day type found, default to weekday for the first item, then increment
-  // This is a fallback - ideally the line items should have clear day type indicators
-  return 'weekday';
-};
+  if (!nights || nights <= 0) {
+    console.error('calculatePackageCosts: nights is invalid', nights);
+    return {
+      details: [],
+      totalCost: 0
+    };
+  }
 
-const calculatePackageCosts = async (packageType, datesOfStay, nights, packageCost, packageData = null) => {
   if (packageType.startsWith('W')) {
     const price = parseFloat(packageCost);
     return {
@@ -190,7 +408,17 @@ const calculatePackageCosts = async (packageType, datesOfStay, nights, packageCo
     }
   }
 
-  const breakdown = await calculateDaysBreakdown(datesOfStay, nights);
+  const breakdown = await calculateDaysBreakdown(datesOfStay, nights, false);
+  const careDaysBreakdown = await calculateDaysBreakdown(datesOfStay, nights, true);
+  
+  console.log('📅 Breakdown calculated:', { breakdown, careDaysBreakdown });
+
+  // Use API logic if package data has line items
+  if (packageData?.ndis_line_items && packageData.ndis_line_items.length > 0) {
+    console.log('📦 Using API package data with', packageData.ndis_line_items.length, 'line items');
+    return processApiPackageData(packageData, breakdown, careDaysBreakdown, nights, careAnalysisData, courseAnalysisData);
+  }
+  
   const pricing = getPricing(packageType, packageData);
   
   const details = pricing.map((rate, index) => {
@@ -261,38 +489,10 @@ const calculateRoomCosts = (rooms, nights, packageData = null) => {
   return roomCosts;
 };
 
-const getCareHoursForTime = (careTime, careAnalysisData) => {
-  if (!careAnalysisData?.sampleDay) return 0;
-  
-  const sampleDay = careAnalysisData.sampleDay;
-  
-  // If care_time is empty, return TOTAL care hours per day (all time periods)
-  if (!careTime || careTime === '') {
-    const totalHours = (sampleDay.morning || 0) + 
-                       (sampleDay.afternoon || 0) + 
-                       (sampleDay.evening || 0);
-    return totalHours;
-  }
-  
-  // Otherwise, return hours for specific time period
-  switch (careTime.toLowerCase()) {
-    case 'morning':
-      return sampleDay.morning || 0;
-    case 'afternoon':
-      return sampleDay.afternoon || 0;
-    case 'evening':
-      return sampleDay.evening || 0;
-    default:
-      return 0;
-  }
-};
-
-// Helper function to check if an answer is a check-in/out answer from Q&A pairs
 const getCheckInOutAnswer = (qaPairs) => {
     const checkInOutAnswers = [];
     
     qaPairs.forEach(qaPair => {
-        // Check using question key first, then fallback to question text
         if (questionHasKey(qaPair.Question, QUESTION_KEYS.CHECK_IN_DATE) ||
             questionMatches(qaPair, 'Check In Date', QUESTION_KEYS.CHECK_IN_DATE)) {
             checkInOutAnswers.push(qaPair.answer);
@@ -302,14 +502,12 @@ const getCheckInOutAnswer = (qaPairs) => {
     return checkInOutAnswers;
 };
 
-
 export const generateSummaryData = (stayData, question, answer, questionType = null, qaPairs = [], questionKey = null) => {
   let summaryOfStayData = { ...stayData };
   
   if (answer) {
       const questionObj = { question, question_key: questionKey };
       
-      // Funding source
       if (questionHasKey(questionObj, QUESTION_KEYS.FUNDING_SOURCE) ||
           questionKey === 'how-will-your-stay-be-funded' ||
           questionMatches(questionObj, 'How will your stay be funded', QUESTION_KEYS.FUNDING_SOURCE)) {
@@ -322,21 +520,18 @@ export const generateSummaryData = (stayData, question, answer, questionType = n
             summaryOfStayData.ndisPackage = '';
           }
       } 
-      // NDIS funding type
       else if (questionHasKey(questionObj, QUESTION_KEYS.NDIS_FUNDING_OPTIONS) ||
                questionKey === 'please-select-from-one-of-the-following-ndis-funding-options' ||
                questionMatches(questionObj, 'Please select from one of the following NDIS funding options', QUESTION_KEYS.NDIS_FUNDING_OPTIONS)) {
           summaryOfStayData.ndisFundingType = answer;
       }
-      // ✅ FIX: Participant numbers - add exact key match
       else if (questionHasKey(questionObj, QUESTION_KEYS.NDIS_PARTICIPANT_NUMBER) ||
-               questionKey === 'ndis-ndia-participant-number' || // ✅ ADD THIS
+               questionKey === 'ndis-ndia-participant-number' ||
                questionKey === 'icare-participant-number' ||
                questionMatches(questionObj, 'NDIS Participant Number', QUESTION_KEYS.NDIS_PARTICIPANT_NUMBER) || 
                questionMatches(questionObj, 'icare Participant Number', QUESTION_KEYS.ICARE_PARTICIPANT_NUMBER)) {
           summaryOfStayData.participantNumber = answer;
       } 
-      // Check-in and check-out dates combined
       else if (questionHasKey(questionObj, QUESTION_KEYS.CHECK_IN_OUT_DATE) ||
                questionMatches(questionObj, 'Check In Date and Check Out Date', QUESTION_KEYS.CHECK_IN_OUT_DATE)) {
           const dates = answer.split(' - ');
@@ -347,21 +542,18 @@ export const generateSummaryData = (stayData, question, answer, questionType = n
               summaryOfStayData.nights = checkOut.diff(checkIn, 'days');
           }
       } 
-      // ✅ FIX: Check-in date - add exact key match
       else if (questionHasKey(questionObj, QUESTION_KEYS.CHECK_IN_DATE) ||
-               questionKey === 'check-in-date' || // ✅ ADD THIS
+               questionKey === 'check-in-date' ||
                questionMatches(questionObj, 'Check In Date', QUESTION_KEYS.CHECK_IN_DATE)) {
           const checkIn = moment(answer, ['YYYY-MM-DD', 'DD/MM/YYYY']);
           summaryOfStayData.checkinDate = checkIn.format('DD/MM/YYYY');
       } 
-      // ✅ FIX: Check-out date - add exact key match
       else if (questionHasKey(questionObj, QUESTION_KEYS.CHECK_OUT_DATE) ||
-               questionKey === 'check-out-date' || // ✅ ADD THIS
+               questionKey === 'check-out-date' ||
                questionMatches(questionObj, 'Check Out Date', QUESTION_KEYS.CHECK_OUT_DATE)) {
           const checkOut = moment(answer, ['YYYY-MM-DD', 'DD/MM/YYYY']);
           summaryOfStayData.checkoutDate = checkOut.format('DD/MM/YYYY');
 
-          // If we have both dates, calculate the date range and nights
           if (summaryOfStayData.checkinDate && checkOut.isValid()) {
               const checkIn = moment(summaryOfStayData.checkinDate, 'DD/MM/YYYY');
               if (checkIn.isValid()) {
@@ -379,7 +571,6 @@ export const generateSummaryData = (stayData, question, answer, questionType = n
               }
           }
       } 
-      // Wellness packages (non-package-selection)
       else if (questionType !== 'package-selection' && 
                (questionHasKey(questionObj, QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL) ||
                 questionHasKey(questionObj, QUESTION_KEYS.ACCOMMODATION_PACKAGE_COURSES) ||
@@ -396,7 +587,6 @@ export const generateSummaryData = (stayData, question, answer, questionType = n
                   summaryOfStayData.packageCost = 1740;
               }
       } 
-      // NDIS packages (non-package-selection)
       else if (questionType !== 'package-selection' && 
                (questionHasKey(questionObj, QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL) ||
                 questionMatches(questionObj, 'Please select your accommodation and assistance package below', QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL)) &&
@@ -404,21 +594,16 @@ export const generateSummaryData = (stayData, question, answer, questionType = n
               summaryOfStayData.ndisPackage = answer;
               summaryOfStayData.packageType = serializePackage(answer);
       } 
-      // ✅ FIX: Package selection - add exact key match
       else if ((questionType === 'package-selection' || 
-                questionKey?.startsWith('please-select-your-accommodation-and-assistance-package')) && // ✅ ADD THIS
+                questionKey?.startsWith('please-select-your-accommodation-and-assistance-package')) &&
                (questionHasKey(questionObj, QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL) ||
-                questionKey?.includes('accommodation') && questionKey?.includes('package') || // ✅ ADD THIS
+                questionKey?.includes('accommodation') && questionKey?.includes('package') ||
                 questionMatches(questionObj, 'Please select your accommodation and assistance package below', QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL))) {
-              // For package-selection, answer is the package ID
               summaryOfStayData.selectedPackageId = answer;
               summaryOfStayData.packageSelectionType = 'package-selection';
-              
-              // Set a placeholder that will be resolved later
               summaryOfStayData.packageType = 'PACKAGE_SELECTION';
               summaryOfStayData.packageTypeAnswer = `Package ID: ${answer}`;
-      }
-      // UPDATED: NDIS-specific questions - using question keys where available
+      } 
       else if (question.includes('Is Short-Term Accommodation including Respite a stated support in your plan?') ||
                question.includes('What is the purpose of this stay and how does it align with your plan goals? ') ||
                question.includes('How is this service value for money?') || 
@@ -444,6 +629,16 @@ export const generateSummaryData = (stayData, question, answer, questionType = n
 export const createSummaryData = async (booking, resolvedPackage = null) => {
     let summaryOfStay = { guestName: null, guestEmail: null, rooms: [], data: {}, agreement_tc: null, signature: null };
 
+    // Extract care and course data from ALL Q&A pairs
+    const allQaPairs = booking.Sections.flatMap(section => section.QaPairs || []);
+    const careAnalysisData = extractCareAnalysisData(allQaPairs);
+    const courseAnalysisData = extractCourseAnalysisData(allQaPairs);
+    
+    console.log('📊 Extracted analysis data:', {
+      careAnalysisData,
+      courseAnalysisData
+    });
+
     // Process Q&A pairs
     summaryOfStay.data = booking.Sections.reduce((data, section) => {
         section.QaPairs.forEach(pair => {
@@ -459,7 +654,7 @@ export const createSummaryData = async (booking, resolvedPackage = null) => {
     summaryOfStay.guestName = booking.Guest.first_name + ' ' + booking.Guest.last_name;
     summaryOfStay.guestEmail = booking.Guest.email;
 
-    // ✅ NEW: Use resolved package if provided
+    // Use resolved package if provided
     if (resolvedPackage && summaryOfStay.data.selectedPackageId) {
         console.log('✅ Using pre-resolved package:', resolvedPackage.name);
         
@@ -479,43 +674,63 @@ export const createSummaryData = async (booking, resolvedPackage = null) => {
             summaryOfStay.data.packageCode = resolvedPackage.package_code;
         }
         
-        // Store resolved package data for pricing calculations
+        // Store resolved package data AND analysis data
         summaryOfStay.data.resolvedPackageData = resolvedPackage;
     } else {
-        // Use existing logic for non-package-selection types
         summaryOfStay.data.packageType = serializePackage(
             summaryOfStay.data.isNDISFunder ? summaryOfStay.data.ndisPackage : summaryOfStay.data.packageType
         );
     }
 
-    // Calculate package costs with resolved package data if available
+    // Validate dates
+    if (!summaryOfStay.data.datesOfStay) {
+        console.error('❌ Missing datesOfStay');
+        return {
+            ...summaryOfStay,
+            packageCosts: { details: [], totalCost: 0 },
+            roomCosts: {
+                roomUpgrade: { perNight: 0, total: 0 },
+                additionalRoom: { perNight: 0, total: 0 },
+                hspAccommodation: { perNight: 0, total: 0 }
+            },
+            totalOutOfPocket: 0
+        };
+    }
+
+    // Calculate package costs WITH care and course data
     const packageCosts = await calculatePackageCosts(
         summaryOfStay.data.packageType,
         summaryOfStay.data.datesOfStay,
         summaryOfStay.data.nights,
         summaryOfStay.data.packageCost,
-        summaryOfStay.data.resolvedPackageData
+        summaryOfStay.data.resolvedPackageData,
+        careAnalysisData,
+        courseAnalysisData
     );
+
+    console.log('📊 Package costs calculated:', {
+        detailsCount: packageCosts.details?.length || 0,
+        totalCost: packageCosts.totalCost
+    });
 
     const selectedRooms = booking.Rooms.map((room, index) => {
         return { 
             room: room.label, 
             type: index === 0 ? room.RoomType.type : 'upgrade', 
             price: room.RoomType.price_per_night, 
-            peak_rate: room.RoomType.peak_rate 
+            peak_rate: room.RoomType.peak_rate,
+            hsp_pricing: room.RoomType.hsp_pricing
         };
     }).filter(room => room.type !== 'studio');
 
     summaryOfStay.rooms = selectedRooms;
 
-    // Calculate room costs WITH package data for HSP handling
     const roomCosts = calculateRoomCosts(
         summaryOfStay.rooms, 
         summaryOfStay.data.nights,
-        summaryOfStay.data.resolvedPackageData // Pass package data
+        summaryOfStay.data.resolvedPackageData
     );
 
-    // Calculate total out of pocket (including HSP logic)
     const isHSP = summaryOfStay.data.resolvedPackageData?.package_code === 'HOLIDAY_SUPPORT_PLUS' || 
                   summaryOfStay.data.resolvedPackageData?.package_code === 'HOLIDAY_SUPPORT';
     

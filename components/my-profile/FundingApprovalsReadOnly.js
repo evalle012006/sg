@@ -295,7 +295,7 @@ const FundingApprovalsReadOnly = ({ uuid }) => {
             )}
 
             {/* Info Banner */}
-            <div className="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
+            {/* <div className="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
                 <div className="flex items-start">
                     <AlertCircle className="w-5 h-5 text-blue-600 mt-0.5 mr-3 flex-shrink-0" />
                     <div className="text-sm text-blue-800">
@@ -306,7 +306,7 @@ const FundingApprovalsReadOnly = ({ uuid }) => {
                         </p>
                     </div>
                 </div>
-            </div>
+            </div> */}
 
             {/* Approvals List */}
             {sortedApprovals.length === 0 ? (

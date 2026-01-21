@@ -60,8 +60,8 @@ module.exports = {
         allowNull: false
       },
       status: {
-        type: Sequelize.ENUM('pending', 'confirmed', 'cancelled', 'late_cancelled'),
-        defaultValue: 'pending',
+        type: Sequelize.ENUM('confirmed','late_cancelled','cancelled','charged'),
+        defaultValue: 'confirmed',
         allowNull: false
       },
       created_at: {

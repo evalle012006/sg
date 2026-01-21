@@ -216,4 +216,53 @@ export const validatePhoneNumber = (val) => {
 export const validateEmail = (val) => {
       const validEmail = /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/;
       return val.match(validEmail);
+}
+
+/**
+ * Get cancellation type from booking data
+ * @param {Object} booking - The booking object with approvalUsages
+ * @returns {string|null} - 'Full Charge', 'No Charge', or null
+ */
+export const getCancellationType = (booking) => {
+  // If the API already provides it
+  if (booking?.cancellationType) {
+    return booking.cancellationType;
   }
+  
+  // Otherwise calculate it from approvalUsages
+  if (!booking?.approvalUsages || booking.approvalUsages.length === 0) {
+    return null; // No usage records (old bookings or not cancelled)
+  }
+  
+  const usageStatuses = booking.approvalUsages.map(u => u.status);
+  
+  if (usageStatuses.includes('charged')) {
+    return 'Full Charge';
+  } else if (usageStatuses.includes('cancelled')) {
+    return 'No Charge';
+  }
+  
+  return null;
+};
+
+/**
+ * Check if booking is cancelled
+ * @param {Object} status - The booking status object
+ * @returns {boolean}
+ */
+export const isBookingCancelled = (status) => {
+  if (!status) return false;
+  if (isJsonString(status)) {
+    status = JSON.parse(status);
+  }
+  return status.name === 'booking_cancelled' || status.name === 'guest_cancelled';
+};
+
+export const isJsonString = (str) => {
+  try {
+    JSON.parse(str);
+  } catch (e) {
+    return false;
+  }
+  return true;
+}

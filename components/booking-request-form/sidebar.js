@@ -76,7 +76,7 @@ export default function RequestFormSidebar({ setBookingSubmittedState, prevBooki
                 }
                 
                 if (foundPage) {
-                    console.log(`✅ Found page by ID: ${foundPage.title} (ID: ${foundPage.id})`);
+                    // console.log(`✅ Found page by ID: ${foundPage.title} (ID: ${foundPage.id})`);
                 }
             }
             
@@ -87,7 +87,7 @@ export default function RequestFormSidebar({ setBookingSubmittedState, prevBooki
                 );
                 
                 if (foundPage) {
-                    console.log(`✅ Found NDIS Requirements page by special lookup`);
+                    // console.log(`✅ Found NDIS Requirements page by special lookup`);
                 }
             }
             
@@ -107,7 +107,7 @@ export default function RequestFormSidebar({ setBookingSubmittedState, prevBooki
                 // LAST RESORT: If it's supposed to be the NDIS page but we can't find it,
                 // it might not have been created yet. Return null to let the system handle it.
                 if (urlPageId === 'ndis_packages_page') {
-                    console.log('🔄 NDIS page not found but requested - may be pending creation');
+                    // console.log('🔄 NDIS page not found but requested - may be pending creation');
                     return null;
                 }
                 
@@ -226,7 +226,7 @@ export default function RequestFormSidebar({ setBookingSubmittedState, prevBooki
             // Remove any submit=true parameter
             const cleanUrl = getCleanUrl(url);
             
-            console.log('🔄 Sidebar navigation to:', step.label, 'URL:', cleanUrl);
+            // console.log('🔄 Sidebar navigation to:', step.label, 'URL:', cleanUrl);
             
             setBookingSubmittedState(false);
             handleRouterChange(cleanUrl);

@@ -1,7 +1,8 @@
 import { BookingService } from "../../../../services/booking/booking";
 import {
-    Address, Booking, Equipment, EquipmentCategory, Guest,
-    Log, Page, QaPair, Question, Room, RoomType, Section, Template
+    Address, Booking, BookingApprovalUsage, Equipment, EquipmentCategory, 
+    FundingApproval, Guest, Log, Page, QaPair, Question, Room, RoomType, 
+    Section, Template
 } from "./../../../../models";
 import StorageService from "./../../../../services/storage/storage";
 
@@ -33,6 +34,16 @@ export default async function handler(req, res) {
                 {
                     model: Equipment,
                     include: [EquipmentCategory]
+                },
+                {
+                    model: BookingApprovalUsage,
+                    as: 'approvalUsages',
+                    include: [{
+                        model: FundingApproval,
+                        as: 'approval',
+                        attributes: ['id', 'approval_number', 'approval_name', 'nights_approved', 'nights_used']
+                    }],
+                    attributes: ['id', 'booking_id', 'funding_approval_id', 'room_type', 'nights_consumed', 'status']
                 },
                 Log
             ],
@@ -120,12 +131,25 @@ export default async function handler(req, res) {
                 }
             }
 
+            // Determine cancellation type from approval usages
+            let cancellationType = 'No Charge';
+            if (bookingData.approvalUsages && bookingData.approvalUsages.length > 0) {
+                const usageStatuses = bookingData.approvalUsages.map(u => u.status);
+                
+                if (usageStatuses.includes('charged')) {
+                    cancellationType = 'Full Charge';
+                } else if (usageStatuses.includes('cancelled')) {
+                    cancellationType = 'No Charge';
+                }
+            }
+
             const response = {
                 ...bookingData,
                 pdfFileUrl,
                 templatePages: templatePages || [],
                 guestProfileFileUrl: booking.Guest?.profileFileUrl || null,
-                Rooms: roomsWithImages
+                Rooms: roomsWithImages,
+                cancellationType // Add cancellation type to response
             };
 
             return res.status(200).json(response);

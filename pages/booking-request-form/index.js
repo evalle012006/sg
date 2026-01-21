@@ -222,9 +222,18 @@ const BookingRequestForm = () => {
             return;
         }
         
+        // ✅ ADD VALIDATION: Ensure both dates are present
+        if (!pendingDates.checkInDate || !pendingDates.checkOutDate) {
+            console.log('⚠️ Incomplete date range - skipping care data regeneration:', {
+                checkIn: pendingDates.checkInDate,
+                checkOut: pendingDates.checkOutDate
+            });
+            return;
+        }
+        
         // ✅ Set flag to prevent interference from form refresh
         isCommittingDatesRef.current = true;
-        // console.log('📅 Starting commit of pending dates:', pendingDates);
+        console.log('📅 Starting commit of pending dates:', pendingDates);
         
         try {
             // Update originalSavedDatesRef FIRST
@@ -333,54 +342,61 @@ const BookingRequestForm = () => {
             return;
         }
         
-        if (newDates.checkInDate || newDates.checkOutDate) {
-            const updatedDates = {
-                checkInDate: newDates.checkInDate || stayDatesRef.current?.checkInDate || null,
-                checkOutDate: newDates.checkOutDate || stayDatesRef.current?.checkOutDate || null
-            };
-            
-            const originalDates = originalSavedDatesRef.current;
-            
-            console.log('📅 Date change detected:', {
-                newDates: updatedDates,
-                originalSaved: originalDates,
-                hasPending: !!pendingDatesRef.current
-            });
-            
-            // Check if dates match the original saved dates
-            const datesMatchOriginal = 
-                updatedDates.checkInDate === originalDates.checkInDate &&
-                updatedDates.checkOutDate === originalDates.checkOutDate;
-            
-            if (datesMatchOriginal) {
-                // ✅ If we have pending dates, this is a form refresh with old data - IGNORE
-                if (pendingDatesRef.current) {
-                    console.log('📅 Ignoring form refresh with old data - pending dates preserved');
-                    return;
-                }
-                
-                console.log('📅 Dates match original - no changes needed');
+        // ✅ IMPROVED: Only proceed if we have at least one date
+        if (!newDates.checkInDate && !newDates.checkOutDate) {
+            console.log('📅 No date changes provided');
+            return;
+        }
+        
+        const updatedDates = {
+            checkInDate: newDates.checkInDate || stayDatesRef.current?.checkInDate || null,
+            checkOutDate: newDates.checkOutDate || stayDatesRef.current?.checkOutDate || null
+        };
+        
+        const originalDates = originalSavedDatesRef.current;
+        
+        console.log('📅 Date change detected:', {
+            newDates: updatedDates,
+            originalSaved: originalDates,
+            hasPending: !!pendingDatesRef.current
+        });
+        
+        // Check if dates match the original saved dates
+        const datesMatchOriginal = 
+            updatedDates.checkInDate === originalDates.checkInDate &&
+            updatedDates.checkOutDate === originalDates.checkOutDate;
+        
+        if (datesMatchOriginal) {
+            // ✅ If we have pending dates, this is a form refresh with old data - IGNORE
+            if (pendingDatesRef.current) {
+                console.log('📅 Ignoring form refresh with old data - pending dates preserved');
                 return;
             }
             
-            // Check if dates match pending dates (already tracked)
-            if (pendingDatesRef.current &&
-                updatedDates.checkInDate === pendingDatesRef.current.checkInDate &&
-                updatedDates.checkOutDate === pendingDatesRef.current.checkOutDate) {
-                // console.log('📅 Dates match pending - already tracked');
-                return;
-            }
+            console.log('📅 Dates match original - no changes needed');
+            return;
+        }
+        
+        // Check if dates match pending dates (already tracked)
+        if (pendingDatesRef.current &&
+            updatedDates.checkInDate === pendingDatesRef.current.checkInDate &&
+            updatedDates.checkOutDate === pendingDatesRef.current.checkOutDate) {
+            console.log('📅 Dates match pending - already tracked');
+            return;
+        }
+        
+        // ✅ ADD: Don't store partial date ranges as pending for care regeneration
+        if (!updatedDates.checkInDate || !updatedDates.checkOutDate) {
+            console.log('📅 Partial date update detected - waiting for complete range:', updatedDates);
             
-            console.log('📅 New pending dates stored:', updatedDates);
-            pendingDatesRef.current = updatedDates;
-            
-            // Update only the date question in form data
+            // Update the date question in form but don't mark as pending for care regeneration
             const currentFormData = processedFormData;
             
             if (currentFormData && currentFormData.length > 0) {
                 const updatedPages = currentFormData.map(page => {
                     const updatedSections = page.Sections.map(section => {
                         const updatedQuestions = section.Questions.map(question => {
+                            // Clear course errors when dates are being changed
                             if (questionHasKey(question, QUESTION_KEYS.COURSE_OFFER_QUESTION) ||
                                 questionHasKey(question, QUESTION_KEYS.WHICH_COURSE)) {
                                 return {
@@ -390,9 +406,11 @@ const BookingRequestForm = () => {
                                 };
                             }
                             
+                            // Update date question display
                             if (questionHasKey(question, QUESTION_KEYS.CHECK_IN_OUT_DATE) ||
                                 questionHasKey(question, QUESTION_KEYS.CHECK_IN_DATE) ||
                                 questionHasKey(question, QUESTION_KEYS.CHECK_OUT_DATE)) {
+                                
                                 const formattedAnswer = updatedDates.checkInDate && updatedDates.checkOutDate 
                                     ? `${updatedDates.checkInDate} - ${updatedDates.checkOutDate}`
                                     : question.answer;
@@ -414,6 +432,56 @@ const BookingRequestForm = () => {
                 
                 setProcessedFormData(updatedPages);
             }
+            
+            // Don't proceed with pending dates - wait for complete range
+            return;
+        }
+        
+        // ✅ ONLY reach here if we have BOTH dates - safe to mark as pending
+        console.log('📅 Complete date range - new pending dates stored:', updatedDates);
+        pendingDatesRef.current = updatedDates;
+        
+        // Update only the date question in form data
+        const currentFormData = processedFormData;
+        
+        if (currentFormData && currentFormData.length > 0) {
+            const updatedPages = currentFormData.map(page => {
+                const updatedSections = page.Sections.map(section => {
+                    const updatedQuestions = section.Questions.map(question => {
+                        // Clear course validation errors when dates change
+                        if (questionHasKey(question, QUESTION_KEYS.COURSE_OFFER_QUESTION) ||
+                            questionHasKey(question, QUESTION_KEYS.WHICH_COURSE)) {
+                            return {
+                                ...question,
+                                error: null,
+                                validationAttempted: false
+                            };
+                        }
+                        
+                        // Update date question
+                        if (questionHasKey(question, QUESTION_KEYS.CHECK_IN_OUT_DATE) ||
+                            questionHasKey(question, QUESTION_KEYS.CHECK_IN_DATE) ||
+                            questionHasKey(question, QUESTION_KEYS.CHECK_OUT_DATE)) {
+                            const formattedAnswer = updatedDates.checkInDate && updatedDates.checkOutDate 
+                                ? `${updatedDates.checkInDate} - ${updatedDates.checkOutDate}`
+                                : question.answer;
+                            
+                            return {
+                                ...question,
+                                answer: formattedAnswer,
+                                dirty: true,
+                                error: null
+                            };
+                        }
+                        
+                        return question;
+                    });
+                    return { ...section, Questions: updatedQuestions };
+                });
+                return { ...page, Sections: updatedSections };
+            });
+            
+            setProcessedFormData(updatedPages);
         }
     }, [processedFormData]);
 
@@ -974,6 +1042,23 @@ const BookingRequestForm = () => {
                     saved: true
                 });
 
+                setSummaryData(prevSummary => {
+                    const updatedData = { ...prevSummary.data };
+                    
+                    // Only update package-related fields
+                    if (updatedQuestion.type === 'package-selection' || 
+                        updatedQuestion.type === 'package-selection-multi') {
+                        updatedData.selectedPackageId = updatedQuestion.answer;
+                        updatedData.packageSelectionType = 'package-selection';
+                        updatedData.packageType = 'PACKAGE_SELECTION';
+                        updatedData.packageTypeAnswer = `Package ID: ${updatedQuestion.answer}`;
+                    }
+                    
+                    return {
+                        ...prevSummary,
+                        data: updatedData
+                    };
+                });
                 // Update booking amended status if needed
                 if (result.success && result.bookingAmended && bookingAmended === false) {
                     setBookingAmended(true);
@@ -1072,7 +1157,8 @@ const BookingRequestForm = () => {
                 stableProcessedFormData,
                 careAnalysisData,
                 courseAnalysisData,
-                currentFilterState
+                currentFilterState,
+                origin === 'admin'
             );
 
             // If bestMatch is different from current answer, update it
@@ -1978,7 +2064,7 @@ const BookingRequestForm = () => {
                 const lastDataStr = JSON.stringify(lastDispatchedDataRef.current);
                 
                 if (dataStr !== lastDataStr) {
-                    console.log(`📤 Dispatching data with preserved completion: ${context}`);
+                    // console.log(`📤 Dispatching data with preserved completion: ${context}`);
                     dispatch(bookingRequestFormActions.setData(cleanedData));
                     lastDispatchedDataRef.current = structuredClone(cleanedData);
                 }
@@ -2027,7 +2113,9 @@ const BookingRequestForm = () => {
         // Find funding source answer
         for (const page of formData) {
             for (const section of page.Sections || []) {
+                if (section.hidden) continue;
                 for (const question of section.Questions || []) {
+                    if (question.hidden) continue;
                     // Check funding source
                     if (questionHasKey(question, QUESTION_KEYS.FUNDING_SOURCE) && question.answer) {
                         if (question.answer?.toLowerCase().includes('ndis') || question.answer?.toLowerCase().includes('ndia')) {
@@ -3159,7 +3247,7 @@ const BookingRequestForm = () => {
                         return;
                     }
                     
-                    console.log(`🎯 Forcing completion update for page ${pageId} at index ${pageIndex}`);
+                    // console.log(`🎯 Forcing completion update for page ${pageId} at index ${pageIndex}`);
                     const updatedPages = forceUpdateReturningGuestPageCompletion(
                         stableProcessedFormData,
                         pageId,
@@ -3371,10 +3459,17 @@ const BookingRequestForm = () => {
             const questionCount = page.Sections?.reduce((count, section) => 
                 count + (section.Questions?.length || 0), 0) || 0;
 
+            // Include error state in the key to force re-render
+            const hasErrors = page.Sections?.some(section =>
+                section.Questions?.some(question =>
+                    question.error && question.error !== ''
+                )
+            );
+
             // console.log(`Preparing accordion item for page: ${page.id}`, { pageTitle: page.title, completed: page.completed });
             
             // Stable key that doesn't change unnecessarily
-            const contentKey = `page-${page.id}-${questionCount}-${profileDataLoaded}`;
+            const contentKey = `page-${page.id}-${questionCount}-${profileDataLoaded}-${hasErrors}-${page.completed}`;
 
             return {
                 title: page.title,
@@ -3420,13 +3515,14 @@ const BookingRequestForm = () => {
                             }
                         }}
                         isConfirmedBooking={currentBookingStatus?.name === 'booking_confirmed'}
+                        origin={origin}
                     />
                 )
             };
         });
     }, [stableProcessedFormData, guest, equipmentChangesState, ndisFormFilters, profileDataLoaded, 
         careAnalysisData, courseAnalysisData, packageFilterCriteria, getEnhancedFormDataForPackages, stayDates,
-        courseOffers, courseOffersLoaded]);
+        courseOffers, courseOffersLoaded, stableProcessedFormData?.map(p => `${p.id}:${p.completed}`).join('|')]);
 
     // Centralized scroll function, now explicitly waiting for layoutRef.current.mainContentRef
     const scrollToAccordionItemInLayout = useCallback((index) => {
@@ -4160,10 +4256,10 @@ const BookingRequestForm = () => {
                     }
 
                     if (questionHasKey(question, QUESTION_KEYS.COURSE_OFFER_QUESTION)) {
-                        console.log(`🎓 Validating course offer question: "${question.question}" with answer: "${question.answer}"`);
+                        // console.log(`🎓 Validating course offer question: "${question.question}" with answer: "${question.answer}"`);
                         
                         if (question.answer?.toLowerCase() === 'yes') {
-                            console.log(`🎓 Course answer is YES, checking course offers...`);
+                            // console.log(`🎓 Course answer is YES, checking course offers...`);
                             
                             const activeOffers = courseOffers.filter(offer => 
                                 ['offered', 'accepted'].includes(offer.offerStatus)
@@ -4199,7 +4295,7 @@ const BookingRequestForm = () => {
                     }
 
                     if (questionHasKey(question, QUESTION_KEYS.WHICH_COURSE)) {
-                        console.log(`🎓 Validating which course question: "${question.question}" with answer: "${question.answer}"`);
+                        // console.log(`🎓 Validating which course question: "${question.question}" with answer: "${question.answer}"`);
                         
                         // Check if course offer question was answered "Yes" OR if there's a prefilled course answer
                         const courseOfferQuestion = pages.find(p => 

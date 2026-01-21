@@ -259,9 +259,9 @@
                         <tr>
                             <th>{{ndis_package_type}}</th>
                             <th>Line Item</th>
-                            <th>Price/night</th>
-                            <th>Quantity</th>
-                            <th>Subtotal</th>
+                            <th>Rate</th>
+                            <th>Qty</th>
+                            <th>Total ($)</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -269,14 +269,19 @@
                         <tr>
                             <td>{{package}}</td>
                             <td>{{lineItem}}</td>
-                            <td>${{price}}</td>
+                            <td>{{price}}</td>
                             <td>{{nights}}</td>
-                            <td>${{subtotal}}</td>
+                            <td>{{subtotal}}</td>
                         </tr>
                         {{/each}}
                     </tbody>
                 </table>
-                <div class="total-right">Total Package Cost: ${{total_package_cost}}</div>
+                {{#if has_care_fees}}
+                <p style="font-size: 12px; font-style: italic; color: #666; margin-top: 8px;">
+                    * Care fees reflect requested care at the time of booking submission and may vary based on actual care hours used.
+                </p>
+                {{/if}}
+                <div class="total-right">Total Package Cost: AUD {{total_package_cost}}</div>
             </div>
         </div>
 
@@ -290,7 +295,7 @@
                         <div class="info-label">Room Upgrade</div>
                         <div class="info-value">
                             {{#if room_upgrade}}
-                            ${{room_upgrade}} per night (${{total_room_costs.roomUpgrade}} total)
+                            AUD {{room_upgrade}} per night (AUD {{total_room_costs.roomUpgrade}} total)
                             {{else}}
                             N/A
                             {{/if}}
@@ -300,29 +305,29 @@
                         <div class="info-label">Additional Room</div>
                         <div class="info-value">
                             {{#if additional_room}}
-                            ${{additional_room}} per night (${{total_room_costs.additionalRoom}} total)
+                            AUD {{additional_room}} per night (AUD {{total_room_costs.additionalRoom}} total)
                             {{else}}
                             N/A
                             {{/if}}
                         </div>
                     </div>
                 </div>
-                <div class="total-right">Total Out of Pocket: ${{total_room_costs.total}}</div>
+                <div class="total-right">Total Out of Pocket: AUD {{total_room_costs.total}}</div>
             </div>
 
             <div class="summary-box">
                 <h2>Cost Summary</h2>
                 <div class="summary-row">
                     <span>Package Cost <span style="font-style: italic;">(To be billed to your funder)</span>:</span>
-                    <span>${{total_package_cost}}</span>
+                    <span>AUD {{total_package_cost}}</span>
                 </div>
                 <div class="summary-row">
-                    <span>OAdditional Room and Upgrade Costs <span style="font-style: italic;">(To be paid privately by you)</span>:</span>
-                    <span>${{total_room_costs.total}}</span>
+                    <span>Additional Room and Upgrade Costs <span style="font-style: italic;">(To be paid privately by you)</span>:</span>
+                    <span>AUD {{total_room_costs.total}}</span>
                 </div>
                 <div class="summary-row summary-total">
                     <span>Grand Total:</span>
-                    <span>${{grand_total}}</span>
+                    <span>AUD {{grand_total}}</span>
                 </div>
             </div>
 
@@ -431,7 +436,7 @@
 
             <div class="section">
                 <h2>Package - to be paid for by your funder:</h2>
-                {{package_type}} - ${{package_cost}} per night
+                {{package_type}} - AUD {{package_cost}} per night
             </div>
 
             <div class="section">
@@ -442,7 +447,7 @@
                         <div class="info-label">Room Upgrade</div>
                         <div class="info-value">
                             {{#if room_upgrade}}
-                            ${{room_upgrade}} per night (${{total_room_costs.roomUpgrade}} total)
+                            AUD {{room_upgrade}} per night (AUD {{total_room_costs.roomUpgrade}} total)
                             {{else}}
                             N/A
                             {{/if}}
@@ -452,14 +457,14 @@
                         <div class="info-label">Additional Room</div>
                         <div class="info-value">
                             {{#if additional_room}}
-                            ${{additional_room}} per night (${{total_room_costs.additionalRoom}} total)
+                            AUD {{additional_room}} per night (AUD {{total_room_costs.additionalRoom}} total)
                             {{else}}
                             N/A
                             {{/if}}
                         </div>
                     </div>
                 </div>
-                <div class="total-right">Total Out of Pocket: ${{total_room_costs.total}}</div>
+                <div class="total-right">Total Out of Pocket: AUD {{total_room_costs.total}}</div>
             </div>
         </div>
         <div class="page page-break-after-avoid">
@@ -467,15 +472,15 @@
                 <h2>Cost Summary</h2>
                 <div class="summary-row">
                     <span>Package Cost (To be paid for by your funder):</span>
-                    <span>${{total_package_cost}}</span>
+                    <span>AUD {{total_package_cost}}</span>
                 </div>
                 <div class="summary-row">
                     <span>Additional Room and Upgrade Costs <span style="font-style: italic;">(To be paid privately by you)</span>:</span>
-                    <span>${{total_room_costs.total}}</span>
+                    <span>AUD {{total_room_costs.total}}</span>
                 </div>
                 <div class="summary-row summary-total">
                     <span>Grand Total:</span>
-                    <span>${{grand_total}}</span>
+                    <span>AUD {{grand_total}}</span>
                 </div>
             </div>
             <div class="signature-section">

@@ -3,7 +3,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { RenderPDF } from '../../../../services/booking/exports/pdf-render';
 import handlebars from 'handlebars';
-import { Address, Booking, Guest, Package, QaPair, Question, QuestionDependency, Room, RoomType, Section } from '../../../../models';
+import { Address, Booking, Guest, QaPair, Question, QuestionDependency, Room, RoomType, Section, Package } from '../../../../models';
 import { createSummaryData } from '../../../../services/booking/create-summary-data';
 
 export const config = {
@@ -80,30 +80,28 @@ export default async function handler(req, res) {
     if (!booking) {
       return res.status(404).json({ message: 'Booking not found' });
     }
-    
+
+    // ✅ Resolve package BEFORE calling createSummaryData
     let resolvedPackage = null;
     
-    // Look for package selection in Q&A pairs
     for (const section of booking.Sections) {
       for (const pair of section.QaPairs) {
         const questionKey = pair.Question?.question_key;
         const questionType = pair.Question?.question_type;
         
-        // Check if this is a package selection question
         if (questionType === 'package-selection' || 
             questionKey?.startsWith('please-select-your-accommodation-and-assistance-package')) {
           const packageId = pair.answer;
           
           if (packageId) {
-            console.log('📦 Found package selection, resolving package ID:', packageId);
+            console.log('📦 Resolving package ID:', packageId);
             
             try {
-              resolvedPackage = await Package.findByPk(packageId);
+              const packageModel = await Package.findByPk(packageId);
               
-              if (resolvedPackage) {
-                console.log('✅ Package resolved:', resolvedPackage.name);
-                // Convert to plain object
-                resolvedPackage = resolvedPackage.toJSON();
+              if (packageModel) {
+                // console.log('✅ Package resolved:', packageModel.name);
+                resolvedPackage = packageModel.toJSON();
               } else {
                 console.error('❌ Package not found for ID:', packageId);
               }
@@ -120,7 +118,7 @@ export default async function handler(req, res) {
     // Pass resolved package to createSummaryData
     const summaryData = await createSummaryData(booking, resolvedPackage);
 
-    const isNDISFunder = summaryData.data.funder.includes('NDIS') || summaryData.data.funder.includes('NDIA') ? true : false;
+    const isNDISFunder = summaryData.data.funder?.toLowerCase().includes('ndis') || summaryData.data.funder?.toLowerCase().includes('ndia') ? true : false;
 
     // Verbal Consent
     const verbalConsent = typeof booking.verbal_consent == 'string' ? JSON.parse(booking.verbal_consent) : booking.verbal_consent;
@@ -161,10 +159,16 @@ export default async function handler(req, res) {
       });
     }
 
-    const isHSP = summaryData.data.resolvedPackageData?.package_code === 'HOLIDAY_SUPPORT_PLUS' || 
-              summaryData.data.resolvedPackageData?.package_code === 'HOLIDAY_SUPPORT';
+    // ✅ Format NDIS package details for template with proper currency and rounding
+    const formattedNdisDetails = summaryData.packageCosts.details?.map(item => ({
+      package: item.package,
+      lineItem: item.lineItem,
+      price: `AUD ${item.price.toFixed(2)}${item.rateCategoryLabel || ''}`, // Format with AUD and rate label
+      nights: `${item.quantity} ${item.rateCategoryQtyLabel || ''}`, // ✅ Use quantity property
+      subtotal: `AUD ${item.total.toFixed(2)}` // ✅ Use total property and round to 2 decimals
+    })) || [];
 
-    const isHolidaySupportPlus = summaryData.data.resolvedPackageData?.package_code === 'HOLIDAY_SUPPORT_PLUS';
+    // console.log('📊 Package costs details:', summaryData.packageCosts.details);
 
     const formattedData = {
       logo_base64: `data:image/png;base64,${logoBase64}`,
@@ -173,40 +177,31 @@ export default async function handler(req, res) {
       
       // Guest Information
       guest_name: summaryData.guestName,
-      funder: summaryData.data.funder,
+      funder: summaryData.data.funder?.toUpperCase() || summaryData.data.funder, // ✅ Uppercase funder
       participant_number: summaryData.data.participantNumber,
       nights: summaryData.data.nights,
       dates_of_stay: summaryData.data.datesOfStay,
       isNDISFunder: isNDISFunder,
       
       // Package Information
-      package_type: isNDISFunder ? summaryData.data.ndisPackage : summaryData.data.packageTypeAnswer,
+      package_type: isNDISFunder ? summaryData.data.ndisPackage || summaryData.data.packageTypeAnswer : summaryData.data.packageTypeAnswer,
       package_cost: summaryData.data?.packageCost?.toFixed(2) || 0,
       ndis_package_type: (isNDISFunder && summaryData.data.packageType === 'HCSP') ? '1:1 STA Package' : '1:2 STA Package',
-      ndis_package_details: isNDISFunder ? summaryData.packageCosts.details : null,
+      ndis_package_details: isNDISFunder ? formattedNdisDetails : null, // ✅ Use formatted details
       total_package_cost: summaryData.packageCosts.totalCost.toFixed(2) || 0,
+      has_care_fees: summaryData.packageCosts.details?.some(item => item.lineItemType === 'care'), // ✅ Check if care exists
       
       // Room Costs
       room_upgrade: summaryData.roomCosts.roomUpgrade.perNight.toFixed(2) || 0,
       additional_room: summaryData.roomCosts.additionalRoom.perNight.toFixed(2) || 0,
       total: (summaryData.roomCosts.roomUpgrade.total + summaryData.roomCosts.additionalRoom.total).toFixed(2) || 0,
       
-      isHSP: isHSP,
-      isHolidaySupportPlus: isHolidaySupportPlus,
-      hsp_accommodation_total: summaryData.roomCosts.hspAccommodation?.total?.toFixed(2) || '0.00',
-      
-      // Update total_room_costs to handle HSP
       total_room_costs: {
-        roomUpgrade: summaryData.roomCosts.roomUpgrade?.total?.toFixed(2) || '0.00',
-        additionalRoom: summaryData.roomCosts.additionalRoom?.total?.toFixed(2) || '0.00',
-        hspAccommodation: summaryData.roomCosts.hspAccommodation?.total?.toFixed(2) || '0.00',
-        total: summaryData.totalOutOfPocket?.toFixed(2) || '0.00'
+        roomUpgrade: summaryData.roomCosts.roomUpgrade.total.toFixed(2),
+        additionalRoom: summaryData.roomCosts.additionalRoom.total.toFixed(2),
+        total: (summaryData.roomCosts.roomUpgrade.total + summaryData.roomCosts.additionalRoom.total).toFixed(2)
       },
-      
-      // Update grand_total to exclude package cost for Holiday Support Plus
-      grand_total: isHolidaySupportPlus 
-        ? summaryData.totalOutOfPocket?.toFixed(2) || '0.00'
-        : (summaryData.packageCosts.totalCost + summaryData.totalOutOfPocket).toFixed(2) || '0.00',
+      grand_total: (summaryData.packageCosts.totalCost + summaryData.totalOutOfPocket).toFixed(2) || 0,
       
       // NDIS Questions if applicable
       ndis_questions: ndisQuestions,
@@ -217,6 +212,29 @@ export default async function handler(req, res) {
       signature_date: signatureDate,
       verbalConsent: verbalConsentData,
     };
+
+    // console.log('📄 Template data prepared:', {
+    //   hasNdisPackageDetails: !!formattedData.ndis_package_details,
+    //   ndisPackageDetailsCount: formattedData.ndis_package_details?.length || 0,
+    //   packageType: formattedData.package_type,
+    //   isNDISFunder: formattedData.isNDISFunder
+    // });
+    
+    if (formattedData.ndis_package_details && formattedData.ndis_package_details.length > 0) {
+      // console.log('📊 First few line items in template data:');
+      formattedData.ndis_package_details.slice(0, 3).forEach((item, idx) => {
+        console.log(`  ${idx + 1}:`, {
+          package: item.package,
+          lineItem: item.lineItem,
+          price: item.price,
+          nights: item.nights,
+          subtotal: item.subtotal
+        });
+      });
+    } else {
+      console.log('⚠️ WARNING: ndis_package_details is empty or undefined!');
+      console.log('  packageCosts.details:', summaryData.packageCosts.details);
+    }
 
     // Create temporary directory for PDF generation
     const tempDir = path.join(process.cwd(), 'tmp');
@@ -259,3 +277,13 @@ export default async function handler(req, res) {
     });
   }
 }
+
+const formatAUDate = (dateStr) => {
+  return new Date(dateStr).toLocaleString('en-AU', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+};

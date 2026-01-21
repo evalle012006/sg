@@ -1,5 +1,5 @@
 import { QUESTION_KEYS } from '../../../services/booking/question-helper';
-import { Booking, Guest, QaPair, Section, Question, Package } from './../../../models'
+import { Booking, BookingApprovalUsage, Guest, QaPair, Section, Question, Package, FundingApproval } from './../../../models'
 import { Op } from 'sequelize'
 
 // PRIMARY: Use predefined question keys as the authoritative list
@@ -670,6 +670,18 @@ export default async function handler(req, res) {
             required: false,
             // Only select the fields we need from Guest
             attributes: ['first_name', 'last_name', 'flags']
+          },
+          {
+            model: BookingApprovalUsage,
+            as: 'approvalUsages',
+            required: false,
+            include: [{
+              model: FundingApproval,
+              as: 'approval',
+              required: false,
+              attributes: ['id', 'approval_number', 'approval_name']
+            }],
+            attributes: ['id', 'booking_id', 'funding_approval_id', 'room_type', 'nights_consumed', 'status']
           }
         ],
         order: [["createdAt", "DESC"]]
@@ -695,6 +707,19 @@ export default async function handler(req, res) {
             bookingData.statusObj = { name: 'unknown' };
           }
         }
+        
+        // Determine cancellation type from approval usages
+        let cancellationType = 'No Charge';
+        if (bookingData.approvalUsages && bookingData.approvalUsages.length > 0) {
+          const usageStatuses = bookingData.approvalUsages.map(u => u.status);
+          
+          if (usageStatuses.includes('charged')) {
+            cancellationType = 'Full Charge';
+          } else if (usageStatuses.includes('cancelled')) {
+            cancellationType = 'No Charge';
+          }
+        }
+        bookingData.cancellationType = cancellationType;
         
         // Initialize empty Sections array
         bookingData.Sections = [];

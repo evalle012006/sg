@@ -60,7 +60,7 @@ export const DropdownEligibility = ({ status, booking, fetchData, disabled }) =>
           !disabled && setIsDrop(!isDrop);
         }}>
         <div className='flex space-x-2 flex-nowrap'>
-          <span className={`col-start-auto my-auto rounded-full h-3 w-3 ${(selectedStatus.label.length > 12 && selectedStatus.label.length < 19) && 'w-[0.9rem]'} ${selectedStatus.label.length > 19 && 'w-4'} mr-1 bg-${selectedStatus.color}-400`}></span>
+          <span className={`col-start-auto my-auto rounded-full h-3 w-3 flex-shrink-0 mr-1 bg-${selectedStatus.color}-400`}></span>
           <span className={`col-span-2 text-left ml-0`}>{trim(selectedStatus.label)}</span>
         </div>
 

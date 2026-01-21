@@ -6,7 +6,7 @@ import moment from "moment";
 import { useDispatch, useSelector } from "react-redux";
 import { bookingsActions } from "../../store/bookingsSlice";
 import { toast } from "react-toastify";
-import { getFirstLetters, getFunder } from "../../utilities/common";
+import { getCancellationType, getFirstLetters, getFunder, isBookingCancelled } from "../../utilities/common";
 import { QUESTION_KEYS } from "./../../services/booking/question-helper";
 import _ from "lodash";
 
@@ -450,7 +450,7 @@ const fetchBookings = async (searchTerm = searchValue, invalidateCache = false) 
         }
       }
     }
-    console.log(booking.reference_id, packageData)
+
     return packageData;
   };
 
@@ -656,14 +656,51 @@ const fetchBookings = async (searchTerm = searchValue, invalidateCache = false) 
       {
         Header: "Status",
         accessor: "status",
-        Cell: ({ row: { original } }) => (
-          <DropdownStatus 
-            disabled={!ability.can("Create/Edit", "Booking")} 
-            status={original.status ? JSON.parse(original.status) : ""}
-            booking={original} 
-            fetchData={() => fetchBookings(searchValue, true)}
-          />
-        ),
+        Cell: ({ row: { original } }) => {
+          const statusObj = original.status ? JSON.parse(original.status) : null;
+          const cancellationType = getCancellationType(original);
+          const isCancelled = isBookingCancelled(original.status);
+          console.log(original.reference_id, cancellationType, isCancelled);
+          return (
+            <div className="flex flex-col space-y-1">
+              <DropdownStatus 
+                disabled={!ability.can("Create/Edit", "Booking")} 
+                status={statusObj}
+                booking={original} 
+                fetchData={() => fetchBookings(searchValue, true)}
+              />
+              
+              {/* Cancellation Type Badge */}
+              {isCancelled && cancellationType && (
+                <div 
+                  className={`px-2 py-0.5 rounded text-xs font-medium w-fit ${
+                    cancellationType === 'Full Charge' 
+                      ? 'bg-red-100 text-red-800 border border-red-200' 
+                      : 'bg-green-100 text-green-800 border border-green-200'
+                  }`}
+                  title={
+                    cancellationType === 'Full Charge'
+                      ? 'Nights NOT returned - guest lost nights as penalty'
+                      : 'Nights returned to guest\'s iCare approval (no penalty)'
+                  }
+                >
+                  <div className="flex items-center space-x-1">
+                    {cancellationType === 'Full Charge' ? (
+                      <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                      </svg>
+                    ) : (
+                      <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                      </svg>
+                    )}
+                    <span>{cancellationType}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        },
       },
       {
         Header: "Package Type",

@@ -122,16 +122,16 @@ function getAvailableTransitions(offer, now, minEndDate, courseStartDate, course
   return transitions;
 }
 
-// Update course offer (notes and course_id only - status managed by automated triggers)
+// Update course offer (notes, course_id, and timing_text - status managed by automated triggers)
 async function updateCourseOffer(req, res) {
   const { id } = req.query;
-  const { notes, course_id } = req.body;
+  const { notes, course_id, timing_text } = req.body;  // ← ADDED: timing_text
 
   // Validate that at least one field is provided
-  if (notes === undefined && course_id === undefined) {
+  if (notes === undefined && course_id === undefined && timing_text === undefined) {  // ← ADDED: timing_text
     return res.status(400).json({
       error: 'Validation error',
-      message: 'At least one field (notes or course_id) is required for update'
+      message: 'At least one field (notes, course_id, or timing_text) is required for update'  // ← UPDATED
     });
   }
 
@@ -184,6 +184,9 @@ async function updateCourseOffer(req, res) {
     }
     if (course_id !== undefined) {
       updateData.course_id = course_id;
+    }
+    if (timing_text !== undefined) {  // ← ADDED: Include timing_text
+      updateData.timing_text = timing_text;
     }
 
     // Update the offer

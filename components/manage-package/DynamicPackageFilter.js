@@ -67,7 +67,7 @@ const DynamicPackageFilter = ({
             has_course: filtersToUse.has_course !== '' ? filtersToUse.has_course === 'true' : undefined,
             sta_in_plan: filtersToUse.sta_in_plan !== '' ? filtersToUse.sta_in_plan === 'true' : undefined,
             // Admin mode specific
-            admin_mode: true,
+            admin: true,
             include_inactive: filtersToUse.is_active === 'false'
           })
         });

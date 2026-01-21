@@ -167,12 +167,13 @@ export default async function handler(req, res) {
 
     // Generate PDF using puppeteer with improved configuration
     const browser = await puppeteer.launch({ 
-      headless: 'new',
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage'
-      ]
+        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
+        headless: 'new',
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage'
+        ]
     });
     const page = await browser.newPage();
     

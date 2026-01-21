@@ -465,25 +465,25 @@ const checkAllRequiredQuestionsAnsweredWithQaPairs = (page) => {
 
     const result = totalRequired > 0 && answeredWithQaPairs === totalRequired;
     
-    if (page.id === 'ndis_packages_page') {
-        console.log('📋 NDIS page detailed check:', {
-            totalRequired,
-            answeredWithQaPairs,
-            result,
-            sections: page.Sections?.map(s => ({
-                sectionId: s.id,
-                hidden: s.hidden,
-                questions: s.Questions?.map(q => ({
-                    question: q.question?.substring(0, 50),
-                    required: q.required,
-                    hidden: q.hidden,
-                    answered: isQuestionAnswered(q),
-                    hasQaPair: questionHasSavedQaPairs(q, s),
-                    dirty: q.dirty
-                }))
-            }))
-        });
-    }
+    // if (page.id === 'ndis_packages_page') {
+    //     console.log('📋 NDIS page detailed check:', {
+    //         totalRequired,
+    //         answeredWithQaPairs,
+    //         result,
+    //         sections: page.Sections?.map(s => ({
+    //             sectionId: s.id,
+    //             hidden: s.hidden,
+    //             questions: s.Questions?.map(q => ({
+    //                 question: q.question?.substring(0, 50),
+    //                 required: q.required,
+    //                 hidden: q.hidden,
+    //                 answered: isQuestionAnswered(q),
+    //                 hasQaPair: questionHasSavedQaPairs(q, s),
+    //                 dirty: q.dirty
+    //             }))
+    //         }))
+    //     });
+    // }
     
     return result;
 };
@@ -587,7 +587,7 @@ export const forceUpdateReturningGuestPageCompletion = (pages, pageId, context) 
     const newCompleted = calculateReturningGuestPageCompletion(page, context);
     
     if (wasCompleted !== newCompleted) {
-        console.log(`🎯 FORCE UPDATE: Page "${page.title}" completion: ${wasCompleted} → ${newCompleted}`);
+        // console.log(`🎯 FORCE UPDATE: Page "${page.title}" completion: ${wasCompleted} → ${newCompleted}`);
         updatedPages[pageIndex] = { ...page, completed: newCompleted };
         return updatedPages;
     }

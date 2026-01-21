@@ -20,6 +20,7 @@ import {
     AlertTriangle
 } from 'lucide-react';
 import moment from 'moment';
+import TimingTextInput from '../ui-v2/TimingTextInput';
 
 const Button = dynamic(() => import('../ui-v2/Button'));
 const TextField = dynamic(() => import('../ui-v2/TextField'));
@@ -49,6 +50,7 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
         offered_by: '',
         offeredByUser: null, // Store the user object
         status: 'offered', // Read-only, managed by triggers
+        timing_text: '',
         isValid: false,
         bookingWindowOpen: false,
         courseStarted: false
@@ -84,6 +86,56 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
 
     // Required fields - same for all modes (status removed)
     const requiredFields = isAddMode ? ['course_id', 'guest_ids'] : ['course_id', 'guest_id'];
+
+    const calculateTimingText = useCallback((course) => {
+        if (!course || !course.min_end_date) return '';
+        
+        const now = moment();
+        const bookingDeadline = moment(course.min_end_date);
+        const courseStart = moment(course.start_date);
+        const courseEnd = moment(course.end_date);
+
+        // Course has ended
+        if (courseEnd.isValid() && now.isAfter(courseEnd)) {
+            return 'Course ended';
+        }
+        
+        // Course in progress
+        if (courseStart.isValid() && now.isAfter(courseStart) && now.isBefore(courseEnd)) {
+            return 'Course in progress';
+        }
+        
+        // Booking closed
+        if (now.isAfter(bookingDeadline)) {
+            return 'Booking closed';
+        }
+        
+        // Days to book
+        const daysLeft = bookingDeadline.diff(now, 'days');
+        if (daysLeft === 0) {
+            return 'Last day to book!';
+        } else if (daysLeft === 1) {
+            return '1 day to book';
+        } else {
+            return `${daysLeft} days to book`;
+        }
+    }, []);
+
+    useEffect(() => {
+        if (selectedCourse) {
+            // Calculate timing text from course dates
+            const calculatedTiming = calculateTimingText(selectedCourse);
+            
+            // Only auto-update if timing_text is empty (new offer or course changed)
+            // This allows manual edits to persist
+            if (!offer.timing_text || isAddMode) {
+                setOffer(prev => ({
+                    ...prev,
+                    timing_text: calculatedTiming
+                }));
+            }
+        }
+    }, [selectedCourse, calculateTimingText, isAddMode]);
 
     // Initialize offered_by with current user ID when component mounts
     useEffect(() => {
@@ -277,6 +329,7 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
                 offered_by: offerData.offered_by || '',
                 offeredByUser: offerData.offeredBy || null, // Store the user object
                 status: offerData.status || 'offered', // Default to 'offered' if not present
+                timing_text: offerData.timing_text || '',
                 isValid: offerData.isValid || false,
                 bookingWindowOpen: offerData.bookingWindowOpen || false,
                 courseStarted: offerData.courseStarted || false
@@ -413,13 +466,12 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
         setIsSaving(true);
         try {
             if (isAddMode) {
-                // Use the bulk creation API
                 const payload = {
                     course_id: offer.course_id,
-                    guest_ids: offer.guest_ids, // Array of guest IDs for bulk creation
+                    guest_ids: offer.guest_ids,
                     notes: offer.notes || null,
-                    offered_by: getOfferedByUserId() // Use user ID, not name
-                    // Status automatically defaults to 'offered' in backend
+                    offered_by: getOfferedByUserId(),
+                    timing_text: offer.timing_text || null
                 };
 
                 const response = await fetch('/api/courses/offers', {
@@ -446,7 +498,7 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
                     });
                 }
             } else {
-                // Single offer for edit mode (status not included - managed by triggers)
+                // Edit mode
                 const method = isEditMode ? 'PUT' : 'POST';
                 const url = isEditMode ? `/api/courses/offers/${offerId}` : '/api/courses/offers';
                 
@@ -454,8 +506,8 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
                     course_id: offer.course_id,
                     guest_id: offer.guest_id,
                     notes: offer.notes || null,
-                    offered_by: getOfferedByUserId() // Use user ID, not name
-                    // Status is NOT included - managed by automated triggers
+                    offered_by: getOfferedByUserId(),
+                    timing_text: offer.timing_text || null  // ← ADD THIS
                 };
 
                 if (isEditMode) {
@@ -1115,6 +1167,17 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
                                                 'These notes are for internal tracking and will be visible to administrators'
                                             }
                                         </p>
+                                    </div>
+
+                                    {/* Timing Text Field */}
+                                    <div>
+                                        <TimingTextInput
+                                            label="Timing Display Text"
+                                            value={offer.timing_text}
+                                            onChange={handleInputChange('timing_text')}
+                                            disabled={isViewMode}
+                                            helpText="This text is displayed in the Course Offers timing column. Components are combined into a single display string."
+                                        />
                                     </div>
 
                                     {/* Status display in edit/view mode (read-only) */}

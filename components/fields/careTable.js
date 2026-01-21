@@ -875,7 +875,7 @@ export default function CareTable({
       const isPrefillMode = parsedValue?.defaultValues && hasAnyDefaultValues(parsedValue.defaultValues);
       
       if (isPrefillMode) {
-        console.log('🔄 Skipping date mismatch detection - prefill mode with defaults');
+        // console.log('🔄 Skipping date mismatch detection - prefill mode with defaults');
         setDateMismatch(null);
         return;
       }

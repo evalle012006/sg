@@ -1,12 +1,15 @@
 import React, { useState, useMemo } from 'react';
 import { Search } from 'lucide-react';
+import { Droppable, Draggable } from 'react-beautiful-dnd';
 
 const Table = ({ 
   data = [], 
   columns = [], 
   title = null,
   itemsPerPageOptions = [10, 15, 25, 50],
-  defaultItemsPerPage = 15 
+  defaultItemsPerPage = 15,
+  draggable = false,
+  isDragging = false
 }) => {
   const [searchTerms, setSearchTerms] = useState({});
   const [currentPage, setCurrentPage] = useState(1);
@@ -150,15 +153,59 @@ const Table = ({
 
           {/* Table Body */}
           <tbody className="divide-y divide-gray-200">
-            {paginatedData.map((item, index) => (
-              <tr key={index} className="hover:bg-[#F2F5F9] transition-colors duration-150">
-                {columns.map((column) => (
-                  <td key={column.key} className="px-4 py-4 text-sm">
-                    {column.render ? column.render(item[column.key], item) : item[column.key]}
-                  </td>
-                ))}
-              </tr>
-            ))}
+            {/* Use drag-and-drop if draggable prop is true */}
+            {draggable ? (
+              <Droppable droppableId="table-rows">
+                {(provided) => (
+                  <>
+                    <tr ref={provided.innerRef} {...provided.droppableProps} style={{ display: 'none' }}>
+                      <td></td>
+                    </tr>
+                    {paginatedData.map((item, index) => (
+                      <Draggable 
+                        key={item.id?.toString() || index.toString()} 
+                        draggableId={item.id?.toString() || index.toString()} 
+                        index={index}
+                      >
+                        {(provided, snapshot) => (
+                          <tr
+                            ref={provided.innerRef}
+                            {...provided.draggableProps}
+                            className={`hover:bg-[#F2F5F9] transition-colors duration-150 ${
+                              snapshot.isDragging ? 'bg-blue-50 shadow-md' : ''
+                            }`}
+                          >
+                            {columns.map((column) => (
+                              <td 
+                                key={column.key} 
+                                className="px-4 py-4 text-sm"
+                                {...(column.key === 'dragHandle' ? provided.dragHandleProps : {})}
+                              >
+                                {column.render ? 
+                                  column.render(item[column.key], item, index) : item[column.key]}
+                              </td>
+                            ))}
+                          </tr>
+                        )}
+                      </Draggable>
+                    ))}
+                    {provided.placeholder}
+                  </>
+                )}
+              </Droppable>
+            ) : (
+              /* Regular non-draggable rows */
+              paginatedData.map((item, index) => (
+                <tr key={index} className="hover:bg-[#F2F5F9] transition-colors duration-150">
+                  {columns.map((column) => (
+                    <td key={column.key} className="px-4 py-4 text-sm">
+                      {column.render ? 
+                        column.render(item[column.key], item) : item[column.key]}
+                    </td>
+                  ))}
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>

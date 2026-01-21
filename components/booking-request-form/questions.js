@@ -41,6 +41,7 @@ const QuestionPage = ({
     equipmentFieldRef,
     onEquipmentValidationChange,
     isConfirmedBooking = false,
+    origin = null,
 }) => {
     const dispatch = useDispatch();
     const [updatedCurrentPage, setUpdatedCurrentPage] = useState();
@@ -281,7 +282,9 @@ const QuestionPage = ({
         
         // Check answers in current page
         for (const section of pageData.Sections) {
+            if (section.hidden) continue;
             for (const question of section.Questions || []) {
+                if (question.hidden) continue;
                 // Check funding source
                 if (questionHasKey(question, QUESTION_KEYS.FUNDING_SOURCE) && question.answer) {
                     if (question.answer?.toLowerCase().includes('ndis') || question.answer?.toLowerCase().includes('ndia')) {
@@ -688,7 +691,7 @@ const QuestionPage = ({
         } else {
             // Enhanced logic for questions that affect dependencies
             if (affectsOtherQuestions()) {
-                console.log('🔄 Question affects dependencies, forcing immediate update');
+                // console.log('🔄 Question affects dependencies, forcing immediate update');
                 Object.values(updateTimeoutRef.current).forEach(timeout => {
                     if (timeout) clearTimeout(timeout);
                 });
@@ -2136,6 +2139,7 @@ const QuestionPage = ({
                                                                     qaData={getCurrentFormQAData()}
                                                                     forceShowErrors={validationAttempted}
                                                                     onChange={(value) => handleCardSelectionFieldChange(value, idx, index)} 
+                                                                    origin={origin}
                                                                 />
                                                             </div>
                                                         </React.Fragment>
@@ -2165,6 +2169,7 @@ const QuestionPage = ({
                                                                     localFilterState={localFilterState}
                                                                     forceShowErrors={validationAttempted}
                                                                     onChange={(value) => handleCardSelectionFieldChange(value, idx, index)} 
+                                                                    origin={origin}
                                                                 />
                                                             </div>
                                                         </React.Fragment>

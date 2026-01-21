@@ -27,7 +27,8 @@ export default async function handler(req, res) {
       order = 'ASC',
       page = 1,
       limit = 50,
-      debug = false
+      debug = false,
+      admin = false
     } = req.body;
 
     const criteria = {
@@ -47,42 +48,43 @@ export default async function handler(req, res) {
       finalPackages: []
     } : null;
 
-    // if (debug) {
-    //   console.log('🔍 Enhanced package filter request:', {
-    //     care_hours,
-    //     care_pattern,
-    //     recommended_packages,
-    //     funder_type,
-    //     ndis_package_type,
-    //     has_course
-    //   });
-    // }
-
-    // ✅ FIXED: Build the basic WHERE clause with proper NDIS package type filtering
     const whereClause = {};
-    
-    // Funder filtering
-    if (funder_type) {
-      whereClause.funder = funder_type;
-      if (debug) debugInfo.processingSteps.push(`Added funder filter: ${funder_type}`);
-    }
 
-    // ✅ CRITICAL FIX: NDIS package type filtering
-    if (ndis_package_type) {
-      if (funder_type === 'NDIS' || !funder_type) {
-        whereClause.ndis_package_type = ndis_package_type;
-        if (debug) debugInfo.processingSteps.push(`Added NDIS package type filter: ${ndis_package_type}`);
-        // console.log(`🎯 FILTERING BY NDIS PACKAGE TYPE: ${ndis_package_type}`);
+    // Check if admin mode for NDIS - only apply funder filter
+    const isAdminNdisMode = admin && funder_type === 'NDIS';
+
+    if (isAdminNdisMode) {
+      // Admin mode for NDIS: ONLY filter by funder, skip all other filters
+      whereClause.funder = 'NDIS';
+      console.log('👤 Admin mode (NDIS): Only applying funder filter, skipping all other filters');
+      if (debug) {
+        debugInfo.processingSteps.push(`Admin mode (NDIS): Only funder filter applied, all other filters skipped`);
       }
-    }
+    } else {
+      // Normal mode: Apply all filters
+      
+      // Funder filtering
+      if (funder_type) {
+        whereClause.funder = funder_type;
+        if (debug) debugInfo.processingSteps.push(`Added funder filter: ${funder_type}`);
+      }
 
-    // Search filtering
-    if (search) {
-      whereClause[Op.or] = [
-        { name: { [Op.like]: `%${search}%` } },
-        { package_code: { [Op.like]: `%${search}%` } }
-      ];
-      if (debug) debugInfo.processingSteps.push(`Added search filter: ${search}`);
+      // NDIS package type filtering
+      if (ndis_package_type) {
+        if (funder_type === 'NDIS' || !funder_type) {
+          whereClause.ndis_package_type = ndis_package_type;
+          if (debug) debugInfo.processingSteps.push(`Added NDIS package type filter: ${ndis_package_type}`);
+        }
+      }
+
+      // Search filtering
+      if (search) {
+        whereClause[Op.or] = [
+          { name: { [Op.like]: `%${search}%` } },
+          { package_code: { [Op.like]: `%${search}%` } }
+        ];
+        if (debug) debugInfo.processingSteps.push(`Added search filter: ${search}`);
+      }
     }
 
     // ✅ Add explicit logging to see what WHERE clause is being used
@@ -192,8 +194,16 @@ export default async function handler(req, res) {
 
     // Filter out packages with very low match scores (unless no care is required)
     let filteredPackages = enhancedPackages;
-    if (care_hours > 0) {
-      // Only show packages that have some compatibility or are specifically recommended
+    if (isAdminNdisMode) {
+      // Admin mode for NDIS: No care filtering, return all NDIS packages
+      console.log('👤 Admin mode (NDIS): Skipping care-based filtering, returning all NDIS packages');
+      if (debug) {
+        debugInfo.processingSteps.push(
+          `Admin mode (NDIS): Showing all ${enhancedPackages.length} NDIS packages (skipped care filtering)`
+        );
+      }
+    } else if (care_hours > 0) {
+      // Guest mode: Only show packages that have some compatibility or are specifically recommended
       filteredPackages = enhancedPackages.filter(pkg => 
         pkg.matchScore > 0.2 || pkg.isRecommended
       );
@@ -206,19 +216,47 @@ export default async function handler(req, res) {
     }
 
     // Sort packages by relevance
-    filteredPackages.sort((a, b) => {
-      // First priority: recommended packages
-      if (a.isRecommended && !b.isRecommended) return -1;
-      if (!a.isRecommended && b.isRecommended) return 1;
+    if (isAdminNdisMode) {
+      // Admin mode: Group by ndis_package_type (holiday first, then sta), then alphabetical
+      filteredPackages.sort((a, b) => {
+        // Define package type priority (holiday variants first, then sta)
+        const getTypePriority = (type) => {
+          if (!type) return 99;
+          const lowerType = type.toLowerCase();
+          if (lowerType.includes('holiday')) return 1;  // holiday, holiday-plus
+          if (lowerType === 'sta') return 2;
+          return 99;
+        };
+        
+        const priorityA = getTypePriority(a.ndis_package_type);
+        const priorityB = getTypePriority(b.ndis_package_type);
+        
+        // First: sort by package type priority
+        if (priorityA !== priorityB) {
+          return priorityA - priorityB;
+        }
+        
+        // Second: alphabetical within each group
+        return (a.name || '').localeCompare(b.name || '');
+      });
       
-      // Second priority: match score
-      if (a.matchScore !== b.matchScore) {
-        return b.matchScore - a.matchScore;
-      }
-      
-      // Third priority: alphabetical
-      return (a.name || '').localeCompare(b.name || '');
-    });
+      console.log('👤 Admin mode: Sorted packages - holiday types first, then STA');
+    } else {
+      // Normal mode: Sort by relevance
+      filteredPackages.sort((a, b) => {
+        // First priority: recommended packages
+        if (a.isRecommended && !b.isRecommended) return -1;
+        if (!a.isRecommended && b.isRecommended) return 1;
+        
+        // Second priority: match score
+        if (a.matchScore !== b.matchScore) {
+          return b.matchScore - a.matchScore;
+        }
+        
+        // Third priority: alphabetical
+        return (a.name || '').localeCompare(b.name || '');
+      });
+    }
 
     // if (debug) {
     //   debugInfo.finalPackages = filteredPackages.map(pkg => ({
@@ -252,7 +290,8 @@ export default async function handler(req, res) {
         care_pattern,
         recommended_packages,
         compatible_packages: filteredPackages.filter(pkg => pkg.careCompatible).length,
-        total_analyzed: basePackages.length
+        total_analyzed: basePackages.length,
+        admin
       }
     };
 

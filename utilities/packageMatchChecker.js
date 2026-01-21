@@ -3,7 +3,7 @@ import { QUESTION_KEYS, questionHasKey } from '../services/booking/question-help
 /**
  * Get the best match package ID based on current form criteria
  */
-export const getBestMatchPackageId = async (formData, careAnalysisData, courseAnalysisData, localFilterState) => {
+export const getBestMatchPackageId = async (formData, careAnalysisData, courseAnalysisData, localFilterState, isAdminMode) => {
   try {
     // Extract criteria similar to PackageSelection
     const guestRequirements = extractGuestRequirementsFromFormData(formData);
@@ -30,7 +30,8 @@ export const getBestMatchPackageId = async (formData, careAnalysisData, courseAn
         body: JSON.stringify({
           ...criteria,
           include_requirements: true,
-          debug: false
+          debug: false,
+          admin: isAdminMode
         })
       });
     } else {

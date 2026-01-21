@@ -40,6 +40,7 @@ async function createCourseOffer(req, res) {
     guest_ids,   // Multiple guests (for bulk creation)
     notes,
     offered_by,
+    timing_text,  // ← ADDED: Manual timing text override
     status = 'offered', // Default to 'offered' when creating offers
     send_email = true   // Option to disable email sending
   } = req.body;
@@ -191,6 +192,7 @@ async function createCourseOffer(req, res) {
       guest_id: guestId,
       notes: notes || null,
       offered_by: offered_by || null,
+      timing_text: timing_text || null,  // ← ADDED: Include timing_text
       status: status,
       created_at: new Date(),
       updated_at: new Date()

@@ -338,6 +338,40 @@ export default function CourseOffers({ onEditOffer, onViewOffer }) {
             label: 'TIMING',
             searchable: false,
             render: (value, row) => {
+                // Use stored timing_text from CourseOffer if available, otherwise calculate
+                const timingText = row.timing_text;  // ← Changed from row.course?.timing_text
+                
+                if (timingText) {
+                    // Determine color based on text content
+                    let timingClass = 'text-gray-600';
+                    const lowerText = timingText.toLowerCase();
+                    
+                    if (lowerText.includes('completed') || lowerText.includes('ended')) {
+                        timingClass = 'text-gray-500';
+                    } else if (lowerText.includes('progress')) {
+                        timingClass = 'text-blue-600 font-medium';
+                    } else if (lowerText.includes('closed') || lowerText.includes('last day')) {
+                        timingClass = 'text-red-600 font-medium';
+                    } else if (lowerText.match(/\d+\s*day/)) {
+                        const days = parseInt(lowerText.match(/\d+/)[0]);
+                        if (days <= 7) {
+                            timingClass = 'text-orange-600';
+                        } else {
+                            timingClass = 'text-green-600';
+                        }
+                    }
+                    
+                    return (
+                        <div>
+                            <div className={`text-sm ${timingClass}`}>{timingText}</div>
+                            <div className="text-xs text-gray-500">
+                                Deadline: {row.bookingDeadline}
+                            </div>
+                        </div>
+                    );
+                }
+                
+                // Fallback to calculation if timing_text not set (backwards compatibility)
                 const now = moment();
                 const bookingDeadline = moment(row.course?.min_end_date);
                 const courseStart = moment(row.course?.start_date);

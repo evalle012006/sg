@@ -15,12 +15,13 @@ const RenderPDF = async ({ htmlTemplatePath, pdfData, pdfPath, withLetterHead = 
     // begin pdf generation process
     console.log('initializing browser instances...')
     const browser = await puppeteer.launch({
+        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
         args: [
             '--force-color-profile=srgb',
             '--no-sandbox',
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
-            '--disable-web-security'  // Allow loading external images
+            '--disable-web-security'
         ],
         headless: 'new',
     });

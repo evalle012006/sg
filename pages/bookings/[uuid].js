@@ -19,7 +19,7 @@ import { fetchBookingStatuses, fetchBookingEligibilities } from "../../services/
 import { QUESTION_KEYS } from "./../../services/booking/question-helper";
 import dynamic from 'next/dynamic';
 import _ from 'lodash';
-import { getFirstLetters, getFunder } from "../../utilities/common";
+import { getCancellationType, getFirstLetters, getFunder, isBookingCancelled } from "../../utilities/common";
 import CancellationModal from '../../components/booking-comp/CancellationModal';
 
 const Layout = dynamic(() => import('../../components/layout'));
@@ -1580,26 +1580,76 @@ export default function BookingDetail() {
           <div className="p-6">
             <Can I="Create/Edit" a="Booking">
               {isUser && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className='w-full lg:w-72'>
-                    <SelectComponent 
-                      label={'Status'} 
-                      placeholder={'Update status'} 
-                      value={status && status.label} 
-                      options={statuses} 
-                      onChange={handleUpdateStatus} 
-                    />
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className='w-full lg:w-72'>
+                      <SelectComponent 
+                        label={'Status'} 
+                        placeholder={'Update status'} 
+                        value={status && status.label} 
+                        options={statuses} 
+                        onChange={handleUpdateStatus} 
+                      />
+                    </div>
+                    <div className='w-full lg:w-72'>
+                      <SelectComponent 
+                        label={'Eligibility'} 
+                        placeholder={'Update eligibility'} 
+                        value={eligibility && eligibility.label} 
+                        options={eligibilities} 
+                        onChange={handleUpdateEligibility} 
+                      />
+                    </div>
                   </div>
-                  <div className='w-full lg:w-72'>
-                    <SelectComponent 
-                      label={'Eligibility'} 
-                      placeholder={'Update eligibility'} 
-                      value={eligibility && eligibility.label} 
-                      options={eligibilities} 
-                      onChange={handleUpdateEligibility} 
-                    />
-                  </div>
-                </div>
+
+                  {/* Cancellation Type Badge - Show if booking is cancelled */}
+                  {isBookingCancelled(status) && getCancellationType(booking) && (
+                    <div className="mt-6 p-4 rounded-lg border" style={{
+                      backgroundColor: getCancellationType(booking) === 'Full Charge' ? '#FEF2F2' : '#F0FDF4',
+                      borderColor: getCancellationType(booking) === 'Full Charge' ? '#FCA5A5' : '#86EFAC'
+                    }}>
+                      <div className="flex items-start space-x-3">
+                        <div className="flex-shrink-0 mt-0.5">
+                          <svg 
+                            className={`w-5 h-5 ${getCancellationType(booking) === 'Full Charge' ? 'text-red-600' : 'text-green-600'}`}
+                            fill="currentColor" 
+                            viewBox="0 0 20 20"
+                          >
+                            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                          </svg>
+                        </div>
+                        <div className="flex-1">
+                          <h4 className={`font-semibold mb-1 ${getCancellationType(booking) === 'Full Charge' ? 'text-red-900' : 'text-green-900'}`}>
+                            {getCancellationType(booking)} Cancellation
+                          </h4>
+                          <p className={`text-sm ${getCancellationType(booking) === 'Full Charge' ? 'text-red-700' : 'text-green-700'}`}>
+                            {getCancellationType(booking) === 'Full Charge'
+                              ? 'Nights were NOT returned - guest lost nights as penalty'
+                              : 'Nights were returned to guest\'s iCare approval (no penalty)'}
+                          </p>
+                          
+                          {/* Show approval usage details if available */}
+                          {booking.approvalUsages && booking.approvalUsages.length > 0 && (
+                            <div className="mt-3 pt-3 border-t border-gray-200">
+                              <p className={`text-xs font-medium mb-2 ${getCancellationType(booking) === 'Full Charge' ? 'text-red-800' : 'text-green-800'}`}>
+                                Affected Approvals:
+                              </p>
+                              <div className="space-y-1">
+                                {booking.approvalUsages
+                                  .filter(usage => usage.status === 'charged' || usage.status === 'cancelled')
+                                  .map((usage, idx) => (
+                                    <div key={idx} className={`text-xs ${getCancellationType(booking) === 'Full Charge' ? 'text-red-600' : 'text-green-600'}`}>
+                                      • {usage.approval?.approval_name || usage.approval?.approval_number || `Approval ${idx + 1}`}: {usage.nights_consumed} night{usage.nights_consumed !== 1 ? 's' : ''}
+                                    </div>
+                                  ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </Can>
             
@@ -2390,13 +2440,15 @@ export default function BookingDetail() {
                     </>
                   )}
                   
-                  {/* Edit Booking Button */}
-                  <Button
-                    color="primary"
-                    size="medium"
-                    label="EDIT BOOKING"
-                    onClick={() => handleEditBooking(booking.uuid)}
-                  />
+                  {/* Edit Booking Button - Hide for cancelled bookings */}
+                  {!isBookingCancelled(status) && (
+                    <Button
+                      color="primary"
+                      size="medium"
+                      label="EDIT BOOKING"
+                      onClick={() => handleEditBooking(booking.uuid)}
+                    />
+                  )}
                 </div>
               )}
             </Can>

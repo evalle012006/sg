@@ -187,7 +187,7 @@ export const DropdownStatus = ({ status, booking, fetchData, disabled }) => {
         disabled={disabled || isUpdating}
       >
         <div className='flex space-x-2 flex-nowrap'>
-          <span className={`col-start-auto my-auto rounded-full h-3 w-3 ${(selectedStatus.label.length > 12 && selectedStatus.label.length < 19) && 'w-[0.9rem]'} ${selectedStatus.label.length > 19 && 'w-4'} mr-1 bg-${selectedStatus.color}-400`}></span>
+          <span className={`col-start-auto my-auto rounded-full h-3 w-3 flex-shrink-0 mr-1 bg-${selectedStatus.color}-400`}></span>
           <span className={`col-span-2 text-left ml-0`}>
             {isUpdating ? 'Updating...' : trim(selectedStatus.label)}
           </span>
@@ -219,7 +219,6 @@ export const DropdownStatus = ({ status, booking, fetchData, disabled }) => {
                 .map(status => JSON.parse(status.value))
 
               return filteredStatuses.map((status, index) => {
-                // Add indicator for cancellation statuses
                 const isCancellation = isCancellationStatus(status.name);
                 
                 return (
@@ -229,11 +228,11 @@ export const DropdownStatus = ({ status, booking, fetchData, disabled }) => {
                     onClick={() => handleStatusSelect(status)}
                   >
                     <div className="flex items-center">
-                      <span className={`relative inline-flex rounded-full h-3 w-3 mr-2 bg-${status.color}-400`}></span>
+                      <span className={`relative inline-flex rounded-full h-3 w-3 flex-shrink-0 mr-2 bg-${status.color}-400`}></span>
                       {status.label}
                     </div>
                     {isCancellation && (
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 text-gray-400">
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 text-gray-400 flex-shrink-0">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
                       </svg>
                     )}

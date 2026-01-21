@@ -87,12 +87,12 @@ export function calculateCareHours(careData) {
     ? dates.reduce((sum, date) => sum + dailyCare[date].total, 0) / dates.length
     : 0;
 
-  console.log('📊 Care hours calculated:', {
-    totalHoursPerDay,
-    datesProcessed: dates.length,
-    usedDefaults: !careVaries && !!defaultValues,
-    sampleDayTotal: dates.length > 0 ? dailyCare[dates[0]].total : 0
-  });
+  // console.log('📊 Care hours calculated:', {
+  //   totalHoursPerDay,
+  //   datesProcessed: dates.length,
+  //   usedDefaults: !careVaries && !!defaultValues,
+  //   sampleDayTotal: dates.length > 0 ? dailyCare[dates[0]].total : 0
+  // });
 
   // Analyze care pattern
   const carePattern = determineCarePattern(totalHoursPerDay, dailyCare);

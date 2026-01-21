@@ -41,7 +41,7 @@ const SummaryOfStay = ({
   
   const [isSignatureLoading, setIsSignatureLoading] = useState(false);
   const [hasExistingSignature, setHasExistingSignature] = useState(false);
-  const [packageResolved, setPackageResolved] = useState(false);
+  const [lastResolvedPackageId, setLastResolvedPackageId] = useState(null);
   const [resolvedPackageData, setResolvedPackageData] = useState(null);
   const [isResolvingPackage, setIsResolvingPackage] = useState(false);
 
@@ -371,16 +371,19 @@ const SummaryOfStay = ({
   };
 
   const resolvePackageSelection = async () => {
-    if (bookingData?.data?.selectedPackageId && 
+    const currentPackageId = bookingData?.data?.selectedPackageId;
+    
+    // ✅ FIX: Check if this is a NEW package that needs resolution
+    if (currentPackageId && 
         bookingData?.data?.packageSelectionType === 'package-selection' && 
-        !packageResolved) {
+        currentPackageId !== lastResolvedPackageId) {  // Changed from !packageResolved
       try {
         setIsResolvingPackage(true);
-        setPackageResolved(true);
+        setLastResolvedPackageId(currentPackageId);  // Track the package we're resolving
         
-        console.log('🔄 Resolving package selection:', bookingData.data.selectedPackageId);
+        console.log('🔄 Resolving package selection:', currentPackageId);
         
-        const response = await fetch(`/api/packages/${bookingData.data.selectedPackageId}`);
+        const response = await fetch(`/api/packages/${currentPackageId}`);
         if (response.ok) {
           const result = await response.json();
           
@@ -397,18 +400,16 @@ const SummaryOfStay = ({
             
             const updatedSummaryData = { ...bookingData };
             
-            // ✅ FIX: Set the package name correctly for both NDIS and non-NDIS
             if (packageData.name?.includes('Wellness')) {
               updatedSummaryData.data.packageType = serializePackage(packageData.name);
-              updatedSummaryData.data.packageTypeAnswer = packageData.name; // This is the display name
+              updatedSummaryData.data.packageTypeAnswer = packageData.name;
               updatedSummaryData.data.packageCost = packageData.price;
               updatedSummaryData.data.isNDISFunder = false;
               updatedSummaryData.data.packageCode = packageData.package_code;
             } else {
-              // ✅ FIX: For NDIS packages, set BOTH ndisPackage AND packageTypeAnswer
-              updatedSummaryData.data.ndisPackage = packageData.name; // Full package name
+              updatedSummaryData.data.ndisPackage = packageData.name;
               updatedSummaryData.data.packageType = serializePackage(packageData.name);
-              updatedSummaryData.data.packageTypeAnswer = packageData.name; // ✅ ADD: Display name
+              updatedSummaryData.data.packageTypeAnswer = packageData.name;
               updatedSummaryData.data.packageCost = packageData.price;
               updatedSummaryData.data.isNDISFunder = true;
               updatedSummaryData.data.packageCode = packageData.package_code;
@@ -422,10 +423,14 @@ const SummaryOfStay = ({
             });
           }
         } else {
-          console.error('❌ Failed to fetch package details for summary:', bookingData.data.selectedPackageId);
+          console.error('❌ Failed to fetch package details:', currentPackageId);
+          // Reset on failure so it can retry
+          setLastResolvedPackageId(null);
         }
       } catch (error) {
-        console.error('❌ Error resolving package selection in summary:', error);
+        console.error('❌ Error resolving package selection:', error);
+        // Reset on error so it can retry
+        setLastResolvedPackageId(null);
       } finally {
         setIsResolvingPackage(false);
       }
@@ -444,14 +449,19 @@ const SummaryOfStay = ({
 
   useEffect(() => {
     let summaryData = { ...bookingData };
+    
+    const currentPackageId = summaryData?.data?.selectedPackageId;
 
     console.log('Summary Data:', summaryData);
 
-    // ✅ If package needs resolution, trigger it and return early
-    if (summaryData?.data?.selectedPackageId && 
+    // ✅ FIX: Check if this is a NEW package that needs resolution
+    if (currentPackageId && 
         summaryData?.data?.packageSelectionType === 'package-selection' && 
-        !packageResolved) {
-      console.log('📦 Package selection detected, resolving...');
+        currentPackageId !== lastResolvedPackageId) {  // Changed from !packageResolved
+      console.log('📦 Package selection detected/changed, resolving...', {
+        currentPackageId,
+        lastResolvedPackageId
+      });
       resolvePackageSelection();
       return; // Exit early, wait for resolution
     }
@@ -599,7 +609,24 @@ const SummaryOfStay = ({
     }
     
     setSummary(summaryData);
-  }, [bookingData, selectedRooms, resolvedPackageData, packageResolved]);
+  }, [bookingData, selectedRooms, resolvedPackageData, lastResolvedPackageId]);
+
+  // Reset resolution state when navigating away and back with different data
+  useEffect(() => {
+      const currentPackageId = bookingData?.data?.selectedPackageId;
+      
+      // If the package ID changed and we have stale resolved data, clear it
+      if (currentPackageId && 
+          resolvedPackageData && 
+          resolvedPackageData.id !== parseInt(currentPackageId)) {
+        console.log('🔄 Package ID mismatch detected, clearing stale data:', {
+          currentPackageId,
+          resolvedPackageId: resolvedPackageData.id
+        });
+        setResolvedPackageData(null);
+        setLastResolvedPackageId(null);
+      }
+  }, [bookingData?.data?.selectedPackageId]);
 
   const getTotalOutOfPocketExpenses = () => {
     // ✅ For HSP packages, use the HSP accommodation cost

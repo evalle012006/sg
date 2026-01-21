@@ -284,6 +284,10 @@ module.exports = (sequelize, DataTypes) => {
       validate: {
         isIn: [['offered', 'accepted', 'completed']]
       }
+    },
+    timing_text: {
+      type: DataTypes.STRING(255),
+      allowNull: true
     }
   }, {
     sequelize,
