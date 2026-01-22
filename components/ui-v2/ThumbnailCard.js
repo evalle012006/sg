@@ -20,7 +20,8 @@ const ThumbnailCard = ({
   onButtonClick = () => console.log("Button clicked"),
   viewDetails = () => console.log("View details clicked"),
   price = null,
-  isPaid = false
+  isPaid = false,
+  funder = null,
 }) => {
   // State to track if the image has failed to load
   const [imageError, setImageError] = useState(false);
@@ -141,6 +142,10 @@ const ThumbnailCard = ({
 
         {/* Room Title */}
         <h3 className="text-lg font-medium text-gray-800 mb-6">{title}</h3>
+        {/* {funder && (
+          <p className="text-sm text-gray-500 mb-4">Funder: {funder}</p>
+        )}
+        {!funder && <div className="mb-6"></div>} */}
 
         {/* Check-in/Check-out */}
         <div className="flex justify-between mb-6 -mx-4 px-4 py-3" style={{ background: '#F9FBFC', border: '1px solid #EBECF0' }}>

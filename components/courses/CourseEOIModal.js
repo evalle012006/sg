@@ -34,6 +34,27 @@ const SUPPORT_PERSON_ROLE_OPTIONS = [
     { value: 'other', label: 'Other' }
 ];
 
+// Initial form state - extracted as constant for reuse
+const INITIAL_FORM_STATE = {
+    completing_for: 'myself',
+    has_sci: 'yes',
+    guest_name: '',
+    guest_phone: '',
+    guest_email: '',
+    funding_type: null,
+    support_name: '',
+    support_phone: '',
+    support_email: '',
+    support_role: null,
+    sci_level_cervical: [],
+    sci_level_thoracic: [],
+    sci_level_lumbar: [],
+    sci_level_sacral: [],
+    selected_courses: [],
+    course_date_preferences: {},
+    comments: ''
+};
+
 export default function CourseEOIModal({ 
     isOpen, 
     onClose, 
@@ -47,38 +68,18 @@ export default function CourseEOIModal({
     const [currentStep, setCurrentStep] = useState(1);
     
     // Form state
-    const [formData, setFormData] = useState({
-        // Who is completing
-        completing_for: 'myself',
-        has_sci: 'yes',
-        
-        // Guest details
-        guest_name: '',
-        guest_phone: '',
-        guest_email: '',
-        funding_type: null, // Store as object { value, label }
-        
-        // Support person details (if completing for someone else)
-        support_name: '',
-        support_phone: '',
-        support_email: '',
-        support_role: null, // Store as object { value, label }
-        
-        // SCI Level
-        sci_level_cervical: [],
-        sci_level_thoracic: [],
-        sci_level_lumbar: [],
-        sci_level_sacral: [],
-        
-        // Course selection
-        selected_courses: [],
-        course_date_preferences: {}, // { courseId: ['date1', 'date2'] }
-        
-        // Additional info
-        comments: ''
-    });
+    const [formData, setFormData] = useState(INITIAL_FORM_STATE);
 
-    // Pre-fill form with guest data
+    // Reset form when modal closes
+    useEffect(() => {
+        if (!isOpen) {
+            setCurrentStep(1);
+            // Clear all form data
+            setFormData(INITIAL_FORM_STATE);
+        }
+    }, [isOpen]);
+
+    // Pre-fill form with guest data AFTER reset
     useEffect(() => {
         if (isOpen && (user || guestData)) {
             const guest = guestData || user;
@@ -98,13 +99,6 @@ export default function CourseEOIModal({
             }));
         }
     }, [user, guestData, selectedCourse, isOpen]);
-
-    // Reset form when modal closes
-    useEffect(() => {
-        if (!isOpen) {
-            setCurrentStep(1);
-        }
-    }, [isOpen]);
 
     const handleInputChange = (field, value) => {
         setFormData(prev => ({
@@ -391,7 +385,7 @@ export default function CourseEOIModal({
                     required
                 />
                 <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="font-semibold form-label inline-block mb-1.5 text-slate-700">
                         How are you funding your stay? <span className="text-red-500">*</span>
                     </label>
                     <Select

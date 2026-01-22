@@ -160,7 +160,7 @@ async function createEOI(req, res) {
             const adminEmail = process.env.ADMIN_EMAIL || 'bookings@sargoodoncollaroy.com';
             const baseUrl = process.env.APP_URL || 'https://booking.sargoodoncollaroy.com.au';
             
-            await SendEmail(
+            SendEmail(
                 adminEmail,
                 `New Course EOI: ${guest_name}`,
                 'course-eoi-admin',
@@ -194,7 +194,7 @@ async function createEOI(req, res) {
 
         // ✅ FIXED: Send confirmation email to guest with CORRECT field names
         try {
-            await SendEmail(
+            SendEmail(
                 guest_email,
                 'Your Course Interest Has Been Received - Sargood on Collaroy',
                 'course-eoi-confirmation',

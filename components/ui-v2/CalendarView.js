@@ -267,17 +267,42 @@ const CalendarView = ({
                                             const eventStyle = getEventStyle(course, date);
                                             if (!eventStyle) return null;
 
+                                            // Determine if course is clickable and which handler to use
+                                            const isClickable = !course.isLinkedToBooking; // Can't click if already booked
+                                            const handleClick = () => {
+                                                if (!isClickable) return;
+                                                
+                                                if (!course.isOffered) {
+                                                    // Not offered - show register interest
+                                                    onRegisterInterest && onRegisterInterest(course);
+                                                } else if (course.canBookNow) {
+                                                    // Offered and can book - show booking flow
+                                                    onBookNow && onBookNow(course);
+                                                } else {
+                                                    // Offered but not currently bookable - still show register interest
+                                                    onRegisterInterest && onRegisterInterest(course);
+                                                }
+                                            };
+
                                             return (
                                                 <div
                                                     key={`${course.id}-${date.format('YYYY-MM-DD')}`}
-                                                    className={`text-[8px] sm:text-xs px-1 sm:px-2 py-0.5 sm:py-1 rounded font-medium truncate ${
+                                                    className={`text-[8px] sm:text-xs px-1 sm:px-2 py-0.5 sm:py-1 rounded font-medium truncate transition-opacity ${
                                                         !course.isOffered ? 'text-gray-600' : 'text-gray-800'
+                                                    } ${
+                                                        isClickable ? 'cursor-pointer hover:opacity-80' : 'cursor-default'
                                                     }`}
                                                     style={{
                                                         backgroundColor: getEventColor(course),
                                                         ...eventStyle
                                                     }}
-                                                    title={`${course.title} - ${moment(course.start_date).format('DD/MM/YYYY')} to ${moment(course.end_date).format('DD/MM/YYYY')}${!course.isOffered ? ' (Not offered - Register interest)' : ''}`}
+                                                    onClick={handleClick}
+                                                    title={`${course.title} - ${moment(course.start_date).format('DD/MM/YYYY')} to ${moment(course.end_date).format('DD/MM/YYYY')}${
+                                                        course.isLinkedToBooking ? ' (Already booked)' :
+                                                        !course.isOffered ? ' (Click to register interest)' : 
+                                                        course.canBookNow ? ' (Click to book now)' :
+                                                        ' (Click to register interest)'
+                                                    }`}
                                                 >
                                                     {course.title}
                                                 </div>

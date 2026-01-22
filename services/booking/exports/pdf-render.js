@@ -21,9 +21,15 @@ const RenderPDF = async ({ htmlTemplatePath, pdfData, pdfPath, withLetterHead = 
             '--no-sandbox',
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
-            '--disable-web-security'
+            '--disable-web-security',
+            '--disable-gpu',
+            '--disable-software-rasterizer',
+            '--disable-dev-tools',
+            '--no-zygote',
+            '--single-process',
         ],
         headless: 'new',
+        timeout: 60000,
     });
     const page = await browser.newPage();
 

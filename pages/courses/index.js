@@ -17,6 +17,7 @@ const TabButton = dynamic(() => import('../../components/ui-v2/TabButton'));
 const CourseOffers = dynamic(() => import('../../components/courses/CourseOffers'));
 const CalendarView = dynamic(() => import('../../components/courses/CalendarView'));
 const CourseRates = dynamic(() => import('../../components/courses/CourseRates'));
+const CourseEOIs = dynamic(() => import('../../components/courses/CourseEOIs'));
 
 export default function ManageCourses() {
     const router = useRouter();
@@ -46,7 +47,8 @@ export default function ManageCourses() {
     const mainTabs = [
         { label: "COURSES", size: "medium", fullLabel: "COURSES" },
         { label: "OFFERS", size: "medium", fullLabel: "COURSE OFFERS" },
-        { label: "RATES", size: "medium", fullLabel: "COURSE RATES" }
+        { label: "RATES", size: "medium", fullLabel: "COURSE RATES" },
+        { label: "EOI", size: "medium", fullLabel: "COURSE EOI" }
     ];
 
     // Update selectedTab when URL changes
@@ -290,7 +292,7 @@ export default function ManageCourses() {
 
     // Handle tab changes
     const handleTabChange = (index) => {
-        const tabNames = ["courses", "offers", "rates"];
+        const tabNames = ["courses", "offers", "rates", "eoi"];
         const selectedTabName = tabNames[index];
         setSelectedTab(selectedTabName);
         
@@ -496,7 +498,7 @@ export default function ManageCourses() {
                         <div className="mb-6">
                             <TabButton
                                 tabs={mainTabs}
-                                activeTab={selectedTab === "offers" ? 1 : selectedTab === "rates" ? 2 : 0}
+                                activeTab={selectedTab === "offers" ? 1 : selectedTab === "rates" ? 2 : selectedTab === "eoi" ? 3 : 0}
                                 onChange={handleTabChange}
                                 type="outline"
                             />
@@ -704,6 +706,11 @@ export default function ManageCourses() {
                         {/* COURSE RATES TAB */}
                         {selectedTab === "rates" && (
                             <CourseRates />
+                        )}
+
+                        {/* COURSE EOI TAB */}
+                        {selectedTab === "eoi" && (
+                            <CourseEOIs />
                         )}
                     </>
                 )}

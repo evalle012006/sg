@@ -52,7 +52,7 @@ export default async function handler(req, res) {
 
     // Check if admin mode for NDIS - only apply funder filter
     const isAdminNdisMode = admin && funder_type === 'NDIS';
-
+    console.log(`🔧 Admin mode: ${admin}, Funder type: ${funder_type}`, isAdminNdisMode);
     if (isAdminNdisMode) {
       // Admin mode for NDIS: ONLY filter by funder, skip all other filters
       whereClause.funder = 'NDIS';

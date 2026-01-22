@@ -169,10 +169,16 @@ export default async function handler(req, res) {
     const browser = await puppeteer.launch({ 
         executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
         headless: 'new',
+        timeout: 60000,
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage'
+            '--disable-dev-shm-usage',
+            '--disable-gpu',
+            '--disable-software-rasterizer',
+            '--disable-dev-tools',
+            '--no-zygote',
+            '--single-process',
         ]
     });
     const page = await browser.newPage();

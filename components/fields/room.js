@@ -40,7 +40,8 @@ const useRoomData = (isNdisFunded) => {
         .map(room => ({
           ...room.data,
           imageUrl: room.image_url,
-          value: false
+          value: false,
+          roomId: room.data.id // Ensure ID is preserved
         }))
         .filter(room => room != null)
         .filter(room => {
@@ -50,6 +51,7 @@ const useRoomData = (isNdisFunded) => {
           return true;
         })
         .sort((a, b) => a.id - b.id);
+      
       setRoomTypes(processedRooms);
     } catch (error) {
       console.error('Error fetching room types:', error);
@@ -62,7 +64,7 @@ const useRoomData = (isNdisFunded) => {
     fetchRoomTypes();
   }, [fetchRoomTypes]);
 
-  return { roomTypes, setRoomTypes, loading };
+  return { roomTypes, setRoomTypes, loading, refetchRooms: fetchRoomTypes };
 };
 
 const RoomsField = (props) => {
@@ -88,7 +90,7 @@ const RoomsField = (props) => {
   const [validatedRoomIndexes, setValidatedRoomIndexes] = useState(new Set());
 
   // Custom hooks
-  const { roomTypes, setRoomTypes, loading } = useRoomData(isNdisFunded);
+  const { roomTypes, setRoomTypes, loading, refetchRooms } = useRoomData(isNdisFunded);
   const { error, validateRooms } = useRoomValidation(selectedRooms, props.required);
 
   // Track previous forceShowErrors value
@@ -217,9 +219,9 @@ const RoomsField = (props) => {
     dispatch(bookingRequestFormActions.setRooms(selectedRoomData));
   }, [roomTypes, dispatch]);
 
-  // Transform room data for HorizontalCardSelection
+  // Transform room data for HorizontalCardSelection - PROPERLY MEMOIZED
   const transformRoomData = useCallback((rooms, isAdditional = false) => {
-    return rooms.map((room, index) => {
+    return rooms.map((room) => {
       let priceLabel = '';
       
       // Pricing logic based on requirements
@@ -349,6 +351,22 @@ const RoomsField = (props) => {
       };
     });
   }, [isNdisFunded]);
+
+  // Memoize the transformed room arrays to prevent unnecessary re-renders
+  const transformedMainRoomsForNdis = React.useMemo(
+    () => transformRoomData(roomTypes.filter(room => room.type === 'studio' || room.type === 'ocean_view')),
+    [roomTypes, transformRoomData]
+  );
+
+  const transformedAllRooms = React.useMemo(
+    () => transformRoomData(roomTypes),
+    [roomTypes, transformRoomData]
+  );
+
+  const transformedStudioRooms = React.useMemo(
+    () => transformRoomData(roomTypes.filter(room => room.type === 'studio'), true),
+    [roomTypes, transformRoomData]
+  );
 
   // Handle main room selection
   const handleMainRoomChange = useCallback((selectedRoomName) => {
@@ -480,14 +498,6 @@ const RoomsField = (props) => {
 
   // Only show error if user has interacted OR parent has triggered validation via props.error
   const showMainRoomError = (touched || props.forceShowErrors) && mainRoomError;
-  
-  // Room grouping based on NDIS funding status
-  const shouldSeparateRooms = false;
-  
-  const mainRoomsForNdis = roomTypes.filter(room => room.type === 'studio' || room.type === 'ocean_view');
-  const studioRooms = roomTypes.filter(room => room.type === 'studio');
-  const upgradeRooms = roomTypes.filter(room => room.type !== 'studio' && room.type !== 'ocean_view');
-  const allRooms = roomTypes;
 
   return (
     <div className="mb-2">
@@ -504,7 +514,7 @@ const RoomsField = (props) => {
           // NDIS funded: Show studio and ocean_view rooms together
           <div className={`mt-4 ${getRoomContainerClasses(showMainRoomError, selectedMainRoom)}`}>
             <HorizontalCardSelection
-              items={transformRoomData(mainRoomsForNdis)}
+              items={transformedMainRoomsForNdis}
               value={selectedMainRoom}
               onChange={handleMainRoomChange}
               required={props.required}
@@ -516,7 +526,7 @@ const RoomsField = (props) => {
           // Non-NDIS funded: Show all rooms together
           <div className={`mt-4 ${getRoomContainerClasses(showMainRoomError, selectedMainRoom)}`}>
             <HorizontalCardSelection
-              items={transformRoomData(allRooms)}
+              items={transformedAllRooms}
               value={selectedMainRoom}
               onChange={handleMainRoomChange}
               required={props.required}
@@ -553,7 +563,6 @@ const RoomsField = (props) => {
       {/* Additional rooms */}
       <div className="mt-4">
         {additionalRooms.map((room, roomIndex) => {
-          const additionalRoomTypes = studioRooms;
           const selectedAdditionalRoom = room.name || null;
 
           // Compute the error state dynamically
@@ -568,7 +577,7 @@ const RoomsField = (props) => {
           const shouldShowError = (touchedAdditionalRooms[roomIndex] || (props.forceShowErrors && wasValidated)) && computedError;
 
           return (
-            <div key={roomIndex} className="mb-6 border-t pt-4">
+            <div key={`additional-room-${roomIndex}`} className="mb-6 border-t pt-4">
               {/* Additional room header */}
               <div className="flex space-x-2 items-center mb-4">
                 <h3 className="font-semibold text-slate-700 text-lg">
@@ -589,7 +598,7 @@ const RoomsField = (props) => {
               {/* Additional room selection - USE shouldShowError for styling */}
               <div className={`mb-4 ${getRoomContainerClasses(shouldShowError, selectedAdditionalRoom)}`}>
                 <HorizontalCardSelection
-                  items={transformRoomData(additionalRoomTypes, true)}
+                  items={transformedStudioRooms}
                   value={selectedAdditionalRoom}
                   onChange={(roomName) => handleAdditionalRoomChange(roomName, roomIndex)}
                   required={true}

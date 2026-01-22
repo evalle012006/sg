@@ -266,3 +266,27 @@ export const isJsonString = (str) => {
   }
   return true;
 }
+
+// Add this helper function near the top of the component (after the field type arrays)
+export const stripHtmlIfPlainText = (html) => {
+    if (!html) return '';
+    
+    // Check if the HTML only contains paragraph tags with no formatting
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = html;
+    
+    // Get the text content
+    const textContent = tempDiv.textContent || tempDiv.innerText || '';
+    
+    // Check if the HTML is just a simple paragraph wrap with no other formatting
+    const isSimpleParagraph = /^<p>(.*?)<\/p>$/i.test(html.trim()) && 
+                              !/<[^>]+(style|class|strong|em|u|br|span|div|ul|ol|li|h[1-6])/i.test(html);
+    
+    // If it's just plain text wrapped in a single <p> tag, return the text content
+    if (isSimpleParagraph) {
+        return textContent;
+    }
+    
+    // Otherwise, keep the HTML formatting
+    return html;
+};

@@ -7,12 +7,13 @@ import { serializePackage } from '../../utilities/common';
 import { findByQuestionKey, QUESTION_KEYS } from '../../services/booking/question-helper';
 import { scroller, Element } from 'react-scroll';
 import { formatAUD } from '../../utilities/priceUtil';
+import moment from 'moment';
 
 const SummaryOfStay = ({ 
   bookingData, 
   bookingId, 
   origin, 
-  getRequestFormTemplate, 
+  stayDates, 
   bookingAmended, 
   submitBooking,
   careAnalysisData = null,
@@ -454,7 +455,41 @@ const SummaryOfStay = ({
 
     console.log('Summary Data:', summaryData);
 
-    // ✅ FIX: Check if this is a NEW package that needs resolution
+    // ✅ ALWAYS prefer stayDates if available since it's the most up-to-date source
+    if (stayDates?.checkInDate && stayDates?.checkOutDate) {
+      const checkIn = moment(stayDates.checkInDate, ['YYYY-MM-DD', 'DD/MM/YYYY']);
+      const checkOut = moment(stayDates.checkOutDate, ['YYYY-MM-DD', 'DD/MM/YYYY']);
+      
+      if (checkIn.isValid() && checkOut.isValid()) {
+        const newDatesOfStay = `${checkIn.format('DD/MM/YYYY')} - ${checkOut.format('DD/MM/YYYY')}`;
+        const existingDatesOfStay = summaryData?.data?.datesOfStay;
+        
+        // Check if dates are missing OR different from stayDates
+        const datesAreMissing = !existingDatesOfStay;
+        const datesAreDifferent = existingDatesOfStay && existingDatesOfStay !== newDatesOfStay;
+        
+        if (datesAreMissing || datesAreDifferent) {
+          console.log('📅 SummaryOfStay: Using stayDates as source of truth:', {
+            reason: datesAreMissing ? 'dates missing' : 'dates differ',
+            existing: existingDatesOfStay,
+            updated: newDatesOfStay
+          });
+          
+          summaryData = {
+            ...summaryData,
+            data: {
+              ...summaryData?.data,
+              checkinDate: checkIn.format('DD/MM/YYYY'),
+              checkoutDate: checkOut.format('DD/MM/YYYY'),
+              datesOfStay: newDatesOfStay,
+              nights: checkOut.diff(checkIn, 'days')
+            }
+          };
+        }
+      }
+    }
+
+    // Check if this is a NEW package that needs resolution
     if (currentPackageId && 
         summaryData?.data?.packageSelectionType === 'package-selection' && 
         currentPackageId !== lastResolvedPackageId) {  // Changed from !packageResolved
@@ -477,7 +512,6 @@ const SummaryOfStay = ({
       summaryData.data.packageType = serializePackage(summaryData.data.ndisPackage);
     }
 
-    // ✅ FIX: Properly handle rooms - check both selectedRooms and bookingData.rooms
     let roomsToUse = [];
     
     if (selectedRooms && selectedRooms.length > 0) {
@@ -609,7 +643,7 @@ const SummaryOfStay = ({
     }
     
     setSummary(summaryData);
-  }, [bookingData, selectedRooms, resolvedPackageData, lastResolvedPackageId]);
+  }, [bookingData, selectedRooms, resolvedPackageData, lastResolvedPackageId, stayDates]);
 
   // Reset resolution state when navigating away and back with different data
   useEffect(() => {

@@ -348,9 +348,11 @@ const BookingRequestForm = () => {
             return;
         }
         
+        // ✅ FIX: Use pendingDatesRef first, then stayDatesRef for fallback
+        // This ensures we preserve the user's most recent unsaved changes
         const updatedDates = {
-            checkInDate: newDates.checkInDate || stayDatesRef.current?.checkInDate || null,
-            checkOutDate: newDates.checkOutDate || stayDatesRef.current?.checkOutDate || null
+            checkInDate: newDates.checkInDate || pendingDatesRef.current?.checkInDate || stayDatesRef.current?.checkInDate || null,
+            checkOutDate: newDates.checkOutDate || pendingDatesRef.current?.checkOutDate || stayDatesRef.current?.checkOutDate || null
         };
         
         const originalDates = originalSavedDatesRef.current;
@@ -7195,6 +7197,7 @@ const BookingRequestForm = () => {
                         bookingData={summaryData}
                         bookingId={uuid}
                         origin={origin}
+                        stayDates={stayDates}
                         getRequestFormTemplate={getRequestFormTemplate}
                         bookingAmended={bookingAmended}
                         submitBooking={submitBooking}

@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Course Interest Accepted</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+            background-color: #f3f4f6;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #ffffff;
+        }
+        .logo {
+            text-align: center;
+            padding: 32px 0;
+        }
+        .logo img {
+            max-width: 200px;
+            height: auto;
+        }
+        h1 {
+            color: #00467F;
+            font-size: 28px;
+            margin: 0 0 24px 0;
+            padding: 0 32px;
+            text-align: center;
+        }
+        p {
+            color: #374151;
+            font-size: 16px;
+            line-height: 1.6;
+            margin: 0 0 16px 0;
+            padding: 0 32px;
+        }
+        .highlight-box {
+            background-color: #F0F9FF;
+            border-left: 4px solid #00467F;
+            padding: 20px;
+            margin: 24px 32px;
+        }
+        .highlight-box h2 {
+            color: #00467F;
+            font-size: 20px;
+            margin: 0 0 12px 0;
+        }
+        .highlight-box p {
+            padding: 0;
+            margin: 8px 0;
+        }
+        .course-names {
+            font-weight: bold;
+            color: #00467F;
+            font-size: 18px;
+            margin: 16px 0;
+        }
+        .next-steps {
+            background-color: #F9FAFB;
+            padding: 24px;
+            margin: 24px 32px;
+            border-radius: 8px;
+        }
+        .next-steps h2 {
+            color: #00467F;
+            font-size: 20px;
+            margin: 0 0 16px 0;
+        }
+        .next-steps ul {
+            margin: 0;
+            padding-left: 20px;
+            color: #374151;
+        }
+        .next-steps li {
+            margin-bottom: 8px;
+            line-height: 1.6;
+        }
+        .btn {
+            display: inline-block;
+            background-color: #00467F;
+            color: #ffffff;
+            padding: 14px 32px;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: bold;
+            margin: 24px 0;
+        }
+        .btn:hover {
+            background-color: #003560;
+        }
+        .divider {
+            border: 0;
+            height: 1px;
+            background-color: #e5e7eb;
+            margin: 32px 0;
+        }
+        .footer {
+            text-align: center;
+            padding: 0 32px 32px 32px;
+            color: #6b7280;
+            font-size: 14px;
+        }
+        .footer p {
+            margin: 8px 0;
+            padding: 0;
+        }
+        .footer a {
+            color: #00467F;
+            text-decoration: none;
+        }
+        .footer a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        {{#if logo_base64}}
+        <div class="logo">
+            <img src="{{logo_base64}}" alt="Sargood on Collaroy" />
+        </div>
+        {{/if}}
+        
+        <h1>Great News! Your Course Interest Has Been Accepted</h1>
+
+        <p>Dear {{guest_name}},</p>
+
+        <p>We're delighted to inform you that your expression of interest for our courses at Sargood on Collaroy has been accepted!</p>
+
+        <div class="highlight-box">
+            <h2>Course(s) You're Interested In:</h2>
+            <p class="course-names">{{course_names}}</p>
+            <p>{{offers_count}} course offer(s) have been created for you.</p>
+        </div>
+
+        <div class="next-steps">
+            <h2>What happens next?</h2>
+            <ul>
+                <li>Our team will be in touch with you shortly to discuss course details, dates, and availability</li>
+                <li>We'll provide you with all the information you need about the course content, requirements, and pricing</li>
+                <li>Once you're ready, we'll guide you through the booking process</li>
+                <li>Feel free to ask any questions you may have about the courses</li>
+            </ul>
+        </div>
+
+        <p>We're excited to have you join us for this learning experience. If you have any immediate questions, please don't hesitate to contact us.</p>
+
+        <hr class="divider">
+
+        <div class="footer">
+            <p><strong>Sargood on Collaroy</strong></p>
+            <p>
+                Phone: <a href="tel:0285970600">02 8597 0600</a><br>
+                Email: <a href="mailto:info@sargoodoncollaroy.com.au">info@sargoodoncollaroy.com.au</a>
+            </p>
+            <p style="margin-top: 16px; font-size: 12px; color: #9ca3af;">
+                1 Brissenden Avenue, Collaroy NSW 2097, Australia
+            </p>
+        </div>
+    </div>
+</body>
+</html>

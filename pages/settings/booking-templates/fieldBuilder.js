@@ -68,7 +68,9 @@ export default function FieldBuilder(props) {
     ];
 
     const updateRichTextQuestion = (field) => {
-        const updatedQuestion = { ...question, question: field.description };
+        // Strip HTML tags if it's just plain text
+        const cleanedContent = stripHtmlIfPlainText(field.description);
+        const updatedQuestion = { ...question, question: cleanedContent };
         setQuestion(updatedQuestion);
         debounceHandleQuestionChanges(updatedQuestion);
     };

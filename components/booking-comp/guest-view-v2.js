@@ -9,6 +9,7 @@ import { globalActions } from "../../store/globalSlice";
 import Modal from "../ui/modal";
 import StatusBadge from "../ui-v2/StatusBadge";
 import { BOOKING_TYPES } from "../constants";
+import { getFunder } from "../../utilities/common";
 
 const Layout = dynamic(() => import('../layout'));
 const Spinner = dynamic(() => import('../ui/spinner'));
@@ -87,31 +88,72 @@ export default function GuestBookingsV2() {
         if (!user?.uuid) return;
         
         try {
-            const response = await fetch(`/api/guests/${user.uuid}`);
-            if (response.ok) {
-                const data = await response.json();
-                
-                // Set health info
-                if (data.HealthInformation && data.HealthInformation.length > 0) {
-                    setHealthInfo(data.HealthInformation);
-                    const sortedHealth = [...data.HealthInformation].sort(
-                        (a, b) => new Date(b.updated_at) - new Date(a.updated_at)
-                    );
-                    setHealthInfoLastUpdated(sortedHealth[0]?.updated_at);
+            const response = await fetch(`/api/bookings/history/health-info`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ uuid: user.uuid }),
+            });
+
+            const data = await response.json();
+
+            // Handle no previous booking case
+            if (data?.message === "No previous booking found") {
+                setHealthInfo([]);
+                setNdis(null);
+                setIcare(null);
+                setHealthInfoLastUpdated(null);
+                return;
+            }
+
+            if (data) {
+                // Initialize health info array with all conditions set to false
+                const initialHealthInfo = [
+                    { diagnose: "Admission to hospital in the last 3 months", answer: false },
+                    { diagnose: "Current Pressure Injuries", answer: false },
+                    { diagnose: "Current open wounds, cuts, abrasions or stitches", answer: false },
+                    { diagnose: "Autonomic Dysreflexia", answer: false },
+                    { diagnose: "Head/Brain injury or memory loss", answer: false },
+                    { diagnose: "Moderate to severe spasm/spasticity", answer: false },
+                    { diagnose: "Osteoperosis/Osteopenia", answer: false },
+                    { diagnose: "Low bone density", answer: false },
+                    { diagnose: "Fracture/s in the last 12 months", answer: false },
+                    { diagnose: "Low blood pressure", answer: false },
+                    { diagnose: "Respiratory complications", answer: false },
+                    { diagnose: "Medications recently changed", answer: false },
+                    { diagnose: "Diabetes", answer: false },
+                    { diagnose: "Been advised by your doctor not to participate in particular activities", answer: false },
+                    { diagnose: "I currently require subcutaneous injections", answer: false }
+                ];
+
+                // Set health information
+                if (data.info && data.info.length > 0) {
+                    setHealthInfoLastUpdated(data.lastUpdated);
+                    
+                    // Update answers based on returned data
+                    const updatedHealthInfo = initialHealthInfo.map(item => ({
+                        ...item,
+                        answer: data.info.includes(item.diagnose)
+                    }));
+                    
+                    setHealthInfo(updatedHealthInfo);
+                } else {
+                    // No health conditions reported, set all to false
+                    setHealthInfo(initialHealthInfo);
+                    setHealthInfoLastUpdated(data.lastUpdated);
                 }
-                
-                // Set NDIS info
-                if (data.ndis) {
-                    setNdis(data.ndis);
-                }
-                
-                // Set iCare info
-                if (data.icare) {
-                    setIcare(data.icare);
-                }
+
+                // Set participant numbers from API response
+                setNdis(data.ndis_participant_number || null);
+                setIcare(data.icare_participant_number || null);
             }
         } catch (error) {
             console.error('Error loading health info:', error);
+            setHealthInfo([]);
+            setNdis(null);
+            setIcare(null);
+            setHealthInfoLastUpdated(null);
         }
     };
 
@@ -447,14 +489,35 @@ export default function GuestBookingsV2() {
                 if (booking.check_in_date && moment(booking.check_in_date).isAfter(moment())) {
                     return booking;
                 }
-
                 if (booking.check_in_date == null) {
                     return booking;
                 }
             });
 
+            // Sort upcoming bookings: non-cancelled first, then by status priority
+            const sortedUpcoming = [...upcoming].sort((a, b) => {
+                const statusA = JSON.parse(a.status);
+                const statusB = JSON.parse(b.status);
+                
+                const isCancelledA = statusA.name === 'booking_cancelled' || statusA.name === 'guest_cancelled';
+                const isCancelledB = statusB.name === 'booking_cancelled' || statusB.name === 'guest_cancelled';
+                
+                // Cancelled bookings go last
+                if (isCancelledA && !isCancelledB) return 1;
+                if (!isCancelledA && isCancelledB) return -1;
+                
+                // For non-cancelled, sort by priority
+                const getPriority = (status) => {
+                    if (status.name === 'booking_confirmed') return 1;
+                    if (status.name === 'amendment_requested' || status.name === 'booking_amended') return 2;
+                    return 3; // incomplete/pending
+                };
+                
+                return getPriority(statusA) - getPriority(statusB);
+            });
+
             setPastBookings(past);
-            setUpcomingBookings(upcoming);
+            setUpcomingBookings(sortedUpcoming);
         }
     }, [bookings]);
 
@@ -548,6 +611,7 @@ export default function GuestBookingsV2() {
                 {bookingsToRender.length > 0 ? (
                     bookingsToRender.map((booking, index) => {
                         let bookingTitle = getBookingTitle(booking) || "No Room Selected";
+                        const funder = getFunder(booking.Sections);
                         const bookingStatus = JSON.parse(booking.status);
                         let imageUrl = null;
                         
@@ -650,6 +714,7 @@ export default function GuestBookingsV2() {
                                 bookingId={booking.reference_id}
                                 bookingDate={bookingDate}
                                 title={bookingTitle}
+                                funder={funder} 
                                 checkInDate={checkinDate}
                                 checkOutDate={checkoutDate}
                                 status={bookingStatus.label}

@@ -72,6 +72,12 @@ const PackageSelection = ({
   const [stableFilterCriteria, setStableFilterCriteria] = useState(null);
   const isAdminMode = origin === 'admin';
 
+  // Admin mode for NDIS only - skips requirement filtering to show all NDIS packages
+  const isAdminNdisMode = useMemo(() => {
+    const funderType = localFilterState?.funderType || funder;
+    return isAdminMode && funderType === 'NDIS';
+  }, [isAdminMode, localFilterState?.funderType, funder]);
+
   useEffect(() => {
       console.log('📦 PackageSelection received careAnalysisData:', {
           received: !!careAnalysisData,
@@ -880,7 +886,7 @@ const PackageSelection = ({
                     ...enhancedFilterCriteria,
                     include_requirements: true,
                     debug: false,
-                    admin: isAdminMode
+                    admin: isAdminNdisMode
                 }),
                 signal
             });
@@ -927,11 +933,11 @@ const PackageSelection = ({
                 hasRequirement: !!(pkg.requirement && typeof pkg.requirement === 'object')
             }));
 
-            // ADMIN MODE: Skip requirement filtering to show all packages for the funder
-            if (!isAdminMode) {
+            // ADMIN MODE for NDIS ONLY: Skip requirement filtering to show all NDIS packages
+            if (!isAdminNdisMode) {
                 fetchedPackages = applyPackageRequirementFiltering(fetchedPackages, enhancedFilterCriteria);
             } else {
-                console.log('👤 Admin mode: Showing all packages for funder type (skipping requirement filtering)');
+                console.log('👤 Admin mode (NDIS): Showing all packages for funder type (skipping requirement filtering)');
             }
 
             // Sort packages
@@ -954,7 +960,7 @@ const PackageSelection = ({
             console.log(`📦 Setting ${fetchedPackages.length} packages`);
 
             // ADMIN MODE: Show all packages and don't auto-select
-            if (isAdminMode) {
+            if (isAdminNdisMode) {
                 console.log('👤 Admin mode: Showing all packages, no auto-selection');
                 setPackages(fetchedPackages);
             } else if (!builderMode && fetchedPackages.length > 0) {
@@ -1027,7 +1033,7 @@ const PackageSelection = ({
 
   useEffect(() => {
     // ADMIN MODE: Don't auto-select packages
-    if (isAdminMode) {
+    if (isAdminNdisMode) {
         return;
     }
     if (!builderMode && packages.length === 1 && onChange && !value && !autoSelected) {
@@ -1036,7 +1042,7 @@ const PackageSelection = ({
         setAutoSelected(true);
         console.log('✅ Auto-selected single package:', bestMatch.id);
     }
-  }, [packages, value, autoSelected, builderMode, onChange, isAdminMode]);
+  }, [packages, value, autoSelected, builderMode, onChange, isAdminNdisMode]);
 
   // Track value changes to prevent unnecessary auto-selection
   useEffect(() => {
@@ -1086,7 +1092,7 @@ const PackageSelection = ({
   // Auto-select package when available and no selection exists
   useEffect(() => {
     // ADMIN MODE: Don't auto-select packages
-    if (isAdminMode) {
+    if (isAdminNdisMode) {
       return;
     }
     // Auto-select package when available and no selection exists
@@ -1104,7 +1110,7 @@ const PackageSelection = ({
         setAutoSelected(true);
       }, 200);
     }
-  }, [packages, value, autoSelected, builderMode, onChange, isAdminMode]);
+  }, [packages, value, autoSelected, builderMode, onChange, isAdminNdisMode]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -1165,7 +1171,7 @@ const PackageSelection = ({
   // Unified Package Card Component
   const renderPackageCard = (pkg) => {
     // ADMIN MODE: Don't auto-mark single package as selected
-    const isSelected = isPackageSelected(pkg) || (!builderMode && !isAdminMode && packages.length === 1);
+    const isSelected = isPackageSelected(pkg) || (!builderMode && !isAdminNdisMode && packages.length === 1);
     const isNdis = pkg.funder === 'NDIS';
     
     return (
