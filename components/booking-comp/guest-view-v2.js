@@ -23,6 +23,7 @@ const GuestProfileTab = dynamic(() => import('../my-profile/GuestProfileTab'));
 const HealthInformation = dynamic(() => import('../guests/HealthInformation'));
 const FundingApprovalsReadOnly = dynamic(() => import('../my-profile/FundingApprovalsReadOnly'));
 const CourseEOIModal = dynamic(() => import('../courses/CourseEOIModal'));
+const ConfirmDialog = dynamic(() => import('../ui-v2/ConfirmDialog'));
 
 export default function GuestBookingsV2() {
     const dispatch = useDispatch();
@@ -1154,27 +1155,25 @@ export default function GuestBookingsV2() {
                         guestData={user}
                     />
 
-                    {/* Cancel Booking Confirmation Modal */}
-                    {showCancelConfirmation && bookingToCancel && (
-                        <Modal 
-                            title="Confirm Cancellation"
-                            titleColor="text-red-600"
-                            description={`Are you sure you want to request cancellation for booking ${bookingToCancel.reference_id}? This action cannot be undone and will be reviewed by our team.`}
-                            modalHide={() => {
-                                setShowCancelConfirmation(false);
-                                setBookingToCancel(null);
-                            }}
+                    {/* Cancel Booking Confirmation Dialog */}
+                        <ConfirmDialog
+                            isOpen={showCancelConfirmation}
                             onClose={() => {
                                 setShowCancelConfirmation(false);
                                 setBookingToCancel(null);
                             }}
-                            cancelLabel="No, Keep Booking"
-                            cancelColor="text-gray-600"
                             onConfirm={confirmCancellation}
-                            confirmLabel="Yes, Request Cancellation"
-                            confirmColor="text-red-600"
+                            title="Confirm Cancellation"
+                            message={`Are you sure you want to request cancellation for booking ${bookingToCancel?.reference_id}?
+
+                        Cancellation Policy: If less than seven (7) clear days' notice is given to cancel a reservation, 100% of the total fee must be paid (to a maximum of 7 nights). There is no charge if more notice of cancellation is given.
+
+                        By clicking confirm, you agree to the cancellation policy.`}
+                            type="danger"
+                            confirmText="Yes, request cancellation. I agree to the cancellation policy"
+                            cancelText="No, Keep Booking"
+                            isLoading={false}
                         />
-                    )}
 
                     {showCourseDetailsModal && selectedCourseForDetails && (
                         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50 p-4">

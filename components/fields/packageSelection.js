@@ -1233,7 +1233,7 @@ const PackageSelection = ({
                 {safeRender(pkg.package_code, 'N/A')}
               </span>
             </div>
-            {console.log("FUNDER: ", selectedFunder)}
+
             {selectedFunder !== 'icare' && selectedFunder !== 'iCare' && (
               <div className="text-2xl font-bold text-gray-900">
                 {safeRender(pkg.formattedPrice, 'Price not available')}

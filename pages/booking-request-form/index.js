@@ -7,7 +7,7 @@ import { toast } from "react-toastify";
 import moment from 'moment';
 import { useDebouncedCallback } from "use-debounce";
 import _, { get, update } from "lodash";
-import { omitAttribute, validateEmail, validatePhoneNumber } from "../../utilities/common";
+import { ensureArrayAnswer, omitAttribute, validateEmail, validatePhoneNumber } from "../../utilities/common";
 import { analyzeCourseFromBookingData, createCourseFilterCriteria } from '../../utilities/courseAnalysisHelper';
 import { generateSummaryData } from "../../services/booking/create-summary-data";
 import {
@@ -4744,21 +4744,26 @@ const BookingRequestForm = () => {
 
                 if (updatedQuestions.length == qaPairs.length) {
                     updatedQuestions.map((question, questionIndex) => {
+                        // ✅ FIX: Normalize answer FIRST, before any processing
+                        const normalizedAnswer = ensureArrayAnswer(question.answer, question.type);
+                        
                         let qaPairDirty = false;
                         const qaPairPrev = currentPage?.Sections?.find(s => s.id === section.id)?.QaPairs?.find(qp => qp.id === question.id);
 
                         if (qaPairPrev) {
                             if (question.type == 'checkbox' || question.type == 'checkbox-button') {
-                                question.answer && question.answer.forEach(option => {
-                                    if (!qaPairPrev?.answer || !qaPairPrev?.answer?.includes(option)) {
-                                        qaPairDirty = true;
-                                    }
-                                })
+                                if (Array.isArray(normalizedAnswer)) {
+                                    normalizedAnswer.forEach(option => {
+                                        if (!qaPairPrev?.answer || !qaPairPrev?.answer?.includes(option)) {
+                                            qaPairDirty = true;
+                                        }
+                                    })
+                                }
                             } else if (question.type == 'equipment') {
-                                if ((qaPairPrev.answer == 1) != question.answer) {
+                                if ((qaPairPrev.answer == 1) != normalizedAnswer) {
                                     qaPairDirty = true;
                                 }
-                            } else if (qaPairPrev.answer !== question.answer) {
+                            } else if (qaPairPrev.answer !== normalizedAnswer) {
                                 qaPairDirty = true;
                             }
                         }
@@ -4768,7 +4773,7 @@ const BookingRequestForm = () => {
                             qaPairDirty = true;
                         }
 
-                        const answer = (typeof question.answer != 'string' && (
+                        const answer = (typeof normalizedAnswer != 'string' && (
                             question.type === 'multi-select' || 
                             question.type === 'checkbox' || 
                             question.type === 'checkbox-button' || 
@@ -4777,7 +4782,7 @@ const BookingRequestForm = () => {
                             question.type === 'care-table' ||
                             question.type === 'service-cards' ||
                             question.type === 'service-cards-multi'
-                        )) ? JSON.stringify(question.answer) : question.answer;
+                        )) ? JSON.stringify(normalizedAnswer) : normalizedAnswer;
                         
                         if (answer != undefined) {
                             let qap = {
@@ -4829,16 +4834,18 @@ const BookingRequestForm = () => {
                     });
                 } else {
                     updatedQuestions.map((question, questionIndex) => {
-                        const answer = (typeof question.answer != 'string' && (
+                        const normalizedAnswer = ensureArrayAnswer(question.answer, question.type);
+    
+                        const answer = (typeof normalizedAnswer != 'string' && (
                             question.type === 'multi-select' || 
                             question.type === 'checkbox' || 
                             question.type === 'checkbox-button' || 
                             question.type === 'health-info' || 
                             question.type === 'goal-table' || 
                             question.type === 'care-table' ||
-                            question.type === 'service-cards' || 
-                            question.type === 'service-cards-multi' 
-                        )) ? JSON.stringify(question.answer) : question.answer;
+                            question.type === 'service-cards' ||
+                            question.type === 'service-cards-multi'
+                        )) ? JSON.stringify(normalizedAnswer) : normalizedAnswer;
                         
                         if (answer != undefined) {
                             let qap = {
@@ -7204,6 +7211,7 @@ const BookingRequestForm = () => {
                         careAnalysisData={careAnalysisData}
                         courseAnalysisData={courseAnalysisData}
                         ndisFormFilters={ndisFormFilters}
+                        formData={stableProcessedFormData} 
                     />
                 ) : (
                     <div className="flex flex-col">

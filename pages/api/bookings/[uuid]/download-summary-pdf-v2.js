@@ -168,6 +168,17 @@ export default async function handler(req, res) {
       subtotal: `AUD ${item.total.toFixed(2)}` // ✅ Use total property and round to 2 decimals
     })) || [];
 
+    // ✅ Extract care analysis data for template display
+    const careAnalysis = summaryData.data.careAnalysis;
+    const hasCareWithCheckInOutRules = careAnalysis?.requiresCare && 
+                                        careAnalysis?.dailyCareDetails && 
+                                        careAnalysis.dailyCareDetails.length > 0;
+    
+    // ✅ Calculate total care hours for display
+    const totalCareHours = careAnalysis?.totalCareHours || 
+                           (careAnalysis?.dailyCareDetails?.reduce((sum, day) => sum + day.dayTotal, 0)) || 
+                           0;
+
     // console.log('📊 Package costs details:', summaryData.packageCosts.details);
 
     const formattedData = {
@@ -190,6 +201,15 @@ export default async function handler(req, res) {
       ndis_package_details: isNDISFunder ? formattedNdisDetails : null, // ✅ Use formatted details
       total_package_cost: summaryData.packageCosts.totalCost.toFixed(2) || 0,
       has_care_fees: summaryData.packageCosts.details?.some(item => item.lineItemType === 'care'), // ✅ Check if care exists
+      
+      // ✅ NEW: Care analysis data for check-in/check-out rule display
+      has_care_with_checkin_checkout_rules: hasCareWithCheckInOutRules,
+      total_care_hours: totalCareHours.toFixed(1),
+      care_note: hasCareWithCheckInOutRules 
+        ? 'Care fees reflect requested care at the time of booking submission and may vary based on actual care hours used. Check-in day includes evening care only. Check-out day includes morning care only.'
+        : (summaryData.packageCosts.details?.some(item => item.lineItemType === 'care') 
+            ? 'Care fees reflect requested care at the time of booking submission and may vary based on actual care hours used.'
+            : null),
       
       // Room Costs
       room_upgrade: summaryData.roomCosts.roomUpgrade.perNight.toFixed(2) || 0,
@@ -234,6 +254,15 @@ export default async function handler(req, res) {
     } else {
       console.log('⚠️ WARNING: ndis_package_details is empty or undefined!');
       console.log('  packageCosts.details:', summaryData.packageCosts.details);
+    }
+
+    // ✅ Log care analysis info
+    if (formattedData.has_care_fees) {
+      console.log('📊 Care analysis for PDF:', {
+        hasCareWithCheckInOutRules: formattedData.has_care_with_checkin_checkout_rules,
+        totalCareHours: formattedData.total_care_hours,
+        careNote: formattedData.care_note ? 'Present' : 'None'
+      });
     }
 
     // Create temporary directory for PDF generation

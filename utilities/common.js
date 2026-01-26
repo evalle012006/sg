@@ -290,3 +290,51 @@ export const stripHtmlIfPlainText = (html) => {
     // Otherwise, keep the HTML formatting
     return html;
 };
+
+export const ensureArrayAnswer = (answer, questionType) => {
+    // Question types that should have array answers
+    const arrayTypes = [
+        'multi-select', 
+        'checkbox', 
+        'checkbox-button',
+        'service-cards',
+        'service-cards-multi'
+    ];
+    
+    if (!arrayTypes.includes(questionType)) {
+        return answer;
+    }
+    
+    // If answer is null/undefined, return empty array
+    if (answer === null || answer === undefined) {
+        return [];
+    }
+    
+    // If already an array, return as-is
+    if (Array.isArray(answer)) {
+        return answer;
+    }
+    
+    // If it's a string that looks like JSON, try to parse it
+    if (typeof answer === 'string') {
+        if (answer.startsWith('[') || answer.startsWith('{')) {
+            try {
+                const parsed = JSON.parse(answer);
+                return Array.isArray(parsed) ? parsed : [];
+            } catch (e) {
+                console.warn('Failed to parse answer as JSON:', answer);
+                return [];
+            }
+        }
+        // If it's just a plain string, wrap it in an array
+        return answer ? [answer] : [];
+    }
+    
+    // For objects, return as-is (might be service-cards format)
+    if (typeof answer === 'object') {
+        return answer;
+    }
+    
+    // Default: empty array
+    return [];
+};
