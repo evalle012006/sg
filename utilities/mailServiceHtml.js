@@ -16,8 +16,8 @@ let rateLimitConfig = {
   maxRetriesOnRateLimit: 3       // Retry 3 times if rate limited
 };
 
-// ✨ NEW: Development mode (logs instead of sending)
-let isDevelopmentMode = process.env.NODE_ENV === 'development' || process.env.MAIL_DEV_MODE === 'true';
+// ✨ Initialize as null (will be set by auto-init)
+let isDevelopmentMode = null;
 
 /**
  * ✨ NEW: Set development mode
@@ -25,7 +25,7 @@ let isDevelopmentMode = process.env.NODE_ENV === 'development' || process.env.MA
  */
 const setDevelopmentMode = (enabled) => {
   isDevelopmentMode = enabled;
-  console.log(`📧 Mail service development mode: ${enabled ? 'ENABLED (emails will be logged, not sent)' : 'DISABLED'}`);
+  console.log(`📧 Mail service development mode: ${enabled ? 'ENABLED (emails will be logged, not sent)' : 'DISABLED (emails will be sent)'}`);
 };
 
 /**
@@ -118,6 +118,9 @@ const processQueue = async () => {
         console.log(`From: ${item.mailOptions.from}`);
         console.log(`Subject: ${item.mailOptions.subject}`);
         console.log(`HTML Content Length: ${item.mailOptions.html?.length || 0} characters`);
+        if (item.mailOptions.attachments && item.mailOptions.attachments.length > 0) {
+          console.log(`Attachments: ${item.mailOptions.attachments.length} file(s)`);
+        }
         console.log('─'.repeat(60));
         console.log('✅ Logged successfully (not sent)\n');
         
@@ -267,19 +270,26 @@ module.exports.configureRateLimiting = configureRateLimiting;
 module.exports.getQueueStatus = getQueueStatus;
 module.exports.clearQueue = clearQueue;
 
-
-// ✨ AUTO-INITIALIZE on first import
+// ✅ CORRECTED: MAIL_DEV_MODE is now the ONLY control
 (function autoInit() {
-  const isDevelopment = process.env.NODE_ENV === 'development';
-  const devModeEnabled = process.env.MAIL_DEV_MODE === 'true';
+  console.log('\n🔍 Email Service Initialization Debug:');
+  console.log('  NODE_ENV:', process.env.NODE_ENV || '(not set)');
+  console.log('  MAIL_DEV_MODE:', process.env.MAIL_DEV_MODE || '(not set)');
   
-  if (isDevelopment || devModeEnabled) {
-    setDevelopmentMode(true);
-    console.log('📧 Email dev mode: ENABLED (emails will be logged, not sent)');
-  } else {
-    setDevelopmentMode(false);
-    console.log('📧 Email dev mode: DISABLED (emails will be sent)');
-  }
+  const mailDevMode = process.env.MAIL_DEV_MODE;
+  
+  // ✅ FIXED: Dev mode is controlled ONLY by MAIL_DEV_MODE
+  // - MAIL_DEV_MODE='false' → Emails sent (dev mode disabled)
+  // - MAIL_DEV_MODE='true' → Emails logged (dev mode enabled)
+  // - MAIL_DEV_MODE not set → Emails logged (safe default)
+  const shouldEnableDevMode = mailDevMode !== 'false';
+  
+  console.log('  Logic:');
+  console.log(`    - MAIL_DEV_MODE !== 'false': ${mailDevMode !== 'false'}`);
+  console.log(`    - Result (shouldEnableDevMode): ${shouldEnableDevMode}`);
+  console.log(`    - Explanation: ${shouldEnableDevMode ? 'Emails will be LOGGED (not sent)' : 'Emails will be SENT'}`);
+  
+  setDevelopmentMode(shouldEnableDevMode);
   
   // Configure rate limiting from env
   const rateLimitConfig = {
@@ -290,5 +300,5 @@ module.exports.clearQueue = clearQueue;
   };
   
   configureRateLimiting(rateLimitConfig);
-  console.log(`📧 Rate limit delay: ${rateLimitConfig.delayBetweenEmails}ms between emails`);
+  console.log(`📧 Rate limit delay: ${rateLimitConfig.delayBetweenEmails}ms between emails\n`);
 })();

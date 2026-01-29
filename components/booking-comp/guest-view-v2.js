@@ -1166,9 +1166,9 @@ export default function GuestBookingsV2() {
                             title="Confirm Cancellation"
                             message={`Are you sure you want to request cancellation for booking ${bookingToCancel?.reference_id}?
 
-                        Cancellation Policy: If less than seven (7) clear days' notice is given to cancel a reservation, 100% of the total fee must be paid (to a maximum of 7 nights). There is no charge if more notice of cancellation is given.
+Cancellation Policy: If less than seven (7) clear days' notice is given to cancel a reservation, 100% of the total fee must be paid (to a maximum of 7 nights). There is no charge if more notice of cancellation is given.
 
-                        By clicking confirm, you agree to the cancellation policy.`}
+By clicking confirm, you agree to the cancellation policy.`}
                             type="danger"
                             confirmText="Yes, request cancellation. I agree to the cancellation policy"
                             cancelText="No, Keep Booking"

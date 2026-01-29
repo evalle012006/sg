@@ -14,7 +14,6 @@ import {
 } from "../../../../models";
 import { NotificationService } from "../../../../services/notification/notification";
 import { dispatchHttpTaskHandler } from "../../../../services/queues/dispatchHttpTask";
-import sendMail from "../../../../utilities/mail";
 import { 
     QUESTION_KEYS, 
     getAnswerByQuestionKey 
@@ -23,6 +22,8 @@ import { ApprovalTrackingService } from "../../../../services/approvalTracking";
 const jwt = require('jsonwebtoken');
 import moment from 'moment';
 import { Op } from "sequelize";
+import EmailService from '../../../../services/booking/emailService';
+import { TEMPLATE_IDS } from '../../../../services/booking/templateIds';
 
 export default async function handler(req, res) {
     try {
@@ -72,12 +73,16 @@ export default async function handler(req, res) {
                 case 'eligible':
                     if (booking.type == 'Enquiry' || BOOKING_TYPES.FIRST_TIME_GUEST) {
                         await Booking.update({ status_logs: JSON.stringify(updateStatusLogs(statusLogs, 'eligible')), type: BOOKING_TYPES.FIRST_TIME_GUEST }, { where: { id: booking.id } });
-                        sendMail(booking.Guest.email, 'Sargood On Collaroy - Booking Enquiry', 'booking-approved',
+                        
+                        EmailService.sendWithTemplate(
+                            booking.Guest.email,
+                            TEMPLATE_IDS.BOOKING_APPROVED,
                             {
                                 guest_name: booking.Guest.first_name,
                                 booking_id: booking.id,
                                 set_new_password_link: `${process.env.APP_URL}/auth/onboarding/set-new-password?token=${accessToken.token}`
-                            });
+                            }
+                        );
 
                         if (!booking.Guest.active) {
                             await Guest.update({ active: true }, { where: { id: booking.Guest.id } });
@@ -86,10 +91,13 @@ export default async function handler(req, res) {
                     }
                     break;
                 case 'ineligible':
-                    sendMail(booking.Guest.email, 'Sargood On Collaroy - Booking Enquiry', 'booking-declined',
+                    EmailService.sendWithTemplate(
+                        booking.Guest.email,
+                        TEMPLATE_IDS.BOOKING_DECLINED,
                         {
                             guest_name: booking.Guest.first_name,
-                        });
+                        }
+                    );
 
                     await Guest.update({ active: false }, { where: { id: booking.Guest.id } });
                     const bookingCanceledStatus = await Setting.findOne({ where: { attribute: 'booking_status', value: { [Op.like]: '%booking_cancelled%' } } });
@@ -141,10 +149,8 @@ export default async function handler(req, res) {
                         }
                         
                         if (checkInDate && checkOutDate) {
-                            // console.log('🃏 Processing iCare funding for booking confirmation:', { checkInDate, checkOutDate });
                             // Calculate number of nights
                             const nightsRequested = moment(checkOutDate).diff(moment(checkInDate), 'days');
-                            // console.log(`🃏 Nights requested for booking ${booking.id}:`, nightsRequested);
                             
                             if (nightsRequested > 0) {
                                 try {
@@ -164,9 +170,6 @@ export default async function handler(req, res) {
                                     let currentNightsConsumed = 0;
                                     if (existingUsageRecords && existingUsageRecords.length > 0) {
                                         currentNightsConsumed = existingUsageRecords.reduce((sum, record) => sum + record.nights_consumed, 0);
-                                        // console.log(`🔄 Booking ${booking.id} is being re-confirmed. Current nights consumed: ${currentNightsConsumed}, New nights requested: ${nightsRequested}`);
-                                    } else {
-                                        // console.log(`🆕 First confirmation for booking ${booking.id}. Nights requested: ${nightsRequested}`);
                                     }
                                     
                                     // If nights changed, we need to adjust the allocations
@@ -219,11 +222,6 @@ export default async function handler(req, res) {
                                         
                                         // Check if TOTAL nights across ALL approvals is sufficient
                                         if (approvalSummary.totalRemainingNights < nightsRequested) {
-                                            // Build a detailed message showing all approvals
-                                            const approvalDetails = approvalSummary.approvals.map(a => 
-                                                `• ${a.approvalNumber || 'Approval'}: ${a.remainingNights} nights remaining (${a.nightsUsed || 0} of ${a.nightsApproved || 0} used)`
-                                            ).join('\n');
-                                            
                                             return res.status(400).json({
                                                 error: 'Insufficient approved nights',
                                                 message: `Cannot confirm booking: This booking requires ${nightsRequested} nights, but the guest only has ${approvalSummary.totalRemainingNights} nights remaining across ${approvalSummary.count} approval(s). Please update the guest's iCare approval(s) before confirming.`
@@ -251,7 +249,7 @@ export default async function handler(req, res) {
                                             const fundingApproval = allocation.approval;
                                             const nightsToUse = allocation.nightsToUse;
                                             
-                                            // Calculate current nights_used from actual usage records (source of truth)
+                                            // Calculate current nights_used from actual usage records
                                             const currentNightsUsed = await BookingApprovalUsage.sum('nights_consumed', {
                                                 where: {
                                                     funding_approval_id: fundingApproval.id,
@@ -261,7 +259,7 @@ export default async function handler(req, res) {
                                             
                                             const newNightsUsed = currentNightsUsed + nightsToUse;
                                             
-                                            console.log(`🃏 Using FundingApproval ${fundingApproval.id} (${allocation.approvalNumber || allocation.approvalName}): ${currentNightsUsed} + ${nightsToUse} = ${newNightsUsed} nights`);
+                                            console.log(`🃏 Using FundingApproval ${fundingApproval.id}: ${currentNightsUsed} + ${nightsToUse} = ${newNightsUsed} nights`);
                                             
                                             // Update the FundingApproval nights_used
                                             await FundingApproval.update(
@@ -269,9 +267,9 @@ export default async function handler(req, res) {
                                                 { where: { id: fundingApproval.id } }
                                             );
                                             
-                                            // Create BookingApprovalUsage record for this allocation
+                                            // Create BookingApprovalUsage record
                                             try {
-                                                const usageRecord = await BookingApprovalUsage.create({
+                                                await BookingApprovalUsage.create({
                                                     booking_id: booking.id,
                                                     funding_approval_id: fundingApproval.id,
                                                     room_type: 'primary',
@@ -293,7 +291,6 @@ export default async function handler(req, res) {
                                             });
                                         }
                                         
-                                        // Send confirmation email with allocation summary
                                         try {
                                             await sendIcareNightsUpdateEmail(booking.Guest, allocationSummary, {
                                                 nightsRequested,
@@ -339,7 +336,10 @@ export default async function handler(req, res) {
                     // Generate PDF and upload to GCS
                     const bookingPDFUrl = await dispatchHttpTaskHandler(`${process.env.APP_URL}/api/bookings/${booking.id}/generate-and-upload-pdf`, { booking_id: booking.id });
 
-                    sendMail(booking.Guest.email, 'Sargood On Collaroy - Booking Confirmed', 'booking-confirmed',
+                    // ✅ UPDATED: Send guest confirmation using EmailService
+                    EmailService.sendWithTemplate(
+                        booking.Guest.email,
+                        TEMPLATE_IDS.BOOKING_CONFIRMED,
                         {
                             guest_name: booking.Guest.first_name,
                             arrivalDate: booking.preferred_arrival_date ? moment(booking.preferred_arrival_date).format("DD-MM-YYYY") : '-',
@@ -347,9 +347,12 @@ export default async function handler(req, res) {
                             accommodation: roomTypes || '-',
                             booking_package: bookingPackage || '-',
                             booking_id: booking.reference_id
-                        });
+                        }
+                    );
 
-                    sendMail("info@sargoodoncollaroy.com.au", 'Sargood On Collaroy - Booking Confirmed', 'booking-confirmed-admin',
+                    EmailService.sendWithTemplate(
+                        "info@sargoodoncollaroy.com.au",
+                        TEMPLATE_IDS.BOOKING_CONFIRMED_ADMIN,
                         {
                             guest_name: booking.Guest.first_name + ' ' + booking.Guest.last_name,
                             arrivalDate: booking.preferred_arrival_date ? moment(booking.preferred_arrival_date).format("DD-MM-YYYY") : '-',
@@ -357,7 +360,8 @@ export default async function handler(req, res) {
                             accommodation: roomTypes || '-',
                             booking_package: bookingPackage || '-',
                             booking_id: booking.reference_id
-                        });
+                        }
+                    );
 
                     generateNotifications(booking, 'confirmed', true);
                     break;
@@ -428,7 +432,7 @@ export default async function handler(req, res) {
                                         }
                                     }
                                     
-                                    // Send email notification about nights returned
+                                    // ✅ UPDATED: Send email notification using EmailService
                                     try {
                                         await sendIcareCancellationEmail(booking.Guest, returnSummary, {
                                             isNoCharge: true,
@@ -490,6 +494,7 @@ export default async function handler(req, res) {
                                                 
                                                 console.log(`Fallback method (No Charge): Returned ${nightsToReturn} nights to FundingApproval ${fundingApproval.id}. Nights used: ${currentNightsUsed} -> ${newNightsUsed}`);
                                                 
+                                                // ✅ UPDATED: Send email using EmailService
                                                 try {
                                                     await sendIcareCancellationEmail(booking.Guest, [{
                                                         approvalNumber: fundingApproval.approval_number,
@@ -503,8 +508,6 @@ export default async function handler(req, res) {
                                                 } catch (emailError) {
                                                     console.error('Error sending iCare cancellation email:', emailError);
                                                 }
-                                            } else {
-                                                console.log(`No matching FundingApproval found for guest ${booking.Guest.id}`);
                                             }
                                         } catch (fundingError) {
                                             console.error('Error returning nights_used (fallback):', fundingError);
@@ -549,7 +552,7 @@ export default async function handler(req, res) {
                                     
                                     console.log(`Full Charge Cancellation: Guest loses ${totalNightsLost} nights as penalty.`);
                                     
-                                    // Send email notification about penalty
+                                    // ✅ UPDATED: Send email notification using EmailService
                                     try {
                                         await sendIcareFullChargeCancellationEmail(booking.Guest, penaltySummary, {
                                             totalNightsLost
@@ -573,20 +576,26 @@ export default async function handler(req, res) {
                             status_logs: JSON.stringify(updateStatusLogs(statusLogs, 'canceled')) 
                         }, { where: { id: booking.id } });
                         
-                        // Send cancellation emails
-                        sendMail(booking.Guest.email, 'Sargood On Collaroy - Booking Enquiry', 'booking-cancelled',
+                        // ✅ UPDATED: Send cancellation emails using EmailService
+                        EmailService.sendWithTemplate(
+                            booking.Guest.email,
+                            TEMPLATE_IDS.BOOKING_CANCELLED,
                             {
                                 guest_name: booking.Guest.first_name,
                                 arrivalDate: booking.preferred_arrival_date ? moment(booking.preferred_arrival_date).format("DD-MM-YYYY") : '-',
                                 departureDate: booking.preferred_departure_date ? moment(booking.preferred_departure_date).format("DD-MM-YYYY") : '-'
-                            });
+                            }
+                        );
                         
-                        sendMail("info@sargoodoncollaroy.com.au", 'Sargood On Collaroy - Booking Enquiry', 'booking-cancelled-admin',
+                        EmailService.sendWithTemplate(
+                            "info@sargoodoncollaroy.com.au",
+                            TEMPLATE_IDS.BOOKING_CANCELLED_ADMIN,
                             {
                                 guest_name: booking.Guest.first_name + ' ' + booking.Guest.last_name,
                                 arrivalDate: booking.preferred_arrival_date ? moment(booking.preferred_arrival_date).format("DD-MM-YYYY") : '-',
                                 departureDate: booking.preferred_departure_date ? moment(booking.preferred_departure_date).format("DD-MM-YYYY") : '-'
-                            });
+                            }
+                        );
                     }
                     
                     generateNotifications(booking, status.name === 'guest_cancelled' ? 'guest_cancelled' : 'booking_cancelled', true);
@@ -642,7 +651,7 @@ export default async function handler(req, res) {
 }
 
 /**
- * Get booking package using question keys instead of hardcoded question text
+ * Get booking package using question keys
  */
 const getBookingPackage = (booking) => {
     const allQaPairs = booking.Sections.map(section => section.QaPairs).flat();
@@ -726,7 +735,7 @@ const updateStatusLogs = (statusLogs, newStatus) => {
 }
 
 /**
- * Send iCare nights update email (supports multiple approval allocations)
+ * ✅ UPDATED: Send iCare nights update email using EmailService
  */
 const sendIcareNightsUpdateEmail = async (guest, allocationSummary, bookingDetails) => {
     const { nightsRequested, totalAllocations } = bookingDetails;
@@ -748,16 +757,15 @@ const sendIcareNightsUpdateEmail = async (guest, allocationSummary, bookingDetai
         nights_remaining: allocationSummary.reduce((sum, a) => sum + a.remainingNights, 0)
     };
     
-    sendMail(
+    EmailService.sendWithTemplate(
         guest.email,
-        'Sargood on Collaroy - iCare Update',
-        'icare-nights-update',
+        TEMPLATE_IDS.ICARE_NIGHTS_UPDATE,
         templateData
     );
 };
 
 /**
- * Send iCare cancellation email (supports multiple approvals)
+ * ✅ UPDATED: Send iCare cancellation email using EmailService
  */
 const sendIcareCancellationEmail = async (guest, returnSummary, cancellationDetails) => {
     const { isNoCharge, totalReturned } = cancellationDetails;
@@ -776,16 +784,15 @@ const sendIcareCancellationEmail = async (guest, returnSummary, cancellationDeta
         nights_remaining: returnSummary.reduce((sum, r) => sum + r.remainingNights, 0)
     };
     
-    sendMail(
+    EmailService.sendWithTemplate(
         guest.email,
-        'Sargood on Collaroy - iCare Nights Update (Cancellation)',
-        'icare-nights-update',
+        TEMPLATE_IDS.ICARE_NIGHTS_UPDATE,
         templateData
     );
 };
 
 /**
- * Send iCare full charge cancellation email (supports multiple approvals)
+ * ✅ UPDATED: Send iCare full charge cancellation email using EmailService
  */
 const sendIcareFullChargeCancellationEmail = async (guest, penaltySummary, penaltyDetails) => {
     const { totalNightsLost } = penaltyDetails;
@@ -804,10 +811,9 @@ const sendIcareFullChargeCancellationEmail = async (guest, penaltySummary, penal
         nights_remaining: penaltySummary.reduce((sum, p) => sum + p.remainingNights, 0)
     };
     
-    sendMail(
+    EmailService.sendWithTemplate(
         guest.email,
-        'Sargood on Collaroy - iCare Nights Update (Full Charge Cancellation)',
-        'icare-nights-update',
+        TEMPLATE_IDS.ICARE_NIGHTS_UPDATE,
         templateData
     );
 };

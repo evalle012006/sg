@@ -1,4 +1,3 @@
-import SendEmail from '../../../../utilities/mail';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '../../auth/[...nextauth]';
 import puppeteer from 'puppeteer';
@@ -8,6 +7,9 @@ import path from 'path';
 import { promisify } from 'util';
 import { createSummaryData } from '../../../../services/booking/create-summary-data';
 import { Address, Booking, Guest, QaPair, Question, QuestionDependency, Room, RoomType, Section, Package } from '../../../../models';
+import { getTemplatePath, getPublicDir } from '../../../../lib/paths';
+import EmailService from '../../../../services/booking/emailService';
+import { TEMPLATE_IDS } from '../../../../services/booking/templateIds';
 
 const writeFileAsync = promisify(fs.writeFile);
 const unlinkAsync = promisify(fs.unlink);
@@ -22,6 +24,7 @@ export default async function handler(req, res) {
   const { adminEmail, origin } = req.body;
 
   let tempPdfPath = null;
+  let browser = null;
 
   try {
     const session = await getServerSession(req, res, authOptions);
@@ -140,14 +143,16 @@ export default async function handler(req, res) {
     handlebars.registerHelper('isArray', function(value) { return Array.isArray(value); });
     handlebars.registerHelper('and', function() { return Array.prototype.slice.call(arguments, 0, -1).every(Boolean); });
 
-    // Read and compile the HTML template
-    const templatePath = path.join(process.cwd(), 'templates', 'exports', 'summary-of-stay.html');
+    // Read and compile the HTML template using path utility
+    const templatePath = getTemplatePath('exports/summary-of-stay.html');
+    console.log('📄 Using template path:', templatePath);
     const templateHtml = fs.readFileSync(templatePath, 'utf-8');
     const template = handlebars.compile(templateHtml);
 
-    // Read logo files and convert to base64
-    const logoPath = path.join(process.cwd(), 'public', 'sargood-logo.png');
-    const logoFooterPath = path.join(process.cwd(), 'public', 'sargood-footer-image.jpg');
+    // Read logo files and convert to base64 using path utility
+    const publicDir = getPublicDir();
+    const logoPath = path.join(publicDir, 'sargood-logo.png');
+    const logoFooterPath = path.join(publicDir, 'sargood-footer-image.jpg');
     const logo = fs.readFileSync(logoPath);
     const logoFooter = fs.readFileSync(logoFooterPath);
     const logoBase64 = `data:image/png;base64,${logo.toString('base64')}`;
@@ -173,14 +178,21 @@ export default async function handler(req, res) {
       });
     }
 
+    // ✅ Check if this is a Holiday Support Plus or Holiday Support package
+    const packageCode = resolvedPackage?.package_code || summaryData.data?.packageCode || '';
+    const isHolidaySupportPlus = packageCode === 'HOLIDAY_SUPPORT_PLUS';
+    const isHolidaySupport = packageCode === 'HOLIDAY_SUPPORT';
+    const isHSPPackage = isHolidaySupportPlus || isHolidaySupport;
+    
     // ✅ Format NDIS package details for template with proper currency and rounding
-    const formattedNdisDetails = summaryData.packageCosts.details?.map(item => ({
+    // Only include details if NOT Holiday Support Plus
+    const formattedNdisDetails = !isHolidaySupportPlus ? (summaryData.packageCosts.details?.map(item => ({
       package: item.package,
       lineItem: item.lineItem,
-      price: `AUD ${item.price.toFixed(2)}${item.rateCategoryLabel || ''}`, // Format with AUD and rate label
-      nights: `${item.quantity} ${item.rateCategoryQtyLabel || ''}`, // ✅ Use quantity property
-      subtotal: `AUD ${item.total.toFixed(2)}` // ✅ Use total property and round to 2 decimals
-    })) || [];
+      price: `AUD ${item.price.toFixed(2)}${item.rateCategoryLabel || ''}`,
+      nights: `${item.quantity} ${item.rateCategoryQtyLabel || ''}`,
+      subtotal: `AUD ${item.total.toFixed(2)}`
+    })) || []) : null;
 
     // ✅ Extract care analysis data for template display
     const careAnalysis = summaryData.data.careAnalysis;
@@ -193,11 +205,55 @@ export default async function handler(req, res) {
                            (careAnalysis?.dailyCareDetails?.reduce((sum, day) => sum + day.dayTotal, 0)) || 
                            0;
 
+    // ✅ Prepare HSP accommodation breakdown
+    let hspRoomBreakdown = null;
+    let hspTotalPerNight = 0;
+    let hspTotalAccommodation = 0;
+    
+    if (isHSPPackage) {
+      // For HSP packages, get rooms directly from booking (not from summaryData.rooms which filters out studios)
+      const bookingRooms = booking.Rooms || [];
+      
+      console.log('📊 HSP Package - extracting rooms:', {
+        packageCode,
+        bookingRoomsCount: bookingRooms.length,
+        bookingRooms: bookingRooms.map(r => ({
+          label: r.label,
+          type: r.RoomType?.type,
+          price: r.RoomType?.price_per_night,
+          hsp_pricing: r.RoomType?.hsp_pricing
+        }))
+      });
+      
+      if (bookingRooms.length > 0) {
+        hspRoomBreakdown = bookingRooms.map((room, index) => {
+          const roomPrice = room.RoomType?.hsp_pricing || room.RoomType?.price_per_night || 0;
+          return {
+            name: room.label || room.RoomType?.name || `Room ${index + 1}`,
+            pricePerNight: roomPrice,
+            isMainRoom: index === 0
+          };
+        });
+        
+        hspTotalPerNight = hspRoomBreakdown.reduce((sum, room) => sum + room.pricePerNight, 0);
+        hspTotalAccommodation = hspTotalPerNight * summaryData.data.nights;
+        
+        console.log('📊 HSP breakdown calculated:', {
+          hspRoomBreakdown,
+          hspTotalPerNight,
+          hspTotalAccommodation,
+          nights: summaryData.data.nights
+        });
+      } else {
+        console.log('⚠️ No booking rooms found for HSP package!');
+      }
+    }
+
     // Prepare template data
     const templateData = {
       // Guest Information
       guest_name: summaryData.guestName,
-      funder: summaryData.data.funder?.toUpperCase() || summaryData.data.funder, // ✅ Uppercase funder
+      funder: summaryData.data.funder?.toUpperCase() || summaryData.data.funder,
       participant_number: summaryData.data.participantNumber,
       nights: summaryData.data.nights,
       dates_of_stay: summaryData.data.datesOfStay,
@@ -207,11 +263,17 @@ export default async function handler(req, res) {
       package_type: isNDISFunder ? summaryData.data.ndisPackage || summaryData.data.packageTypeAnswer : summaryData.data.packageTypeAnswer,
       package_cost: summaryData.data?.packageCost?.toFixed(2) || 0,
       ndis_package_type: (isNDISFunder && summaryData.data.packageType === 'HCSP') ? '1:1 STA Package' : '1:2 STA Package',
-      ndis_package_details: isNDISFunder ? formattedNdisDetails : null, // ✅ Use formatted details
-      total_package_cost: summaryData.packageCosts.totalCost.toFixed(2) || 0,
-      has_care_fees: summaryData.packageCosts.details?.some(item => item.lineItemType === 'care'), // ✅ Check if care exists
       
-      // ✅ NEW: Care analysis data for check-in/check-out rule display
+      // ✅ NEW: Holiday Support flags and conditional details
+      is_holiday_support_plus: isHolidaySupportPlus,
+      is_holiday_support: isHolidaySupport,
+      is_hsp_package: isHSPPackage,
+      ndis_package_details: formattedNdisDetails,
+      
+      total_package_cost: summaryData.packageCosts.totalCost.toFixed(2) || 0,
+      has_care_fees: summaryData.packageCosts.details?.some(item => item.lineItemType === 'care'),
+      
+      // ✅ Care analysis data for check-in/check-out rule display
       has_care_with_checkin_checkout_rules: hasCareWithCheckInOutRules,
       total_care_hours: totalCareHours.toFixed(1),
       care_note: hasCareWithCheckInOutRules 
@@ -220,7 +282,12 @@ export default async function handler(req, res) {
             ? 'Care fees reflect requested care at the time of booking submission and may vary based on actual care hours used.'
             : null),
       
-      // Room Costs
+      // ✅ HSP Room Breakdown
+      hsp_room_breakdown: hspRoomBreakdown,
+      hsp_total_per_night: hspTotalPerNight.toFixed(2),
+      hsp_total_accommodation: hspTotalAccommodation.toFixed(2),
+      
+      // Room Costs (non-HSP)
       room_upgrade: summaryData.roomCosts.roomUpgrade.perNight.toFixed(2) || 0,
       additional_room: summaryData.roomCosts.additionalRoom.perNight.toFixed(2) || 0,
       total: (summaryData.roomCosts.roomUpgrade.total + summaryData.roomCosts.additionalRoom.total).toFixed(2) || 0,
@@ -228,9 +295,14 @@ export default async function handler(req, res) {
       total_room_costs: {
         roomUpgrade: summaryData.roomCosts.roomUpgrade.total.toFixed(2),
         additionalRoom: summaryData.roomCosts.additionalRoom.total.toFixed(2),
-        total: (summaryData.roomCosts.roomUpgrade.total + summaryData.roomCosts.additionalRoom.total).toFixed(2)
+        total: (summaryData.roomCosts.roomUpgrade.total + summaryData.roomCosts.additionalRoom.total).toFixed(2),
+        hspAccommodation: hspTotalAccommodation.toFixed(2)
       },
-      grand_total: (summaryData.packageCosts.totalCost + summaryData.totalOutOfPocket).toFixed(2) || 0,
+      
+      // ✅ Correct grand total calculation
+      grand_total: isHSPPackage 
+        ? hspTotalAccommodation.toFixed(2)
+        : (summaryData.packageCosts.totalCost + summaryData.totalOutOfPocket).toFixed(2) || 0,
       
       // NDIS Questions if applicable
       ndis_questions: ndisQuestions,
@@ -245,12 +317,6 @@ export default async function handler(req, res) {
       verbalConsent: verbalConsentData,
     };
 
-    // console.log('📄 Template data prepared for email:', {
-    //   hasNdisPackageDetails: !!templateData.ndis_package_details,
-    //   ndisPackageDetailsCount: templateData.ndis_package_details?.length || 0,
-    //   packageType: templateData.package_type
-    // });
-
     // ✅ Log care analysis info
     if (templateData.has_care_fees) {
       console.log('📊 Care analysis for email:', {
@@ -260,58 +326,118 @@ export default async function handler(req, res) {
       });
     }
 
+    console.log('📦 Package type for email:', {
+      isHolidaySupportPlus: templateData.is_holiday_support_plus,
+      packageCode,
+      hasNdisDetails: !!templateData.ndis_package_details
+    });
+
     // Generate HTML with the template
     const html = template(templateData);
 
-    // Generate PDF using puppeteer
-    const browser = await puppeteer.launch({ 
+    // Generate PDF using puppeteer - SIMPLE APPROACH
+    console.log('🚀 Starting PDF generation...');
+    
+    try {
+      browser = await puppeteer.launch({
         executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+          '--no-first-run',
+          '--no-zygote',
+        ],
         headless: 'new',
         timeout: 60000,
-        args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-gpu',
-            '--disable-software-rasterizer',
-            '--disable-dev-tools',
-            '--no-zygote',
-            '--single-process',
-        ]
-    });
-    const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: 'networkidle0' });
-    const pdf = await page.pdf({
-      format: 'A4',
-      printBackground: true,
-      margin: { top: '0', right: '0', bottom: '0', left: '0' }
-    });
-    await browser.close();
+        protocolTimeout: 120000,
+      });
 
-    // Save PDF to temp directory
-    await writeFileAsync(tempPdfPath, pdf);
+      const page = await browser.newPage();
+      
+      console.log('📄 Setting page content...');
+      await page.setContent(html, { 
+        waitUntil: 'networkidle0',
+        timeout: 60000 
+      });
+      
+      console.log('📝 Generating PDF...');
+      const pdf = await page.pdf({
+        format: 'A4',
+        printBackground: true,
+        margin: { top: '0', right: '0', bottom: '0', left: '0' }
+      });
+      
+      console.log('✅ PDF generated, size:', pdf.length, 'bytes');
+      
+      if (pdf.length === 0) {
+        throw new Error('Generated PDF is empty');
+      }
+      
+      await browser.close();
+      browser = null;
 
-    // Send email with PDF attachment
+      // Save PDF to temp directory
+      await writeFileAsync(tempPdfPath, pdf);
+      
+      // Verify file was written
+      const stats = fs.statSync(tempPdfPath);
+      console.log('✅ PDF saved to disk, size:', stats.size, 'bytes');
+      
+      if (stats.size === 0) {
+        throw new Error('Saved PDF file is empty');
+      }
+
+    } catch (pdfError) {
+      console.error('❌ PDF generation error:', pdfError);
+      if (browser) {
+        try {
+          await browser.close();
+          browser = null;
+        } catch (closeError) {
+          console.error('Browser close error:', closeError);
+        }
+      }
+      throw pdfError;
+    }
+
+    // ✅ UPDATED: Send email using EmailService with template ID
     const recipient = summaryData.guestEmail || "";
-    console.log('Sending email to:', recipient);
-    await SendEmail(
+    console.log('📧 Sending email to:', recipient);
+    
+    // ✅ Read PDF into memory before queueing
+    const pdfBuffer = fs.readFileSync(tempPdfPath);
+
+    EmailService.sendWithTemplateAndAttachments(
       recipient,
-      'Summary of Your Stay - Sargood on Collaroy',
-      'booking-summary',
+      TEMPLATE_IDS.BOOKING_SUMMARY,
       { guestName: summaryData.guestName },
       [{
         filename: 'summary-of-stay.pdf',
-        path: tempPdfPath,
+        content: pdfBuffer,
       }]
     );
+
+    console.log('✅ Email sent successfully');
 
     // Clean up temporary file
     await unlinkAsync(tempPdfPath);
     tempPdfPath = null;
 
     res.status(200).json({ message: 'Email sent successfully' });
+
   } catch (error) {
-    console.error('Error sending email:', error);
+    console.error('❌ Error in email handler:', error);
+    
+    // Clean up browser if still open
+    if (browser) {
+      try {
+        await browser.close();
+      } catch (closeError) {
+        console.error('Browser cleanup error:', closeError);
+      }
+    }
     
     // Clean up temporary file if it exists
     if (tempPdfPath && fs.existsSync(tempPdfPath)) {
@@ -322,7 +448,10 @@ export default async function handler(req, res) {
       }
     }
     
-    res.status(500).json({ message: 'Failed to send email', error: error.message });
+    res.status(500).json({ 
+      message: 'Failed to send email', 
+      error: error.message 
+    });
   }
 }
 

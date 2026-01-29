@@ -486,7 +486,14 @@ const RoomsField = (props) => {
   }, [handleMainRoomChange]);
 
   if (loading) {
-    return <div className="mb-2">Loading rooms...</div>;
+    return (
+      <div className="mb-2">
+        <div className="flex flex-col items-center justify-center py-8">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+          <p className="mt-4 text-slate-600 text-sm">Loading available rooms...</p>
+        </div>
+      </div>
+    );
   }
 
   // Get currently selected main room

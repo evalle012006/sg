@@ -5,6 +5,7 @@ import { RenderPDF } from '../../../../services/booking/exports/pdf-render';
 import handlebars from 'handlebars';
 import { Address, Booking, Guest, QaPair, Question, QuestionDependency, Room, RoomType, Section, Package } from '../../../../models';
 import { createSummaryData } from '../../../../services/booking/create-summary-data';
+import { getTemplatePath, getPublicDir } from '../../../../lib/paths';
 
 export const config = {
   api: {
@@ -100,7 +101,6 @@ export default async function handler(req, res) {
               const packageModel = await Package.findByPk(packageId);
               
               if (packageModel) {
-                // console.log('✅ Package resolved:', packageModel.name);
                 resolvedPackage = packageModel.toJSON();
               } else {
                 console.error('❌ Package not found for ID:', packageId);
@@ -132,10 +132,11 @@ export default async function handler(req, res) {
       answer: Array.isArray(q.answer) ? q.answer : [q.answer]
     })) || [];
 
-    // Read logo files
-    const logoPath = path.join(process.cwd(), 'public', 'sargood-logo.png');
+    // Read logo files using path utility
+    const publicDir = getPublicDir();
+    const logoPath = path.join(publicDir, 'sargood-logo.png');
     const logoBase64 = await fs.readFile(logoPath, { encoding: 'base64' });
-    const logoFooterPath = path.join(process.cwd(), 'public', 'sargood-footer-image.jpg');
+    const logoFooterPath = path.join(publicDir, 'sargood-footer-image.jpg');
     const logoFooterBase64 = await fs.readFile(logoFooterPath, { encoding: 'base64' });
 
     // Parse signature data
@@ -159,14 +160,21 @@ export default async function handler(req, res) {
       });
     }
 
+    // ✅ Check if this is a Holiday Support Plus or Holiday Support package
+    const packageCode = resolvedPackage?.package_code || summaryData.data?.packageCode || '';
+    const isHolidaySupportPlus = packageCode === 'HOLIDAY_SUPPORT_PLUS';
+    const isHolidaySupport = packageCode === 'HOLIDAY_SUPPORT';
+    const isHSPPackage = isHolidaySupportPlus || isHolidaySupport;
+    
     // ✅ Format NDIS package details for template with proper currency and rounding
-    const formattedNdisDetails = summaryData.packageCosts.details?.map(item => ({
+    // Only include details if NOT Holiday Support Plus
+    const formattedNdisDetails = !isHolidaySupportPlus ? (summaryData.packageCosts.details?.map(item => ({
       package: item.package,
       lineItem: item.lineItem,
-      price: `AUD ${item.price.toFixed(2)}${item.rateCategoryLabel || ''}`, // Format with AUD and rate label
-      nights: `${item.quantity} ${item.rateCategoryQtyLabel || ''}`, // ✅ Use quantity property
-      subtotal: `AUD ${item.total.toFixed(2)}` // ✅ Use total property and round to 2 decimals
-    })) || [];
+      price: `AUD ${item.price.toFixed(2)}${item.rateCategoryLabel || ''}`,
+      nights: `${item.quantity} ${item.rateCategoryQtyLabel || ''}`,
+      subtotal: `AUD ${item.total.toFixed(2)}`
+    })) || []) : null;
 
     // ✅ Extract care analysis data for template display
     const careAnalysis = summaryData.data.careAnalysis;
@@ -179,7 +187,49 @@ export default async function handler(req, res) {
                            (careAnalysis?.dailyCareDetails?.reduce((sum, day) => sum + day.dayTotal, 0)) || 
                            0;
 
-    // console.log('📊 Package costs details:', summaryData.packageCosts.details);
+    // ✅ Prepare HSP accommodation breakdown
+    let hspRoomBreakdown = null;
+    let hspTotalPerNight = 0;
+    let hspTotalAccommodation = 0;
+    
+    if (isHSPPackage) {
+      // For HSP packages, get rooms directly from booking (not from summaryData.rooms which filters out studios)
+      const bookingRooms = booking.Rooms || [];
+      
+      console.log('📊 HSP Package - extracting rooms:', {
+        packageCode,
+        bookingRoomsCount: bookingRooms.length,
+        bookingRooms: bookingRooms.map(r => ({
+          label: r.label,
+          type: r.RoomType?.type,
+          price: r.RoomType?.price_per_night,
+          hsp_pricing: r.RoomType?.hsp_pricing
+        }))
+      });
+      
+      if (bookingRooms.length > 0) {
+        hspRoomBreakdown = bookingRooms.map((room, index) => {
+          const roomPrice = room.RoomType?.hsp_pricing || room.RoomType?.price_per_night || 0;
+          return {
+            name: room.label || room.RoomType?.name || `Room ${index + 1}`,
+            pricePerNight: roomPrice,
+            isMainRoom: index === 0
+          };
+        });
+        
+        hspTotalPerNight = hspRoomBreakdown.reduce((sum, room) => sum + room.pricePerNight, 0);
+        hspTotalAccommodation = hspTotalPerNight * summaryData.data.nights;
+        
+        console.log('📊 HSP breakdown calculated:', {
+          hspRoomBreakdown,
+          hspTotalPerNight,
+          hspTotalAccommodation,
+          nights: summaryData.data.nights
+        });
+      } else {
+        console.log('⚠️ No booking rooms found for HSP package!');
+      }
+    }
 
     const formattedData = {
       logo_base64: `data:image/png;base64,${logoBase64}`,
@@ -188,7 +238,7 @@ export default async function handler(req, res) {
       
       // Guest Information
       guest_name: summaryData.guestName,
-      funder: summaryData.data.funder?.toUpperCase() || summaryData.data.funder, // ✅ Uppercase funder
+      funder: summaryData.data.funder?.toUpperCase() || summaryData.data.funder,
       participant_number: summaryData.data.participantNumber,
       nights: summaryData.data.nights,
       dates_of_stay: summaryData.data.datesOfStay,
@@ -198,11 +248,17 @@ export default async function handler(req, res) {
       package_type: isNDISFunder ? summaryData.data.ndisPackage || summaryData.data.packageTypeAnswer : summaryData.data.packageTypeAnswer,
       package_cost: summaryData.data?.packageCost?.toFixed(2) || 0,
       ndis_package_type: (isNDISFunder && summaryData.data.packageType === 'HCSP') ? '1:1 STA Package' : '1:2 STA Package',
-      ndis_package_details: isNDISFunder ? formattedNdisDetails : null, // ✅ Use formatted details
-      total_package_cost: summaryData.packageCosts.totalCost.toFixed(2) || 0,
-      has_care_fees: summaryData.packageCosts.details?.some(item => item.lineItemType === 'care'), // ✅ Check if care exists
       
-      // ✅ NEW: Care analysis data for check-in/check-out rule display
+      // ✅ NEW: Holiday Support flags and conditional details
+      is_holiday_support_plus: isHolidaySupportPlus,
+      is_holiday_support: isHolidaySupport,
+      is_hsp_package: isHSPPackage,
+      ndis_package_details: formattedNdisDetails,
+      
+      total_package_cost: summaryData.packageCosts.totalCost.toFixed(2) || 0,
+      has_care_fees: summaryData.packageCosts.details?.some(item => item.lineItemType === 'care'),
+      
+      // ✅ Care analysis data for check-in/check-out rule display
       has_care_with_checkin_checkout_rules: hasCareWithCheckInOutRules,
       total_care_hours: totalCareHours.toFixed(1),
       care_note: hasCareWithCheckInOutRules 
@@ -211,7 +267,12 @@ export default async function handler(req, res) {
             ? 'Care fees reflect requested care at the time of booking submission and may vary based on actual care hours used.'
             : null),
       
-      // Room Costs
+      // ✅ HSP Room Breakdown
+      hsp_room_breakdown: hspRoomBreakdown,
+      hsp_total_per_night: hspTotalPerNight.toFixed(2),
+      hsp_total_accommodation: hspTotalAccommodation.toFixed(2),
+      
+      // Room Costs (non-HSP)
       room_upgrade: summaryData.roomCosts.roomUpgrade.perNight.toFixed(2) || 0,
       additional_room: summaryData.roomCosts.additionalRoom.perNight.toFixed(2) || 0,
       total: (summaryData.roomCosts.roomUpgrade.total + summaryData.roomCosts.additionalRoom.total).toFixed(2) || 0,
@@ -219,9 +280,14 @@ export default async function handler(req, res) {
       total_room_costs: {
         roomUpgrade: summaryData.roomCosts.roomUpgrade.total.toFixed(2),
         additionalRoom: summaryData.roomCosts.additionalRoom.total.toFixed(2),
-        total: (summaryData.roomCosts.roomUpgrade.total + summaryData.roomCosts.additionalRoom.total).toFixed(2)
+        total: (summaryData.roomCosts.roomUpgrade.total + summaryData.roomCosts.additionalRoom.total).toFixed(2),
+        hspAccommodation: hspTotalAccommodation.toFixed(2)
       },
-      grand_total: (summaryData.packageCosts.totalCost + summaryData.totalOutOfPocket).toFixed(2) || 0,
+      
+      // ✅ Correct grand total calculation
+      grand_total: isHSPPackage 
+        ? hspTotalAccommodation.toFixed(2)
+        : (summaryData.packageCosts.totalCost + summaryData.totalOutOfPocket).toFixed(2) || 0,
       
       // NDIS Questions if applicable
       ndis_questions: ndisQuestions,
@@ -233,29 +299,6 @@ export default async function handler(req, res) {
       verbalConsent: verbalConsentData,
     };
 
-    // console.log('📄 Template data prepared:', {
-    //   hasNdisPackageDetails: !!formattedData.ndis_package_details,
-    //   ndisPackageDetailsCount: formattedData.ndis_package_details?.length || 0,
-    //   packageType: formattedData.package_type,
-    //   isNDISFunder: formattedData.isNDISFunder
-    // });
-    
-    if (formattedData.ndis_package_details && formattedData.ndis_package_details.length > 0) {
-      // console.log('📊 First few line items in template data:');
-      formattedData.ndis_package_details.slice(0, 3).forEach((item, idx) => {
-        console.log(`  ${idx + 1}:`, {
-          package: item.package,
-          lineItem: item.lineItem,
-          price: item.price,
-          nights: item.nights,
-          subtotal: item.subtotal
-        });
-      });
-    } else {
-      console.log('⚠️ WARNING: ndis_package_details is empty or undefined!');
-      console.log('  packageCosts.details:', summaryData.packageCosts.details);
-    }
-
     // ✅ Log care analysis info
     if (formattedData.has_care_fees) {
       console.log('📊 Care analysis for PDF:', {
@@ -264,6 +307,12 @@ export default async function handler(req, res) {
         careNote: formattedData.care_note ? 'Present' : 'None'
       });
     }
+
+    console.log('📦 Package type for PDF:', {
+      isHolidaySupportPlus: formattedData.is_holiday_support_plus,
+      packageCode,
+      hasNdisDetails: !!formattedData.ndis_package_details
+    });
 
     // Create temporary directory for PDF generation
     const tempDir = path.join(process.cwd(), 'tmp');
@@ -274,9 +323,12 @@ export default async function handler(req, res) {
     const filename = `summary-of-stay-${uuid}-${timestamp}.pdf`;
     const pdfPath = path.join(tempDir, filename);
 
-    // Generate PDF
+    // Generate PDF using path utility for template
+    const templatePath = getTemplatePath('exports/summary-of-stay.html');
+    console.log('📄 Using template path:', templatePath);
+
     await RenderPDF({
-        htmlTemplatePath: process.env.APP_ROOT + '/templates/exports/summary-of-stay.html',
+        htmlTemplatePath: templatePath,
         pdfData: formattedData,
         pdfPath,
         helpers: {
@@ -287,15 +339,28 @@ export default async function handler(req, res) {
         withLetterHead: true
     });
 
+    // Verify PDF was created
+    const stats = await fs.stat(pdfPath);
+    console.log('✅ PDF generated, size:', stats.size, 'bytes');
+    
+    if (stats.size === 0) {
+      throw new Error('Generated PDF is empty');
+    }
+
     // Read generated PDF
     const pdfBuffer = await fs.readFile(pdfPath);
+    
+    if (pdfBuffer.length === 0) {
+      throw new Error('PDF buffer is empty');
+    }
 
     // Cleanup temporary file
     await fs.unlink(pdfPath);
 
-    // Send PDF response
+    // Send PDF response with proper headers
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', pdfBuffer.length);
     res.send(pdfBuffer);
 
   } catch (error) {

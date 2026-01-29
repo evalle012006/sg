@@ -12,90 +12,93 @@ const RenderPDF = async ({ htmlTemplatePath, pdfData, pdfPath, withLetterHead = 
         });
     }
 
-    // begin pdf generation process
-    console.log('initializing browser instances...')
-    const browser = await puppeteer.launch({
-        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
-        args: [
-            '--force-color-profile=srgb',
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-web-security',
-            '--disable-gpu',
-            '--disable-software-rasterizer',
-            '--disable-dev-tools',
-            '--no-zygote',
-            '--single-process',
-        ],
-        headless: 'new',
-        timeout: 60000,
-    });
-    const page = await browser.newPage();
+    let browser = null;
+    try {
+        // begin pdf generation process
+        console.log('initializing browser instances...')
+        browser = await puppeteer.launch({
+            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-gpu',
+                '--no-first-run',
+                '--no-zygote',
+            ],
+            headless: 'new',
+            timeout: 60000,
+            protocolTimeout: 120000,
+        });
 
-    // Increase timeout for image loading
-    await page.setDefaultNavigationTimeout(60000);
-    await page.setDefaultTimeout(60000);
+        const page = await browser.newPage();
 
-    // serializing required data
-    const filePath = path.resolve(htmlTemplatePath);
-    const htmlContent = fs.readFileSync(filePath, 'utf8');
-    const resolvedPdfPath = path.resolve(pdfPath);
+        // serializing required data
+        const filePath = path.resolve(htmlTemplatePath);
+        const htmlContent = fs.readFileSync(filePath, 'utf8');
+        const resolvedPdfPath = path.resolve(pdfPath);
 
-    console.log('generating pdf...')
-    const template = handlebars.compile(htmlContent)(pdfData);
-    await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-    
-    // Set content with longer timeout for image loading
-    await page.setContent(template, { 
-        waitUntil: ['networkidle0', 'load'],
-        timeout: 60000 
-    });
-    
-    await page.emulateMediaType('screen');
-    
-    // Wait for images to load
-    await page.evaluate(() => {
-        return Promise.all(
-            Array.from(document.images)
-                .filter(img => !img.complete)
-                .map(img => new Promise(resolve => {
-                    img.onload = img.onerror = resolve;
-                }))
-        );
-    });
+        console.log('generating pdf from template:', filePath)
+        const template = handlebars.compile(htmlContent)(pdfData);
+        
+        // Set content and wait for it to load
+        await page.setContent(template, { 
+            waitUntil: 'networkidle0',
+            timeout: 60000 
+        });
+        
+        await page.emulateMediaType('screen');
 
-    let pdfOptions = {
-        path: resolvedPdfPath, 
-        format: 'A4', 
-        margin: {
-            top: "1.5cm",
-            right: "1.5cm",
-            bottom: "1.5cm",
-            left: "1.5cm"
-        },
-        printBackground: true
-    }
-
-    if (withLetterHead) {
-        pdfOptions = {
-            path: resolvedPdfPath,
-            format: 'A4',
-            printBackground: true,
+        let pdfOptions = {
+            path: resolvedPdfPath, 
+            format: 'A4', 
             margin: {
-                top: '0',
-                bottom: '0',
-                left: '0',
-                right: '0'
+                top: "1.5cm",
+                right: "1.5cm",
+                bottom: "1.5cm",
+                left: "1.5cm"
             },
-            preferCSSPageSize: true
-        };
+            printBackground: true
+        }
+
+        if (withLetterHead) {
+            pdfOptions = {
+                path: resolvedPdfPath,
+                format: 'A4',
+                printBackground: true,
+                margin: {
+                    top: '0',
+                    bottom: '0',
+                    left: '0',
+                    right: '0'
+                },
+                preferCSSPageSize: true,
+            };
+        }
+
+        await page.pdf(pdfOptions);
+        console.log('pdf generated successfully at:', resolvedPdfPath);
+
+        // Verify the PDF was created
+        if (!fs.existsSync(resolvedPdfPath)) {
+            throw new Error('PDF file was not created');
+        }
+
+        const stats = fs.statSync(resolvedPdfPath);
+        console.log('PDF file size:', stats.size, 'bytes');
+        
+        if (stats.size === 0) {
+            throw new Error('PDF file is empty');
+        }
+
+    } catch (error) {
+        console.error('Error generating PDF:', error);
+        throw error;
+    } finally {
+        if (browser) {
+            await browser.close();
+        }
     }
-
-    await page.pdf(pdfOptions);
-    console.log('pdf generated successfully!')
-    await browser.close();
-
 }
 
 module.exports = {

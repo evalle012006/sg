@@ -1,6 +1,7 @@
 import { Course, Guest, CourseEOI } from '../../../models';
-import SendEmail from '../../../utilities/mail';
 import moment from 'moment';
+import EmailService from '../../../services/booking/emailService';
+import { TEMPLATE_IDS } from '../../../services/booking/templateIds';
 
 export default async function handler(req, res) {
     const { method } = req;
@@ -155,17 +156,15 @@ async function createEOI(req, res) {
             courses: courseNames
         });
 
-        // ✅ FIXED: Send notification email to admin with CORRECT field names
+        // ✅ UPDATED: Send admin notification using EmailService
         try {
             const adminEmail = process.env.ADMIN_EMAIL || 'bookings@sargoodoncollaroy.com';
             const baseUrl = process.env.APP_URL || 'https://booking.sargoodoncollaroy.com.au';
             
-            SendEmail(
+            await EmailService.sendWithTemplate(
                 adminEmail,
-                `New Course EOI: ${guest_name}`,
-                'course-eoi-admin',
+                TEMPLATE_IDS.COURSE_EOI_ADMIN,
                 {
-                    // ✅ FIXED: Match template variable names exactly
                     guest_name: guest_name,
                     guest_email: guest_email,
                     guest_phone: guest_phone,
@@ -180,9 +179,7 @@ async function createEOI(req, res) {
                     support_role: support_role,
                     preferred_dates: course_date_preferences ? JSON.stringify(course_date_preferences) : 'Not specified',
                     comments: comments || 'None provided',
-                    // ✅ FIXED: Add admin link with proper base URL
                     admin_link: `${baseUrl}/admin/course-eoi/${eoiRecord.id}`,
-                    // ✅ FIXED: Standardized date format
                     submitted_at: moment(submitted_at || Date.now()).format('dddd, D MMMM YYYY [at] h:mm A')
                 }
             );
@@ -192,14 +189,12 @@ async function createEOI(req, res) {
             // Don't fail the request if email fails
         }
 
-        // ✅ FIXED: Send confirmation email to guest with CORRECT field names
+        // ✅ UPDATED: Send guest confirmation using EmailService
         try {
-            SendEmail(
+            await EmailService.sendWithTemplate(
                 guest_email,
-                'Your Course Interest Has Been Received - Sargood on Collaroy',
-                'course-eoi-confirmation',
+                TEMPLATE_IDS.COURSE_EOI_CONFIRMATION,
                 {
-                    // ✅ FIXED: Match template variable names exactly
                     guest_name: guest_name,
                     course_name: courseNames
                 }

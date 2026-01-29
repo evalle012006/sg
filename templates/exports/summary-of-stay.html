@@ -102,11 +102,44 @@
             background: #f8f9fa;
             border-radius: 4px;
         }
+        
+        /* ✅ NEW: Custom Quote Required Box Styling */
+        .custom-quote-box {
+            margin-top: 10px;
+            padding: 15px;
+            background-color: #FEF3C7;
+            border: 2px solid #F59E0B;
+            border-radius: 6px;
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+        }
+        .custom-quote-icon {
+            flex-shrink: 0;
+            width: 24px;
+            height: 24px;
+            color: #F59E0B;
+        }
+        .custom-quote-content h3 {
+            color: #92400E;
+            font-size: 16px;
+            margin-bottom: 6px;
+        }
+        .custom-quote-content p {
+            color: #78350F;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        
         .pricing-table {
             width: 100%;
             border-collapse: collapse;
             margin: 10px 0;
-            page-break-inside: avoid;
+            /* ✅ Allow table to break across pages */
+        }
+        .pricing-table thead {
+            /* ✅ Repeat header on each page */
+            display: table-header-group;
         }
         .pricing-table th,
         .pricing-table td {
@@ -117,6 +150,10 @@
         .pricing-table th {
             background-color: #20485A;
             color: white;
+        }
+        .pricing-table tr {
+            /* ✅ Avoid breaking rows in the middle */
+            page-break-inside: avoid;
         }
         .pricing-table tr:nth-child(even) {
             background-color: #f8f9fa;
@@ -207,12 +244,22 @@
             margin-top: 8px;
             margin-bottom: 0;
             padding: 0;
-            page-break-inside: avoid;
+            /* ✅ Allow section to break if table is long */
             page-break-after: auto;
+        }
+        .package-header {
+            /* ✅ Keep header together, don't break it */
+            page-break-inside: avoid;
+            page-break-after: avoid;
+            margin-bottom: 8px;
         }
         .ndis-package-table {
             margin-bottom: 8px;
-            page-break-inside: avoid;
+            /* ✅ Allow table to span pages */
+        }
+        .table-footer-note {
+            /* ✅ Keep note with last row if possible */
+            page-break-before: avoid;
         }
     </style>
 </head>
@@ -222,8 +269,8 @@
     </div>
 
     {{#if isNDISFunder}}
-        <!-- Page 1: Guest Info and Package Details -->
-        <div class="page">
+        <!-- Guest Info Section - Always stays on first page -->
+        <div class="page" style="page-break-after: auto;">
             <h1>Summary of Your Stay</h1>
             
             <div class="guest-info">
@@ -251,82 +298,165 @@
                 </div>
             </div>
 
+            <!-- Package Section - Can flow to next page if needed -->
             <div class="ndis-package-section">
-                <h2>Package - cost to be charged to your funder</h2>
-                <p class="info-label">Package Name: {{package_type}}</p>
-                <table class="pricing-table ndis-package-table">
-                    <thead>
-                        <tr>
-                            <th>{{ndis_package_type}}</th>
-                            <th>Line Item</th>
-                            <th>Rate</th>
-                            <th>Qty</th>
-                            <th>Total ($)</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {{#each ndis_package_details}}
-                        <tr>
-                            <td>{{package}}</td>
-                            <td>{{lineItem}}</td>
-                            <td>{{price}}</td>
-                            <td>{{nights}}</td>
-                            <td>{{subtotal}}</td>
-                        </tr>
-                        {{/each}}
-                    </tbody>
-                </table>
-                {{#if has_care_fees}}
-                <p style="font-size: 12px; font-style: italic; color: #666; margin-top: 8px;">
-                    * Care fees reflect requested care at the time of booking submission and may vary based on actual care hours used.
-                </p>
+                <!-- ✅ Package header in separate container -->
+                <div class="package-header">
+                    <h2>Package - cost to be charged to your funder</h2>
+                    <p class="info-label">Package Name: {{package_type}}</p>
+                </div>
+                
+                {{#if is_holiday_support_plus}}
+                    <!-- ✅ Show Custom Quote Required box for Holiday Support Plus -->
+                    <div class="custom-quote-box">
+                        <svg class="custom-quote-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <div class="custom-quote-content">
+                            <h3>Custom Quote Required</h3>
+                            <p>Our bookings team will send you a quote for NDIS services for this stay based on the information you have provided.</p>
+                        </div>
+                    </div>
+                {{else}}
+                    <!-- ✅ Show pricing table for other packages (can span pages) -->
+                    <table class="pricing-table ndis-package-table">
+                        <thead>
+                            <tr>
+                                <th>{{ndis_package_type}}</th>
+                                <th>Line Item</th>
+                                <th>Rate</th>
+                                <th>Qty</th>
+                                <th>Total ($)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {{#each ndis_package_details}}
+                            <tr>
+                                <td>{{package}}</td>
+                                <td>{{lineItem}}</td>
+                                <td>{{price}}</td>
+                                <td>{{nights}}</td>
+                                <td>{{subtotal}}</td>
+                            </tr>
+                            {{/each}}
+                        </tbody>
+                    </table>
+                    {{#if ../has_care_fees}}
+                    <p class="table-footer-note" style="font-size: 12px; font-style: italic; color: #666; margin-top: 8px;">
+                        * {{../care_note}}
+                    </p>
+                    {{/if}}
+                    <div class="total-right">Total Package Cost: AUD {{total_package_cost}}</div>
                 {{/if}}
-                <div class="total-right">Total Package Cost: AUD {{total_package_cost}}</div>
             </div>
         </div>
 
         <!-- Page 2: Additional Room and Upgrade Costs, Cost Summary, and First Set of NDIS Questions -->
-        <div class="page">
-            <div class="section">
-                <h2>Additional Room and Upgrade Costs</h2>
-                <p class="info-label">To be paid by you privately without prior approval by your funder</p>
-                <div class="guest-info">
-                    <div class="info-box">
-                        <div class="info-label">Room Upgrade</div>
-                        <div class="info-value">
-                            {{#if room_upgrade}}
-                            AUD {{room_upgrade}} per night (AUD {{total_room_costs.roomUpgrade}} total)
-                            {{else}}
-                            N/A
+        <div class="page" style="page-break-before: always;">
+            {{#if is_hsp_package}}
+                <!-- ✅ HSP-specific accommodation section -->
+                <div class="section">
+                    <h2>Accommodation (to be paid privately by you)</h2>
+                    
+                    <div class="info-box" style="margin-bottom: 12px;">
+                        <div class="info-label">Room Breakdown</div>
+                    </div>
+                    
+                    {{#each hsp_room_breakdown}}
+                    <div style="display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #dee2e6;">
+                        <div>
+                            <span style="font-weight: 500;">{{name}}</span>
+                            {{#if isMainRoom}}
+                            <span style="margin-left: 8px; font-size: 11px; background: #dbeafe; color: #1e40af; padding: 2px 6px; border-radius: 3px;">Primary Room</span>
                             {{/if}}
+                        </div>
+                        <span>AUD {{pricePerNight}} per night</span>
+                    </div>
+                    {{/each}}
+                    
+                    <div style="margin-top: 12px; padding-top: 8px; border-top: 2px solid #dee2e6;">
+                        <div style="display: flex; justify-content: space-between; font-weight: bold; margin-bottom: 6px;">
+                            <span>Total per night:</span>
+                            <span>AUD {{hsp_total_per_night}}</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; margin-top: 6px;">
+                            <span>{{nights}} nights</span>
+                            <span style="font-weight: bold;">AUD {{hsp_total_accommodation}}</span>
                         </div>
                     </div>
-                    <div class="info-box">
-                        <div class="info-label">Additional Room</div>
-                        <div class="info-value">
-                            {{#if additional_room}}
-                            AUD {{additional_room}} per night (AUD {{total_room_costs.additionalRoom}} total)
-                            {{else}}
-                            N/A
-                            {{/if}}
-                        </div>
+                    
+                    <div class="total-right">Total Accommodation: AUD {{hsp_total_accommodation}}</div>
+                </div>
+                
+                {{#if is_hsp_package}}
+                <!-- ✅ Funding Assistance Available box for all HSP packages -->
+                <div class="custom-quote-box" style="margin-top: 12px;">
+                    <svg class="custom-quote-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <div class="custom-quote-content">
+                        <h3>Funding Assistance Available</h3>
+                        <p>Funding assistance of AUD 319.00 per night for up to 5 nights may be available to you.</p>
                     </div>
                 </div>
-                <div class="total-right">Total Out of Pocket: AUD {{total_room_costs.total}}</div>
-            </div>
+                {{/if}}
+            {{else}}
+                <!-- ✅ Non-HSP accommodation section -->
+                <div class="section">
+                    <h2>Additional Room and Upgrade Costs</h2>
+                    <p class="info-label">To be paid by you privately without prior approval by your funder</p>
+                    <div class="guest-info">
+                        <div class="info-box">
+                            <div class="info-label">Room Upgrade</div>
+                            <div class="info-value">
+                                {{#if room_upgrade}}
+                                AUD {{room_upgrade}} per night (AUD {{total_room_costs.roomUpgrade}} total)
+                                {{else}}
+                                N/A
+                                {{/if}}
+                            </div>
+                        </div>
+                        <div class="info-box">
+                            <div class="info-label">Additional Room</div>
+                            <div class="info-value">
+                                {{#if additional_room}}
+                                AUD {{additional_room}} per night (AUD {{total_room_costs.additionalRoom}} total)
+                                {{else}}
+                                N/A
+                                {{/if}}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="total-right">Total Out of Pocket: AUD {{total_room_costs.total}}</div>
+                </div>
+            {{/if}}
 
             <div class="summary-box">
                 <h2>Cost Summary</h2>
                 <div class="summary-row">
+                    {{#if is_holiday_support_plus}}
+                    <span>Package Costs <span style="font-style: italic;">(Quote to be provided by bookings team)</span>:</span>
+                    <span style="color: #F59E0B; font-weight: 500;">TBD</span>
+                    {{else}}
                     <span>Package Cost <span style="font-style: italic;">(To be billed to your funder)</span>:</span>
                     <span>AUD {{total_package_cost}}</span>
+                    {{/if}}
                 </div>
                 <div class="summary-row">
+                    {{#if is_hsp_package}}
+                    <span>Accommodation <span style="font-style: italic;">(To be paid privately by you)</span>:</span>
+                    <span>AUD {{hsp_total_accommodation}}</span>
+                    {{else}}
                     <span>Additional Room and Upgrade Costs <span style="font-style: italic;">(To be paid privately by you)</span>:</span>
                     <span>AUD {{total_room_costs.total}}</span>
+                    {{/if}}
                 </div>
                 <div class="summary-row summary-total">
+                    {{#if is_holiday_support_plus}}
+                    <span>Grand Total (excluding package costs):</span>
+                    {{else}}
                     <span>Grand Total:</span>
+                    {{/if}}
                     <span>AUD {{grand_total}}</span>
                 </div>
             </div>

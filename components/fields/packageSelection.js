@@ -70,7 +70,7 @@ const PackageSelection = ({
   const [dataReady, setDataReady] = useState(false);
   const initialLoadRef = useRef(true);
   const [stableFilterCriteria, setStableFilterCriteria] = useState(null);
-  const isAdminMode = origin === 'admin';
+  const isAdminMode = origin === 'adminssss'; // this should be admin but going to disable this
 
   // Admin mode for NDIS only - skips requirement filtering to show all NDIS packages
   const isAdminNdisMode = useMemo(() => {

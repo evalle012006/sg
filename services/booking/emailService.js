@@ -1,10 +1,11 @@
-const { EmailTemplate } = require('../../models');
-const handlebars = require('handlebars');
-const sendMailWithHtml = require('../../utilities/mailServiceHtml');
+import { EmailTemplate } from '../../models/index.js';
+import handlebars from 'handlebars';
+import sendMailWithHtml from '../../utilities/mailServiceHtml.js';
+import SendEmail from '../../utilities/mail.js';
+import { TEMPLATE_FALLBACK_MAP } from './templateFallbackMap.js';
 
 /**
- * Register Handlebars helpers for email templates
- * Enhanced with array/object formatting and conditional helpers
+ * Register Handlebars helpers
  */
 function registerHelpers() {
   // Date formatting
@@ -41,48 +42,16 @@ function registerHelpers() {
   // Array helpers
   handlebars.registerHelper('length', arr => Array.isArray(arr) ? arr.length : 0);
   handlebars.registerHelper('isArray', value => Array.isArray(value));
-  handlebars.registerHelper('isEmpty', value => {
-    if (!value) return true;
-    if (Array.isArray(value)) return value.length === 0;
-    if (typeof value === 'object') return Object.keys(value).length === 0;
-    return false;
-  });
-  handlebars.registerHelper('isNotEmpty', value => {
-    if (!value) return false;
-    if (Array.isArray(value)) return value.length > 0;
-    if (typeof value === 'object') return Object.keys(value).length > 0;
-    return true;
-  });
-
-  // Array formatting helpers
-  handlebars.registerHelper('join', (arr, separator = ', ') => {
-    if (!Array.isArray(arr)) return '';
-    return arr.join(separator);
-  });
-
-  handlebars.registerHelper('first', arr => {
-    if (!Array.isArray(arr) || arr.length === 0) return '';
-    return arr[0];
-  });
-
-  handlebars.registerHelper('last', arr => {
-    if (!Array.isArray(arr) || arr.length === 0) return '';
-    return arr[arr.length - 1];
-  });
+  handlebars.registerHelper('join', (arr, separator = ', ') => 
+    Array.isArray(arr) ? arr.join(separator) : arr
+  );
 
   // Object helpers
-  handlebars.registerHelper('keys', obj => {
-    if (typeof obj !== 'object' || obj === null) return [];
-    return Object.keys(obj);
-  });
+  handlebars.registerHelper('keys', obj => obj ? Object.keys(obj) : []);
+  handlebars.registerHelper('values', obj => obj ? Object.values(obj) : []);
 
-  handlebars.registerHelper('values', obj => {
-    if (typeof obj !== 'object' || obj === null) return [];
-    return Object.values(obj);
-  });
-
-  // JSON parse helper (for parsing stringified arrays/objects)
-  handlebars.registerHelper('parseJSON', str => {
+  // JSON parsing
+  handlebars.registerHelper('parseJSON', function(str) {
     try {
       return typeof str === 'string' ? JSON.parse(str) : str;
     } catch (e) {
@@ -96,7 +65,9 @@ function registerHelpers() {
   // Type checking helpers
   handlebars.registerHelper('isString', value => typeof value === 'string');
   handlebars.registerHelper('isNumber', value => typeof value === 'number');
-  handlebars.registerHelper('isObject', value => typeof value === 'object' && value !== null && !Array.isArray(value));
+  handlebars.registerHelper('isObject', value => 
+    typeof value === 'object' && value !== null && !Array.isArray(value)
+  );
 
   // Math helpers
   handlebars.registerHelper('add', (a, b) => Number(a) + Number(b));
@@ -104,56 +75,208 @@ function registerHelpers() {
   handlebars.registerHelper('multiply', (a, b) => Number(a) * Number(b));
   handlebars.registerHelper('divide', (a, b) => Number(a) / Number(b));
   
-  // Index helper for loops (to get 1-based index)
+  // Index helper
   handlebars.registerHelper('inc', value => Number(value) + 1);
 }
 
 class EmailService {
   /**
-   * Send email using template ID
-   * @param {string} recipient - Email recipient
-   * @param {number} templateId - Email template ID
-   * @param {object} data - Template data (merge tags)
-   * @returns {Promise<object>}
+   * Send email using template ID (no attachments)
    */
-  static async sendWithTemplate(recipient, templateId, data) {
+  static async sendWithTemplate(recipient, templateId, data, options = {}) {
+    const { useFallback = true } = options;
+    
     try {
-      // Register helpers if not already registered
       registerHelpers();
 
-      // Fetch template
       const template = await EmailTemplate.findByPk(templateId);
       
-      if (!template) {
-        throw new Error(`Email template ${templateId} not found`);
+      if (!template || !template.is_active) {
+        if (useFallback) {
+          return await this.sendWithFallback(recipient, templateId, data);
+        }
+        throw new Error(`Email template ${templateId} not found or inactive`);
       }
 
-      if (!template.is_active) {
-        throw new Error(`Email template ${templateId} is not active`);
-      }
-
-      // Compile handlebars template
       const compiledSubject = handlebars.compile(template.subject);
       const compiledHtml = handlebars.compile(template.html_content);
 
-      // Render with data
       const subject = compiledSubject(data);
       const html = compiledHtml(data);
 
-      // Send email using the new mailServiceHtml
       await sendMailWithHtml(recipient, subject, html);
 
-      console.log(`✓ Email sent successfully to ${recipient} using template ${templateId}`);
+      console.log(`✓ Email sent to ${recipient} using template ${templateId} (${template.name})`);
 
       return {
         success: true,
-        message: 'Email sent successfully'
+        message: 'Email sent successfully',
+        method: 'database'
       };
+      
     } catch (error) {
-      console.error('Email sending error:', error);
+      console.error(`✗ Email error (template ${templateId}):`, error.message);
+      
+      if (useFallback && !options.isRetry) {
+        console.log(`  ↻ Attempting fallback...`);
+        return await this.sendWithFallback(recipient, templateId, data);
+      }
+      
       throw error;
     }
   }
+
+  /**
+   * Send email using template ID WITH attachments
+   */
+  static async sendWithTemplateAndAttachments(recipient, templateId, data, attachments = [], options = {}) {
+    const { useFallback = true } = options;
+    
+    try {
+      registerHelpers();
+
+      const template = await EmailTemplate.findByPk(templateId);
+      
+      if (!template || !template.is_active) {
+        if (useFallback) {
+          return await this.sendWithFallbackAndAttachments(recipient, templateId, data, attachments);
+        }
+        throw new Error(`Email template ${templateId} not found or inactive`);
+      }
+
+      const compiledSubject = handlebars.compile(template.subject);
+      const compiledHtml = handlebars.compile(template.html_content);
+
+      const subject = compiledSubject(data);
+      const html = compiledHtml(data);
+
+      await sendMailWithHtml(recipient, subject, html, attachments);
+
+      console.log(`✓ Email sent to ${recipient} with ${attachments.length} attachment(s) using template ${templateId}`);
+
+      return {
+        success: true,
+        message: 'Email sent successfully',
+        method: 'database'
+      };
+      
+    } catch (error) {
+      console.error(`✗ Email error (template ${templateId}):`, error.message);
+      
+      if (useFallback && !options.isRetry) {
+        console.log(`  ↻ Attempting fallback with attachments...`);
+        return await this.sendWithFallbackAndAttachments(recipient, templateId, data, attachments);
+      }
+      
+      throw error;
+    }
+  }
+
+  /**
+   * Fallback to physical HTML template (no attachments)
+   */
+  static async sendWithFallback(recipient, templateId, data) {
+    try {
+      // ✅ CHANGED: Use the imported TEMPLATE_FALLBACK_MAP
+      const templateFilename = TEMPLATE_FALLBACK_MAP[templateId];
+      
+      if (!templateFilename) {
+        throw new Error(`No fallback template mapping for ID ${templateId}`);
+      }
+      
+      console.log(`  ℹ️  Using fallback: ${templateFilename}.html`);
+      
+      const subject = this.generateFallbackSubject(templateFilename, data);
+      await SendEmail(recipient, subject, templateFilename, data);
+      
+      console.log(`✓ Email sent using fallback template ${templateFilename}`);
+      
+      return {
+        success: true,
+        message: 'Email sent using fallback',
+        method: 'fallback',
+        template: templateFilename
+      };
+      
+    } catch (fallbackError) {
+      console.error(`✗ Fallback also failed:`, fallbackError.message);
+      throw new Error(`Failed to send email: Database and fallback both failed`);
+    }
+  }
+
+  /**
+   * Fallback to physical HTML template WITH attachments
+   */
+  static async sendWithFallbackAndAttachments(recipient, templateId, data, attachments) {
+    try {
+      // ✅ CHANGED: Use the imported TEMPLATE_FALLBACK_MAP
+      const templateFilename = TEMPLATE_FALLBACK_MAP[templateId];
+      
+      if (!templateFilename) {
+        throw new Error(`No fallback template mapping for ID ${templateId}`);
+      }
+      
+      console.log(`  ℹ️  Using fallback: ${templateFilename}.html with ${attachments.length} attachment(s)`);
+      
+      const subject = this.generateFallbackSubject(templateFilename, data);
+      await SendEmail(recipient, subject, templateFilename, data, attachments);
+      
+      console.log(`✓ Email sent using fallback template ${templateFilename} with attachments`);
+      
+      return {
+        success: true,
+        message: 'Email sent using fallback',
+        method: 'fallback',
+        template: templateFilename
+      };
+      
+    } catch (fallbackError) {
+      console.error(`✗ Fallback also failed:`, fallbackError.message);
+      throw new Error(`Failed to send email: Database and fallback both failed`);
+    }
+  }
+
+  /**
+   * Generate fallback subject lines
+   */
+  static generateFallbackSubject(templateFilename, data) {
+    const subjectMap = {
+      'booking-summary': 'Summary of Your Stay - Sargood on Collaroy',
+      'guest-profile-email': 'Your Guest Profile - Sargood on Collaroy',
+      'guest-profile': 'Your Guest Profile - Sargood on Collaroy',
+      'course-eoi-confirmation': 'Expression of Interest Received',
+      'course-eoi-admin': 'New Course EOI Received',
+      'course-eoi-accepted': 'Course Interest Accepted',
+      'course-offer-accepted': 'Course Offer Accepted',
+      'icare-nights-update': `iCare Funding Update - ${data.guest_name || 'Guest'}`,
+      'password-reset': 'Reset Your Password',
+      'email-verification': 'Verify Your Email Address',
+      'welcome-email': 'Welcome to Sargood on Collaroy',
+      'booking-approved': 'Sargood On Collaroy - Booking Enquiry',
+      'booking-declined': 'Sargood On Collaroy - Booking Enquiry',
+      'booking-confirmed': 'Sargood On Collaroy - Booking Confirmed',
+      'booking-confirmed-admin': 'Sargood On Collaroy - Booking Confirmed',
+      'booking-cancelled': 'Sargood On Collaroy - Booking Enquiry',
+      'booking-cancelled-admin': 'Sargood On Collaroy - Booking Enquiry'
+    };
+    
+    return subjectMap[templateFilename] || 'Email Notification';
+  }
+
+  /**
+   * Get template by ID
+   */
+  static async getTemplate(templateId) {
+    return await EmailTemplate.findByPk(templateId);
+  }
+
+  /**
+   * Check if template exists and is active
+   */
+  static async isTemplateActive(templateId) {
+    const template = await EmailTemplate.findByPk(templateId);
+    return template && template.is_active;
+  }
 }
 
-module.exports = EmailService;
+export default EmailService;

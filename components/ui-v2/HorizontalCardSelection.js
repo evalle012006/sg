@@ -15,10 +15,11 @@ const HorizontalCardSelection = memo(({
   const [isUpdating, setIsUpdating] = useState(false);
   const [imageModalOpen, setImageModalOpen] = useState(false);
   const [selectedImage, setSelectedImage] = useState({ url: '', alt: '' });
-  const [brokenImages, setBrokenImages] = useState(new Set());
+  const [imageStates, setImageStates] = useState({}); // { index: { loading: bool, error: bool, url: string } }
   
   const updateTimeoutRef = useRef(null);
   const mountedRef = useRef(true);
+  const imageTimeoutsRef = useRef({});
 
   const sizeConfig = {
     small: {
@@ -31,7 +32,8 @@ const HorizontalCardSelection = memo(({
       control: 'w-4 h-4',
       controlIcon: 'h-3 w-3',
       controlPadding: 'pr-3',
-      placeholderIcon: 'w-5 h-5'
+      placeholderIcon: 'w-5 h-5',
+      spinner: 'h-6 w-6'
     },
     medium: {
       container: 'gap-2',
@@ -43,7 +45,8 @@ const HorizontalCardSelection = memo(({
       control: 'w-5 h-5',
       controlIcon: 'h-3 w-3',
       controlPadding: 'pr-4',
-      placeholderIcon: 'w-6 h-6'
+      placeholderIcon: 'w-6 h-6',
+      spinner: 'h-8 w-8'
     },
     large: {
       container: 'gap-3',
@@ -55,7 +58,8 @@ const HorizontalCardSelection = memo(({
       control: 'w-6 h-6',
       controlIcon: 'h-4 w-4',
       controlPadding: 'pr-5',
-      placeholderIcon: 'w-7 h-7'
+      placeholderIcon: 'w-7 h-7',
+      spinner: 'h-10 w-10'
     },
     'extra-large': {
       container: 'gap-3',
@@ -67,11 +71,62 @@ const HorizontalCardSelection = memo(({
       control: 'w-7 h-7',
       controlIcon: 'h-4 w-4',
       controlPadding: 'pr-6',
-      placeholderIcon: 'w-8 h-8'
+      placeholderIcon: 'w-8 h-8',
+      spinner: 'h-12 w-12'
     }
   };
 
   const currentSize = sizeConfig[size] || sizeConfig.medium;
+
+  // Initialize image states when items change
+  useEffect(() => {
+    const initialStates = {};
+    items.forEach((item, index) => {
+      const hasCustomImage = Boolean(item.imageUrl);
+      initialStates[index] = {
+        loading: hasCustomImage, // Only show loading for custom images
+        error: false,
+        url: hasCustomImage ? item.imageUrl : getDefaultImage('equipment'),
+        hasCustomImage
+      };
+    });
+    setImageStates(initialStates);
+
+    // Clear any existing timeouts
+    Object.values(imageTimeoutsRef.current).forEach(timeout => clearTimeout(timeout));
+    imageTimeoutsRef.current = {};
+  }, [items]);
+
+  // Foolproof timeout: force clear loading state after 3 seconds
+  useEffect(() => {
+    items.forEach((item, index) => {
+      const state = imageStates[index];
+      if (state?.loading) {
+        // Clear any existing timeout for this index
+        if (imageTimeoutsRef.current[index]) {
+          clearTimeout(imageTimeoutsRef.current[index]);
+        }
+
+        // Set new timeout
+        imageTimeoutsRef.current[index] = setTimeout(() => {
+          console.warn(`Image ${index} timeout - forcing default image`);
+          setImageStates(prev => ({
+            ...prev,
+            [index]: {
+              ...prev[index],
+              loading: false,
+              error: true,
+              url: getDefaultImage('equipment')
+            }
+          }));
+        }, 3000); // 3 second timeout
+      }
+    });
+
+    return () => {
+      Object.values(imageTimeoutsRef.current).forEach(timeout => clearTimeout(timeout));
+    };
+  }, [imageStates, items]);
 
   useEffect(() => {
     if (!isUpdating && JSON.stringify(value) !== JSON.stringify(localValue)) {
@@ -138,7 +193,42 @@ const HorizontalCardSelection = memo(({
   }, [handleLocalChange]);
 
   const handleImageError = useCallback((index) => {
-    setBrokenImages(prev => new Set([...prev, index]));
+    console.log(`Image ${index} error - switching to default`);
+    
+    // Clear timeout for this image
+    if (imageTimeoutsRef.current[index]) {
+      clearTimeout(imageTimeoutsRef.current[index]);
+      delete imageTimeoutsRef.current[index];
+    }
+
+    setImageStates(prev => ({
+      ...prev,
+      [index]: {
+        ...prev[index],
+        loading: false,
+        error: true,
+        url: getDefaultImage('equipment')
+      }
+    }));
+  }, []);
+
+  const handleImageLoad = useCallback((index) => {
+    console.log(`Image ${index} loaded successfully`);
+    
+    // Clear timeout for this image
+    if (imageTimeoutsRef.current[index]) {
+      clearTimeout(imageTimeoutsRef.current[index]);
+      delete imageTimeoutsRef.current[index];
+    }
+
+    setImageStates(prev => ({
+      ...prev,
+      [index]: {
+        ...prev[index],
+        loading: false,
+        error: false
+      }
+    }));
   }, []);
 
   useEffect(() => {
@@ -147,15 +237,15 @@ const HorizontalCardSelection = memo(({
       if (updateTimeoutRef.current) {
         clearTimeout(updateTimeoutRef.current);
       }
+      Object.values(imageTimeoutsRef.current).forEach(timeout => clearTimeout(timeout));
     };
   }, []);
 
   return (
     <div className={`flex flex-col w-full ${currentSize.container}`}>
       {items.map((item, index) => {
-        const hasCustomImage = Boolean(item.imageUrl);
-        const isBroken = brokenImages.has(index);
-        const imageUrl = isBroken ? getDefaultImage('equipment') : (item.imageUrl || getDefaultImage('equipment'));
+        const state = imageStates[index] || { loading: false, error: false, url: getDefaultImage('equipment'), hasCustomImage: false };
+        const { loading, error, url, hasCustomImage } = state;
         
         return (
           <label
@@ -169,24 +259,33 @@ const HorizontalCardSelection = memo(({
           >
             <div className={`flex w-full ${currentSize.card} items-center`}>
               <div className={`flex-shrink-0 ${currentSize.image} bg-gray-100 flex items-center justify-center overflow-hidden ${origin == 'room' ? '' : 'rounded-l-xl'} relative group`}>
+                {/* Loading spinner overlay - only show if still loading */}
+                {loading && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-gray-100 z-10">
+                    <div className={`animate-spin rounded-full ${currentSize.spinner} border-b-2 border-blue-600`}></div>
+                  </div>
+                )}
+                
+                {/* Image - always render, hide with opacity if loading */}
                 <img 
-                  src={imageUrl} 
+                  src={url} 
                   alt={item.label}
-                  className={`w-full h-full object-cover ${!hasCustomImage || isBroken ? 'opacity-50' : ''}`}
-                  onError={(e) => {
-                    // Prevent infinite loop - only set broken once per item
-                    if (hasCustomImage && !isBroken) {
-                      handleImageError(index);
-                    }
-                  }}
+                  className={`w-full h-full object-cover transition-opacity duration-300 ${
+                    loading ? 'opacity-0' : 'opacity-100'
+                  } ${!hasCustomImage || error ? 'opacity-50' : ''}`}
+                  onLoad={() => handleImageLoad(index)}
+                  onError={() => handleImageError(index)}
+                  loading="eager"
                 />
-                {hasCustomImage && !isBroken && (
+                
+                {/* Zoom button overlay - only for successfully loaded custom images */}
+                {hasCustomImage && !error && !loading && (
                   <button
                     type="button"
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
-                      setSelectedImage({ url: imageUrl, alt: item.label });
+                      setSelectedImage({ url: item.imageUrl, alt: item.label });
                       setImageModalOpen(true);
                     }}
                     className="absolute inset-0 bg-black bg-opacity-0 hover:bg-opacity-50 transition-all duration-200 flex items-center justify-center opacity-0 group-hover:opacity-100"

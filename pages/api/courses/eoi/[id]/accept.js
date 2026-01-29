@@ -1,8 +1,8 @@
 import { CourseEOI, CourseOffer, Course, Guest } from '../../../../../models';
-// import SendEmail from '../../../../utilities/mail';
 import { v4 as uuidv4 } from 'uuid';
 import moment from 'moment';
-import sendMail from '../../../../../utilities/mail';
+import EmailService from '../../../../../services/booking/emailService';
+import { TEMPLATE_IDS } from '../../../../../services/booking/templateIds';
 
 export default async function handler(req, res) {
     if (req.method !== 'POST') {
@@ -107,13 +107,13 @@ export default async function handler(req, res) {
             contacted_at: new Date()
         });
 
-        // Send acceptance email to guest
+        // ✅ UPDATED: Send acceptance email using EmailService
         try {
             const courseNames = courses.map(c => c.title).join(', ');
-            sendMail(
+            
+            await EmailService.sendWithTemplate(
                 eoi.guest_email,
-                'Your Course Interest Has Been Accepted - Sargood on Collaroy',
-                'course-eoi-accepted',
+                TEMPLATE_IDS.COURSE_EOI_ACCEPTED,
                 {
                     guest_name: eoi.guest_name,
                     course_names: courseNames,

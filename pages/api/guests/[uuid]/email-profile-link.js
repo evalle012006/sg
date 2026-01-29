@@ -1,4 +1,3 @@
-import SendEmail from '../../../../utilities/mail';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '../../auth/[...nextauth]';
 import puppeteer from 'puppeteer';
@@ -7,6 +6,10 @@ import fs from 'fs';
 import path from 'path';
 import { promisify } from 'util';
 import { Address, Guest, HealthInfo } from '../../../../models';
+import { getTemplatePath, getPublicDir } from '../../../../lib/paths';
+import EmailService from '../../../../services/booking/emailService';
+import { TEMPLATE_IDS } from '../../../../services/booking/templateIds';
+
 
 const writeFileAsync = promisify(fs.writeFile);
 const unlinkAsync = promisify(fs.unlink);
@@ -21,6 +24,7 @@ export default async function handler(req, res) {
   const { adminEmail, origin, guestEmail, guestName, guestData, healthData } = req.body;
 
   let tempPdfPath = null;
+  let browser = null;
 
   try {
     const session = await getServerSession(req, res, authOptions);
@@ -65,14 +69,16 @@ export default async function handler(req, res) {
     handlebars.registerHelper('isArray', function(value) { return Array.isArray(value); });
     handlebars.registerHelper('formatArray', function(arr) { return Array.isArray(arr) ? arr.join(', ') : arr; });
 
-    // Read and compile the HTML template for PDF
-    const templatePath = path.join(process.cwd(), 'templates', 'exports', 'guest-profile.html');
+    // Read and compile the HTML template for PDF using path utility
+    const templatePath = getTemplatePath('exports/guest-profile.html');
+    console.log('📄 Using template path:', templatePath);
     const templateHtml = fs.readFileSync(templatePath, 'utf-8');
     const template = handlebars.compile(templateHtml);
 
-    // Read logo files and convert to base64
-    const logoPath = path.join(process.cwd(), 'public', 'sargood-logo.png');
-    const logoFooterPath = path.join(process.cwd(), 'public', 'sargood-footer-image.jpg');
+    // Read logo files and convert to base64 using path utility
+    const publicDir = getPublicDir();
+    const logoPath = path.join(publicDir, 'sargood-logo.png');
+    const logoFooterPath = path.join(publicDir, 'sargood-footer-image.jpg');
     const logo = fs.readFileSync(logoPath);
     const logoFooter = fs.readFileSync(logoFooterPath);
     const logoBase64 = `data:image/png;base64,${logo.toString('base64')}`;
@@ -165,42 +171,72 @@ export default async function handler(req, res) {
     // Generate HTML with the template
     const html = template(templateData);
 
-    // Generate PDF using puppeteer with improved configuration
-    const browser = await puppeteer.launch({ 
+    // Generate PDF using puppeteer - SIMPLE APPROACH
+    console.log('🚀 Starting PDF generation for guest profile...');
+    
+    try {
+      browser = await puppeteer.launch({
         executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+          '--no-first-run',
+          '--no-zygote',
+        ],
         headless: 'new',
         timeout: 60000,
-        args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-gpu',
-            '--disable-software-rasterizer',
-            '--disable-dev-tools',
-            '--no-zygote',
-            '--single-process',
-        ]
-    });
-    const page = await browser.newPage();
-    
-    // Set longer timeout for content loading
-    await page.setDefaultNavigationTimeout(60000);
-    await page.setDefaultTimeout(60000);
-    
-    await page.setContent(html, { 
-      waitUntil: ['networkidle0', 'load'],
-      timeout: 60000 
-    });
-    
-    const pdf = await page.pdf({
-      format: 'A4',
-      printBackground: true,
-      margin: { top: '0', right: '0', bottom: '0', left: '0' }
-    });
-    await browser.close();
+        protocolTimeout: 120000,
+      });
 
-    // Save PDF to temp directory
-    await writeFileAsync(tempPdfPath, pdf);
+      const page = await browser.newPage();
+      
+      console.log('📄 Setting page content...');
+      await page.setContent(html, { 
+        waitUntil: 'networkidle0',
+        timeout: 60000 
+      });
+      
+      console.log('📝 Generating PDF...');
+      const pdf = await page.pdf({
+        format: 'A4',
+        printBackground: true,
+        margin: { top: '0', right: '0', bottom: '0', left: '0' }
+      });
+      
+      console.log('✅ PDF generated, size:', pdf.length, 'bytes');
+      
+      if (pdf.length === 0) {
+        throw new Error('Generated PDF is empty');
+      }
+      
+      await browser.close();
+      browser = null;
+
+      // Save PDF to temp directory
+      await writeFileAsync(tempPdfPath, pdf);
+      
+      // Verify file was written
+      const stats = fs.statSync(tempPdfPath);
+      console.log('✅ PDF saved to disk, size:', stats.size, 'bytes');
+      
+      if (stats.size === 0) {
+        throw new Error('Saved PDF file is empty');
+      }
+
+    } catch (pdfError) {
+      console.error('❌ PDF generation error:', pdfError);
+      if (browser) {
+        try {
+          await browser.close();
+          browser = null;
+        } catch (closeError) {
+          console.error('Browser close error:', closeError);
+        }
+      }
+      throw pdfError;
+    }
 
     // Determine recipient email
     const recipientEmail = guestEmail || guest.email || '';
@@ -213,13 +249,14 @@ export default async function handler(req, res) {
     // Create profile view link
     const profileViewLink = `${process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL}/guests/${uuid}`;
 
-    console.log('Sending guest profile email to:', recipientEmail);
+    console.log('📧 Sending guest profile email to:', recipientEmail);
     
-    // Send email with PDF attachment and profile link
-    await SendEmail(
+    // ✅ Read PDF into memory before queueing
+    const pdfBuffer = fs.readFileSync(tempPdfPath);
+    
+    EmailService.sendWithTemplateAndAttachments(
       recipientEmail,
-      'Your Profile Information - Sargood on Collaroy',
-      'guest-profile', // Email template name
+      TEMPLATE_IDS.GUEST_PROFILE,
       { 
         guestName: recipientName,
         profileViewLink: profileViewLink,
@@ -227,9 +264,11 @@ export default async function handler(req, res) {
       },
       [{
         filename: `${recipientName.replace(/\s+/g, '-').toLowerCase()}-profile.pdf`,
-        path: tempPdfPath,
+        content: pdfBuffer,
       }]
     );
+
+    console.log('✅ Email sent successfully');
 
     // Clean up temporary file
     await unlinkAsync(tempPdfPath);
@@ -241,7 +280,16 @@ export default async function handler(req, res) {
     });
 
   } catch (error) {
-    console.error('Error sending guest profile email:', error);
+    console.error('❌ Error in guest profile email handler:', error);
+    
+    // Clean up browser if still open
+    if (browser) {
+      try {
+        await browser.close();
+      } catch (closeError) {
+        console.error('Browser cleanup error:', closeError);
+      }
+    }
     
     // Clean up temporary file if it exists
     if (tempPdfPath && fs.existsSync(tempPdfPath)) {

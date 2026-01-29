@@ -18,6 +18,7 @@ import {
     mapQuestionTextToKey,
     getCoordinatorInfo
 } from "./question-helper";
+import { getTemplatePath } from "../../lib/paths";
 
 const { Op } = require("sequelize");
 export class BookingService extends EntityBuilder {
@@ -1048,7 +1049,7 @@ export class BookingService extends EntityBuilder {
                 });
 
                 section.QaPairs.forEach(qaPair => {
-                    // FIXED: Package detection using question keys with correct nested structure
+                    // Package detection using question keys
                     if (qaPair.Question?.question_key === QUESTION_KEYS.ACCOMMODATION_PACKAGE_COURSES ||
                         qaPair.Question?.question_key === QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL) {
                         if (qaPair.answer) {
@@ -1056,12 +1057,12 @@ export class BookingService extends EntityBuilder {
                         }
                     }
 
-                    // FIXED: Course detection using question key with correct nested structure
+                    // Course detection using question key
                     if (qaPair.Question?.question_key === QUESTION_KEYS.COURSE_SELECTION) {
                         pdfData.course = this.parseAndConcatenate(qaPair.answer, qaPair.question_type);
                     }
 
-                    // FIXED: Health info using question key with correct nested structure
+                    // Health info using question key
                     if (qaPair.Question?.question_key === QUESTION_KEYS.HEALTH_CONDITIONS) {
                         pdfData.healthinfo_updated_date = moment(qaPair.updatedAt).format('DD/MM/YYYY');
 
@@ -1089,18 +1090,31 @@ export class BookingService extends EntityBuilder {
                 pdfData.package_course_code = 'N/A';
             }
 
+            // Use path utility for template path
+            const templatePath = getTemplatePath('exports/booking.html');
+            console.log('📄 Using template path for booking export:', templatePath);
+            
+            // Create temp directory path
+            const path = require('path');
+            const tempDir = path.join(process.cwd(), 'templates', 'exports', 'temp');
+            const fs = require('fs');
+            if (!fs.existsSync(tempDir)) {
+                fs.mkdirSync(tempDir, { recursive: true });
+            }
+            const pdfPath = path.join(tempDir, booking.uuid + '.pdf');
+
             console.log('calling render function');
             await RenderPDF({
-                htmlTemplatePath: process.env.APP_ROOT + '/templates/exports/booking.html',
+                htmlTemplatePath: templatePath,
                 pdfData: pdfData,
-                pdfPath: process.env.APP_ROOT + '/templates/exports/temp/' + booking.uuid + '.pdf',
+                pdfPath: pdfPath,
             });
 
             console.log('uploading export file');
-            await storage.uploadFile(process.env.APP_ROOT + '/templates/exports/temp/' + booking.uuid + '.pdf', 'exports/' + booking.uuid + '.pdf');
+            await storage.uploadFile(pdfPath, 'exports/' + booking.uuid + '.pdf');
 
             setTimeout(async () => {
-                await unlink(process.env.APP_ROOT + '/templates/exports/temp/' + booking.uuid + '.pdf');
+                await unlink(pdfPath);
                 console.log('removing local export file');
             }, 5000);
 
