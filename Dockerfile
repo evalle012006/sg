@@ -1,32 +1,40 @@
 # Install dependencies only when needed
-FROM node:18-alpine AS deps
+FROM node:18-slim AS deps
 
-# Create app directory
 WORKDIR /app
 
-# Install OS deps for sharp, puppeteer, etc.
-RUN apk add --no-cache \
-  libc6-compat \
-  libstdc++ \
-  chromium \
-  nss \
-  freetype \
-  harfbuzz \
-  ca-certificates \
-  ttf-freefont \
-  build-base \
-  python3 \
-  g++ \
-  make \
-  && npm install -g sharp
+# Install Chromium and required dependencies
+RUN apt-get update && apt-get install -y \
+    chromium \
+    fonts-liberation \
+    libasound2 \
+    libatk-bridge2.0-0 \
+    libatk1.0-0 \
+    libatspi2.0-0 \
+    libcups2 \
+    libdbus-1-3 \
+    libdrm2 \
+    libgbm1 \
+    libgtk-3-0 \
+    libnspr4 \
+    libnss3 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxkbcommon0 \
+    libxrandr2 \
+    xdg-utils \
+    fonts-noto-color-emoji \
+    --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
 
-# Copy only package files to install dependencies
+# Copy package files
 COPY package.json package-lock.json* ./
 
 RUN npm ci
 
 # Rebuild the source code only when needed
-FROM node:18-alpine AS builder
+FROM node:18-slim AS builder
 
 WORKDIR /app
 
@@ -37,32 +45,42 @@ COPY . .
 # Build the Next.js app
 RUN npm run build
 
-# Production image, copy all files and serve
-FROM node:18-alpine AS runner
+# Production image
+FROM node:18-slim AS runner
 
 WORKDIR /app
 
-ENV NODE_ENV production
-
-# Required for puppeteer
+ENV NODE_ENV=production
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-ENV CHROMIUM_PATH=/usr/bin/chromium-browser
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
-# Install chromium for puppeteer
-RUN apk add --no-cache \
-  chromium \
-  nss \
-  freetype \
-  harfbuzz \
-  ca-certificates \
-  ttf-freefont
+# Install only runtime dependencies for Chromium
+RUN apt-get update && apt-get install -y \
+    chromium \
+    fonts-liberation \
+    libasound2 \
+    libatk-bridge2.0-0 \
+    libatk1.0-0 \
+    libcups2 \
+    libdbus-1-3 \
+    libgbm1 \
+    libgtk-3-0 \
+    libnspr4 \
+    libnss3 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxrandr2 \
+    xdg-utils \
+    --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
 
+# Copy built app from builder
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./package.json
 
-# Expose the port the app runs on
+# Expose the port
 EXPOSE 3000
 
 # Start the app

@@ -1,27 +1,16 @@
 import moment from 'moment';
 import { QUESTION_KEYS } from '../services/booking/question-helper';
 
-
-export const getFirstLetters = (str, delimiter = '-') => {
-    if (str && typeof str === 'string') {
-        // Split the string into words
-        const words = str.split(delimiter);
-
-        // Initialize an empty string to store the first letters
-        let firstLetters = "";
-
-        // Iterate through each word
-        words.forEach(word => {
-        // Extract the first letter of each word and concatenate it to the result
-            firstLetters += word.charAt(0);
-        });
-
-        // Return the concatenated first letters
-        return firstLetters.toUpperCase();
-    }
-
-    return str;
-  }
+/**
+ * Get first letters from a string (for abbreviations)
+ */
+export const getFirstLetters = (str, separator = ' ') => {
+  if (!str) return '';
+  return str
+    .split(separator)
+    .map(word => word.charAt(0).toUpperCase())
+    .join('');
+};
 
 export const omitAttribute = (obj, ...props) => {
     const result = { ...obj };
@@ -218,45 +207,6 @@ export const validateEmail = (val) => {
       return val.match(validEmail);
 }
 
-/**
- * Get cancellation type from booking data
- * @param {Object} booking - The booking object with approvalUsages
- * @returns {string|null} - 'Full Charge', 'No Charge', or null
- */
-export const getCancellationType = (booking) => {
-  // If the API already provides it
-  if (booking?.cancellationType) {
-    return booking.cancellationType;
-  }
-  
-  // Otherwise calculate it from approvalUsages
-  if (!booking?.approvalUsages || booking.approvalUsages.length === 0) {
-    return null; // No usage records (old bookings or not cancelled)
-  }
-  
-  const usageStatuses = booking.approvalUsages.map(u => u.status);
-  
-  if (usageStatuses.includes('charged')) {
-    return 'Full Charge';
-  } else if (usageStatuses.includes('cancelled')) {
-    return 'No Charge';
-  }
-  
-  return null;
-};
-
-/**
- * Check if booking is cancelled
- * @param {Object} status - The booking status object
- * @returns {boolean}
- */
-export const isBookingCancelled = (status) => {
-  if (!status) return false;
-  if (isJsonString(status)) {
-    status = JSON.parse(status);
-  }
-  return status.name === 'booking_cancelled' || status.name === 'guest_cancelled';
-};
 
 export const isJsonString = (str) => {
   try {
@@ -337,4 +287,77 @@ export const ensureArrayAnswer = (answer, questionType) => {
     
     // Default: empty array
     return [];
+};
+
+/**
+ * Check if a booking is actually cancelled (not just requested)
+ * @param {Object|string} status - The booking status object or JSON string
+ * @returns {boolean}
+ */
+export const isBookingCancelled = (status) => {
+  try {
+    const statusObj = typeof status === 'string' ? JSON.parse(status) : status;
+    
+    // Only return true for ACTUAL cancellation statuses, not "cancellation_requested"
+    return statusObj && (
+      statusObj.name === 'booking_cancelled' || 
+      statusObj.name === 'guest_cancelled'
+    );
+  } catch (error) {
+    console.error('Error parsing booking status:', error);
+    return false;
+  }
+};
+
+/**
+ * Get the cancellation type (Full Charge or No Charge) based on BookingApprovalUsage records
+ * Only returns a value if there are actual usage records with cancelled/charged status
+ * @param {Object} booking - The booking object
+ * @returns {string|null} - 'Full Charge', 'No Charge', or null
+ */
+export const getCancellationType = (booking) => {
+  try {
+    // First check if booking status is actually cancelled (not just requested)
+    if (!booking || !booking.status) {
+      return null;
+    }
+    
+    const statusObj = typeof booking.status === 'string' 
+      ? JSON.parse(booking.status) 
+      : booking.status;
+    
+    // Only proceed if booking is actually cancelled
+    if (statusObj.name !== 'booking_cancelled' && statusObj.name !== 'guest_cancelled') {
+      return null;
+    }
+    
+    // Check if there are BookingApprovalUsage records
+    if (!booking.approvalUsages || booking.approvalUsages.length === 0) {
+      return null;
+    }
+    
+    // Check the status of the usage records
+    // 'cancelled' status = No Charge (nights returned)
+    // 'charged' status = Full Charge (nights kept as penalty)
+    const hasCancelledUsage = booking.approvalUsages.some(
+      usage => usage.status === 'cancelled'
+    );
+    const hasChargedUsage = booking.approvalUsages.some(
+      usage => usage.status === 'charged'
+    );
+    
+    // Determine cancellation type based on usage records
+    if (hasChargedUsage) {
+      return 'Full Charge';
+    } else if (hasCancelledUsage) {
+      return 'No Charge';
+    }
+    
+    // No processed usage records found
+    return null;
+    
+  } catch (error) {
+    console.error('Error determining cancellation type:', error);
+    return null;
+  }
 };

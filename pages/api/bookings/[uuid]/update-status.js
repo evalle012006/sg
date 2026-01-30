@@ -366,7 +366,6 @@ export default async function handler(req, res) {
                     generateNotifications(booking, 'confirmed', true);
                     break;
                 case 'booking_cancelled':
-                case 'guest_cancelled':
                     // ========================================================
                     // Cancellation Night Logic (supports multiple approvals)
                     // - Full Charge Cancellation: Guest is penalized, nights STAY subtracted (no refund)
@@ -598,7 +597,36 @@ export default async function handler(req, res) {
                         );
                     }
                     
-                    generateNotifications(booking, status.name === 'guest_cancelled' ? 'guest_cancelled' : 'booking_cancelled', true);
+                    generateNotifications(booking, 'booking_cancelled', true);
+                    break;
+                case 'guest_cancelled':
+                    // Update status logs
+                    await Booking.update({ 
+                        status_logs: JSON.stringify(updateStatusLogs(statusLogs, 'guest_canceled')) 
+                    }, { where: { id: booking.id } });
+                    
+                    // ✅ Send guest-initiated cancellation emails using new template IDs
+                    EmailService.sendWithTemplate(
+                        booking.Guest.email,
+                        TEMPLATE_IDS.BOOKING_GUEST_CANCELLATION_REQUEST, // ID: 35
+                        {
+                            guest_name: booking.Guest.first_name,
+                            arrivalDate: booking.preferred_arrival_date ? moment(booking.preferred_arrival_date).format("DD-MM-YYYY") : '-',
+                            departureDate: booking.preferred_departure_date ? moment(booking.preferred_departure_date).format("DD-MM-YYYY") : '-'
+                        }
+                    );
+                    
+                    EmailService.sendWithTemplate(
+                        "info@sargoodoncollaroy.com.au",
+                        TEMPLATE_IDS.BOOKING_GUEST_CANCELLATION_REQUEST_ADMIN, // ID: 36
+                        {
+                            guest_name: booking.Guest.first_name + ' ' + booking.Guest.last_name,
+                            arrivalDate: booking.preferred_arrival_date ? moment(booking.preferred_arrival_date).format("DD-MM-YYYY") : '-',
+                            departureDate: booking.preferred_departure_date ? moment(booking.preferred_departure_date).format("DD-MM-YYYY") : '-'
+                        }
+                    );
+                    
+                    generateNotifications(booking, 'guest_cancelled', true);
                     break;
                 case 'on_hold':
                     await Booking.update({ status_logs: JSON.stringify(updateStatusLogs(statusLogs, 'on_hold')) }, { where: { id: booking.id } });

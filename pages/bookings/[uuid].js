@@ -2094,60 +2094,61 @@ export default function BookingDetail() {
                   )}
                   
                   {/* Package Edit Mode */}
-                  {editingPackage && (
-                    <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
-                      <h4 className="font-medium text-blue-900 mb-3">Update Package</h4>
-                      
-                      {/* Auto-save info message */}
-                      <div className="mb-4 p-3 bg-blue-100 border border-blue-300 rounded-lg flex items-start space-x-2">
-                        <svg className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                        </svg>
-                        <p className="text-sm text-blue-800">
-                          <strong>Auto-save enabled:</strong> The package will be automatically updated when you select a new option from the dropdown.
-                        </p>
-                      </div>
-                      
-                      {loadingPackageOptions ? (
-                        <div className="flex items-center justify-center py-4">
-                          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
-                          <span className="ml-2 text-blue-700">Loading options...</span>
-                        </div>
-                      ) : (
-                        <div className="space-y-3">
-                          <div className="w-full">
-                            <SelectComponent
-                              label="Select Package"
-                              placeholder="Choose a package..."
-                              value={packageOptions.find(opt => opt.value === selectedPackageValue)?.label || ''}
-                              options={packageOptions}
-                              onChange={(selected) => {
-                                setSelectedPackageValue(selected.value);
-                                handleUpdatePackage(selected);
-                              }}
-                              width="100%"
-                            />
+                    {editingPackage && (
+                      <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                        <h4 className="font-medium text-blue-900 mb-3">Update Package</h4>
+                        
+                        {loadingPackageOptions ? (
+                          <div className="flex items-center justify-center py-4">
+                            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+                            <span className="ml-2 text-blue-700">Loading options...</span>
                           </div>
-                          
-                          <div className="flex space-x-2">
-                            <Button
-                              color="outline"
-                              size="small"
-                              label="Cancel"
-                              onClick={handleCancelPackageEdit}
-                            />
-                          </div>
-                          
-                          {/* Show current selection */}
-                          {selectedPackageValue && (
-                            <div className="text-sm text-blue-700 mt-2">
-                              Current: {packageOptions.find(opt => opt.value === selectedPackageValue)?.label}
+                        ) : (
+                          <div className="space-y-3">
+                            <div className="w-full">
+                              <SelectComponent
+                                label="Select Package"
+                                placeholder="Choose a package..."
+                                value={packageOptions.find(opt => opt.value === selectedPackageValue)?.label || ''}
+                                options={packageOptions}
+                                onChange={(selected) => {
+                                  setSelectedPackageValue(selected.value);
+                                }}
+                                width="100%"
+                              />
                             </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
+                            
+                            <div className="flex space-x-2">
+                              <Button
+                                color="primary"
+                                size="small"
+                                label="Save"
+                                onClick={() => {
+                                  const selectedOption = packageOptions.find(opt => opt.value === selectedPackageValue);
+                                  if (selectedOption) {
+                                    handleUpdatePackage(selectedOption);
+                                  }
+                                }}
+                                disabled={!selectedPackageValue || selectedPackageValue === packageQaPairInfo?.currentAnswer}
+                              />
+                              <Button
+                                color="outline"
+                                size="small"
+                                label="Cancel"
+                                onClick={handleCancelPackageEdit}
+                              />
+                            </div>
+                            
+                            {/* Show current selection */}
+                            {selectedPackageValue && (
+                              <div className="text-sm text-blue-700 mt-2">
+                                Selected: {packageOptions.find(opt => opt.value === selectedPackageValue)?.label}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
                 </div>
               );
             })()}

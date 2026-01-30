@@ -6,9 +6,12 @@ services:
     restart: always
     ports:
       - "3000:3000"
+    shm_size: '2gb'  # Critical for Chromium
     environment:
       - NODE_ENV=production
-      # Add other environment variables as needed
+      - PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+      - TEMPLATES_DIR=/app/templates  # Template directory in container
+      - PUBLIC_DIR=/app/public          # Public directory in container
     volumes:
       - .env:/app/.env
       - ./services/credentials:/app/credentials

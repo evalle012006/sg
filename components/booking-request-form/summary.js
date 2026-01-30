@@ -254,8 +254,8 @@ const extractCareAnalysisFromRawData = (rawCareData, datesOfStay, nights) => {
       dayTotal
     });
     
-    const dayTypeLabel = isCheckIn ? 'CHECK-IN' : isCheckOut ? 'CHECK-OUT' : 'MIDDLE';
-    console.log(`📅 ${date} (${rateType}, ${dayTypeLabel}): applicable=${dayTotal}h`);
+    // const dayTypeLabel = isCheckIn ? 'CHECK-IN' : isCheckOut ? 'CHECK-OUT' : 'MIDDLE';
+    // console.log(`📅 ${date} (${rateType}, ${dayTypeLabel}): applicable=${dayTotal}h`);
   });
   
   const totalCareHours = dailyCareDetails.reduce((sum, day) => sum + day.dayTotal, 0);
@@ -518,16 +518,16 @@ const SummaryOfStay = ({
     });
     
     // Log the careAnalysisData prop from parent
-    console.log('📊 SummaryOfStay careAnalysisData prop:', {
-      hasCareAnalysisData: !!careAnalysisData,
-      careAnalysisDataKeys: careAnalysisData ? Object.keys(careAnalysisData) : [],
-      requiresCare: careAnalysisData?.requiresCare,
-      totalHoursPerDay: careAnalysisData?.totalHoursPerDay,
-      hasRawCareData: !!careAnalysisData?.rawCareData,
-      rawCareDataLength: careAnalysisData?.rawCareData?.length,
-      rawCareDataSample: careAnalysisData?.rawCareData?.[0],
-      dataSource: careAnalysisData?.dataSource
-    });
+    // console.log('📊 SummaryOfStay careAnalysisData prop:', {
+    //   hasCareAnalysisData: !!careAnalysisData,
+    //   careAnalysisDataKeys: careAnalysisData ? Object.keys(careAnalysisData) : [],
+    //   requiresCare: careAnalysisData?.requiresCare,
+    //   totalHoursPerDay: careAnalysisData?.totalHoursPerDay,
+    //   hasRawCareData: !!careAnalysisData?.rawCareData,
+    //   rawCareDataLength: careAnalysisData?.rawCareData?.length,
+    //   rawCareDataSample: careAnalysisData?.rawCareData?.[0],
+    //   dataSource: careAnalysisData?.dataSource
+    // });
     
     // Try to find and log care question from all possible locations
     const possibleSectionSources = [
@@ -549,15 +549,15 @@ const SummaryOfStay = ({
           const qKey = pair?.Question?.question_key || pair?.question_key || pair?.questionKey;
           if (qKey === 'when-do-you-require-care') {
             foundCareQuestion = true;
-            console.log(`📊 Found care question at ${source.name}[${sIdx}].qaPairs[${pIdx}]:`, {
-              questionKey: qKey,
-              answerType: typeof pair?.answer,
-              answerIsObject: typeof pair?.answer === 'object',
-              answerHasCareData: pair?.answer?.careData ? true : false,
-              answerPreview: typeof pair?.answer === 'string' 
-                ? pair.answer.substring(0, 150) + '...' 
-                : (pair?.answer?.careData ? `careData[${pair.answer.careData.length}]` : JSON.stringify(pair?.answer).substring(0, 150))
-            });
+            // console.log(`📊 Found care question at ${source.name}[${sIdx}].qaPairs[${pIdx}]:`, {
+            //   questionKey: qKey,
+            //   answerType: typeof pair?.answer,
+            //   answerIsObject: typeof pair?.answer === 'object',
+            //   answerHasCareData: pair?.answer?.careData ? true : false,
+            //   answerPreview: typeof pair?.answer === 'string' 
+            //     ? pair.answer.substring(0, 150) + '...' 
+            //     : (pair?.answer?.careData ? `careData[${pair.answer.careData.length}]` : JSON.stringify(pair?.answer).substring(0, 150))
+            // });
           }
         });
       });
@@ -657,29 +657,29 @@ const SummaryOfStay = ({
       return;
     }
     
-    console.log('📊 Processing care data...', {
-      hasCareAnalysisDataProp: !!careAnalysisData,
-      careAnalysisDataKeys: careAnalysisData ? Object.keys(careAnalysisData) : [],
-      hasRawCareData: !!careAnalysisData?.rawCareData,
-      rawCareDataLength: careAnalysisData?.rawCareData?.length,
-      hasCareData: !!careAnalysisData?.careData,
-      careDataLength: careAnalysisData?.careData?.length,
-      careAnalysisDataType: careAnalysisData ? (isRawCareData(careAnalysisData) ? 'RAW' : isProcessedCareData(careAnalysisData) ? 'PROCESSED' : 'UNKNOWN') : 'NULL',
-      requiresCare: careAnalysisData?.requiresCare,
-      hasFormData: !!availableFormData,
-      formDataPageCount: availableFormData?.length || 0
-    });
+    // console.log('📊 Processing care data...', {
+    //   hasCareAnalysisDataProp: !!careAnalysisData,
+    //   careAnalysisDataKeys: careAnalysisData ? Object.keys(careAnalysisData) : [],
+    //   hasRawCareData: !!careAnalysisData?.rawCareData,
+    //   rawCareDataLength: careAnalysisData?.rawCareData?.length,
+    //   hasCareData: !!careAnalysisData?.careData,
+    //   careDataLength: careAnalysisData?.careData?.length,
+    //   careAnalysisDataType: careAnalysisData ? (isRawCareData(careAnalysisData) ? 'RAW' : isProcessedCareData(careAnalysisData) ? 'PROCESSED' : 'UNKNOWN') : 'NULL',
+    //   requiresCare: careAnalysisData?.requiresCare,
+    //   hasFormData: !!availableFormData,
+    //   formDataPageCount: availableFormData?.length || 0
+    // });
     
     // Priority 1: Check if careAnalysisData prop is already processed
     if (isProcessedCareData(careAnalysisData)) {
-      console.log('📊 Using pre-processed careAnalysisData prop');
+      // console.log('📊 Using pre-processed careAnalysisData prop');
       setProcessedCareAnalysis(careAnalysisData);
       return;
     }
     
     // Priority 2: Check if careAnalysisData prop is raw data that needs processing
     if (isRawCareData(careAnalysisData)) {
-      console.log('📊 Processing raw careAnalysisData prop');
+      // console.log('📊 Processing raw careAnalysisData prop');
       const processed = extractCareAnalysisFromRawData(careAnalysisData, datesOfStay, nights);
       if (processed) {
         setProcessedCareAnalysis(processed);
@@ -690,14 +690,14 @@ const SummaryOfStay = ({
     // Priority 3: Check summary.data.careAnalysis
     if (summary?.data?.careAnalysis) {
       if (isProcessedCareData(summary.data.careAnalysis)) {
-        console.log('📊 Using pre-processed summary.data.careAnalysis');
+        // console.log('📊 Using pre-processed summary.data.careAnalysis');
         setProcessedCareAnalysis(summary.data.careAnalysis);
         return;
       }
       
       // Check for rawCareData within careAnalysis
       if (summary.data.careAnalysis.rawCareData && isRawCareData(summary.data.careAnalysis.rawCareData)) {
-        console.log('📊 Processing summary.data.careAnalysis.rawCareData');
+        // console.log('📊 Processing summary.data.careAnalysis.rawCareData');
         const processed = extractCareAnalysisFromRawData(summary.data.careAnalysis.rawCareData, datesOfStay, nights);
         if (processed) {
           setProcessedCareAnalysis(processed);
@@ -709,13 +709,13 @@ const SummaryOfStay = ({
     // Priority 4: Check bookingData.data.careAnalysis
     if (bookingData?.data?.careAnalysis) {
       if (isProcessedCareData(bookingData.data.careAnalysis)) {
-        console.log('📊 Using pre-processed bookingData.data.careAnalysis');
+        // console.log('📊 Using pre-processed bookingData.data.careAnalysis');
         setProcessedCareAnalysis(bookingData.data.careAnalysis);
         return;
       }
       
       if (bookingData.data.careAnalysis.rawCareData && isRawCareData(bookingData.data.careAnalysis.rawCareData)) {
-        console.log('📊 Processing bookingData.data.careAnalysis.rawCareData');
+        // console.log('📊 Processing bookingData.data.careAnalysis.rawCareData');
         const processed = extractCareAnalysisFromRawData(bookingData.data.careAnalysis.rawCareData, datesOfStay, nights);
         if (processed) {
           setProcessedCareAnalysis(processed);
@@ -726,12 +726,12 @@ const SummaryOfStay = ({
     
     // Priority 5: Extract care data from form data (Redux or prop)
     if (availableFormData && availableFormData.length > 0) {
-      console.log('📊 Attempting to extract care data from form data...');
+      // console.log('📊 Attempting to extract care data from form data...');
       const rawCareFromFormData = extractCareDataFromFormData(availableFormData);
       if (rawCareFromFormData) {
         const processed = extractCareAnalysisFromRawData(rawCareFromFormData, datesOfStay, nights);
         if (processed) {
-          console.log('📊 Successfully extracted and processed care data from form data');
+          // console.log('📊 Successfully extracted and processed care data from form data');
           setProcessedCareAnalysis(processed);
           return;
         }
@@ -739,7 +739,7 @@ const SummaryOfStay = ({
     }
     
     // Priority 6: Extract care data directly from booking sections Q&A pairs
-    console.log('📊 Attempting to extract care data from booking sections...');
+    // console.log('📊 Attempting to extract care data from booking sections...');
     const rawCareFromBooking = extractCareDataFromBooking(bookingData);
     if (rawCareFromBooking) {
       const processed = extractCareAnalysisFromRawData(rawCareFromBooking, datesOfStay, nights);
@@ -772,13 +772,13 @@ const SummaryOfStay = ({
       }
     }
     
-    console.log('📊 Analysis data for PricingTable:', {
-      hasCareData: !!careData,
-      careRequiresCare: careData?.requiresCare,
-      careDailyDetailsCount: careData?.dailyCareDetails?.length,
-      hasCourseData: !!courseData,
-      courseHasCourse: courseData?.hasCourse
-    });
+    // console.log('📊 Analysis data for PricingTable:', {
+    //   hasCareData: !!careData,
+    //   careRequiresCare: careData?.requiresCare,
+    //   careDailyDetailsCount: careData?.dailyCareDetails?.length,
+    //   hasCourseData: !!courseData,
+    //   courseHasCourse: courseData?.hasCourse
+    // });
     
     return { careData, courseData };
   };
@@ -1003,6 +1003,8 @@ const SummaryOfStay = ({
 
   useEffect(() => {
     let summaryData = { ...bookingData };
+
+    console.log("SummaryData:", summaryData);
     
     const currentPackageId = summaryData?.data?.selectedPackageId;
 

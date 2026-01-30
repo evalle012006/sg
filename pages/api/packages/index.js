@@ -177,14 +177,35 @@ export default async function handler(req, res) {
       const whereClause = {};
       const orderClause = [];
 
-      // Apply funder filter
+      // Apply funder filter with mapping
       if (funder) {
-        whereClause.funder = funder;
-        console.log(`📤 Added funder filter: ${funder}`);
+        // Map funder query values to database values
+        const funderLower = funder.toLowerCase();
+        
+        // NDIS funders
+        if (funderLower === 'ndis') {
+          whereClause.funder = 'NDIS';
+          console.log(`📤 Added funder filter: NDIS`);
+        } 
+        // Non-NDIS funders (icare, private pay, etc.)
+        else if (['icare', 'non-ndis', 'private', 'privatepay', 'private-pay'].includes(funderLower)) {
+          whereClause.funder = 'Non-NDIS';
+          console.log(`📤 Added funder filter: Non-NDIS (from ${funder})`);
+        }
+        // If exact match to database values (case-insensitive)
+        else if (funderLower === 'non-ndis') {
+          whereClause.funder = 'Non-NDIS';
+          console.log(`📤 Added funder filter: Non-NDIS`);
+        }
+        // Default: try to use as-is but log a warning
+        else {
+          whereClause.funder = funder;
+          console.warn(`⚠️ Unknown funder type: ${funder}. Searching as-is, but may return no results.`);
+        }
       }
 
       // Apply NDIS package type filter correctly
-      if (funder === 'NDIS' && ndis_package_type) {
+      if (whereClause.funder === 'NDIS' && ndis_package_type) {
         whereClause.ndis_package_type = ndis_package_type;
       }
 
@@ -197,7 +218,7 @@ export default async function handler(req, res) {
       }
 
       // Apply price range filter for Non-NDIS packages only
-      if (priceRange && funder !== 'NDIS') {
+      if (priceRange && whereClause.funder === 'Non-NDIS') {
         try {
           const { min, max } = JSON.parse(priceRange);
           if (min !== undefined || max !== undefined) {

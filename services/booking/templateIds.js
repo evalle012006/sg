@@ -1,3 +1,8 @@
+/**
+ * Email Template ID Constants
+ * Generated: 2025-01-30
+ * Total Templates: 36
+ */
 
 export const TEMPLATE_IDS = {
   // BOOKING
@@ -12,6 +17,10 @@ export const TEMPLATE_IDS = {
   BOOKING_NOTIFY_DATE_OF_STAY: 22, // Booking Notify Date Of Stay
   BOOKING_SUMMARY: 23, // Booking Summary
   ICARE_NIGHTS_UPDATE: 32, // Icare Nights Update
+  
+  // NEW: Guest-initiated cancellation templates
+  BOOKING_GUEST_CANCELLATION_REQUEST: 35, // Booking Guest Cancellation Request (guest email)
+  BOOKING_GUEST_CANCELLATION_REQUEST_ADMIN: 36, // Booking Guest Cancellation Request Admin (admin email)
 
   // GUEST
   GUEST_PROFILE: 31, // Guest Profile

@@ -213,7 +213,7 @@ const HorizontalCardSelection = memo(({
   }, []);
 
   const handleImageLoad = useCallback((index) => {
-    console.log(`Image ${index} loaded successfully`);
+    // console.log(`Image ${index} loaded successfully`);
     
     // Clear timeout for this image
     if (imageTimeoutsRef.current[index]) {

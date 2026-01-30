@@ -25,4 +25,8 @@ export const TEMPLATE_FALLBACK_MAP = {
   32: 'icare-nights-update', // Icare Nights Update
   33: 'reset-password-link', // Reset Password Link
   34: 'team-email-confirmation-link', // Team Email Confirmation Link
+  
+  // NEW: Guest-initiated cancellation templates
+  35: 'booking-guest-cancellation-request', // Booking Guest Cancellation Request
+  36: 'booking-guest-cancellation-request-admin', // Booking Guest Cancellation Request Admin
 };

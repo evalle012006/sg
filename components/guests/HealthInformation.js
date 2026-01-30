@@ -143,7 +143,6 @@ const HealthInformation = ({ healthInfo, healthInfoLastUpdated, ndis, icare }) =
                     </h3>
                   </div>
                   <div className="flex items-center space-x-3">
-                    {getStatusBadge(categoryStatus)}
                     {isExpanded ? (
                       <ChevronUp className="w-5 h-5 text-gray-400" />
                     ) : (
@@ -175,14 +174,14 @@ const HealthInformation = ({ healthInfo, healthInfoLastUpdated, ndis, icare }) =
                             <div className="flex justify-start sm:justify-end">
                               {answer ? (
                                 <StatusBadge 
-                                  type="success" 
+                                  type="error" 
                                   label="Yes" 
                                   showIcon={false}
                                   size="small"
                                 />
                               ) : (
                                 <StatusBadge 
-                                  type="error" 
+                                  type="success" 
                                   label="No" 
                                   showIcon={false}
                                   size="small"

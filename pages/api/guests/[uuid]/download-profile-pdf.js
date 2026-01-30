@@ -4,6 +4,7 @@ import { authOptions } from '../../auth/[...nextauth]';
 import { Address, Guest, HealthInfo } from '../../../../models';
 import path from 'path';
 import { promises as fs } from 'fs';
+import { getTemplatePath, getPublicDir } from '../../../../lib/paths';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -37,10 +38,11 @@ export default async function handler(req, res) {
       return res.status(404).json({ message: 'Guest not found' });
     }
 
-    // Read logo files
-    const logoPath = path.join(process.cwd(), 'public', 'sargood-logo.png');
+    // Read logo files using path utility
+    const publicDir = getPublicDir();
+    const logoPath = path.join(publicDir, 'sargood-logo.png');
     const logoBase64 = await fs.readFile(logoPath, { encoding: 'base64' });
-    const logoFooterPath = path.join(process.cwd(), 'public', 'sargood-footer-image.jpg');
+    const logoFooterPath = path.join(publicDir, 'sargood-footer-image.jpg');
     const logoFooterBase64 = await fs.readFile(logoFooterPath, { encoding: 'base64' });
 
     // Format guest profile data
@@ -140,9 +142,12 @@ export default async function handler(req, res) {
     const filename = `guest-profile-${uuid}-${timestamp}.pdf`;
     const pdfPath = path.join(tempDir, filename);
 
-    // Generate PDF using a guest profile template
+    // Generate PDF using path utility for template
+    const templatePath = getTemplatePath('exports/guest-profile.html');
+    console.log('📄 Using template path:', templatePath);
+
     await RenderPDF({
-        htmlTemplatePath: process.env.APP_ROOT + '/templates/exports/guest-profile.html',
+        htmlTemplatePath: templatePath,
         pdfData: formattedData,
         pdfPath,
         helpers: {
@@ -165,15 +170,28 @@ export default async function handler(req, res) {
         withLetterHead: true
     });
 
+    // Verify PDF was created
+    const stats = await fs.stat(pdfPath);
+    console.log('✅ PDF generated, size:', stats.size, 'bytes');
+    
+    if (stats.size === 0) {
+      throw new Error('Generated PDF is empty');
+    }
+
     // Read generated PDF
     const pdfBuffer = await fs.readFile(pdfPath);
+    
+    if (pdfBuffer.length === 0) {
+      throw new Error('PDF buffer is empty');
+    }
 
     // Cleanup temporary file
     await fs.unlink(pdfPath);
 
-    // Send PDF response
+    // Send PDF response with proper headers
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', pdfBuffer.length);
     res.send(pdfBuffer);
 
   } catch (error) {
