@@ -4,8 +4,7 @@ import dynamic from 'next/dynamic';
 import { 
   Home, Save, Info, Eye, Code, Edit3, Bold, Italic, Underline, 
   AlignLeft, AlignCenter, AlignRight, List, ListOrdered, Link2, 
-  Image as ImageIcon, Type, Palette, Minus, ChevronDown, RefreshCw,
-  X
+  Type, Palette, Minus, ChevronDown, RefreshCw, X, Lock, AlertTriangle
 } from 'lucide-react';
 import TemplateHelperDocumentation from './TemplateHelperDocumentation';
 
@@ -19,10 +18,14 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
   const isViewMode = mode === 'view';
   
   const editorRef = useRef(null);
+  const isUpdatingRef = useRef(false);
+  
   const [name, setName] = useState('');
   const [subject, setSubject] = useState('');
   const [description, setDescription] = useState('');
-  const [content, setContent] = useState('');
+  const [content, setContent] = useState(''); // This stores the full HTML
+  const [editorContent, setEditorContent] = useState(''); // This stores only body content for editing
+  const [htmlWrapper, setHtmlWrapper] = useState(null); // Stores the head/style wrapper
   const [isLoading, setIsLoading] = useState(false);
   const [isPageLoading, setIsPageLoading] = useState(false);
   const [nameError, setNameError] = useState('');
@@ -38,7 +41,7 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
   const [showHelperMenu, setShowHelperMenu] = useState(false);
   const [selectedMergeTag, setSelectedMergeTag] = useState(null);
   const [showHelperModal, setShowHelperModal] = useState(false);
-  
+  const [systemTemplateInfo, setSystemTemplateInfo] = useState(null);
   const [mergeTagsGrouped, setMergeTagsGrouped] = useState({});
   const [isLoadingMergeTags, setIsLoadingMergeTags] = useState(true);
   const [mergeTagsError, setMergeTagsError] = useState(null);
@@ -48,7 +51,64 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
     '#980000', '#ff0000', '#ff9900', '#ffff00', '#00ff00', '#00ffff', '#4a86e8', '#0000ff', '#9900ff', '#ff00ff',
   ];
 
-  // NEW: Fetch dynamic merge tags on component mount
+  // Helper function to check if content is a full HTML document
+  const isFullHtmlDocument = (html) => {
+    if (!html) return false;
+    const trimmed = html.trim().toLowerCase();
+    return trimmed.startsWith('<!doctype') || trimmed.startsWith('<html');
+  };
+
+  // Helper function to extract body content and wrapper from full HTML
+  const parseHtmlDocument = (html) => {
+    if (!html) return { bodyContent: '', wrapper: null };
+    
+    if (!isFullHtmlDocument(html)) {
+      // Not a full document, return as-is
+      return { bodyContent: html, wrapper: null };
+    }
+
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, 'text/html');
+      
+      // Extract body content
+      const bodyContent = doc.body ? doc.body.innerHTML : html;
+      
+      // Extract head content for wrapper
+      const headContent = doc.head ? doc.head.innerHTML : '';
+      
+      // Store wrapper info
+      const wrapper = {
+        hasDoctype: html.trim().toLowerCase().startsWith('<!doctype'),
+        headContent: headContent,
+        htmlLang: doc.documentElement?.getAttribute('lang') || 'en'
+      };
+      
+      return { bodyContent, wrapper };
+    } catch (error) {
+      console.error('Error parsing HTML document:', error);
+      return { bodyContent: html, wrapper: null };
+    }
+  };
+
+  // Helper function to reconstruct full HTML from body content
+  const reconstructFullHtml = (bodyContent, wrapper) => {
+    if (!wrapper) {
+      // Not a full document, return body content as-is
+      return bodyContent;
+    }
+
+    return `<!DOCTYPE html>
+<html lang="${wrapper.htmlLang}">
+<head>
+${wrapper.headContent}
+</head>
+<body>
+${bodyContent}
+</body>
+</html>`;
+  };
+
   useEffect(() => {
     fetchMergeTags();
   }, []);
@@ -58,11 +118,12 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
       fetchTemplate();
     } else {
       setContent('');
+      setEditorContent('');
+      setHtmlWrapper(null);
       setIsPageLoading(false);
     }
   }, [templateId, isAddMode]);
 
-  // NEW: Fetch dynamic merge tags from API
   const fetchMergeTags = async () => {
     try {
       setIsLoadingMergeTags(true);
@@ -86,7 +147,6 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
       setMergeTagsError(error.message);
       toast.error('Failed to load merge tags. Using defaults.');
       
-      // Fallback to basic merge tags if API fails
       setMergeTagsGrouped({
         'Guest Information': [
           { label: 'Guest Name', value: '{{guest_name}}', description: 'Full name of the guest' },
@@ -116,7 +176,25 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
           setName(template.name || '');
           setSubject(template.subject || '');
           setDescription(template.description || '');
-          setContent(template.html_content || '');
+          
+          // Parse the HTML content
+          const htmlContent = template.html_content || '';
+          setContent(htmlContent);
+          
+          const { bodyContent, wrapper } = parseHtmlDocument(htmlContent);
+          setEditorContent(bodyContent);
+          setHtmlWrapper(wrapper);
+          
+          if (template.is_system) {
+            setSystemTemplateInfo({
+              isSystem: true,
+              templateCode: template.template_code,
+              requiredVariables: template.required_variables || [],
+              variableDescriptions: template.variable_description || {}
+            });
+          } else {
+            setSystemTemplateInfo(null);
+          }
         }
       }
     } catch (error) {
@@ -126,6 +204,16 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
       setIsPageLoading(false);
     }
   };
+
+  // Sync editor content to the contentEditable div
+  useEffect(() => {
+    if (editorRef.current && viewMode === 'editor' && !isUpdatingRef.current) {
+      const currentContent = editorRef.current.innerHTML;
+      if (currentContent !== editorContent) {
+        editorRef.current.innerHTML = editorContent || '';
+      }
+    }
+  }, [viewMode, templateData, editorContent]);
 
   const validateFields = () => {
     let isValid = true;
@@ -180,7 +268,7 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
   };
 
   const insertList = (tagName) => {
-      const listTemplate = `{{#if (isNotEmpty ${tagName})}}
+    const listTemplate = `{{#if (isNotEmpty ${tagName})}}
     <ul>
       {{#each ${tagName}}}
       <li>{{this}}</li>
@@ -189,17 +277,17 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
     {{else}}
     <p>No items</p>
     {{/if}}`;
-      
-      if (editorRef.current) {
-        editorRef.current.focus();
-        document.execCommand('insertHTML', false, listTemplate);
-        updateContent();
-      }
-      setShowHelperMenu(false);
+    
+    if (editorRef.current) {
+      editorRef.current.focus();
+      document.execCommand('insertHTML', false, listTemplate);
+      updateContent();
+    }
+    setShowHelperMenu(false);
   };
 
   const insertTable = (tagName) => {
-      const tableTemplate = `{{#if (isNotEmpty ${tagName})}}
+    const tableTemplate = `{{#if (isNotEmpty ${tagName})}}
     <table border="1" cellpadding="8" cellspacing="0" style="border-collapse: collapse; width: 100%;">
       <thead>
         <tr style="background-color: #f0f0f0;">
@@ -222,16 +310,16 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
     <p>No data available</p>
     {{/if}}`;
 
-      if (editorRef.current) {
-        editorRef.current.focus();
-        document.execCommand('insertHTML', false, tableTemplate);
-        updateContent();
-      }
-      setShowHelperMenu(false);
+    if (editorRef.current) {
+      editorRef.current.focus();
+      document.execCommand('insertHTML', false, tableTemplate);
+      updateContent();
+    }
+    setShowHelperMenu(false);
   };
 
   const insertConditional = (tagName) => {
-      const conditionalTemplate = `{{#if ${tagName}}}
+    const conditionalTemplate = `{{#if ${tagName}}}
     <div>
       <p>${tagName}: {{${tagName}}}</p>
     </div>
@@ -239,12 +327,12 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
     <p>Not provided</p>
     {{/if}}`;
 
-      if (editorRef.current) {
-        editorRef.current.focus();
-        document.execCommand('insertHTML', false, conditionalTemplate);
-        updateContent();
-      }
-      setShowHelperMenu(false);
+    if (editorRef.current) {
+      editorRef.current.focus();
+      document.execCommand('insertHTML', false, conditionalTemplate);
+      updateContent();
+    }
+    setShowHelperMenu(false);
   };
 
   const applyColor = (color) => {
@@ -264,81 +352,32 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
 
   const updateContent = () => {
     if (editorRef.current) {
-      setContent(editorRef.current.innerHTML);
-    }
-  };
-
-  useEffect(() => {
-    if (editorRef.current && content) {
-      if (editorRef.current.innerHTML !== content) {
-        editorRef.current.innerHTML = content;
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    if (editorRef.current && content && !isAddMode) {
-      editorRef.current.innerHTML = content;
-    }
-  }, [templateData]);
-
-  // Sync editor content when switching back to editor view
-  useEffect(() => {
-    if (viewMode === 'editor' && editorRef.current && content) {
-      // Only update if the content has actually changed to avoid cursor jumping
-      if (editorRef.current.innerHTML !== content) {
-        editorRef.current.innerHTML = content;
-      }
-    }
-  }, [viewMode, content]);
-
-  // Update toolbar state based on cursor position
-  const updateToolbarState = () => {
-    if (!editorRef.current || isViewMode) return;
-
-    try {
-      setToolbarState({
-        bold: document.queryCommandState('bold'),
-        italic: document.queryCommandState('italic'),
-        underline: document.queryCommandState('underline'),
-        fontSize: document.queryCommandValue('fontSize') || '3'
+      isUpdatingRef.current = true;
+      const newEditorContent = editorRef.current.innerHTML;
+      setEditorContent(newEditorContent);
+      
+      // Reconstruct full HTML if we have a wrapper
+      const fullHtml = reconstructFullHtml(newEditorContent, htmlWrapper);
+      setContent(fullHtml);
+      
+      requestAnimationFrame(() => {
+        isUpdatingRef.current = false;
       });
-    } catch (error) {
-      // Ignore errors when commands are not available
     }
   };
 
-  // Add event listeners to track cursor/selection changes
-  useEffect(() => {
-    const editor = editorRef.current;
-    if (!editor || isViewMode) return;
-
-    const handleSelectionChange = () => {
-      // Only update if the selection is within our editor
-      const selection = window.getSelection();
-      if (selection && selection.anchorNode) {
-        const isInEditor = editor.contains(selection.anchorNode);
-        if (isInEditor) {
-          updateToolbarState();
-        }
-      }
-    };
-
-    // Listen for selection changes
-    document.addEventListener('selectionchange', handleSelectionChange);
-    // Also update on mouse up and key up within the editor
-    editor.addEventListener('mouseup', updateToolbarState);
-    editor.addEventListener('keyup', updateToolbarState);
-
-    return () => {
-      document.removeEventListener('selectionchange', handleSelectionChange);
-      editor.removeEventListener('mouseup', updateToolbarState);
-      editor.removeEventListener('keyup', updateToolbarState);
-    };
-  }, [isViewMode, viewMode]);
+  // Handle code view changes
+  const handleCodeChange = (newCode) => {
+    setContent(newCode);
+    
+    // Re-parse to update editor content
+    const { bodyContent, wrapper } = parseHtmlDocument(newCode);
+    setEditorContent(bodyContent);
+    setHtmlWrapper(wrapper);
+  };
 
   const handleEditorFocus = () => {
-    // Don't clear content on focus - only affects placeholder display via CSS
+    // Don't clear content on focus
   };
 
   const handleSave = async () => {
@@ -350,6 +389,7 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
     setIsLoading(true);
 
     try {
+      // Use the full content (with wrapper if applicable)
       const html = content;
       
       const templatePayload = {
@@ -373,8 +413,25 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
         body: JSON.stringify(templatePayload)
       });
 
+      const result = await response.json();
+
       if (!response.ok) {
-        throw new Error('Failed to save template');
+        if (result.is_system) {
+          if (result.missing_variables && result.missing_variables.length > 0) {
+            toast.error(
+              <div>
+                <strong>Required Variables Missing</strong>
+                <p className="text-sm mt-1">{result.message}</p>
+              </div>,
+              { autoClose: 8000 }
+            );
+          } else {
+            toast.error(result.message || 'Failed to save template');
+          }
+        } else {
+          throw new Error(result.message || 'Failed to save template');
+        }
+        return;
       }
 
       toast.success('Email template saved successfully');
@@ -400,12 +457,22 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col" style={{ height: '100vh', overflow: 'hidden' }}>
-      {/* Header */}
-      <div className="bg-white border-b px-6 py-4 flex-shrink-0">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-2 text-sm text-gray-600">
-            <Home className="w-4 h-4" />
+    <div className="flex flex-col bg-gray-50 min-h-screen w-full">
+      {/* Global styles for editor placeholder */}
+      <style>{`
+        .email-editor[data-placeholder]:empty:before {
+          content: attr(data-placeholder);
+          color: #999;
+          font-style: italic;
+          pointer-events: none;
+        }
+      `}</style>
+
+      {/* Header - Responsive */}
+      <div className="bg-white border-b px-4 md:px-6 py-3 md:py-4 flex-shrink-0">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="flex items-center flex-wrap gap-2 text-xs sm:text-sm text-gray-600">
+            <Home className="w-3 h-3 sm:w-4 sm:h-4" />
             <button 
               onClick={onCancel}
               className="hover:text-blue-600 transition-colors"
@@ -418,15 +485,21 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
               {isEditMode && 'EDIT TEMPLATE'}
               {isViewMode && 'VIEW TEMPLATE'}
             </span>
+            {systemTemplateInfo && systemTemplateInfo.isSystem && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800">
+                <Lock className="w-3 h-3 mr-1" />
+                SYSTEM
+              </span>
+            )}
           </div>
           
           {!isViewMode && (
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 sm:gap-3">
               <Button
                 type="button"
                 color="primary"
                 size="medium"
-                label={isLoading ? 'Saving...' : 'Save Template'}
+                label={isLoading ? 'Saving...' : 'Save'}
                 onClick={handleSave}
                 disabled={isLoading}
                 icon={<Save className="w-4 h-4" />}
@@ -444,9 +517,68 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
         </div>
       </div>
 
-      {/* Template Details Section */}
-      <div className="bg-white border-b px-6 py-4 flex-shrink-0">
-        <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-4">
+      {/* System Template Protection Notice - Responsive */}
+      {systemTemplateInfo && systemTemplateInfo.isSystem && (
+        <div className="bg-yellow-50 border-l-4 border-yellow-400 px-4 md:px-6 py-3 md:py-4 flex-shrink-0">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="h-5 w-5 text-yellow-400 flex-shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <h3 className="text-sm font-medium text-yellow-800 mb-1">
+                System Template - Protected
+              </h3>
+              <div className="text-xs sm:text-sm text-yellow-700 space-y-2">
+                <p>
+                  This is a system-critical template (<code className="px-1 py-0.5 bg-yellow-100 rounded font-mono text-xs">{systemTemplateInfo.templateCode}</code>) that cannot be deleted or deactivated.
+                </p>
+                {systemTemplateInfo.requiredVariables.length > 0 && (
+                  <div className="bg-yellow-100 rounded-lg p-2 sm:p-3">
+                    <p className="font-medium mb-2">Required Variables (must remain):</p>
+                    <ul className="space-y-1 text-xs">
+                      {systemTemplateInfo.requiredVariables.map((varName) => (
+                        <li key={varName} className="break-all">
+                          <code className="px-1 py-0.5 bg-white rounded font-mono">{`{{${varName}}}`}</code>
+                          {systemTemplateInfo.variableDescriptions[varName] && (
+                            <span className="ml-2 text-yellow-600">
+                              - {systemTemplateInfo.variableDescriptions[varName]}
+                            </span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                  <div className="flex items-start gap-2 bg-yellow-50 rounded p-2">
+                    <span className="text-green-600 flex-shrink-0">✓</span>
+                    <span>You can modify HTML, CSS, and appearance</span>
+                  </div>
+                  <div className="flex items-start gap-2 bg-yellow-50 rounded p-2">
+                    <span className="text-red-600 flex-shrink-0">✗</span>
+                    <span>Cannot delete or remove required variables</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Full HTML Document Notice */}
+      {htmlWrapper && !isViewMode && (
+        <div className="bg-blue-50 border-l-4 border-blue-400 px-4 md:px-6 py-2 md:py-3 flex-shrink-0">
+          <div className="flex items-center gap-2 text-xs sm:text-sm text-blue-700">
+            <Info className="h-4 w-4 flex-shrink-0" />
+            <span>
+              <strong>Full HTML Document:</strong> This template contains head/style sections. 
+              The visual editor shows only the body content. Use <strong>HTML view</strong> to edit styles and head content.
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Template Details Section - Responsive Grid */}
+      <div className="bg-white border-b px-4 md:px-6 py-3 md:py-4 flex-shrink-0">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
           <TextField
             label="Template Name"
             value={name}
@@ -475,13 +607,13 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
         </div>
       </div>
 
-      {/* View Mode Switcher */}
-      <div className="bg-white border-b px-6 py-3 flex-shrink-0">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div className="flex gap-2">
+      {/* View Mode Switcher - Responsive */}
+      <div className="bg-white border-b px-4 md:px-6 py-2 md:py-3 flex-shrink-0">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="flex gap-2 overflow-x-auto">
             <button
               onClick={() => setViewMode('editor')}
-              className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
+              className={`px-3 py-2 rounded-lg flex items-center gap-2 transition-colors whitespace-nowrap text-sm ${
                 viewMode === 'editor'
                   ? 'bg-blue-600 text-white'
                   : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
@@ -489,22 +621,22 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
               disabled={isViewMode}
             >
               <Edit3 className="w-4 h-4" />
-              Editor
+              <span className="hidden sm:inline">Editor</span>
             </button>
             <button
               onClick={() => setViewMode('preview')}
-              className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
+              className={`px-3 py-2 rounded-lg flex items-center gap-2 transition-colors whitespace-nowrap text-sm ${
                 viewMode === 'preview'
                   ? 'bg-blue-600 text-white'
                   : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
               }`}
             >
               <Eye className="w-4 h-4" />
-              Preview
+              <span className="hidden sm:inline">Preview</span>
             </button>
             <button
               onClick={() => setViewMode('code')}
-              className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
+              className={`px-3 py-2 rounded-lg flex items-center gap-2 transition-colors whitespace-nowrap text-sm ${
                 viewMode === 'code'
                   ? 'bg-blue-600 text-white'
                   : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
@@ -512,80 +644,68 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
               disabled={isViewMode}
             >
               <Code className="w-4 h-4" />
-              HTML
+              <span className="hidden sm:inline">HTML</span>
             </button>
           </div>
 
           {!isViewMode && (
-            <div className="flex gap-2">
+            <div className="flex gap-2 overflow-x-auto">
               <button
                 onClick={() => setShowMergeTags(!showMergeTags)}
-                className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
+                className={`px-3 py-2 rounded-lg flex items-center gap-2 transition-colors whitespace-nowrap text-sm ${
                   showMergeTags
                     ? 'bg-green-600 text-white'
                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                 }`}
               >
                 <Type className="w-4 h-4" />
-                {showMergeTags ? 'Hide' : 'Show'} Merge Tags
+                <span className="hidden sm:inline">{showMergeTags ? 'Hide' : 'Show'} Tags</span>
+                <span className="sm:hidden">Tags</span>
               </button>
               <button
                 onClick={fetchMergeTags}
-                className="px-4 py-2 rounded-lg flex items-center gap-2 bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
+                className="px-3 py-2 rounded-lg flex items-center gap-2 bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors text-sm"
                 title="Refresh merge tags"
                 disabled={isLoadingMergeTags}
               >
                 <RefreshCw className={`w-4 h-4 ${isLoadingMergeTags ? 'animate-spin' : ''}`} />
               </button>
-              {/* Help/Documentation Button */}
-              <div className="ml-auto px-2 border-l border-gray-200">
-                  <button
-                    onClick={() => setShowHelperModal(true)}
-                    className="flex items-center gap-2 px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors"
-                    title="View helper guide"
-                  >
-                    <svg 
-                      className="w-5 h-5" 
-                      fill="none" 
-                      stroke="currentColor" 
-                      viewBox="0 0 24 24"
-                    >
-                      <path 
-                        strokeLinecap="round" 
-                        strokeLinejoin="round" 
-                        strokeWidth={2} 
-                        d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" 
-                      />
-                    </svg>
-                    <span>Help</span>
-                  </button>
-                </div>
-              </div>
+              <button
+                onClick={() => setShowHelperModal(true)}
+                className="flex items-center gap-2 px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors text-sm"
+                title="View helper guide"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span className="hidden sm:inline">Help</span>
+              </button>
+            </div>
           )}
         </div>
       </div>
 
-      {/* Main Content Area */}
-      <div className="flex-1 overflow-hidden flex">
-        {/* Merge Tags Sidebar */}
+      {/* Main Content Area - Responsive Flex Layout */}
+      <div className="flex flex-col lg:flex-row flex-1 min-h-0 overflow-hidden">
+        {/* Merge Tags Sidebar - Responsive */}
         {showMergeTags && !isViewMode && (
-          <div className="w-80 bg-white border-r overflow-y-auto flex-shrink-0">
-            <div className="p-4">
-              <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                <Type className="w-5 h-5" />
+          <div className="w-full lg:w-80 bg-white border-b lg:border-b-0 lg:border-r flex-shrink-0 overflow-y-auto">
+            <div className="p-4 max-h-96 lg:max-h-full overflow-y-auto">
+              <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2 text-sm lg:text-base sticky top-0 bg-white pb-2">
+                <Type className="w-4 h-4 lg:w-5 lg:h-5" />
                 Merge Tags
               </h3>
               
               {isLoadingMergeTags && (
                 <div className="flex items-center justify-center py-8">
                   <Spinner />
-                  <span className="ml-2 text-sm text-gray-600">Loading merge tags...</span>
+                  <span className="ml-2 text-sm text-gray-600">Loading...</span>
                 </div>
               )}
 
               {mergeTagsError && (
                 <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4">
-                  <p className="text-sm text-yellow-800">
+                  <p className="text-xs sm:text-sm text-yellow-800">
                     <Info className="w-4 h-4 inline mr-1" />
                     {mergeTagsError}
                   </p>
@@ -594,7 +714,7 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
               
               {!isLoadingMergeTags && Object.entries(mergeTagsGrouped).map(([category, tags]) => (
                 <div key={category} className="mb-6">
-                  <h4 className="text-sm font-medium text-gray-700 mb-2 uppercase tracking-wider">
+                  <h4 className="text-xs font-medium text-gray-700 mb-2 uppercase tracking-wider">
                     {category}
                   </h4>
                   <div className="space-y-1">
@@ -605,8 +725,8 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
                         className="w-full text-left px-3 py-2 rounded hover:bg-gray-50 transition-colors"
                         title={tag.description}
                       >
-                        <div className="font-medium text-sm text-gray-900">{tag.label}</div>
-                        <div className="text-xs text-gray-500 mt-0.5">{tag.value}</div>
+                        <div className="font-medium text-xs sm:text-sm text-gray-900">{tag.label}</div>
+                        <div className="text-xs text-gray-500 mt-0.5 font-mono break-all">{tag.value}</div>
                         {tag.description && (
                           <div className="text-xs text-gray-400 mt-0.5">{tag.description}</div>
                         )}
@@ -616,19 +736,20 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
                 </div>
               ))}
 
+              {/* Helper Menu Modal */}
               {showHelperMenu && selectedMergeTag && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
-                  <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
+                <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+                  <div className="bg-white rounded-lg shadow-xl p-4 sm:p-6 max-w-md w-full mx-4">
                     <div className="flex justify-between items-start mb-4">
-                      <div>
-                        <h3 className="text-lg font-semibold text-gray-900">
+                      <div className="flex-1 min-w-0">
+                        <h3 className="text-base sm:text-lg font-semibold text-gray-900 break-words">
                           Insert: {selectedMergeTag.label}
                         </h3>
-                        <p className="text-sm text-gray-500 mt-1">{selectedMergeTag.value}</p>
+                        <p className="text-xs sm:text-sm text-gray-500 mt-1 font-mono break-all">{selectedMergeTag.value}</p>
                       </div>
                       <button
                         onClick={() => setShowHelperMenu(false)}
-                        className="text-gray-400 hover:text-gray-600"
+                        className="text-gray-400 hover:text-gray-600 flex-shrink-0 ml-2"
                       >
                         <X className="w-5 h-5" />
                       </button>
@@ -640,7 +761,7 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
                         className="w-full text-left px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
                       >
                         <div className="font-medium text-sm text-gray-900">Simple Insert</div>
-                        <div className="text-xs text-gray-500 mt-1">
+                        <div className="text-xs text-gray-500 mt-1 font-mono break-all">
                           Insert as: {selectedMergeTag.value}
                         </div>
                       </button>
@@ -691,7 +812,7 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
 
                     <div className="mt-4 pt-4 border-t border-gray-200">
                       <p className="text-xs text-gray-500">
-                        💡 Tip: You can also edit these in Code View for full customization
+                        💡 Tip: Edit in Code View for full customization
                       </p>
                     </div>
                   </div>
@@ -714,11 +835,11 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
           </div>
         )}
 
-        {/* Editor Area */}
-        <div className="flex-1 overflow-hidden flex flex-col">
-          {/* Toolbar */}
+        {/* Editor Area - Responsive */}
+        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+          {/* Toolbar - Responsive with horizontal scroll */}
           {viewMode === 'editor' && !isViewMode && (
-            <div className="bg-white border-b px-4 py-2 flex-shrink-0 overflow-x-auto">
+            <div className="bg-white border-b px-2 sm:px-4 py-2 flex-shrink-0 overflow-x-auto sticky top-0 z-10">
               <div className="flex items-center gap-1 min-w-max">
                 {/* Text Formatting */}
                 <div className="flex items-center gap-1 pr-2 border-r border-gray-200">
@@ -749,7 +870,7 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
                 <div className="flex items-center gap-1 px-2 border-r border-gray-200">
                   <select
                     onChange={(e) => execCommand('fontSize', e.target.value)}
-                    className="text-sm border border-gray-300 rounded px-2 py-1"
+                    className="text-xs sm:text-sm border border-gray-300 rounded px-2 py-1"
                     defaultValue="3"
                   >
                     <option value="1">Small</option>
@@ -851,25 +972,25 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
                   
                   {showLinkDialog && (
                     <div className="absolute top-full left-0 mt-1 bg-white border border-gray-300 rounded-lg shadow-lg p-4 z-10 w-80">
-                      <h4 className="font-medium mb-3">Insert Link</h4>
+                      <h4 className="font-medium mb-3 text-sm">Insert Link</h4>
                       <input
                         type="text"
                         placeholder="Link text"
                         value={linkText}
                         onChange={(e) => setLinkText(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded mb-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full px-3 py-2 border border-gray-300 rounded mb-2 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                       />
                       <input
                         type="url"
                         placeholder="https://example.com"
                         value={linkUrl}
                         onChange={(e) => setLinkUrl(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full px-3 py-2 border border-gray-300 rounded mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                       />
                       <div className="flex gap-2">
                         <button
                           onClick={insertLink}
-                          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex-1"
+                          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex-1 text-sm"
                         >
                           Insert
                         </button>
@@ -879,7 +1000,7 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
                             setLinkUrl('');
                             setLinkText('');
                           }}
-                          className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+                          className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm"
                         >
                           Cancel
                         </button>
@@ -902,27 +1023,20 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
             </div>
           )}
 
-          {/* Editor View */}
+          {/* Editor View - FIXED: Now uses editorContent (body only) */}
           {viewMode === 'editor' && (
-            <div className="flex-1 overflow-auto bg-gray-50 p-6">
-              <div className="max-w-4xl mx-auto bg-white border border-gray-300 rounded-lg shadow-sm min-h-full">
-                <style>{`
-                  .email-editor:empty:before {
-                    content: 'Start writing your email template here...';
-                    color: #999;
-                    font-style: italic;
-                  }
-                  .email-editor:focus:before {
-                    content: '';
-                  }
-                `}</style>
+            <div className="bg-gray-50 p-3 sm:p-4 md:p-6 flex-1 w-full overflow-auto">
+              <div className="max-w-4xl mx-auto bg-white border border-gray-300 rounded-lg shadow-sm">
                 <div
                   ref={editorRef}
                   contentEditable={!isViewMode}
                   onInput={updateContent}
+                  onBlur={updateContent}
                   onFocus={handleEditorFocus}
-                  className="email-editor p-8 min-h-[500px] focus:outline-none"
+                  suppressContentEditableWarning={true}
+                  className="email-editor p-4 sm:p-6 md:p-8 min-h-[400px] sm:min-h-[500px] focus:outline-none"
                   dir="ltr"
+                  data-placeholder="Start writing your email template here..."
                   style={{
                     fontFamily: 'Arial, Helvetica, sans-serif',
                     fontSize: '14px',
@@ -934,30 +1048,42 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
             </div>
           )}
 
-          {/* Preview View */}
+          {/* Preview View - Uses iframe for full HTML documents */}
           {viewMode === 'preview' && (
-            <div className="flex-1 overflow-auto bg-gray-50 p-6">
+            <div className="bg-gray-50 p-3 sm:p-4 md:p-6 flex-1 w-full overflow-auto">
               <div className="max-w-4xl mx-auto">
-                <div className="bg-gray-100 rounded-lg p-6 mb-6">
-                  <div className="bg-white rounded shadow-sm p-4 mb-2">
-                    <p className="text-sm text-gray-600 mb-1"><strong>Subject:</strong></p>
-                    <p className="text-lg font-semibold text-gray-900">{subject || 'No subject'}</p>
+                <div className="bg-gray-100 rounded-lg p-3 sm:p-4 md:p-6 mb-4 md:mb-6">
+                  <div className="bg-white rounded shadow-sm p-3 sm:p-4 mb-2">
+                    <p className="text-xs sm:text-sm text-gray-600 mb-1"><strong>Subject:</strong></p>
+                    <p className="text-base sm:text-lg font-semibold text-gray-900 break-words">{subject || 'No subject'}</p>
                   </div>
                 </div>
                 
-                <div className="bg-white border border-gray-300 rounded-lg shadow-sm p-8">
-                  <div 
-                    dangerouslySetInnerHTML={{ __html: getPreviewContent() }}
-                    style={{ 
-                      fontFamily: 'Arial, Helvetica, sans-serif',
-                      fontSize: '14px',
-                      lineHeight: '1.6',
-                      color: '#333'
-                    }}
-                  />
-                </div>
+                {/* Use iframe for full HTML documents to properly render styles */}
+                {htmlWrapper ? (
+                  <div className="bg-white border border-gray-300 rounded-lg shadow-sm overflow-hidden">
+                    <iframe
+                      srcDoc={getPreviewContent()}
+                      title="Email Preview"
+                      className="w-full min-h-[500px] border-0"
+                      sandbox="allow-same-origin"
+                    />
+                  </div>
+                ) : (
+                  <div className="bg-white border border-gray-300 rounded-lg shadow-sm p-4 sm:p-6 md:p-8">
+                    <div 
+                      dangerouslySetInnerHTML={{ __html: getPreviewContent() }}
+                      style={{ 
+                        fontFamily: 'Arial, Helvetica, sans-serif',
+                        fontSize: '14px',
+                        lineHeight: '1.6',
+                        color: '#333'
+                      }}
+                    />
+                  </div>
+                )}
                 
-                <div className="mt-6 text-center text-sm text-gray-500">
+                <div className="mt-4 md:mt-6 text-center text-xs sm:text-sm text-gray-500">
                   <Info className="w-4 h-4 inline mr-1" />
                   This is how your email will appear to recipients
                 </div>
@@ -965,18 +1091,14 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
             </div>
           )}
 
-          {/* Code View */}
+          {/* Code View - Shows full HTML including head/styles */}
           {viewMode === 'code' && (
-            <div className="flex-1 p-4 bg-gray-50 overflow-auto">
+            <div className="p-3 sm:p-4 bg-gray-50 flex-1 w-full overflow-auto">
               <div className="max-w-4xl mx-auto">
                 <textarea
                   value={content}
-                  onChange={(e) => {
-                    const newContent = e.target.value;
-                    setContent(newContent);
-                    // Don't update editor ref immediately - wait until switching back to editor view
-                  }}
-                  className="w-full h-[600px] p-4 font-mono text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none bg-white"
+                  onChange={(e) => handleCodeChange(e.target.value)}
+                  className="w-full h-[400px] sm:h-[500px] md:h-[600px] p-3 sm:p-4 font-mono text-xs sm:text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none bg-white"
                   placeholder="HTML code will appear here..."
                   disabled={isViewMode}
                   style={{ fontFamily: 'Monaco, Courier, monospace' }}
@@ -987,13 +1109,18 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
         </div>
       </div>
 
-      {/* Footer */}
-      <div className="px-6 py-3 bg-gray-50 border-t border-gray-200 flex-shrink-0">
-        <p className="text-xs text-gray-600 flex items-center max-w-7xl mx-auto">
-          <Info className="w-3 h-3 mr-1.5 flex-shrink-0" />
-          {viewMode === 'editor' && 'Use the toolbar to format text and click merge tag buttons to insert dynamic content from bookings.'}
-          {viewMode === 'preview' && 'Preview shows how your email will look to recipients. Merge tags will be replaced with actual booking data when sent.'}
-          {viewMode === 'code' && 'Edit the raw HTML code. Changes will be reflected in the editor view.'}
+      {/* Footer - Responsive */}
+      <div className="px-4 md:px-6 py-3 bg-gray-50 border-t border-gray-200 flex-shrink-0">
+        <p className="text-xs text-gray-600 flex items-start">
+          <Info className="w-3 h-3 mr-1.5 flex-shrink-0 mt-0.5" />
+          <span>
+            {viewMode === 'editor' && (htmlWrapper 
+              ? 'Editing body content only. Use HTML view to modify styles and head content.'
+              : 'Use the toolbar to format text and click merge tag buttons to insert dynamic content.'
+            )}
+            {viewMode === 'preview' && 'Preview shows how your email will look. Merge tags will be replaced with actual data when sent.'}
+            {viewMode === 'code' && 'Edit the raw HTML code. Changes will be reflected in the editor view.'}
+          </span>
         </p>
       </div>
 
@@ -1001,17 +1128,14 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
       {showHelperModal && (
         <div className="fixed inset-0 z-50 overflow-y-auto">
           <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
-            {/* Background overlay */}
             <div 
               className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75"
               onClick={() => setShowHelperModal(false)}
             />
 
-            {/* Modal panel */}
             <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-5xl sm:w-full">
-              {/* Header */}
-              <div className="bg-gray-50 px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-                <h3 className="text-lg font-medium text-gray-900">
+              <div className="bg-gray-50 px-4 sm:px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+                <h3 className="text-base sm:text-lg font-medium text-gray-900">
                   Template Helper Guide
                 </h3>
                 <button
@@ -1024,16 +1148,14 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
                 </button>
               </div>
 
-              {/* Content */}
-              <div className="bg-white px-6 py-4 max-h-[70vh] overflow-y-auto">
+              <div className="bg-white px-4 sm:px-6 py-4 max-h-[60vh] sm:max-h-[70vh] overflow-y-auto">
                 <TemplateHelperDocumentation />
               </div>
 
-              {/* Footer */}
-              <div className="bg-gray-50 px-6 py-4 border-t border-gray-200 flex justify-end">
+              <div className="bg-gray-50 px-4 sm:px-6 py-4 border-t border-gray-200 flex justify-end">
                 <button
                   onClick={() => setShowHelperModal(false)}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                 >
                   Close
                 </button>

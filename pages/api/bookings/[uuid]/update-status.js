@@ -120,7 +120,7 @@ export default async function handler(req, res) {
                 case 'booking_confirmed':
                     console.log('🃏 Booking confirmed - funding source:', fundingSource);
                     
-                    if (fundingSource && fundingSource.toLowerCase().includes('icare')) {
+                    if (fundingSource && !fundingSource.toLowerCase().includes('ndis')) {
                         // Get check-in and check-out dates
                         let checkInDate = null;
                         let checkOutDate = null;
@@ -216,7 +216,7 @@ export default async function handler(req, res) {
                                         if (approvalSummary.count === 0) {
                                             return res.status(400).json({
                                                 error: 'No active iCare approval found',
-                                                message: `Cannot confirm booking: This guest does not have any active iCare approvals. This booking requires ${nightsRequested} nights. Please add an iCare approval for this guest before confirming.`
+                                                message: `Cannot confirm booking: This guest does not have any active funding approvals. This booking requires ${nightsRequested} nights. Please add an funding approval for this guest before confirming.`
                                             });
                                         }
                                         
@@ -224,7 +224,7 @@ export default async function handler(req, res) {
                                         if (approvalSummary.totalRemainingNights < nightsRequested) {
                                             return res.status(400).json({
                                                 error: 'Insufficient approved nights',
-                                                message: `Cannot confirm booking: This booking requires ${nightsRequested} nights, but the guest only has ${approvalSummary.totalRemainingNights} nights remaining across ${approvalSummary.count} approval(s). Please update the guest's iCare approval(s) before confirming.`
+                                                message: `Cannot confirm booking: This booking requires ${nightsRequested} nights, but the guest only has ${approvalSummary.totalRemainingNights} nights remaining across ${approvalSummary.count} approval(s). Please update the guest's funding approval(s) before confirming.`
                                             });
                                         }
                                         
@@ -297,7 +297,7 @@ export default async function handler(req, res) {
                                                 totalAllocations: allocations.length
                                             });
                                         } catch (emailError) {
-                                            console.error('Error sending iCare nights update email:', emailError);
+                                            console.error('Error sending funding nights update email:', emailError);
                                         }
                                     } else {
                                         console.log(`✅ Nights unchanged (${nightsRequested}), no allocation adjustment needed`);
@@ -307,7 +307,7 @@ export default async function handler(req, res) {
                                     console.error('Error updating nights_used:', fundingError);
                                     return res.status(500).json({
                                         error: 'Database error',
-                                        message: 'Unable to update iCare funding information. Please try again or contact support.'
+                                        message: 'Unable to update funding funding information. Please try again or contact support.'
                                     });
                                 }
                             }
@@ -372,7 +372,7 @@ export default async function handler(req, res) {
                     // - No Charge Cancellation: Guest is NOT penalized, nights are RETURNED to approval(s)
                     // ========================================================
                     
-                    if (fundingSource && fundingSource.toLowerCase().includes('icare')) {
+                    if (fundingSource && !fundingSource.toLowerCase().includes('ndis')) {
                         // Only process night returns for NO CHARGE cancellations
                         // Full Charge = penalty, nights stay subtracted
                         if (!isFullChargeCancellation) {
@@ -438,7 +438,7 @@ export default async function handler(req, res) {
                                             totalReturned: returnSummary.reduce((sum, r) => sum + r.nightsReturned, 0)
                                         });
                                     } catch (emailError) {
-                                        console.error('Error sending iCare cancellation email:', emailError);
+                                        console.error('Error sending funding cancellation email:', emailError);
                                     }
                                     
                                     nightsReturned = true;
@@ -505,7 +505,7 @@ export default async function handler(req, res) {
                                                         totalReturned: nightsToReturn
                                                     });
                                                 } catch (emailError) {
-                                                    console.error('Error sending iCare cancellation email:', emailError);
+                                                    console.error('Error sending funding cancellation email:', emailError);
                                                 }
                                             }
                                         } catch (fundingError) {
@@ -557,7 +557,7 @@ export default async function handler(req, res) {
                                             totalNightsLost
                                         });
                                     } catch (emailError) {
-                                        console.error('Error sending iCare full charge cancellation email:', emailError);
+                                        console.error('Error sending funding full charge cancellation email:', emailError);
                                     }
                                 } else {
                                     console.log('⚠️ No usage records found for Full Charge cancellation - booking was never confirmed');

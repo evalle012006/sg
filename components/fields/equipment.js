@@ -1384,11 +1384,11 @@ const EquipmentField = forwardRef((props, ref) => {
                                                         {equipment.name}
                                                         {isRequired && <span className="text-red-500 ml-1">*</span>}
                                                     </h3>
-                                                    {equipment.serial_number && (
+                                                    {/* {equipment.serial_number && (
                                                         <p className="text-sm text-gray-500">
                                                             {equipment.serial_number}
                                                         </p>
-                                                    )}
+                                                    )} */}
                                                 </div>
                                             </div>
                                             
@@ -1478,7 +1478,7 @@ const EquipmentField = forwardRef((props, ref) => {
             const cards = equipments.map(eq => ({
                 value: eq.id,
                 label: eq.name,
-                description: eq.serial_number || eq.description || '',
+                description: eq.description || '',
                 imageUrl: eq.image_url || getDefaultImage('equipment')
             }));
 

@@ -45,6 +45,11 @@ function registerHelpers() {
   handlebars.registerHelper('join', (arr, separator = ', ') => 
     Array.isArray(arr) ? arr.join(separator) : arr
   );
+  handlebars.registerHelper('isNotEmpty', function(value) {
+    if (Array.isArray(value)) return value.length > 0;
+    if (typeof value === 'object' && value !== null) return Object.keys(value).length > 0;
+    return !!value;
+  });
 
   // Object helpers
   handlebars.registerHelper('keys', obj => obj ? Object.keys(obj) : []);
@@ -81,21 +86,121 @@ function registerHelpers() {
 
 class EmailService {
   /**
-   * Send email using template ID (no attachments)
+   * Get template by ID or Code
+   * @param {number|string} identifier - Template ID (number) or template_code (string)
+   * @returns {Promise<EmailTemplate|null>}
    */
-  static async sendWithTemplate(recipient, templateId, data, options = {}) {
+  static async getTemplate(identifier) {
+    try {
+      // Check if identifier is a number (ID) or string (code)
+      if (typeof identifier === 'number') {
+        return await EmailTemplate.findByPk(identifier);
+      } else if (typeof identifier === 'string') {
+        // Try to find by template_code first
+        const template = await EmailTemplate.findOne({ 
+          where: { template_code: identifier } 
+        });
+        
+        if (template) {
+          return template;
+        }
+        
+        // Fallback: try parsing as number for backward compatibility
+        const numId = parseInt(identifier);
+        if (!isNaN(numId)) {
+          return await EmailTemplate.findByPk(numId);
+        }
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Error fetching template:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Validate that all required variables are present in the data
+   * @param {EmailTemplate} template - The template instance
+   * @param {Object} data - The data object to validate
+   * @throws {Error} If required variables are missing
+   */
+  static validateRequiredVariables(template, data) {
+    if (!template.is_system || !template.required_variables || template.required_variables.length === 0) {
+      return;
+    }
+
+    const missingVars = template.required_variables.filter(varName => {
+      return !(varName in data);
+    });
+
+    if (missingVars.length > 0) {
+      const descriptions = template.variable_description || {};
+      const missingDetails = missingVars.map(v => 
+        `${v} (${descriptions[v] || 'No description'})`
+      ).join(', ');
+      
+      console.error(`❌ Template "${template.name}" validation failed:`);
+      console.error(`   Missing variables: ${missingDetails}`);
+      console.error(`   Provided data keys: ${Object.keys(data).join(', ')}`);
+      
+      throw new Error(
+        `Template "${template.name}" is missing required variables: ${missingDetails}`
+      );
+    } else {
+      console.log(`✅ Template "${template.name}" - All required variables present`);
+    }
+  }
+
+  /**
+   * Extract variables from a Handlebars template
+   * @param {string} templateContent - The template content
+   * @returns {Array<string>} Array of variable names
+   */
+  static extractTemplateVariables(templateContent) {
+    const variableRegex = /\{\{([^}]+)\}\}/g;
+    const variables = new Set();
+    let match;
+
+    while ((match = variableRegex.exec(templateContent)) !== null) {
+      // Extract variable name (handle {{variable}} and {{#if variable}})
+      const fullMatch = match[1].trim();
+      const varName = fullMatch.split(/\s+/)[0].replace(/^[#/^]/, '');
+      
+      if (varName && !['if', 'each', 'unless', 'with', 'else', 'lookup'].includes(varName)) {
+        variables.add(varName);
+      }
+    }
+
+    return Array.from(variables);
+  }
+
+  /**
+   * Send email using template ID or Code (no attachments)
+   * @param {string} recipient - Email recipient
+   * @param {number|string} templateIdentifier - Template ID or code
+   * @param {Object} data - Template data
+   * @param {Object} options - Additional options
+   * @returns {Promise<Object>} Result object
+   */
+  static async sendWithTemplate(recipient, templateIdentifier, data, options = {}) {
     const { useFallback = true } = options;
     
     try {
       registerHelpers();
 
-      const template = await EmailTemplate.findByPk(templateId);
+      const template = await this.getTemplate(templateIdentifier);
       
       if (!template || !template.is_active) {
         if (useFallback) {
-          return await this.sendWithFallback(recipient, templateId, data);
+          return await this.sendWithFallback(recipient, templateIdentifier, data);
         }
-        throw new Error(`Email template ${templateId} not found or inactive`);
+        throw new Error(`Email template ${templateIdentifier} not found or inactive`);
+      }
+
+      // ✅ VALIDATE REQUIRED VARIABLES for system templates
+      if (template.is_system) {
+        this.validateRequiredVariables(template, data);
       }
 
       const compiledSubject = handlebars.compile(template.subject);
@@ -106,20 +211,23 @@ class EmailService {
 
       await sendMailWithHtml(recipient, subject, html);
 
-      console.log(`✓ Email sent to ${recipient} using template ${templateId} (${template.name})`);
+      const templateInfo = template.template_code || template.name || templateIdentifier;
+      console.log(`✓ Email sent to ${recipient} using template ${templateInfo}`);
 
       return {
         success: true,
         message: 'Email sent successfully',
-        method: 'database'
+        method: 'database',
+        template_code: template.template_code,
+        template_id: template.id
       };
       
     } catch (error) {
-      console.error(`✗ Email error (template ${templateId}):`, error.message);
+      console.error(`✗ Email error (template ${templateIdentifier}):`, error.message);
       
       if (useFallback && !options.isRetry) {
         console.log(`  ↻ Attempting fallback...`);
-        return await this.sendWithFallback(recipient, templateId, data);
+        return await this.sendWithFallback(recipient, templateIdentifier, data);
       }
       
       throw error;
@@ -127,21 +235,32 @@ class EmailService {
   }
 
   /**
-   * Send email using template ID WITH attachments
+   * Send email using template ID or Code WITH attachments
+   * @param {string} recipient - Email recipient
+   * @param {number|string} templateIdentifier - Template ID or code
+   * @param {Object} data - Template data
+   * @param {Array} attachments - Email attachments
+   * @param {Object} options - Additional options
+   * @returns {Promise<Object>} Result object
    */
-  static async sendWithTemplateAndAttachments(recipient, templateId, data, attachments = [], options = {}) {
+  static async sendWithTemplateAndAttachments(recipient, templateIdentifier, data, attachments = [], options = {}) {
     const { useFallback = true } = options;
     
     try {
       registerHelpers();
 
-      const template = await EmailTemplate.findByPk(templateId);
+      const template = await this.getTemplate(templateIdentifier);
       
       if (!template || !template.is_active) {
         if (useFallback) {
-          return await this.sendWithFallbackAndAttachments(recipient, templateId, data, attachments);
+          return await this.sendWithFallbackAndAttachments(recipient, templateIdentifier, data, attachments);
         }
-        throw new Error(`Email template ${templateId} not found or inactive`);
+        throw new Error(`Email template ${templateIdentifier} not found or inactive`);
+      }
+
+      // ✅ VALIDATE REQUIRED VARIABLES for system templates
+      if (template.is_system) {
+        this.validateRequiredVariables(template, data);
       }
 
       const compiledSubject = handlebars.compile(template.subject);
@@ -152,20 +271,23 @@ class EmailService {
 
       await sendMailWithHtml(recipient, subject, html, attachments);
 
-      console.log(`✓ Email sent to ${recipient} with ${attachments.length} attachment(s) using template ${templateId}`);
+      const templateInfo = template.template_code || template.name || templateIdentifier;
+      console.log(`✓ Email sent to ${recipient} with ${attachments.length} attachment(s) using template ${templateInfo}`);
 
       return {
         success: true,
         message: 'Email sent successfully',
-        method: 'database'
+        method: 'database',
+        template_code: template.template_code,
+        template_id: template.id
       };
       
     } catch (error) {
-      console.error(`✗ Email error (template ${templateId}):`, error.message);
+      console.error(`✗ Email error (template ${templateIdentifier}):`, error.message);
       
       if (useFallback && !options.isRetry) {
         console.log(`  ↻ Attempting fallback with attachments...`);
-        return await this.sendWithFallbackAndAttachments(recipient, templateId, data, attachments);
+        return await this.sendWithFallbackAndAttachments(recipient, templateIdentifier, data, attachments);
       }
       
       throw error;
@@ -175,13 +297,26 @@ class EmailService {
   /**
    * Fallback to physical HTML template (no attachments)
    */
-  static async sendWithFallback(recipient, templateId, data) {
+  static async sendWithFallback(recipient, templateIdentifier, data) {
     try {
-      // ✅ CHANGED: Use the imported TEMPLATE_FALLBACK_MAP
-      const templateFilename = TEMPLATE_FALLBACK_MAP[templateId];
+      // Determine template filename from identifier
+      let templateFilename;
+      
+      if (typeof templateIdentifier === 'number') {
+        templateFilename = TEMPLATE_FALLBACK_MAP[templateIdentifier];
+      } else if (typeof templateIdentifier === 'string') {
+        // If it's already a template code, use it directly
+        templateFilename = templateIdentifier;
+        
+        // Or try to find it in the fallback map
+        const numId = parseInt(templateIdentifier);
+        if (!isNaN(numId) && TEMPLATE_FALLBACK_MAP[numId]) {
+          templateFilename = TEMPLATE_FALLBACK_MAP[numId];
+        }
+      }
       
       if (!templateFilename) {
-        throw new Error(`No fallback template mapping for ID ${templateId}`);
+        throw new Error(`No fallback template mapping for identifier ${templateIdentifier}`);
       }
       
       console.log(`  ℹ️  Using fallback: ${templateFilename}.html`);
@@ -207,13 +342,24 @@ class EmailService {
   /**
    * Fallback to physical HTML template WITH attachments
    */
-  static async sendWithFallbackAndAttachments(recipient, templateId, data, attachments) {
+  static async sendWithFallbackAndAttachments(recipient, templateIdentifier, data, attachments) {
     try {
-      // ✅ CHANGED: Use the imported TEMPLATE_FALLBACK_MAP
-      const templateFilename = TEMPLATE_FALLBACK_MAP[templateId];
+      // Determine template filename from identifier
+      let templateFilename;
+      
+      if (typeof templateIdentifier === 'number') {
+        templateFilename = TEMPLATE_FALLBACK_MAP[templateIdentifier];
+      } else if (typeof templateIdentifier === 'string') {
+        templateFilename = templateIdentifier;
+        
+        const numId = parseInt(templateIdentifier);
+        if (!isNaN(numId) && TEMPLATE_FALLBACK_MAP[numId]) {
+          templateFilename = TEMPLATE_FALLBACK_MAP[numId];
+        }
+      }
       
       if (!templateFilename) {
-        throw new Error(`No fallback template mapping for ID ${templateId}`);
+        throw new Error(`No fallback template mapping for identifier ${templateIdentifier}`);
       }
       
       console.log(`  ℹ️  Using fallback: ${templateFilename}.html with ${attachments.length} attachment(s)`);
@@ -257,25 +403,48 @@ class EmailService {
       'booking-confirmed': 'Sargood On Collaroy - Booking Confirmed',
       'booking-confirmed-admin': 'Sargood On Collaroy - Booking Confirmed',
       'booking-cancelled': 'Sargood On Collaroy - Booking Enquiry',
-      'booking-cancelled-admin': 'Sargood On Collaroy - Booking Enquiry'
+      'booking-cancelled-admin': 'Sargood On Collaroy - Booking Enquiry',
+      'booking-guest-cancellation-request': 'Sargood On Collaroy - Cancellation Request',
+      'booking-guest-cancellation-request-admin': 'Sargood On Collaroy - Cancellation Request'
     };
     
     return subjectMap[templateFilename] || 'Email Notification';
   }
 
   /**
-   * Get template by ID
+   * Check if template exists and is active
    */
-  static async getTemplate(templateId) {
-    return await EmailTemplate.findByPk(templateId);
+  static async isTemplateActive(templateIdentifier) {
+    const template = await this.getTemplate(templateIdentifier);
+    return template && template.is_active;
   }
 
   /**
-   * Check if template exists and is active
+   * Check if template is a system template
    */
-  static async isTemplateActive(templateId) {
-    const template = await EmailTemplate.findByPk(templateId);
-    return template && template.is_active;
+  static async isSystemTemplate(templateIdentifier) {
+    const template = await this.getTemplate(templateIdentifier);
+    return template && template.is_system;
+  }
+
+  /**
+   * Get template info (useful for debugging)
+   */
+  static async getTemplateInfo(templateIdentifier) {
+    const template = await this.getTemplate(templateIdentifier);
+    if (!template) {
+      return null;
+    }
+
+    return {
+      id: template.id,
+      name: template.name,
+      template_code: template.template_code,
+      is_system: template.is_system,
+      is_active: template.is_active,
+      required_variables: template.required_variables,
+      extracted_variables: template.extractVariables ? template.extractVariables() : []
+    };
   }
 }
 

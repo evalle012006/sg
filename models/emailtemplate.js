@@ -3,11 +3,6 @@ const { Model } = require('sequelize');
 
 module.exports = (sequelize, DataTypes) => {
   class EmailTemplate extends Model {
-    /**
-     * Helper method for defining associations.
-     * This method is not a part of Sequelize lifecycle.
-     * The `models/index` file will call this method automatically.
-     */
     static associate(models) {
       // Association with User (creator)
       EmailTemplate.belongsTo(models.User, {
@@ -21,9 +16,97 @@ module.exports = (sequelize, DataTypes) => {
         as: 'triggers'
       });
     }
+
+    async countTriggers() {
+      const EmailTrigger = sequelize.models.EmailTrigger;
+      if (!EmailTrigger) {
+        console.warn('EmailTrigger model not found');
+        return 0;
+      }
+      
+      return await EmailTrigger.count({
+        where: { email_template_id: this.id }
+      });
+    }
+
+    extractVariables() {
+      const variableRegex = /\{\{([^}]+)\}\}/g;
+      const variables = new Set();
+      let match;
+
+      const content = this.html_content || '';
+      
+      while ((match = variableRegex.exec(content)) !== null) {
+        const fullMatch = match[1].trim();
+        const varName = fullMatch.split(/\s+/)[0].replace(/^[#/^]/, '');
+        
+        if (varName && !['if', 'each', 'unless', 'with', 'else', 'lookup'].includes(varName)) {
+          variables.add(varName);
+        }
+      }
+
+      return Array.from(variables);
+    }
+
+    validateRequiredVariables() {
+      if (!this.is_system || !this.required_variables || this.required_variables.length === 0) {
+        return { valid: true, missing: [] };
+      }
+
+      const extractedVars = this.extractVariables();
+      const missing = this.required_variables.filter(reqVar => !extractedVars.includes(reqVar));
+
+      return {
+        valid: missing.length === 0,
+        missing: missing,
+        extracted: extractedVars,
+        required: this.required_variables
+      };
+    }
+
+    async canBeDeleted() {
+      if (this.is_system) {
+        return {
+          canDelete: false,
+          reason: 'System templates cannot be deleted'
+        };
+      }
+
+      const triggerCount = await this.countTriggers();
+      if (triggerCount > 0) {
+        return {
+          canDelete: false,
+          reason: `Template is being used by ${triggerCount} trigger(s)`
+        };
+      }
+
+      return {
+        canDelete: true,
+        reason: null
+      };
+    }
+
+    canBeDeactivated() {
+      if (this.is_system) {
+        return {
+          canDeactivate: false,
+          reason: 'System templates cannot be deactivated'
+        };
+      }
+
+      return {
+        canDeactivate: true,
+        reason: null
+      };
+    }
   }
   
   EmailTemplate.init({
+    id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true
+    },
     name: {
       type: DataTypes.STRING(255),
       allowNull: false,
@@ -31,6 +114,12 @@ module.exports = (sequelize, DataTypes) => {
         notEmpty: true,
         len: [3, 255]
       }
+    },
+    template_code: {
+      type: DataTypes.STRING(100),
+      allowNull: true,
+      unique: true,
+      comment: 'Unique code identifier for system templates (e.g., booking-confirmed)'
     },
     subject: {
       type: DataTypes.STRING(500),
@@ -78,6 +167,48 @@ module.exports = (sequelize, DataTypes) => {
       defaultValue: true,
       allowNull: false
     },
+    is_system: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+      allowNull: false,
+      comment: 'System templates cannot be deleted but can be modified'
+    },
+    required_variables: {
+      type: DataTypes.JSON,
+      allowNull: true,
+      comment: 'List of required template variables that must be preserved',
+      get() {
+        const rawValue = this.getDataValue('required_variables');
+        if (!rawValue) return [];
+        if (typeof rawValue === 'string') {
+          try {
+            return JSON.parse(rawValue);
+          } catch (error) {
+            console.error('Error parsing required_variables:', error);
+            return [];
+          }
+        }
+        return rawValue;
+      }
+    },
+    variable_description: {
+      type: DataTypes.JSON,
+      allowNull: true,
+      comment: 'Description of what each variable is used for',
+      get() {
+        const rawValue = this.getDataValue('variable_description');
+        if (!rawValue) return {};
+        if (typeof rawValue === 'string') {
+          try {
+            return JSON.parse(rawValue);
+          } catch (error) {
+            console.error('Error parsing variable_description:', error);
+            return {};
+          }
+        }
+        return rawValue;
+      }
+    },
     preview_image: {
       type: DataTypes.TEXT,
       allowNull: true
@@ -94,6 +225,8 @@ module.exports = (sequelize, DataTypes) => {
     sequelize,
     modelName: 'EmailTemplate',
     tableName: 'email_templates',
+    timestamps: false, // ✅ CHANGED: Disable automatic timestamps
+    underscored: true
   });
   
   return EmailTemplate;
