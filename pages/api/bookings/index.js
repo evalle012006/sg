@@ -657,7 +657,7 @@ export default async function handler(req, res) {
         'id', 'uuid', 'reference_id', 'status', 'status_name', 'eligibility', 
         'eligibility_name', 'type', 'type_of_spinal_injury', 'createdAt', 'updatedAt',
         'preferred_arrival_date', 'preferred_departure_date', 'label',
-        'complete'
+        'complete', 'cancellation_type'
       ];
       
       // Build the query with limited attributes

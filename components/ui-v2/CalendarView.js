@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, User } from 'lucide-react';
 import moment from 'moment';
 import StatusBadge from './StatusBadge';
 import Card from './Card';
@@ -75,6 +75,54 @@ const CalendarView = ({
         return courses.map(c => ({ ...c, isOffered: true }));
     }, [courses, allCourses]);
 
+    // Check if a course is in the past
+    const isCourseInPast = (course) => {
+        const today = moment().startOf('day');
+        const courseEnd = moment(course.end_date);
+        return courseEnd.isBefore(today, 'day');
+    };
+
+    // Get user's upcoming/current courses (courses that are offered and not yet ended)
+    const myUpcomingCourses = useMemo(() => {
+        const today = moment().startOf('day');
+        
+        return mergedCourses
+            .filter(course => {
+                if (!course.isOffered || !course.start_date || !course.end_date) return false;
+                
+                const courseEnd = moment(course.end_date);
+                // Show courses that haven't ended yet
+                return courseEnd.isSameOrAfter(today, 'day');
+            })
+            .sort((a, b) => moment(a.start_date).diff(moment(b.start_date)))
+            .slice(0, 5); // Limit to 5 courses
+    }, [mergedCourses]);
+
+    // Get courses available in the currently viewed month (excluding past courses)
+    const coursesInCurrentMonth = useMemo(() => {
+        const today = moment().startOf('day');
+        const startOfMonth = currentDate.clone().startOf('month');
+        const endOfMonth = currentDate.clone().endOf('month');
+
+        return mergedCourses
+            .filter(course => {
+                if (!course.start_date || !course.end_date) return false;
+                
+                const courseStart = moment(course.start_date);
+                const courseEnd = moment(course.end_date);
+                
+                // Course overlaps with the current month
+                const overlapsMonth = courseStart.isSameOrBefore(endOfMonth, 'day') && 
+                                      courseEnd.isSameOrAfter(startOfMonth, 'day');
+                
+                // Course hasn't ended yet (not in the past)
+                const notPast = courseEnd.isSameOrAfter(today, 'day');
+                
+                return overlapsMonth && notPast;
+            })
+            .sort((a, b) => moment(a.start_date).diff(moment(b.start_date)));
+    }, [mergedCourses, currentDate]);
+
     // Get calendar data for current month
     const calendarData = useMemo(() => {
         const startOfMonth = currentDate.clone().startOf('month');
@@ -130,9 +178,13 @@ const CalendarView = ({
     };
 
     // Get event color based on course properties
-    const getEventColor = (course) => {
+    const getEventColor = (course, isPast = false) => {
+        if (isPast) {
+            return '#9CA3AF'; // Darker gray for past courses - more distinct
+        }
+        
         if (!course.isOffered) {
-            return '#D1D5DB'; // Gray for non-offered courses
+            return '#E5E7EB'; // Light gray for non-offered courses (Register Interest)
         } else if (course.isLinkedToBooking) {
             return '#95EFEB'; // Teal for booked courses
         } else if (course.canBookNow) {
@@ -179,26 +231,12 @@ const CalendarView = ({
         return null;
     };
 
-    // Get upcoming courses (next 30 days) - show all courses
-    const upcomingCourses = useMemo(() => {
-        const now = moment();
-        const thirtyDaysFromNow = moment().add(30, 'days');
-        
-        return mergedCourses
-            .filter(course => {
-                const courseStart = moment(course.start_date);
-                return courseStart.isBetween(now, thirtyDaysFromNow, 'day', '[]');
-            })
-            .sort((a, b) => moment(a.start_date).diff(moment(b.start_date)))
-            .slice(0, 10); // Limit to 10 upcoming courses
-    }, [mergedCourses]);
-
     const weekDays = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 
     return (
-        <div className="grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-2 gap-4 sm:gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
             {/* Calendar Section */}
-            <div className="lg:col-span-2 xl:col-span-1">
+            <div className="lg:col-span-2 xl:col-span-2">
                 {/* Calendar Header */}
                 <div className="flex items-center justify-between mb-4 lg:mb-6 px-2 sm:px-4">
                     <h2 className="text-lg sm:text-xl lg:text-2xl font-bold text-gray-900">
@@ -267,8 +305,10 @@ const CalendarView = ({
                                             const eventStyle = getEventStyle(course, date);
                                             if (!eventStyle) return null;
 
+                                            const isPast = isCourseInPast(course);
+                                            
                                             // Determine if course is clickable and which handler to use
-                                            const isClickable = !course.isLinkedToBooking; // Can't click if already booked
+                                            const isClickable = !isPast && !course.isLinkedToBooking;
                                             const handleClick = () => {
                                                 if (!isClickable) return;
                                                 
@@ -288,16 +328,18 @@ const CalendarView = ({
                                                 <div
                                                     key={`${course.id}-${date.format('YYYY-MM-DD')}`}
                                                     className={`text-[8px] sm:text-xs px-1 sm:px-2 py-0.5 sm:py-1 rounded font-medium truncate transition-opacity ${
+                                                        isPast ? 'text-gray-500 opacity-50' :
                                                         !course.isOffered ? 'text-gray-600' : 'text-gray-800'
                                                     } ${
-                                                        isClickable ? 'cursor-pointer hover:opacity-80' : 'cursor-default'
+                                                        isClickable ? 'cursor-pointer hover:opacity-80' : 'cursor-not-allowed'
                                                     }`}
                                                     style={{
-                                                        backgroundColor: getEventColor(course),
+                                                        backgroundColor: getEventColor(course, isPast),
                                                         ...eventStyle
                                                     }}
                                                     onClick={handleClick}
                                                     title={`${course.title} - ${moment(course.start_date).format('DD/MM/YYYY')} to ${moment(course.end_date).format('DD/MM/YYYY')}${
+                                                        isPast ? ' (Past)' :
                                                         course.isLinkedToBooking ? ' (Already booked)' :
                                                         !course.isOffered ? ' (Click to register interest)' : 
                                                         course.canBookNow ? ' (Click to book now)' :
@@ -326,49 +368,129 @@ const CalendarView = ({
                         <span className="text-gray-600">Available to Book</span>
                     </div>
                     <div className="flex items-center space-x-1 sm:space-x-2">
-                        <div className="w-3 h-3 sm:w-4 sm:h-4 rounded" style={{ backgroundColor: '#D1D5DB' }}></div>
+                        <div className="w-3 h-3 sm:w-4 sm:h-4 rounded" style={{ backgroundColor: '#E5E7EB' }}></div>
                         <span className="text-gray-600">Register Interest</span>
+                    </div>
+                    <div className="flex items-center space-x-1 sm:space-x-2">
+                        <div className="w-3 h-3 sm:w-4 sm:h-4 rounded" style={{ backgroundColor: '#9CA3AF' }}></div>
+                        <span className="text-gray-600">Past Courses</span>
                     </div>
                 </div>
             </div>
 
-            {/* Upcoming Courses Sidebar */}
-            <div className="lg:col-span-1 xl:col-span-1 mt-6 lg:mt-0">
+            {/* Right Sidebar - Two Panels */}
+            <div className="lg:col-span-1 xl:col-span-2 space-y-6">
+                {/* Panel 1: My Upcoming Courses */}
                 <div className="px-2 sm:px-4">
-                    <div className="flex items-center space-x-2 mb-4 sm:mb-6">
+                    <div className="flex items-center space-x-2 mb-4">
+                        <User className="w-4 h-4 sm:w-5 sm:h-5 text-[#00467F]" />
+                        <h3 className="font-semibold text-gray-900 text-base sm:text-lg">My Upcoming Courses</h3>
+                    </div>
+                    
+                    <div className="space-y-3">
+                        {myUpcomingCourses.length > 0 ? (
+                            myUpcomingCourses.map((course, index) => {
+                                const startDate = moment(course.start_date);
+                                const courseStartDate = startDate.format('DD MMM, YYYY');
+                                const courseEndDate = moment(course.end_date).format('DD MMM, YYYY');
+                                const dateRange = `${courseStartDate} - ${courseEndDate}`;
+                                
+                                let cardStatus = "Booked";
+                                if (course.isLinkedToBooking) {
+                                    cardStatus = "Already Booked";
+                                } else if (course.canBookNow) {
+                                    cardStatus = "Available";
+                                }
+                                
+                                return (
+                                    <div key={index} className="bg-white rounded-lg border border-gray-200 overflow-hidden hover:shadow-md transition-shadow">
+                                        <div className="flex">
+                                            {/* Image */}
+                                            <div className="w-20 sm:w-24 flex-shrink-0">
+                                                {course.imageUrl ? (
+                                                    <img 
+                                                        src={course.imageUrl} 
+                                                        alt={course.title}
+                                                        className="w-full h-full object-cover"
+                                                        onError={(e) => {
+                                                            e.target.style.display = 'none';
+                                                            e.target.nextSibling.style.display = 'flex';
+                                                        }}
+                                                    />
+                                                ) : null}
+                                                <div className={`w-full h-full bg-gray-100 flex items-center justify-center ${course.imageUrl ? 'hidden' : ''}`}>
+                                                    <CalendarIcon className="w-6 h-6 text-gray-300" />
+                                                </div>
+                                            </div>
+                                            
+                                            {/* Content */}
+                                            <div className="flex-1 p-3">
+                                                <div className="flex items-start justify-between mb-1">
+                                                    <h4 className="font-semibold text-sm text-gray-900 line-clamp-1 flex-1">{course.title}</h4>
+                                                    <StatusBadge 
+                                                        type={course.isLinkedToBooking ? 'success' : course.canBookNow ? 'offer' : 'pending'}
+                                                        label={cardStatus}
+                                                        size="small"
+                                                    />
+                                                </div>
+                                                <p className="text-xs text-gray-500 mb-2">{dateRange}</p>
+                                                
+                                                {!course.isLinkedToBooking && (
+                                                    <button
+                                                        onClick={() => course.canBookNow ? onBookNow && onBookNow(course) : onRegisterInterest && onRegisterInterest(course)}
+                                                        className="text-xs font-medium text-[#00467F] hover:text-blue-800 underline"
+                                                    >
+                                                        {course.canBookNow ? 'Book Now' : 'View Details'}
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })
+                        ) : (
+                            <div className="text-center text-gray-500 py-6 bg-gray-50 rounded-lg">
+                                <User className="w-6 h-6 mx-auto mb-2 text-gray-300" />
+                                <p className="text-sm">No upcoming courses</p>
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {/* Panel 2: Courses in Current Month */}
+                <div className="px-2 sm:px-4">
+                    <div className="flex items-center space-x-2 mb-4">
                         <CalendarIcon className="w-4 h-4 sm:w-5 sm:h-5 text-[#00467F]" />
-                        <h3 className="font-semibold text-gray-900 text-base sm:text-lg">Upcoming Courses</h3>
+                        <h3 className="font-semibold text-gray-900 text-base sm:text-lg">
+                            Courses in {currentDate.format('MMMM')}
+                        </h3>
                     </div>
                     
                     <div className="space-y-3 sm:space-y-4">
-                        {upcomingCourses.length > 0 ? (
-                            upcomingCourses.map((course, index) => {
+                        {coursesInCurrentMonth.length > 0 ? (
+                            coursesInCurrentMonth.map((course, index) => {
                                 const startDate = moment(course.start_date);
                                 const dayOfWeek = startDate.format('dddd');
                                 const formattedDate = startDate.format('D MMMM, YYYY');
                                 
                                 // Determine status and actions based on course offer status
                                 let cardStatus = "Register Interest";
-                                let isSpecialOffer = false;
                                 let showBookNow = false;
                                 let showRegisterInterest = false;
                                 
                                 if (!course.isOffered) {
-                                    // Course NOT offered to this guest
-                                    cardStatus = "Register Interest";
+                                    cardStatus = "Available";
                                     showRegisterInterest = true;
                                 } else if (course.isLinkedToBooking) {
                                     cardStatus = "Already Booked";
                                 } else if (course.canBookNow) {
                                     cardStatus = "Special Offer";
-                                    isSpecialOffer = true;
                                     showBookNow = true;
                                 } else {
                                     cardStatus = "Offered";
                                     showBookNow = true;
                                 }
                                 
-                                // Format dates for the card
                                 const courseStartDate = moment(course.start_date).format('DD MMM, YYYY');
                                 const courseEndDate = moment(course.end_date).format('DD MMM, YYYY');
                                 const dateRange = `${courseStartDate} - ${courseEndDate}`;
@@ -381,7 +503,7 @@ const CalendarView = ({
                                         </div>
                                         
                                         {/* Course Card */}
-                                        <div className={`bg-white rounded-lg border ${!course.isOffered ? 'border-gray-300' : 'border-gray-200'} overflow-hidden`}>
+                                        <div className={`bg-white rounded-lg border ${!course.isOffered ? 'border-gray-300' : 'border-gray-200'} overflow-hidden hover:shadow-md transition-shadow`}>
                                             <div className="flex">
                                                 {/* Image */}
                                                 <div className="w-24 sm:w-28 flex-shrink-0">
@@ -446,9 +568,9 @@ const CalendarView = ({
                                 );
                             })
                         ) : (
-                            <div className="text-center text-gray-500 py-6 sm:py-8">
+                            <div className="text-center text-gray-500 py-6 sm:py-8 bg-gray-50 rounded-lg">
                                 <CalendarIcon className="w-6 h-6 sm:w-8 sm:h-8 mx-auto mb-2 sm:mb-3 text-gray-300" />
-                                <p className="text-sm sm:text-base">No upcoming courses in the next 30 days</p>
+                                <p className="text-sm sm:text-base">No upcoming courses in {currentDate.format('MMMM YYYY')}</p>
                             </div>
                         )}
                     </div>

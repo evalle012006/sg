@@ -1,3 +1,4 @@
+// Fixed version with fallbacks for legacy data
 import React, { useEffect, useRef, useState } from 'react';
 import { useSelector } from 'react-redux';
 import { toast } from 'react-toastify';
@@ -11,7 +12,6 @@ import moment from 'moment';
 
 /**
  * Parse duration string to hours
- * Supports formats: "6 hours", "1.5 hours", "30 minutes", "1 hour", "15 minutes", etc.
  */
 const parseDurationToHours = (durationStr) => {
   if (!durationStr || typeof durationStr !== 'string') return 0;
@@ -75,18 +75,15 @@ const generateStayDatesArray = (datesOfStay, nights) => {
 };
 
 /**
- * Check if the data is raw care data (from Q&A answer or parent's careAnalysisData)
- * Raw care data has: careData array OR rawCareData array, possibly with defaultValues, careVaries
+ * Check if the data is raw care data
  */
 const isRawCareData = (data) => {
   if (!data) return false;
   
-  // Check for careData array (from booking Q&A)
   if (Array.isArray(data.careData) && data.careData.length > 0) {
     return true;
   }
   
-  // Check for rawCareData array (from parent's careAnalysisData)
   if (Array.isArray(data.rawCareData) && data.rawCareData.length > 0) {
     return true;
   }
@@ -96,7 +93,6 @@ const isRawCareData = (data) => {
 
 /**
  * Check if the data is already processed care analysis
- * Processed data has: requiresCare, dailyCareDetails array
  */
 const isProcessedCareData = (data) => {
   return data && data.requiresCare === true && Array.isArray(data.dailyCareDetails) && data.dailyCareDetails.length > 0;
@@ -108,12 +104,10 @@ const isProcessedCareData = (data) => {
 const getRawCareArray = (data) => {
   if (!data) return null;
   
-  // Priority 1: careData array (from Q&A)
   if (Array.isArray(data.careData) && data.careData.length > 0) {
     return data.careData;
   }
   
-  // Priority 2: rawCareData array (from parent's careAnalysisData)
   if (Array.isArray(data.rawCareData) && data.rawCareData.length > 0) {
     return data.rawCareData;
   }
@@ -123,29 +117,14 @@ const getRawCareArray = (data) => {
 
 /**
  * Extract and process care data with check-in/check-out rules
- * 
- * Rules:
- * - Check-in day: Only EVENING care counts
- * - Check-out day: Only MORNING care counts
- * - Middle days: All care periods count
  */
 const extractCareAnalysisFromRawData = (rawCareData, datesOfStay, nights) => {
-  // Get the care array from either careData or rawCareData property
   const careArray = getRawCareArray(rawCareData);
   
   if (!careArray || careArray.length === 0) {
-    console.log('📊 No raw care data to process');
     return null;
   }
   
-  // console.log('📊 Processing raw care data:', {
-  //   careDataCount: careArray.length,
-  //   careVaries: rawCareData.careVaries,
-  //   datesOfStay,
-  //   nights
-  // });
-  
-  // Build a map of care data by date and period
   const careByDateAndPeriod = {};
   careArray.forEach(item => {
     const date = item.date;
@@ -170,15 +149,9 @@ const extractCareAnalysisFromRawData = (rawCareData, datesOfStay, nights) => {
     }
   });
   
-  // console.log('📊 Care by date and period:', careByDateAndPeriod);
-  
-  // Get default care values
-  // If defaultValues is not present, derive from the care array entries
   let defaultValues = rawCareData.defaultValues;
   
   if (!defaultValues || Object.keys(defaultValues).length === 0) {
-    // Derive defaults from the care array - use the first occurrence of each period
-    // console.log('📊 No defaultValues found, deriving from care entries...');
     defaultValues = { morning: {}, afternoon: {}, evening: {} };
     
     careArray.forEach(item => {
@@ -190,8 +163,6 @@ const extractCareAnalysisFromRawData = (rawCareData, datesOfStay, nights) => {
         };
       }
     });
-    
-    // console.log('📊 Derived defaultValues:', defaultValues);
   }
   
   const defaultCare = {
@@ -203,38 +174,26 @@ const extractCareAnalysisFromRawData = (rawCareData, datesOfStay, nights) => {
       ? parseDurationToHours(defaultValues.evening?.duration) : 0
   };
   
-  console.log('📊 Default care hours:', defaultCare);
-  
-  // Generate stay dates
   const stayDates = generateStayDatesArray(datesOfStay, nights);
   
   if (stayDates.length === 0) {
-    console.log('📊 No stay dates generated');
     return null;
   }
   
-  console.log('📊 Stay dates:', stayDates.map(d => d.date));
-  
-  // Build daily care details with check-in/check-out rules applied
   const dailyCareDetails = [];
   
   stayDates.forEach(dayInfo => {
     const { date, dayOfWeek, rateType, isCheckIn, isCheckOut, isMiddleDay } = dayInfo;
     
-    // Get care hours for this specific date, fallback to defaults
     const rawCare = careByDateAndPeriod[date] || { ...defaultCare };
     
-    // Apply check-in/check-out rules
     let applicableCare = { morning: 0, afternoon: 0, evening: 0 };
     
     if (isCheckIn) {
-      // Check-in day: Only EVENING care counts
       applicableCare.evening = rawCare.evening || 0;
     } else if (isCheckOut) {
-      // Check-out day: Only MORNING care counts
       applicableCare.morning = rawCare.morning || 0;
     } else {
-      // Middle day: All care periods count
       applicableCare.morning = rawCare.morning || 0;
       applicableCare.afternoon = rawCare.afternoon || 0;
       applicableCare.evening = rawCare.evening || 0;
@@ -253,23 +212,12 @@ const extractCareAnalysisFromRawData = (rawCareData, datesOfStay, nights) => {
       applicableCare,
       dayTotal
     });
-    
-    // const dayTypeLabel = isCheckIn ? 'CHECK-IN' : isCheckOut ? 'CHECK-OUT' : 'MIDDLE';
-    // console.log(`📅 ${date} (${rateType}, ${dayTypeLabel}): applicable=${dayTotal}h`);
   });
   
   const totalCareHours = dailyCareDetails.reduce((sum, day) => sum + day.dayTotal, 0);
   const totalHoursPerDay = defaultCare.morning + defaultCare.afternoon + defaultCare.evening;
   
-  // Determine if care is actually required based on care hours found
   const hasCareHours = totalCareHours > 0 || totalHoursPerDay > 0;
-  
-  console.log('📊 Care analysis complete:', {
-    totalCareHours,
-    totalHoursPerDay,
-    daysCount: dailyCareDetails.length,
-    hasCareHours
-  });
   
   return {
     requiresCare: hasCareHours,
@@ -284,10 +232,8 @@ const extractCareAnalysisFromRawData = (rawCareData, datesOfStay, nights) => {
 
 /**
  * Extract care data from booking sections Q&A pairs
- * This mirrors the backend extraction logic
  */
 const extractCareDataFromBooking = (bookingData) => {
-  // Check multiple possible locations for Q&A pairs
   const possibleSectionSources = [
     bookingData?.originalSections,
     bookingData?.Sections,
@@ -313,11 +259,6 @@ const extractCareDataFromBooking = (bookingData) => {
               const careData = typeof answer === 'string' ? JSON.parse(answer) : answer;
               
               if (careData?.careData && careData.careData.length > 0) {
-                console.log('📊 Found care data in booking sections:', {
-                  careDataCount: careData.careData.length,
-                  careVaries: careData.careVaries,
-                  source: 'Q&A pairs'
-                });
                 return careData;
               }
             } catch (e) {
@@ -329,9 +270,7 @@ const extractCareDataFromBooking = (bookingData) => {
     }
   }
   
-  // Also check if care data is directly on bookingData
   if (bookingData?.careData && Array.isArray(bookingData.careData)) {
-    console.log('📊 Found care data directly on bookingData');
     return {
       careData: bookingData.careData,
       defaultValues: bookingData.defaultValues || {},
@@ -339,9 +278,7 @@ const extractCareDataFromBooking = (bookingData) => {
     };
   }
   
-  // Check data.careData
   if (bookingData?.data?.careData && Array.isArray(bookingData.data.careData)) {
-    console.log('📊 Found care data on bookingData.data');
     return {
       careData: bookingData.data.careData,
       defaultValues: bookingData.data.defaultValues || {},
@@ -349,24 +286,19 @@ const extractCareDataFromBooking = (bookingData) => {
     };
   }
   
-  console.log('📊 No care data found in booking sections');
   return null;
 };
 
 /**
- * Extract care data from form data (Questions array, not just QaPairs)
- * This handles the case where care question answer is in Questions but not yet saved to QaPairs
+ * Extract care data from form data
  */
 const extractCareDataFromFormData = (formDataPages) => {
   if (!formDataPages || !Array.isArray(formDataPages)) return null;
-  
-  console.log('📊 Extracting care data from form data pages:', formDataPages.length);
   
   for (const page of formDataPages) {
     if (!page?.Sections) continue;
     
     for (const section of page.Sections) {
-      // Check Questions array first (current answers)
       const questions = section?.Questions || [];
       for (const question of questions) {
         const questionKey = question?.question_key;
@@ -378,11 +310,6 @@ const extractCareDataFromFormData = (formDataPages) => {
               : question.answer;
             
             if (careData?.careData && careData.careData.length > 0) {
-              console.log('📊 Found care data in form Questions:', {
-                careDataCount: careData.careData.length,
-                careVaries: careData.careVaries,
-                pageTitle: page.title
-              });
               return careData;
             }
           } catch (e) {
@@ -391,7 +318,6 @@ const extractCareDataFromFormData = (formDataPages) => {
         }
       }
       
-      // Also check QaPairs (saved answers)
       const qaPairs = section?.QaPairs || [];
       for (const pair of qaPairs) {
         const questionKey = pair?.Question?.question_key || pair?.question_key;
@@ -403,11 +329,6 @@ const extractCareDataFromFormData = (formDataPages) => {
               : pair.answer;
             
             if (careData?.careData && careData.careData.length > 0) {
-              console.log('📊 Found care data in form QaPairs:', {
-                careDataCount: careData.careData.length,
-                careVaries: careData.careVaries,
-                pageTitle: page.title
-              });
               return careData;
             }
           } catch (e) {
@@ -418,7 +339,6 @@ const extractCareDataFromFormData = (formDataPages) => {
     }
   }
   
-  console.log('📊 No care data found in form data');
   return null;
 };
 
@@ -446,7 +366,6 @@ const extractCourseDataFromBooking = (bookingData) => {
         if (questionKey === 'have-you-been-offered-a-place-in-a-course-for-this-stay') {
           const answer = pair?.answer;
           const hasCourse = typeof answer === 'string' && answer.toLowerCase() === 'yes';
-          console.log('📊 Found course question:', { hasCourse, answer });
           return { hasCourse, courseDay: 1 };
         }
       }
@@ -466,11 +385,10 @@ const SummaryOfStay = ({
   careAnalysisData = null,
   courseAnalysisData = null,
   ndisFormFilters = null,
-  formData = null  // NEW: Pass the actual form data for extraction
+  formData = null
 }) => {
   const currentUser = useSelector(state => state.user.user);
   const selectedRooms = useSelector(state => state.bookingRequestForm.rooms);
-  // Also get form data from Redux as fallback
   const reduxFormData = useSelector(state => state.bookingRequestForm.data);
   
   const [summary, setSummary] = useState();
@@ -498,77 +416,11 @@ const SummaryOfStay = ({
   const [isResolvingPackage, setIsResolvingPackage] = useState(false);
   const [processedCareAnalysis, setProcessedCareAnalysis] = useState(null);
 
-  // Use formData prop or fall back to Redux data
   const availableFormData = formData || reduxFormData;
 
   const summaryContainerRef = useRef();
 
-  // Debug: Log bookingData structure to find where care data is stored
-  useEffect(() => {
-    console.log('📊 SummaryOfStay bookingData structure:', {
-      hasOriginalSections: !!bookingData?.originalSections,
-      originalSectionsCount: bookingData?.originalSections?.length,
-      hasSections: !!bookingData?.Sections,
-      sectionsCount: bookingData?.Sections?.length,
-      hasDataSections: !!bookingData?.data?.sections,
-      hasDataCareAnalysis: !!bookingData?.data?.careAnalysis,
-      dataCareAnalysisKeys: bookingData?.data?.careAnalysis ? Object.keys(bookingData.data.careAnalysis) : [],
-      allDataKeys: bookingData?.data ? Object.keys(bookingData.data) : [],
-      topLevelKeys: bookingData ? Object.keys(bookingData) : []
-    });
-    
-    // Log the careAnalysisData prop from parent
-    // console.log('📊 SummaryOfStay careAnalysisData prop:', {
-    //   hasCareAnalysisData: !!careAnalysisData,
-    //   careAnalysisDataKeys: careAnalysisData ? Object.keys(careAnalysisData) : [],
-    //   requiresCare: careAnalysisData?.requiresCare,
-    //   totalHoursPerDay: careAnalysisData?.totalHoursPerDay,
-    //   hasRawCareData: !!careAnalysisData?.rawCareData,
-    //   rawCareDataLength: careAnalysisData?.rawCareData?.length,
-    //   rawCareDataSample: careAnalysisData?.rawCareData?.[0],
-    //   dataSource: careAnalysisData?.dataSource
-    // });
-    
-    // Try to find and log care question from all possible locations
-    const possibleSectionSources = [
-      { name: 'originalSections', data: bookingData?.originalSections },
-      { name: 'Sections', data: bookingData?.Sections },
-      { name: 'sections', data: bookingData?.sections },
-      { name: 'data.sections', data: bookingData?.data?.sections },
-      { name: 'data.originalSections', data: bookingData?.data?.originalSections }
-    ];
-    
-    let foundCareQuestion = false;
-    
-    for (const source of possibleSectionSources) {
-      if (!source.data || !Array.isArray(source.data)) continue;
-      
-      source.data.forEach((section, sIdx) => {
-        const qaPairs = section?.QaPairs || section?.qaPairs || section?.qa_pairs || [];
-        qaPairs.forEach((pair, pIdx) => {
-          const qKey = pair?.Question?.question_key || pair?.question_key || pair?.questionKey;
-          if (qKey === 'when-do-you-require-care') {
-            foundCareQuestion = true;
-            // console.log(`📊 Found care question at ${source.name}[${sIdx}].qaPairs[${pIdx}]:`, {
-            //   questionKey: qKey,
-            //   answerType: typeof pair?.answer,
-            //   answerIsObject: typeof pair?.answer === 'object',
-            //   answerHasCareData: pair?.answer?.careData ? true : false,
-            //   answerPreview: typeof pair?.answer === 'string' 
-            //     ? pair.answer.substring(0, 150) + '...' 
-            //     : (pair?.answer?.careData ? `careData[${pair.answer.careData.length}]` : JSON.stringify(pair?.answer).substring(0, 150))
-            // });
-          }
-        });
-      });
-    }
-    
-    if (!foundCareQuestion) {
-      console.log('📊 Care question NOT FOUND in any section source');
-    }
-  }, [bookingData]);
-
-  // Auto-scroll to top when Summary of Stay is displayed
+  // Auto-scroll to top
   useEffect(() => {
     const scrollToTop = () => {
       try {
@@ -647,39 +499,21 @@ const SummaryOfStay = ({
     return packageName.includes('Holiday Support Plus') || packageName.includes('Holiday Support+');
   };
 
-  // Process care data when summary or careAnalysisData changes
+  // Process care data
   useEffect(() => {
     const datesOfStay = summary?.data?.datesOfStay;
     const nights = summary?.data?.nights;
     
     if (!datesOfStay || !nights) {
-      console.log('📊 Missing datesOfStay or nights for care processing');
       return;
     }
     
-    // console.log('📊 Processing care data...', {
-    //   hasCareAnalysisDataProp: !!careAnalysisData,
-    //   careAnalysisDataKeys: careAnalysisData ? Object.keys(careAnalysisData) : [],
-    //   hasRawCareData: !!careAnalysisData?.rawCareData,
-    //   rawCareDataLength: careAnalysisData?.rawCareData?.length,
-    //   hasCareData: !!careAnalysisData?.careData,
-    //   careDataLength: careAnalysisData?.careData?.length,
-    //   careAnalysisDataType: careAnalysisData ? (isRawCareData(careAnalysisData) ? 'RAW' : isProcessedCareData(careAnalysisData) ? 'PROCESSED' : 'UNKNOWN') : 'NULL',
-    //   requiresCare: careAnalysisData?.requiresCare,
-    //   hasFormData: !!availableFormData,
-    //   formDataPageCount: availableFormData?.length || 0
-    // });
-    
-    // Priority 1: Check if careAnalysisData prop is already processed
     if (isProcessedCareData(careAnalysisData)) {
-      // console.log('📊 Using pre-processed careAnalysisData prop');
       setProcessedCareAnalysis(careAnalysisData);
       return;
     }
     
-    // Priority 2: Check if careAnalysisData prop is raw data that needs processing
     if (isRawCareData(careAnalysisData)) {
-      // console.log('📊 Processing raw careAnalysisData prop');
       const processed = extractCareAnalysisFromRawData(careAnalysisData, datesOfStay, nights);
       if (processed) {
         setProcessedCareAnalysis(processed);
@@ -687,17 +521,13 @@ const SummaryOfStay = ({
       }
     }
     
-    // Priority 3: Check summary.data.careAnalysis
     if (summary?.data?.careAnalysis) {
       if (isProcessedCareData(summary.data.careAnalysis)) {
-        // console.log('📊 Using pre-processed summary.data.careAnalysis');
         setProcessedCareAnalysis(summary.data.careAnalysis);
         return;
       }
       
-      // Check for rawCareData within careAnalysis
       if (summary.data.careAnalysis.rawCareData && isRawCareData(summary.data.careAnalysis.rawCareData)) {
-        // console.log('📊 Processing summary.data.careAnalysis.rawCareData');
         const processed = extractCareAnalysisFromRawData(summary.data.careAnalysis.rawCareData, datesOfStay, nights);
         if (processed) {
           setProcessedCareAnalysis(processed);
@@ -706,16 +536,13 @@ const SummaryOfStay = ({
       }
     }
     
-    // Priority 4: Check bookingData.data.careAnalysis
     if (bookingData?.data?.careAnalysis) {
       if (isProcessedCareData(bookingData.data.careAnalysis)) {
-        // console.log('📊 Using pre-processed bookingData.data.careAnalysis');
         setProcessedCareAnalysis(bookingData.data.careAnalysis);
         return;
       }
       
       if (bookingData.data.careAnalysis.rawCareData && isRawCareData(bookingData.data.careAnalysis.rawCareData)) {
-        // console.log('📊 Processing bookingData.data.careAnalysis.rawCareData');
         const processed = extractCareAnalysisFromRawData(bookingData.data.careAnalysis.rawCareData, datesOfStay, nights);
         if (processed) {
           setProcessedCareAnalysis(processed);
@@ -724,61 +551,42 @@ const SummaryOfStay = ({
       }
     }
     
-    // Priority 5: Extract care data from form data (Redux or prop)
     if (availableFormData && availableFormData.length > 0) {
-      // console.log('📊 Attempting to extract care data from form data...');
       const rawCareFromFormData = extractCareDataFromFormData(availableFormData);
       if (rawCareFromFormData) {
         const processed = extractCareAnalysisFromRawData(rawCareFromFormData, datesOfStay, nights);
         if (processed) {
-          // console.log('📊 Successfully extracted and processed care data from form data');
           setProcessedCareAnalysis(processed);
           return;
         }
       }
     }
     
-    // Priority 6: Extract care data directly from booking sections Q&A pairs
-    // console.log('📊 Attempting to extract care data from booking sections...');
     const rawCareFromBooking = extractCareDataFromBooking(bookingData);
     if (rawCareFromBooking) {
       const processed = extractCareAnalysisFromRawData(rawCareFromBooking, datesOfStay, nights);
       if (processed) {
-        console.log('📊 Successfully extracted and processed care data from booking sections');
         setProcessedCareAnalysis(processed);
         return;
       }
     }
-    
-    console.log('📊 No valid care data found to process');
   }, [summary?.data?.datesOfStay, summary?.data?.nights, careAnalysisData, summary?.data?.careAnalysis, bookingData?.data?.careAnalysis, bookingData, availableFormData]);
 
   // Get care and course analysis data for PricingTable
   const getAnalysisDataForPricingTable = () => {
-    // Use processed care analysis (with check-in/check-out rules applied)
     let careData = processedCareAnalysis;
     let courseData = courseAnalysisData;
     
-    // Fallback to summary data if available
     if (!courseData && summary?.data?.courseAnalysis) {
       courseData = summary.data.courseAnalysis;
     }
     
-    // Extract course data from booking sections if still not available
     if (!courseData || courseData.hasCourse === undefined) {
       const extractedCourseData = extractCourseDataFromBooking(bookingData);
       if (extractedCourseData) {
         courseData = extractedCourseData;
       }
     }
-    
-    // console.log('📊 Analysis data for PricingTable:', {
-    //   hasCareData: !!careData,
-    //   careRequiresCare: careData?.requiresCare,
-    //   careDailyDetailsCount: careData?.dailyCareDetails?.length,
-    //   hasCourseData: !!courseData,
-    //   courseHasCourse: courseData?.hasCourse
-    // });
     
     return { careData, courseData };
   };
@@ -1008,6 +816,7 @@ const SummaryOfStay = ({
     
     const currentPackageId = summaryData?.data?.selectedPackageId;
 
+    // Handle stayDates updates
     if (stayDates?.checkInDate && stayDates?.checkOutDate) {
       const checkIn = moment(stayDates.checkInDate, ['YYYY-MM-DD', 'DD/MM/YYYY']);
       const checkOut = moment(stayDates.checkOutDate, ['YYYY-MM-DD', 'DD/MM/YYYY']);
@@ -1031,6 +840,7 @@ const SummaryOfStay = ({
       }
     }
 
+    // Resolve package if needed
     if (currentPackageId && 
         summaryData?.data?.packageSelectionType === 'package-selection' && 
         currentPackageId !== lastResolvedPackageId) {
@@ -1042,12 +852,26 @@ const SummaryOfStay = ({
                          summaryData?.data?.funder?.includes('NDIA') ? true : false;
     summaryData.data.isNDISFunder = isNDISFunder;
     
-    if (!isNDISFunder) {
-      summaryData.data.packageType = summaryData.data.packageTypeAnswer;
+    // ✅ FALLBACK: Handle empty or missing packageType
+    if (!summaryData.data.packageType || summaryData.data.packageType === '') {
+      if (!isNDISFunder && summaryData.data.packageTypeAnswer) {
+        summaryData.data.packageType = summaryData.data.packageTypeAnswer;
+      } else if (isNDISFunder && summaryData.data.ndisPackage) {
+        summaryData.data.packageType = serializePackage(summaryData.data.ndisPackage);
+      } else {
+        // Last resort: use a default value to prevent empty string
+        summaryData.data.packageType = isNDISFunder ? 'NDIS' : 'WELLNESS';
+      }
     } else {
-      summaryData.data.packageType = serializePackage(summaryData.data.ndisPackage);
+      // Normal path
+      if (!isNDISFunder) {
+        summaryData.data.packageType = summaryData.data.packageTypeAnswer;
+      } else {
+        summaryData.data.packageType = serializePackage(summaryData.data.ndisPackage);
+      }
     }
 
+    // Handle rooms
     let roomsToUse = [];
     
     if (selectedRooms && selectedRooms.length > 0) {
@@ -1058,13 +882,22 @@ const SummaryOfStay = ({
       roomsToUse = bookingData.rooms;
     }
     
-    summaryData.rooms = roomsToUse;
+    // ✅ FALLBACK: Don't filter out studio rooms if they're the only rooms available
+    // Only filter studio rooms if there are non-studio rooms available
+    const hasNonStudioRooms = roomsToUse.some(room => room.type !== 'studio');
+    if (hasNonStudioRooms) {
+      summaryData.rooms = roomsToUse.filter(room => room.type !== 'studio');
+    } else {
+      // Keep all rooms including studios if that's all we have
+      summaryData.rooms = roomsToUse;
+    }
     
     const nights = summaryData.data?.nights || 0;
     
     const packageCode = resolvedPackageData?.package_code || summaryData?.data?.packageCode || '';
     const isHSP = packageCode === 'HOLIDAY_SUPPORT_PLUS' || packageCode === 'HOLIDAY_SUPPORT';
     
+    // Calculate room costs
     if (roomsToUse && roomsToUse.length > 0) {
       if (isHSP) {
         let totalHspCostPerNight = 0;
@@ -1091,7 +924,7 @@ const SummaryOfStay = ({
           hspAccommodation: totalHspCostPerNight * nights
         });
       } else {
-        const nonStudioRooms = roomsToUse.filter(room => room.type !== 'studio');
+        const nonStudioRooms = summaryData.rooms; // Already filtered or kept as is
         
         let roomUpgradePerNight = 0;
         let additionalRoomPerNight = 0;
@@ -1119,11 +952,13 @@ const SummaryOfStay = ({
       }
     }
 
+    // Calculate package cost
     if (!summary?.data?.isNDISFunder) {
       const price = parseFloat(summaryData?.data?.packageCost || 0);
       setTotalPackageCost(price * nights);
     }
 
+    // Handle signature
     if (bookingData.signature?.image) {
       setIsSignatureLoading(true);
       setHasExistingSignature(true);
@@ -1232,31 +1067,32 @@ const SummaryOfStay = ({
       };
     }
     
-    const nonStudioRooms = rooms.filter(room => room.type !== 'studio');
+    // ✅ FALLBACK: Use all rooms instead of filtering
+    const displayRooms = rooms;
     
     const isStaWithOceanView = summary?.data?.isNDISFunder && 
                                ndisFormFilters?.ndisPackageType === 'sta' && 
-                               nonStudioRooms.length > 0 && 
-                               nonStudioRooms[0]?.type === 'ocean_view';
+                               displayRooms.length > 0 && 
+                               displayRooms[0]?.type === 'ocean_view';
     
     let roomUpgradeDisplay = 'N/A';
     let additionalRoomDisplay = 'N/A';
     
     if (isStaWithOceanView) {
       roomUpgradeDisplay = 'N/A';
-      const oceanViewPrice = nonStudioRooms[0].price || nonStudioRooms[0].price_per_night || 0;
+      const oceanViewPrice = displayRooms[0].price || displayRooms[0].price_per_night || 0;
       if (oceanViewPrice > 0) {
         additionalRoomDisplay = `${formatAUD(oceanViewPrice)} per night (${formatAUD(oceanViewPrice * nights)} total)`;
       }
     } else {
-      if (nonStudioRooms.length > 0) {
-        const upgradePrice = nonStudioRooms[0].price || nonStudioRooms[0].price_per_night || 0;
+      if (displayRooms.length > 0) {
+        const upgradePrice = displayRooms[0].price || displayRooms[0].price_per_night || 0;
         if (upgradePrice > 0) {
           roomUpgradeDisplay = `${formatAUD(upgradePrice)} per night (${formatAUD(upgradePrice * nights)} total)`;
         }
         
-        if (nonStudioRooms.length > 1) {
-          const additionalPrice = nonStudioRooms
+        if (displayRooms.length > 1) {
+          const additionalPrice = displayRooms
             .slice(1)
             .reduce((total, room) => total + (room.price || room.price_per_night || 0), 0);
           if (additionalPrice > 0) {
@@ -1328,7 +1164,9 @@ const SummaryOfStay = ({
         {(summary?.data?.isNDISFunder || summary?.data?.funder == "ndis") ? (
           <div className="mt-8">
             <h2 className="text-lg font-semibold mb-4 text-slate-700">Package - cost to be charged to your funder:</h2>
-            <p className="text-slate-700 mb-2 p-2">Package Name: {summary.data.ndisPackage}</p>
+            <p className="text-slate-700 mb-2 p-2">
+              Package Name: {summary.data.ndisPackage || summary.data.packageType || 'NDIS Package'}
+            </p>
             
             {isHolidaySupportPlusPackage() ? (
               <div className="mt-4 p-6 bg-amber-50 border-2 border-amber-400 rounded-lg shadow-sm">
@@ -1367,7 +1205,7 @@ const SummaryOfStay = ({
         ) : (
           <div className="mt-8">
             <h2 className="text-lg font-semibold mb-4 text-slate-700">Package to be paid for by your funder:</h2>
-            <p className="text-slate-700">{`${summary?.data?.packageType} - ${formatAUD(summary?.data?.packageCost || 0)} per night`}</p>
+            <p className="text-slate-700">{`${summary?.data?.packageType || 'Package'} - ${formatAUD(summary?.data?.packageCost || 0)} per night`}</p>
           </div>
         )}
 
@@ -1585,16 +1423,11 @@ export default SummaryOfStay;
 
 /**
  * Calculate care quantity using detailed daily care data
- * Properly accounts for check-in (evening only) and check-out (morning only) days
  */
 const calculateCareQuantityFromDetails = (lineItem, careAnalysisData) => {
   const { rate_type, care_time } = lineItem;
   
   if (!careAnalysisData?.requiresCare || !careAnalysisData?.dailyCareDetails) {
-    console.log('📊 calculateCareQuantityFromDetails: No care data available', {
-      requiresCare: careAnalysisData?.requiresCare,
-      hasDailyDetails: !!careAnalysisData?.dailyCareDetails
-    });
     return 0;
   }
   
@@ -1622,7 +1455,6 @@ const calculateCareQuantityFromDetails = (lineItem, careAnalysisData) => {
                  (applicableCare.afternoon || 0) + 
                  (applicableCare.evening || 0);
     } else if (isDaytime) {
-      // "daytime" maps to afternoon in the care data
       dayHours = applicableCare.afternoon || 0;
     } else if (isMorning) {
       dayHours = applicableCare.morning || 0;
@@ -1634,8 +1466,6 @@ const calculateCareQuantityFromDetails = (lineItem, careAnalysisData) => {
     
     totalHours += dayHours;
   });
-  
-  console.log(`📊 Care calculation: rate_type=${rate_type || 'ALL'}, care_time=${care_time || 'ALL'} → ${totalHours} hours`);
   
   return totalHours;
 };
@@ -1659,16 +1489,6 @@ const PricingTable = ({
   });
 
   const shouldUseApiLogic = packageData && packageData.ndis_line_items && packageData.ndis_line_items.length > 0;
-
-  // Debug logging for care data
-  useEffect(() => {
-    console.log('📊 PricingTable received careAnalysisData:', {
-      exists: !!careAnalysisData,
-      requiresCare: careAnalysisData?.requiresCare,
-      dailyDetailsCount: careAnalysisData?.dailyCareDetails?.length,
-      totalCareHours: careAnalysisData?.totalCareHours
-    });
-  }, [careAnalysisData]);
 
   const calculateStayDatesBreakdown = async () => {
     if (!datesOfStay || nights <= 0) return;
@@ -1718,7 +1538,6 @@ const PricingTable = ({
         
       case 'care':
         if (!careAnalysisData?.requiresCare) {
-          console.log('📊 Care line item skipped - no care required');
           return 0;
         }
         return calculateCareQuantityFromDetails(lineItem, careAnalysisData);
@@ -1764,12 +1583,6 @@ const PricingTable = ({
   };
 
   const processApiPackageData = () => {
-    console.log('📊 Processing API package data...', {
-      lineItemsCount: packageData.ndis_line_items.length,
-      hasCareData: !!careAnalysisData,
-      careRequiresCare: careAnalysisData?.requiresCare
-    });
-
     const processedRows = packageData.ndis_line_items
       .filter(lineItem => {
         if (isSupportHolidayPackage && lineItem.line_item_type === 'room') {
@@ -1787,15 +1600,6 @@ const PricingTable = ({
 
         const rateCategoryLabel = lineItem.rate_category === 'hour' ? '/hour' : lineItem.rate_category === 'day' ? '/day' : '/night';
         const rateCategoryQtyLabel = lineItem.rate_category === 'hour' ? 'hrs' : lineItem.rate_category === 'day' ? 'days' : 'nights';
-
-        console.log(`📊 Line item: ${lineItem.sta_package}`, {
-          type: lineItem.line_item_type,
-          rateType: lineItem.rate_type,
-          careTime: lineItem.care_time,
-          quantity,
-          rate,
-          total
-        });
 
         return {
           description: lineItem.sta_package || lineItem.description || 'Package Item',
@@ -1816,8 +1620,6 @@ const PricingTable = ({
 
     const filteredRows = processedRows.filter(row => row.quantity > 0);
     
-    console.log(`📊 Processed ${processedRows.length} rows, ${filteredRows.length} after filtering (qty > 0)`);
-    
     setTableData(filteredRows);
 
     const totalCost = filteredRows.reduce((sum, row) => sum + row.total, 0);
@@ -1831,6 +1633,7 @@ const PricingTable = ({
   const processStaticPackageData = () => {
     const staticPricing = getStaticHourlyPricing(option);
     
+    // ✅ FALLBACK: If no pricing data, return empty array but don't fail
     if (!staticPricing || staticPricing.length === 0) {
       setTableData([]);
       if (setTotalPackageCost) setTotalPackageCost(0);
@@ -1873,6 +1676,12 @@ const PricingTable = ({
   };
 
   const getStaticHourlyPricing = (option) => {
+    // ✅ FALLBACK: Handle empty or unknown packageType
+    if (!option || option === '' || option === 'NDIS' || option === 'WELLNESS') {
+      // Return empty array for legacy/unknown packages
+      return [];
+    }
+    
     switch (option) {
       case 'SP':
         return [
@@ -1918,21 +1727,17 @@ const PricingTable = ({
       : Object.keys(careDaysBreakdown).some(key => careDaysBreakdown[key] > 0);
       
     if (canProcess) {
-      console.log('📊 Triggering processPackageData...', {
-        shouldUseApiLogic,
-        careDaysBreakdown,
-        hasCareAnalysisData: !!careAnalysisData
-      });
       processPackageData();
     }
   }, [packageData, daysBreakdown, careDaysBreakdown, careAnalysisData, courseAnalysisData, shouldUseApiLogic, isSupportHolidayPackage]);
 
+  // ✅ FALLBACK: Show a more user-friendly message for legacy data
   if (!tableData || tableData.length === 0) {
     return (
       <div className="w-full max-w-4xl p-4 text-center text-gray-500">
         {shouldUseApiLogic 
           ? "No applicable pricing information available for this package and stay dates."
-          : "No pricing information available for this package."}
+          : "Package pricing will be confirmed by our bookings team."}
       </div>
     );
   }

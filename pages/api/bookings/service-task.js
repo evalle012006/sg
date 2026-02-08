@@ -1,9 +1,18 @@
 import { Booking } from "../../../models";
 import { BookingService } from "../../../services/booking/booking";
 import moment from "moment";
-import { EmailTriggerService } from "../../../services/booking/emailTriggerService";
+import EmailTriggerService from "../../../services/booking/emailTriggerService";
+import EmailService from '../../../services/booking/emailService';
 
 export default async function handler(req, res) {
+
+    // ✅ Allow local development tasks
+    const isLocalTask = req.headers['x-local-task'] === 'true';
+    const isDevelopment = process.env.NODE_ENV === 'development';
+    
+    if (isDevelopment || isLocalTask) {
+        console.log('🏠 Processing local development task');
+    }
 
     if (req.method !== 'POST') {
         return res.status(405).json({ message: 'Method not allowed' });
@@ -140,16 +149,46 @@ export default async function handler(req, res) {
         }
         
         case 'sendTriggerEmail': {
-            // Existing email sending logic
-            const { recipient, templateId, emailData } = payload;
-            const EmailService = require('../../../services/booking/emailService');
+            console.log('📧 Sending trigger email...');
+            console.log('   Recipient:', payload.recipient);
+            console.log('   Template ID:', payload.templateId);
             
-            await EmailService.sendWithTemplate(recipient, templateId, emailData);
-            
-            return res.status(200).json({ 
-                success: true,
-                message: `Email sent to ${recipient}`
-            });
+            try {
+                const { recipient, templateId, emailData } = payload;
+                
+                if (!EmailService) {
+                    throw new Error('EmailService not found - check import path');
+                }
+                
+                console.log('   Sending email with EmailService.sendWithTemplate...');
+                
+                // EmailService.sendWithTemplate(recipient, templateIdentifier, data, options)
+                await EmailService.sendWithTemplate(
+                    recipient,
+                    templateId,  // Can be template ID (number) or template_code (string)
+                    emailData,
+                    { useFallback: true }  // Enable fallback to physical templates if DB template fails
+                );
+                
+                console.log('✅ Email sent successfully to', recipient);
+                
+                return res.status(200).json({ 
+                    success: true,
+                    message: `Email sent to ${recipient}`
+                });
+                
+            } catch (error) {
+                console.error('❌ Error sending trigger email:', error);
+                console.error('   Error details:', {
+                    message: error.message,
+                    stack: error.stack
+                });
+                
+                return res.status(500).json({ 
+                    success: false, 
+                    error: error.message 
+                });
+            }
         }
         default:
             break;

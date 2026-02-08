@@ -32,6 +32,7 @@ export default function GuestPage() {
   const [bookings, setBookings] = useState([]);
   const [pastStay, setPastStay] = useState([]);
   const [upcomingStay, setUpcomingStay] = useState([]);
+  const [cancelledStay, setCancelledStay] = useState([]);
   
   const [selectedTab, setSelectedTab] = useState("guest-profile");
 
@@ -121,6 +122,7 @@ export default function GuestPage() {
     { label: "HEALTH", size: "medium", fullLabel: "HEALTH INFORMATION" },
     { label: "UPCOMING", size: "medium", fullLabel: "UPCOMING STAYS" },
     { label: "PAST", size: "medium", fullLabel: "PAST STAYS" },
+    { label: "CANCELLED", size: "medium", fullLabel: "CANCELLED BOOKINGS" },  // NEW LINE
     { label: "DOCS", size: "medium", fullLabel: "DOCUMENTS" },
     { label: "NOTES", size: "medium", fullLabel: "NOTES & COMMENTS" },
     { label: "FUNDING", size: "medium", fullLabel: "FUNDING APPROVALS" }
@@ -312,6 +314,37 @@ export default function GuestPage() {
 
     const sortedPastStays = pastSayBookings.sort((a,b) => a.sortDate - b.sortDate);
     setPastStay(sortedPastStays);
+
+    const cancelledBookings = bookings.filter((booking) => {
+      const status = booking.status;
+      return status.name === 'booking_cancelled' || status.name === 'guest_cancelled';
+    }).map(booking => {
+      let temp = { ...booking };
+      temp.check_in = booking.preferred_arrival_date ? moment(booking.preferred_arrival_date).format('DD MMM, YYYY') : '-';
+      temp.check_out = booking.preferred_departure_date ? moment(booking.preferred_departure_date).format('DD MMM, YYYY') : '-';
+      temp.sortDate = booking.check_in_date != undefined ? new Date(booking.check_in_date).getTime() : new Date(booking.preferred_arrival_date || new Date()).getTime();
+      temp.link = `/bookings/${booking.uuid}`;
+      
+      // Add cancellation type if available from the booking data
+      temp.cancellation_type = booking.cancellationType || 'N/A';
+      temp.cancelled_date = '-';
+      
+      // Try to extract cancellation date from status_logs
+      try {
+        const statusLogs = typeof booking.status_logs === 'string' ? JSON.parse(booking.status_logs) : booking.status_logs;
+        const cancelLog = statusLogs?.find(log => log.status === 'booking_canceled' || log.status === 'guest_canceled');
+        if (cancelLog) {
+          temp.cancelled_date = moment(cancelLog.created_at).format('DD MMM, YYYY');
+        }
+      } catch (e) {
+        console.error('Error parsing status logs:', e);
+      }
+      
+      return temp;
+    });
+
+    const sortedCancelledBookings = cancelledBookings.sort((a,b) => b.sortDate - a.sortDate);
+    setCancelledStay(sortedCancelledBookings);
   }, [bookings]);
 
   const getFileType = (fileName) => {
@@ -639,6 +672,96 @@ export default function GuestPage() {
     }
   ];
 
+  // Define columns for cancelled bookings table
+  const cancelledStaysColumns = [
+    {
+      key: 'type',
+      label: 'TYPE',
+      render: (value) => <span className="font-medium">{value}</span>
+    },
+    {
+      key: 'check_in',
+      label: 'CHECK-IN'
+    },
+    {
+      key: 'check_out',
+      label: 'CHECK-OUT'
+    },
+    {
+      key: 'cancelled_date',
+      label: 'CANCELLED DATE'
+    },
+    {
+      key: 'cancellation_type',
+      label: 'CANCELLATION TYPE',
+      render: (value) => (
+        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+          value === 'Full Charge' 
+            ? 'bg-red-100 text-red-800' 
+            : value === 'No Charge'
+            ? 'bg-green-100 text-green-800'
+            : 'bg-gray-100 text-gray-800'
+        }`}>
+          {value}
+        </span>
+      )
+    },
+    {
+      key: 'status',
+      label: 'STATUS',
+      render: (value) => (
+        <div style={{ maxWidth: '150px' }}>
+          <StatusBadge 
+            type={getStatusBadgeType(value.name)}
+            label={value.label}
+            size="small"
+          />
+        </div>
+      )
+    },
+    {
+      key: 'action',
+      label: 'ACTION',
+      searchable: false,
+      render: (value, booking) => (
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={() => router.push(booking.link)}
+            className="p-1 text-blue-600 hover:text-blue-800 transition-colors"
+            title="View Details"
+          >
+            <Eye size={16} />
+          </button>
+        </div>
+      )
+    }
+  ];
+
+  // Empty state component for cancelled bookings
+  const CancelledStaysEmptyState = () => (
+    <div className="flex flex-col items-center justify-center py-16 px-4">
+      <div className="mb-4">
+        <svg 
+          className="w-16 h-16 text-gray-300" 
+          fill="none" 
+          stroke="currentColor" 
+          viewBox="0 0 24 24"
+        >
+          <path 
+            strokeLinecap="round" 
+            strokeLinejoin="round" 
+            strokeWidth={1.5}
+            d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"
+          />
+        </svg>
+      </div>
+      <h3 className="text-lg font-semibold text-gray-800 mb-2">CANCELLED BOOKINGS</h3>
+      <p className="text-gray-500 text-center">
+        No cancelled bookings to display.
+      </p>
+    </div>
+  );
+
   // Empty state component for upcoming stays
   const UpcomingStaysEmptyState = () => (
     <div className="flex flex-col items-center justify-center py-16 px-4">
@@ -693,7 +816,7 @@ export default function GuestPage() {
             <TabButton
               tabs={mainTabs}
               onChange={(index) => {
-                const tabNames = ["guest-profile", "courses", "health-information", "upcoming-stays", "past-stays", "documents", "notes-and-comments", "funding-approvals"];
+                const tabNames = ["guest-profile", "courses", "health-information", "upcoming-stays", "past-stays", "cancelled-bookings", "documents", "notes-and-comments", "funding-approvals"];
                 const selectedTabName = tabNames[index];
                 setSelectedTab(selectedTabName);
                 handleTabChange(selectedTabName);
@@ -774,6 +897,24 @@ export default function GuestPage() {
                       No past stays to display.
                     </p>
                   </div>
+                )}
+              </div>
+            )}
+
+            {selectedTab === "cancelled-bookings" && (
+              <div>
+                {cancelledStay.length > 0 ? (
+                  <div className="mt-6 sm:mt-10">
+                    <Table
+                      title={`Cancelled Bookings (${cancelledStay.length})`}
+                      columns={cancelledStaysColumns}
+                      data={cancelledStay}
+                      itemsPerPage={10}
+                      searchable={true}
+                    />
+                  </div>
+                ) : (
+                  <CancelledStaysEmptyState />
                 )}
               </div>
             )}

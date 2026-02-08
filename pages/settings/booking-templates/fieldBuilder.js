@@ -68,11 +68,12 @@ export default function FieldBuilder(props) {
     ];
 
     const updateRichTextQuestion = (field) => {
-        // Strip HTML tags if it's just plain text
-        const cleanedContent = stripHtmlIfPlainText(field.description);
-        const updatedQuestion = { ...question, question: cleanedContent };
+        // Get the content - field might be an object with description or the value directly
+        const content = typeof field === 'object' ? (field.description || field) : field;
+        const updatedQuestion = { ...question, question: content };
         setQuestion(updatedQuestion);
-        debounceHandleQuestionChanges(updatedQuestion);
+        // Use immediate save instead of debounce for explicit save button clicks
+        handleQuestionChanges(updatedQuestion);
     };
 
     useEffect(() => {
@@ -742,7 +743,7 @@ export default function FieldBuilder(props) {
             {/* <GetField type='select' value={labelSelector.find(o => o.value === question.label)} width='100%' label="Type" options={labelSelector} onChange={updateLabel} /> */}
             {richTextQuestionFields.includes(question.type) ? (
                 /* Rich Text Editor for radio/checkbox question text */
-                <div className="w-full">
+                <div className="w-full mb-4">
                     <GetField 
                         type="rich-text" 
                         builderMode={true} 
@@ -753,7 +754,7 @@ export default function FieldBuilder(props) {
                 </div>
             ) : (
                 /* Plain textarea for other field types */
-                <textarea className="auto-save-input font-bold p-1 bg-transparent border-stone-50"
+                <textarea className="auto-save-input font-bold p-1 bg-transparent border-stone-50 mb-4"
                     placeholder="Type your question here"
                     value={question.question}
                     data-tip="edit field label"

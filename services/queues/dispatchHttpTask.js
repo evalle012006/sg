@@ -1,3 +1,5 @@
+import EmailService from '../booking/emailService';
+
 const { CloudTasksClient } = require('@google-cloud/tasks');
 
 // Instantiates a client.
@@ -43,7 +45,7 @@ export default async function createHttpTaskWithToken(url, httpMethod, payload =
   console.log(`Created task ${name}`);
 }
 
-export function dispatchHttpTaskHandler(type, payload = null, seconds = null) {
+export async function dispatchHttpTaskHandler(type, payload = null, seconds = null) {
   let url;
   let httpMethod;
 
@@ -66,7 +68,6 @@ export function dispatchHttpTaskHandler(type, payload = null, seconds = null) {
     //     console.log('📧 Sending email directly in local development...');
         
     //     try {
-    //       const EmailService = require('../booking/emailService');
     //       const { recipient, templateId, emailData } = payload.payload;
           
     //       // Validate inputs

@@ -13,6 +13,22 @@ export const config = {
   },
 };
 
+// Helper function to strip HTML tags
+const stripHtmlTags = (html) => {
+  if (!html) return '';
+  return html.replace(/<[^>]*>/g, '');
+};
+
+const formatAUDate = (dateStr) => {
+  return new Date(dateStr).toLocaleString('en-AU', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+};
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ message: 'Method not allowed' });
@@ -127,8 +143,9 @@ export default async function handler(req, res) {
       verbalConsentData = `Guest verbal consent of amendment(s) to booking given to ${verbalConsent.adminName} at ${formatAUDate(verbalConsent.timestamp)}.`
     }
 
+    // ✅ FIXED: Strip HTML tags from NDIS questions
     const ndisQuestions = summaryData.data.ndisQuestions?.map(q => ({
-      question: q.question,
+      question: stripHtmlTags(q.question),
       answer: Array.isArray(q.answer) ? q.answer : [q.answer]
     })) || [];
 
@@ -371,13 +388,3 @@ export default async function handler(req, res) {
     });
   }
 }
-
-const formatAUDate = (dateStr) => {
-  return new Date(dateStr).toLocaleString('en-AU', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  });
-};

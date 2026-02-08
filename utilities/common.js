@@ -198,13 +198,15 @@ export const getCheckInOutAnswer = (qaPairs = []) => {
 }
 
 export const validatePhoneNumber = (val) => {
-    const validPhoneNumber = /^\(?(\d{3})\)?[- ]?(\d{3})[- ]?(\d{2,4})$/;
-    return val.match(validPhoneNumber);
+  if (!val) return false;
+  const validPhoneNumber = /^\(?(\d{3})\)?[- ]?(\d{3})[- ]?(\d{2,4})$/;
+  return String(val || '').match(validPhoneNumber);
 }
 
 export const validateEmail = (val) => {
-      const validEmail = /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/;
-      return val.match(validEmail);
+    if (!val) return false;
+    const validEmail = /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/;
+    return val.match(validEmail);
 }
 
 
@@ -310,8 +312,10 @@ export const isBookingCancelled = (status) => {
 };
 
 /**
- * Get the cancellation type (Full Charge or No Charge) based on BookingApprovalUsage records
- * Only returns a value if there are actual usage records with cancelled/charged status
+ * Get the cancellation type (Full Charge or No Charge) for a cancelled booking
+ * Priority order:
+ * 1. Check booking.cancellation_type field (new permanent record)
+ * 2. Check BookingApprovalUsage records (fallback for old bookings)
  * @param {Object} booking - The booking object
  * @returns {string|null} - 'Full Charge', 'No Charge', or null
  */
@@ -331,33 +335,75 @@ export const getCancellationType = (booking) => {
       return null;
     }
     
-    // Check if there are BookingApprovalUsage records
-    if (!booking.approvalUsages || booking.approvalUsages.length === 0) {
-      return null;
+    // ✅ PRIORITY 1: Check the cancellation_type field (most reliable - permanent record)
+    if (booking.cancellation_type) {
+      return booking.cancellation_type === 'full_charge' ? 'Full Charge' : 'No Charge';
     }
     
-    // Check the status of the usage records
-    // 'cancelled' status = No Charge (nights returned)
-    // 'charged' status = Full Charge (nights kept as penalty)
-    const hasCancelledUsage = booking.approvalUsages.some(
-      usage => usage.status === 'cancelled'
-    );
-    const hasChargedUsage = booking.approvalUsages.some(
-      usage => usage.status === 'charged'
-    );
-    
-    // Determine cancellation type based on usage records
-    if (hasChargedUsage) {
-      return 'Full Charge';
-    } else if (hasCancelledUsage) {
-      return 'No Charge';
+    // ✅ PRIORITY 2: Fallback to BookingApprovalUsage records (for old bookings before field was added)
+    if (booking.approvalUsages && booking.approvalUsages.length > 0) {
+      // Check the status of the usage records
+      // 'cancelled' status = No Charge (nights returned)
+      // 'charged' status = Full Charge (nights kept as penalty)
+      const hasCancelledUsage = booking.approvalUsages.some(
+        usage => usage.status === 'cancelled'
+      );
+      const hasChargedUsage = booking.approvalUsages.some(
+        usage => usage.status === 'charged'
+      );
+      
+      // Determine cancellation type based on usage records
+      if (hasChargedUsage) {
+        return 'Full Charge';
+      } else if (hasCancelledUsage) {
+        return 'No Charge';
+      }
     }
     
-    // No processed usage records found
+    // ✅ If booking is cancelled but we can't determine type (e.g., NDIS booking without the new field)
+    // Return null - this will hide the badge rather than showing incorrect info
     return null;
     
   } catch (error) {
     console.error('Error determining cancellation type:', error);
     return null;
   }
+};
+
+export /**
+ * Helper to parse and clean sci_type_level from database
+ * Handles: "\"C7\"" -> ['C7'], "C5,T12" -> ['C5', 'T12'], ['C7'] -> ['C7']
+ */
+const parseSciTypeLevel = (value) => {
+  if (!value) return [];
+  
+  // Already an array
+  if (Array.isArray(value)) {
+    return value.map(v => String(v).trim()).filter(Boolean);
+  }
+  
+  // String value - needs parsing
+  if (typeof value === 'string') {
+    try {
+      // Try JSON parsing first (handles "\"C7\"" or "[\"C7\"]")
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) {
+        return parsed.map(v => String(v).trim()).filter(Boolean);
+      }
+      return [String(parsed).trim()].filter(Boolean);
+    } catch {
+      // Not valid JSON - clean quotes manually and split by comma
+      const cleaned = value
+        .replace(/^["'\s]+|["'\s]+$/g, '') // Remove outer quotes/whitespace
+        .replace(/\\"/g, '"')               // Unescape quotes
+        .replace(/^["']|["']$/g, '');       // Remove quotes again
+      
+      return cleaned
+        .split(',')
+        .map(v => v.trim().replace(/^["']|["']$/g, ''))
+        .filter(Boolean);
+    }
+  }
+  
+  return [];
 };

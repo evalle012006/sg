@@ -1,28 +1,3 @@
-/**
- * Save QA Pair API
- * 
- * ✨ UPDATED: Integrated EmailTriggerService into existing metainfo-based email trigger system
- * 
- * Changes made:
- * 1. Added EmailTriggerService import (line 7)
- * 2. Replaced dispatchHttpTaskHandler email trigger calls with EmailTriggerService.evaluateAndSendTriggers()
- * 3. Maintained all existing metainfo tracking logic (triggered_emails boolean and object modes)
- * 4. Added fallback to old dispatchHttpTaskHandler system if EmailTriggerService fails
- * 5. Updated metainfo after successful email triggers
- * 6. Returns emailTriggers in response for debugging/monitoring
- * 
- * All other existing functionality preserved:
- * - Equipment handling
- * - Delete with file cleanup
- * - Update by ID
- * - Create/findOrCreate
- * - Course offer linking
- * - Booking amendments
- * - Status logs
- * - PDF generation
- * - Notifications
- */
-
 import { Booking, Equipment, EquipmentCategory, Guest, Log, QaPair, Section, Setting, CourseOffer, Course, sequelize, BookingEquipment } from "../../../models"
 import { BookingService } from "../../../services/booking/booking";
 import { dispatchHttpTaskHandler } from "../../../services/queues/dispatchHttpTask";
@@ -142,6 +117,7 @@ export default async function handler(req, res) {
                 }
             }
             await transaction.commit();
+            console.log('✅ QA pairs transaction committed successfully');
         } catch (err) {
             await transaction.rollback();
             console.error('Error in save-qa-pair transaction:', err);
@@ -185,12 +161,6 @@ export default async function handler(req, res) {
                 
                 completedEquipments = acknowledgementEquipments.length > 0;
             }
-            
-            console.log('🔧 Equipment completion status after save:', {
-                bookingId: booking.id,
-                bookingType: bookingType,
-                completedEquipments
-            });
 
             return res.status(201).json({ 
                 success: true, 
@@ -494,6 +464,7 @@ const updateBooking = async (booking, qa_pairs = [], flags, bookingService) => {
             }
 
             if (completeBooking) {
+                console.log('📧 Evaluating email triggers for booking ID:', completeBooking.id);
                 if (typeof metainfo.triggered_emails == 'boolean') {
                     if (metainfo.triggered_emails == undefined || metainfo.triggered_emails == false) {
                         console.log('📧 Queueing email triggers (boolean mode)...');

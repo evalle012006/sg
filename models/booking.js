@@ -52,6 +52,12 @@ module.exports = (sequelize, DataTypes) => {
     verbal_consent: DataTypes.JSON,
     status_name: DataTypes.STRING,
     eligibility_name: DataTypes.STRING,
+    cancellation_type: {
+      type: DataTypes.ENUM('no_charge', 'full_charge'),
+      allowNull: true,
+      defaultValue: null,
+      comment: 'Type of cancellation charge: no_charge (nights returned) or full_charge (penalty applied)'
+    },
   }, {
     sequelize,
     modelName: 'Booking',
@@ -59,8 +65,5 @@ module.exports = (sequelize, DataTypes) => {
     underscored: true,
   });
 
-
-
   return Booking;
 };
-

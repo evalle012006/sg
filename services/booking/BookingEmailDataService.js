@@ -1,28 +1,143 @@
 /**
- * BookingEmailDataService - OPTIMIZED VERSION
+ * BookingEmailDataService - OPTIMIZED VERSION WITH FALLBACK
  * 
- * ✨ PERFORMANCE OPTIMIZATION:
- * - Methods now accept either booking ID or pre-fetched booking object
- * - Eliminates redundant database queries when processing multiple triggers
- * - Backward compatible - still works with booking IDs
- * 
- * Previous issue: For each trigger, booking data was fetched twice (evaluateTrigger + prepareEmailData)
- * Solution: Fetch once at top level, pass booking object through the chain
+ * ✨ PERFORMANCE OPTIMIZATION + BACKWARD COMPATIBILITY:
+ * - Methods accept either booking ID or pre-fetched booking object
+ * - Fallback from question_id to question text matching (old system compatibility)
+ * - Extensive logging for debugging
  */
 
-import { Booking, Setting, Template, Page, Section, Question, Room, RoomType, Guest, EmailTrigger, QaPair } from "../../models";
+import { Booking, Setting, Template, Page, Section, Question, Room, RoomType, Guest, EmailTrigger, QaPair, Package } from "../../models";
+import { dispatchHttpTaskHandler } from "../queues/dispatchHttpTask";
 import EmailService from "./emailService";
 import { QUESTION_KEYS, getAnswerByQuestionKey, findByQuestionKey, mapQuestionTextToKey } from "./question-helper";
 import moment from "moment";
+import { EmailTemplateMappingService } from "./EmailTemplateService";
+const fs = require('fs').promises;
+const path = require('path');
 
 class BookingEmailDataService {
   
   /**
+   * ✨ NEW: Find QaPair with fallback from question_id to question text matching
+   */
+  findQaPairWithFallback(qaPairs, triggerQuestion) {
+    console.log('\n🔍 Finding QaPair with fallback...');
+    
+    const question = triggerQuestion.question;
+    const questionId = question?.id || triggerQuestion.question_id;
+    const questionText = question?.question || triggerQuestion.question_text;
+    const questionKey = question?.question_key;
+    
+    console.log('   Searching for:', {
+      questionId,
+      questionKey,
+      questionText: questionText?.substring(0, 50) + '...'
+    });
+    
+    let qaPair = null;
+    
+    // STEP 1: Try to find by question_id (new system)
+    if (questionId) {
+      console.log('   📌 Step 1: Trying question_id match...');
+      qaPair = qaPairs.find(qa => qa.question_id === questionId);
+      
+      if (qaPair) {
+        console.log('   ✅ Found by question_id:', questionId);
+        console.log('      Answer:', qaPair.answer?.substring(0, 100));
+        return qaPair;
+      } else {
+        console.log('   ⚠️ No match by question_id:', questionId);
+      }
+    }
+    
+    // STEP 2: Try to find by question_key (if available)
+    if (questionKey) {
+      console.log('   📌 Step 2: Trying question_key match...');
+      qaPair = findByQuestionKey(qaPairs, questionKey);
+      
+      if (qaPair) {
+        console.log('   ✅ Fallback: Found by question_key:', questionKey);
+        console.log('      Answer:', qaPair.answer?.substring(0, 100));
+        return qaPair;
+      } else {
+        console.log('   ⚠️ No match by question_key:', questionKey);
+      }
+    }
+    
+    // STEP 3: Fallback to question text matching (old system)
+    if (questionText) {
+      console.log('   📌 Step 3: Trying exact question text match...');
+      
+      // Try exact match on qa.question
+      qaPair = qaPairs.find(qa => qa.question === questionText);
+      
+      if (qaPair) {
+        console.log('   ✅ Fallback: Found by exact question text');
+        console.log('      Question:', questionText.substring(0, 50) + '...');
+        console.log('      Answer:', qaPair.answer?.substring(0, 100));
+        return qaPair;
+      }
+      
+      // Try exact match on qa.Question?.question (nested)
+      qaPair = qaPairs.find(qa => qa.Question?.question === questionText);
+      
+      if (qaPair) {
+        console.log('   ✅ Fallback: Found by nested Question.question text');
+        console.log('      Question:', questionText.substring(0, 50) + '...');
+        console.log('      Answer:', qaPair.answer?.substring(0, 100));
+        return qaPair;
+      }
+      
+      console.log('   📌 Step 4: Trying case-insensitive question text match...');
+      
+      // Try case-insensitive match
+      const questionTextLower = questionText.toLowerCase().trim();
+      qaPair = qaPairs.find(qa => 
+        qa.question?.toLowerCase().trim() === questionTextLower ||
+        qa.Question?.question?.toLowerCase().trim() === questionTextLower
+      );
+      
+      if (qaPair) {
+        console.log('   ✅ Fallback: Found by case-insensitive question text');
+        console.log('      Question:', questionText.substring(0, 50) + '...');
+        console.log('      Answer:', qaPair.answer?.substring(0, 100));
+        return qaPair;
+      } else {
+        console.log('   ⚠️ No match by case-insensitive text');
+      }
+      
+      // STEP 5: Try partial match (contains)
+      console.log('   📌 Step 5: Trying partial question text match...');
+      qaPair = qaPairs.find(qa => {
+        const qaQuestion = qa.question || qa.Question?.question || '';
+        return qaQuestion.toLowerCase().includes(questionTextLower) ||
+               questionTextLower.includes(qaQuestion.toLowerCase());
+      });
+      
+      if (qaPair) {
+        console.log('   ✅ Fallback: Found by partial question text match');
+        console.log('      Matched question:', (qaPair.question || qaPair.Question?.question)?.substring(0, 50) + '...');
+        console.log('      Answer:', qaPair.answer?.substring(0, 100));
+        return qaPair;
+      } else {
+        console.log('   ⚠️ No match by partial text');
+      }
+    }
+    
+    console.log('   ❌ No QaPair found after all fallback attempts');
+    console.log('   Available QaPairs:', qaPairs.length);
+    
+    return null;
+  }
+
+  /**
    * ✨ OPTIMIZED: Main method now accepts booking object OR booking ID
-   * @param {object|string|number} bookingOrId - Booking object or booking ID
    */
   async prepareEmailData(bookingOrId, additionalData = {}, options = {}) {
     try {
+      console.log('\n📊 Preparing email data...');
+      
       const {
         includeRawAnswers = false,
         includeSectionSpecific = true,
@@ -30,15 +145,17 @@ class BookingEmailDataService {
         includeMetadata = true
       } = options;
 
-      // ✨ NEW: Check if we received a booking object or need to fetch it
+      // ✨ Check if we received a booking object or need to fetch it
       const bookingData = typeof bookingOrId === 'object' && bookingOrId !== null
         ? bookingOrId
         : await this.fetchBookingData(bookingOrId);
       
       if (!bookingData) {
-        console.error(`Booking not found: ${bookingOrId}`);
+        console.error(`❌ Booking not found: ${bookingOrId}`);
         return null;
       }
+
+      console.log(`✅ Processing booking ${bookingData.uuid || bookingData.id}`);
 
       const emailData = {};
 
@@ -50,36 +167,81 @@ class BookingEmailDataService {
       this.addBookingDetails(emailData, bookingData, formatDates);
       this.addRoomData(emailData, bookingData);
       this.addPropertyData(emailData);
+      
+      const qaPairs = bookingData.Sections
+        ?.map(section => section.QaPairs || [])
+        .flat()
+        .filter(qa => qa != null) || [];
+      
       await this.addQuestionAnswers(emailData, bookingData, includeSectionSpecific);
       await this.enrichPackageData(emailData, qaPairs);
       this.addCalculatedFields(emailData, bookingData, formatDates);
+      
+      // ✅ Parse health info for email templates
+      const healthData = this.parseHealthInfoForEmail(qaPairs);
+      if (healthData.healthInfo) {
+        emailData.healthInfo = healthData.healthInfo;
+      }
+      if (healthData.affirmed_questions) {
+        emailData.affirmed_questions = healthData.affirmed_questions;
+      }
+      
+      // ✅ Parse foundation stay data
+      const foundationData = this.parseFoundationStayData(qaPairs, emailData);
+      Object.assign(emailData, foundationData);
+      
+      // ✅ NEW: Parse coordinator/funder information
+      const coordinatorData = this.parseCoordinatorInfo(qaPairs, emailData);
+      Object.assign(emailData, coordinatorData);
+      
+      // ✅ NEW: Parse booking highlights if trigger questions provided
+      if (additionalData.triggerQuestions) {
+        const highlights = this.parseBookingHighlights(qaPairs, additionalData.triggerQuestions);
+        if (highlights) {
+          emailData.booking_highlights = highlights;
+        }
+      }
+      
+      // ✅ NEW: Parse specific question answer if provided
+      if (additionalData.questionKey || additionalData.questionText) {
+        const specificAnswer = this.parseSpecificQuestionAnswer(
+          qaPairs, 
+          additionalData.questionKey,
+          additionalData.questionText
+        );
+        Object.assign(emailData, specificAnswer);
+      }
 
       Object.assign(emailData, additionalData);
 
       if (includeRawAnswers) {
-        emailData._raw_qa_pairs = bookingData.Sections
-          ?.map(section => section.QaPairs || [])
-          .flat()
-          .filter(qa => qa != null) || [];
+        emailData._raw_qa_pairs = qaPairs;
       }
+
+      console.log(`✅ Email data prepared with ${Object.keys(emailData).length} fields`);
 
       return emailData;
 
     } catch (error) {
-      console.error('Error preparing email data:', error);
+      console.error('❌ Error preparing email data:', error);
       throw error;
     }
   }
 
   /**
    * ✨ OPTIMIZED: Now accepts booking object OR booking ID
-   * @param {object|string|number} bookingOrId - Booking object or booking ID
    */
   async evaluateTrigger(bookingOrId, trigger) {
     try {
+      console.log('\n🎯 Evaluating email trigger...');
+      console.log(`   Trigger ID: ${trigger.id}`);
+      console.log(`   Trigger Type: ${trigger.type}`);
+      
       const triggerQuestions = trigger.triggerQuestions || [];
+      console.log(`   Trigger Questions: ${triggerQuestions.length}`);
 
       if (triggerQuestions.length === 0) {
+        console.log('   ⚠️ No trigger conditions specified - auto-pass');
         return {
           shouldSend: true,
           reason: 'No trigger conditions specified',
@@ -94,6 +256,7 @@ class BookingEmailDataService {
         : await this.fetchBookingData(bookingOrId);
 
       if (!bookingData) {
+        console.log('   ❌ Booking not found');
         return {
           shouldSend: false,
           reason: 'Booking not found',
@@ -105,14 +268,17 @@ class BookingEmailDataService {
       const qaPairs = bookingData.Sections
         ?.map(section => section.QaPairs || [])
         .flat()
-        .filter(qa => qa != null) || [];
+        .filter(qa => qa != null && qa.answer) || [];
 
-      console.log(`📊 Booking has ${qaPairs.length} answered questions`);
+      console.log(`   📊 Booking has ${qaPairs.length} answered questions`);
 
       const evaluationResults = [];
       const matchedAnswers = {};
 
-      for (const triggerQuestion of triggerQuestions) {
+      for (let i = 0; i < triggerQuestions.length; i++) {
+        const triggerQuestion = triggerQuestions[i];
+        console.log(`\n   📝 Evaluating trigger question ${i + 1}/${triggerQuestions.length}`);
+        
         const result = this.evaluateTriggerQuestion(
           triggerQuestion,
           qaPairs
@@ -122,6 +288,9 @@ class BookingEmailDataService {
         
         if (result.matched) {
           matchedAnswers[result.questionKey || result.questionText] = result.actualAnswer;
+          console.log(`   ✅ Condition ${i + 1} matched`);
+        } else {
+          console.log(`   ❌ Condition ${i + 1} NOT matched: ${result.reason}`);
         }
       }
 
@@ -130,6 +299,11 @@ class BookingEmailDataService {
       const nonMatchReasons = evaluationResults
         .filter(r => !r.matched)
         .map(r => r.reason);
+
+      console.log(`\n   📊 Final evaluation: ${allMatched ? '✅ PASS' : '❌ FAIL'}`);
+      if (!allMatched) {
+        console.log(`   Reasons: ${nonMatchReasons.join('; ')}`);
+      }
 
       return {
         shouldSend: allMatched,
@@ -141,7 +315,7 @@ class BookingEmailDataService {
       };
 
     } catch (error) {
-      console.error('Error evaluating trigger:', error);
+      console.error('❌ Error evaluating trigger:', error);
       return {
         shouldSend: false,
         reason: `Error: ${error.message}`,
@@ -152,13 +326,16 @@ class BookingEmailDataService {
   }
 
   /**
-   * Evaluate a single trigger question
+   * ✨ UPDATED: Evaluate a single trigger question WITH FALLBACK
    */
   evaluateTriggerQuestion(triggerQuestion, qaPairs) {
+    console.log('\n   🔎 Evaluating trigger question...');
+    
     const question = triggerQuestion.question;
     const expectedAnswer = triggerQuestion.answer;
     
     if (!question) {
+      console.log('   ❌ Question data missing from trigger');
       return {
         matched: false,
         reason: 'Question data missing from trigger',
@@ -171,21 +348,19 @@ class BookingEmailDataService {
 
     const triggerQuestionText = question.question;
     const triggerQuestionKey = question.question_key;
+    const triggerQuestionId = question.id;
     
-    console.log(`🔍 Looking for question: "${triggerQuestionText}" (key: ${triggerQuestionKey})`);
+    console.log('   📋 Trigger question details:');
+    console.log(`      ID: ${triggerQuestionId || 'N/A'}`);
+    console.log(`      Key: ${triggerQuestionKey || 'N/A'}`);
+    console.log(`      Text: "${triggerQuestionText?.substring(0, 60)}..."`);
+    console.log(`      Expected Answer: "${expectedAnswer || 'any'}"`);
     
-    let relevantQaPair;
-    if (triggerQuestionKey) {
-      relevantQaPair = findByQuestionKey(qaPairs, triggerQuestionKey);
-    } else {
-      relevantQaPair = qaPairs.find(qa => 
-        qa.question === triggerQuestionText || 
-        qa.Question?.question === triggerQuestionText
-      );
-    }
+    // ✨ USE FALLBACK METHOD
+    const relevantQaPair = this.findQaPairWithFallback(qaPairs, triggerQuestion);
 
     if (!relevantQaPair) {
-      console.log(`   ❌ Question not found in booking`);
+      console.log('   ❌ Question not found in booking (tried all fallback methods)');
       return {
         matched: false,
         reason: `Question "${triggerQuestionText}" not found in booking`,
@@ -197,9 +372,10 @@ class BookingEmailDataService {
     }
 
     const actualAnswer = relevantQaPair.answer;
-    console.log(`   ✅ Found! Answer: "${actualAnswer}"`);
+    console.log(`   📌 Actual Answer: "${actualAnswer?.toString().substring(0, 100)}"`);
 
     if (!actualAnswer) {
+      console.log('   ❌ Question has no answer');
       return {
         matched: false,
         reason: `Question "${triggerQuestionText}" has no answer`,
@@ -210,7 +386,9 @@ class BookingEmailDataService {
       };
     }
 
-    if (!expectedAnswer || expectedAnswer === '') {
+    // If no specific answer is expected, just check if question is answered
+    if (!expectedAnswer || expectedAnswer === '' || expectedAnswer === null) {
+      console.log('   ✅ No specific answer expected - question is answered');
       return {
         matched: true,
         reason: `Question "${triggerQuestionText}" has an answer (any value accepted)`,
@@ -221,7 +399,14 @@ class BookingEmailDataService {
       };
     }
 
+    // Compare answers
     const matched = this.answersMatch(actualAnswer, expectedAnswer);
+
+    if (matched) {
+      console.log('   ✅ Answer matched!');
+    } else {
+      console.log('   ❌ Answer did not match');
+    }
 
     return {
       matched,
@@ -237,14 +422,17 @@ class BookingEmailDataService {
 
   /**
    * Compare answers (handles strings, arrays, booleans)
-  **/
+   */
   answersMatch(actualAnswer, expectedAnswer) {
+    console.log('      🔍 Comparing answers...');
+    
     const parseAnswer = (answer) => {
       if (Array.isArray(answer)) {
         return answer.map(a => String(a).trim().toLowerCase());
       }
       
       if (typeof answer === 'string') {
+        // Try to parse JSON arrays
         if (answer.startsWith('[') && answer.endsWith(']')) {
           try {
             const parsed = JSON.parse(answer);
@@ -256,7 +444,12 @@ class BookingEmailDataService {
           }
         }
         
-        return answer.split(',').map(a => a.trim().toLowerCase()).filter(a => a);
+        // Handle comma-separated values
+        if (answer.includes(',')) {
+          return answer.split(',').map(a => a.trim().toLowerCase()).filter(a => a);
+        }
+        
+        return [answer.trim().toLowerCase()];
       }
       
       return [String(answer).trim().toLowerCase()];
@@ -265,6 +458,10 @@ class BookingEmailDataService {
     const actualValues = parseAnswer(actualAnswer);
     const expectedValues = parseAnswer(expectedAnswer);
 
+    console.log(`      Actual values: [${actualValues.join(', ')}]`);
+    console.log(`      Expected values: [${expectedValues.join(', ')}]`);
+
+    // Check for partial matches (contains)
     const hasAnyMatch = expectedValues.some(expected => 
       actualValues.some(actual => 
         actual === expected || 
@@ -274,36 +471,41 @@ class BookingEmailDataService {
     );
 
     if (hasAnyMatch) {
-      console.log(`   ✓ Partial match found: ${expectedValues.filter(exp => 
+      const matchedValues = expectedValues.filter(exp => 
         actualValues.some(act => act.includes(exp) || exp.includes(act))
-      ).join(', ')}`);
+      );
+      console.log(`      ✓ Partial match found: ${matchedValues.join(', ')}`);
       return true;
     }
 
+    // Check for exact match (all values match)
     const normalizedActual = actualValues.sort().join(',');
     const normalizedExpected = expectedValues.sort().join(',');
     
     if (normalizedActual === normalizedExpected) {
-      console.log('   ✓ Exact match');
+      console.log('      ✓ Exact match');
       return true;
     }
 
-    console.log(`   ✗ No match: actual [${actualValues.join(', ')}] vs expected [${expectedValues.join(', ')}]`);
+    console.log('      ✗ No match found');
     return false;
   }
 
   /**
    * ✨ OPTIMIZED: Process email trigger with booking object
-   * @param {object|string|number} bookingOrId - Booking object or booking ID
    */
   async processEmailTrigger(bookingOrId, trigger, additionalData = {}) {
     try {
+      console.log('\n🔄 Processing email trigger...');
+      console.log(`   Trigger ID: ${trigger.id}, Type: ${trigger.type}`);
+      
       // ✨ OPTIMIZED: Fetch booking data ONCE here if needed
       const bookingData = typeof bookingOrId === 'object' && bookingOrId !== null
         ? bookingOrId
         : await this.fetchBookingData(bookingOrId);
 
       if (!bookingData) {
+        console.log('   ❌ Booking not found');
         return {
           shouldSend: false,
           evaluation: {
@@ -315,10 +517,13 @@ class BookingEmailDataService {
         };
       }
 
+      console.log(`   📋 Booking: ${bookingData.uuid}`);
+
       // ✨ OPTIMIZED: Pass booking object to avoid refetching
       const evaluation = await this.evaluateTrigger(bookingData, trigger);
       
       if (!evaluation.shouldSend) {
+        console.log(`   ⊘ Trigger evaluation failed: ${evaluation.reason}`);
         return {
           shouldSend: false,
           evaluation,
@@ -327,8 +532,12 @@ class BookingEmailDataService {
         };
       }
 
+      console.log('   ✅ Trigger evaluation passed - preparing email data...');
+
       // ✨ OPTIMIZED: Pass booking object to avoid refetching
       const emailData = await this.prepareEmailData(bookingData, additionalData);
+      
+      console.log('   ✅ Email data prepared successfully');
       
       return {
         shouldSend: true,
@@ -338,7 +547,7 @@ class BookingEmailDataService {
       };
 
     } catch (error) {
-      console.error('Error processing email trigger:', error);
+      console.error('❌ Error processing email trigger:', error);
       return {
         shouldSend: false,
         evaluation: {
@@ -354,16 +563,19 @@ class BookingEmailDataService {
 
   /**
    * ✨ OPTIMIZED: Evaluate and send with booking object
-   * @param {object|string|number} bookingOrId - Booking object or booking ID
    */
   async sendWithTriggerEvaluation(bookingOrId, trigger, additionalData = {}) {
     try {
+      console.log('\n📧 Send with trigger evaluation...');
+      console.log(`   Trigger ID: ${trigger.id}, Type: ${trigger.type}`);
+      
       // ✨ OPTIMIZED: Fetch booking data ONCE here if needed
       const bookingData = typeof bookingOrId === 'object' && bookingOrId !== null
         ? bookingOrId
         : await this.fetchBookingData(bookingOrId);
 
       if (!bookingData) {
+        console.log('   ❌ Booking not found');
         return {
           sent: false,
           reason: 'Booking not found',
@@ -376,6 +588,7 @@ class BookingEmailDataService {
       const result = await this.processEmailTrigger(bookingData, trigger, additionalData);
 
       if (!result.shouldSend) {
+        console.log(`   ⊘ Will not send: ${result.evaluation.reason}`);
         return {
           sent: false,
           reason: result.evaluation.reason,
@@ -388,14 +601,18 @@ class BookingEmailDataService {
       let recipient;
       if (trigger.type === 'internal') {
         recipient = trigger.recipient;
+        console.log(`   📬 Internal email to: ${recipient}`);
       } else if (trigger.type === 'external') {
         const matchedAnswerKey = Object.keys(result.evaluation.matchedAnswers)[0];
         recipient = result.evaluation.matchedAnswers[matchedAnswerKey];
+        console.log(`   📬 External email to: ${recipient} (from answer)`);
       } else {
         recipient = trigger.recipient;
+        console.log(`   📬 Email to: ${recipient}`);
       }
 
       if (!recipient) {
+        console.log('   ❌ No recipient found');
         return {
           sent: false,
           reason: 'No recipient found',
@@ -406,6 +623,7 @@ class BookingEmailDataService {
 
       const templateId = trigger.email_template_id || trigger.template?.id;
       if (!templateId) {
+        console.log('   ❌ No email template configured');
         return {
           sent: false,
           reason: 'No email template configured',
@@ -414,8 +632,12 @@ class BookingEmailDataService {
         };
       }
 
+      console.log(`   📨 Queueing email to ${recipient} with template ${templateId}...`);
+
       // Queue email
       await this.queueEmail(recipient, templateId, result.emailData);
+
+      console.log('   ✅ Email queued successfully!');
 
       return {
         sent: true,
@@ -425,7 +647,7 @@ class BookingEmailDataService {
       };
 
     } catch (error) {
-      console.error('Error in sendWithTriggerEvaluation:', error);
+      console.error('❌ Error in sendWithTriggerEvaluation:', error);
       return {
         sent: false,
         reason: `Error: ${error.message}`,
@@ -439,7 +661,9 @@ class BookingEmailDataService {
    * Queue email using dispatchHttpTaskHandler
    */
   async queueEmail(recipient, templateId, emailData) {
-    const { dispatchHttpTaskHandler } = require('../queues/dispatchHttpTask');
+    console.log('\n📤 Queueing email task...');
+    console.log(`   Recipient: ${recipient}`);
+    console.log(`   Template ID: ${templateId}`);
     
     await dispatchHttpTaskHandler('booking', { 
       type: 'sendTriggerEmail',
@@ -450,7 +674,7 @@ class BookingEmailDataService {
       }
     });
     
-    console.log(`📬 Email queued for ${recipient} with template ${templateId}`);
+    console.log('   ✅ Email task queued\n');
   }
 
   /**
@@ -458,7 +682,9 @@ class BookingEmailDataService {
    */
   async fetchBookingData(bookingId) {
     try {
-      const whereClause = bookingId.includes('-') 
+      console.log(`\n🔍 Fetching booking data for: ${bookingId}`);
+      
+      const whereClause = bookingId.toString().includes('-') 
         ? { uuid: bookingId }
         : { id: bookingId };
 
@@ -471,7 +697,11 @@ class BookingEmailDataService {
             where: {
               model_type: 'booking'
             },
-            required: false
+            required: false,
+            include: [{
+              model: QaPair,
+              include: [Question]
+            }]
           },
           {
             model: Room,
@@ -481,9 +711,14 @@ class BookingEmailDataService {
       });
 
       if (!booking) {
+        console.log('   ❌ Booking not found');
         return null;
       }
 
+      console.log(`   ✅ Booking found: ${booking.uuid}`);
+      console.log(`   📊 Initial sections loaded: ${booking.Sections?.length || 0}`);
+
+      // Get template to load ALL sections from ALL pages
       let templateId = null;
       if (booking.Sections && booking.Sections.length > 0) {
         const firstSection = booking.Sections[0];
@@ -499,6 +734,8 @@ class BookingEmailDataService {
       }
 
       if (templateId) {
+        console.log(`   🔍 Loading all sections from template ${templateId}...`);
+        
         const template = await Template.findOne({
           where: { id: templateId },
           include: [{
@@ -517,6 +754,9 @@ class BookingEmailDataService {
             });
           });
 
+          console.log(`   📋 Template has ${template.Pages.length} pages`);
+          console.log(`   📋 Total template sections: ${origSectionIds.length}`);
+
           const allBookingSections = await Section.findAll({
             where: {
               model_type: 'booking',
@@ -534,31 +774,29 @@ class BookingEmailDataService {
 
           booking.Sections = allBookingSections;
           
-          console.log(`📊 Loaded booking with ${template.Pages.length} pages from template`);
-          console.log(`📊 Found ${allBookingSections.length} booking sections across all pages`);
-          
           const totalQaPairs = allBookingSections.reduce((sum, section) => 
             sum + (section.QaPairs?.length || 0), 0
           );
-          console.log(`📊 Total QaPairs loaded: ${totalQaPairs}`);
+          
+          console.log(`   ✅ Loaded ${allBookingSections.length} sections across all pages`);
+          console.log(`   ✅ Total QaPairs: ${totalQaPairs}`);
         }
       } else {
-        if (booking && booking.Sections) {
-          console.log(`📊 Loaded booking with ${booking.Sections.length} sections (no template)`);
-          const totalQaPairs = booking.Sections.reduce((sum, section) => {
-            return sum + (section.QaPairs?.length || 0);
-          }, 0);
-          console.log(`📊 Total QaPairs loaded: ${totalQaPairs}`);
-        }
+        const totalQaPairs = booking.Sections?.reduce((sum, section) => 
+          sum + (section.QaPairs?.length || 0), 0) || 0;
+        console.log(`   ℹ️  No template found - using ${booking.Sections?.length || 0} sections`);
+        console.log(`   📊 Total QaPairs: ${totalQaPairs}`);
       }
 
       return booking;
     } catch (error) {
-      console.error('Error fetching booking data:', error);
+      console.error('❌ Error fetching booking data:', error);
       throw error;
     }
   }
 
+  // ... rest of the helper methods (addSystemMetadata, addGuestData, etc.) remain the same ...
+  
   addSystemMetadata(emailData, bookingData) {
     emailData._booking_id = bookingData.id;
     emailData._booking_uuid = bookingData.uuid;
@@ -636,32 +874,25 @@ class BookingEmailDataService {
       emailData.number_of_infants = 0;
       emailData.number_of_guests = 0;
       emailData.rooms = [];
-      emailData.room_count = 0;
     }
   }
 
   async addPropertyData(emailData) {
-    const fs = require('fs').promises;
-    const path = require('path');
-    
     try {
-      // Read logo file
-      const logoPath = path.join(process.env.APP_ROOT, 'public', 'sargood-logo-full.svg');
+      const logoPath = path.join(process.env.APP_ROOT || process.cwd(), 'public', 'sargood-logo-full.svg');
       const logoBuffer = await fs.readFile(logoPath);
       const logoBase64 = logoBuffer.toString('base64');
       
-      // Add to email data
       emailData.logo_base64 = `data:image/svg+xml;base64,${logoBase64}`;
       emailData.logo_url = `${process.env.APP_URL}/sargood-logo-full.svg`;
       
-      // Property information
       emailData.property_name = 'Sargood on Collaroy';
       emailData.property_address = '1 Brissenden Avenue, Collaroy NSW 2097, Australia';
       emailData.property_phone = '02 8597 0600';
       emailData.property_email = 'info@sargoodoncollaroy.com.au';
     } catch (error) {
-      console.error('Error loading logo:', error);
-      emailData.logo_url = ''; // Fallback
+      console.error('⚠️ Error loading logo:', error);
+      emailData.logo_url = '';
     }
   }
 
@@ -674,21 +905,25 @@ class BookingEmailDataService {
       return;
     }
 
-    const { EmailTemplateMappingService } = require('./EmailTemplateService');
+    // ✅ This will now work because we're importing the CLASS
     const MERGE_TAG_MAP = EmailTemplateMappingService.MERGE_TAG_MAP;
 
-    Object.entries(MERGE_TAG_MAP).forEach(([questionKey, mergeTag]) => {
-      if (questionKey === 'property_name' || questionKey === 'property_address' || 
-          questionKey === 'property_phone' || questionKey === 'property_email') {
-        return;
-      }
-      
-      const answer = getAnswerByQuestionKey(qaPairs, questionKey);
-      if (answer !== null && answer !== undefined) {
-        emailData[mergeTag] = this.formatAnswerForEmail(answer);
-      }
-    });
+    // Check if MERGE_TAG_MAP exists (defensive programming)
+    if (MERGE_TAG_MAP && typeof MERGE_TAG_MAP === 'object') {
+      Object.entries(MERGE_TAG_MAP).forEach(([questionKey, mergeTag]) => {
+        if (questionKey === 'property_name' || questionKey === 'property_address' || 
+            questionKey === 'property_phone' || questionKey === 'property_email') {
+          return;
+        }
+        
+        const answer = getAnswerByQuestionKey(qaPairs, questionKey);
+        if (answer !== null && answer !== undefined) {
+          emailData[mergeTag] = this.formatAnswerForEmail(answer);
+        }
+      });
+    }
 
+    // ✅ Process all QaPairs regardless of MERGE_TAG_MAP
     qaPairs.forEach(qaPair => {
       const questionKey = qaPair.Question?.question_key || qaPair.question_key;
       const sectionId = qaPair.section_id;
@@ -696,15 +931,18 @@ class BookingEmailDataService {
       
       if (!questionKey) return;
 
+      // Add answer by question_key
       if (!emailData[questionKey] && answer !== null && answer !== undefined) {
         emailData[questionKey] = this.formatAnswerForEmail(answer);
       }
 
+      // Add section-specific keys if needed
       if (includeSectionSpecific && sectionId) {
         const sectionSpecificKey = `${questionKey}_s${sectionId}`;
         emailData[sectionSpecificKey] = this.formatAnswerForEmail(answer);
       }
 
+      // Add sanitized question text as key
       if (qaPair.Question?.question) {
         const textKey = this.sanitizeQuestionText(qaPair.Question.question);
         if (!emailData[textKey]) {
@@ -715,10 +953,6 @@ class BookingEmailDataService {
   }
 
   async enrichPackageData(emailData, qaPairs) {
-    // Import Package model at top of file
-    const { Package } = require('../../models');
-    
-    // Find package-selection questions
     const packageQaPairs = qaPairs.filter(qa => 
       qa.Question?.question_type === 'package-selection' || 
       qa.Question?.type === 'package-selection' ||
@@ -730,7 +964,6 @@ class BookingEmailDataService {
       const answer = qaPair.answer;
       const questionKey = qaPair.Question?.question_key || qaPair.question_key;
       
-      // Check if answer looks like a package ID
       if (answer && /^\d+$/.test(answer.toString().trim())) {
         try {
           const packageId = parseInt(answer);
@@ -739,8 +972,7 @@ class BookingEmailDataService {
           });
           
           if (packageData) {
-            // Add both ID and name
-            emailData[`${questionKey}`] = answer; // Keep original ID
+            emailData[`${questionKey}`] = answer;
             emailData[`${questionKey}_name`] = packageData.name;
             emailData['package_id'] = packageData.id;
             emailData['package_name'] = packageData.name;
@@ -749,7 +981,7 @@ class BookingEmailDataService {
             emailData['package_funder'] = packageData.funder;
           }
         } catch (error) {
-          console.error('Error enriching package data:', error);
+          console.error('⚠️ Error enriching package data:', error);
         }
       }
     }
@@ -855,6 +1087,290 @@ class BookingEmailDataService {
     
     return String(answer);
   }
+
+  /**
+   * Parse health-related answers for email templates
+   */
+  parseHealthInfoForEmail(qaPairs) {
+    const healthQuestionKeys = [
+      'do-any-of-the-following-relate-to-you',
+      'is-there-anything-about-your-mental-health-that-you-would-like-to-tell-us-so-we-can-better-support',
+      'do-you-have-difficulty-swallowing',
+      'are-you-currently-an-inpatient-at-a-hospital-or-a-rehabilitation-facility'
+    ];
+    
+    const healthInfo = [];
+    const affirmedQuestions = [];
+    
+    qaPairs.forEach(qaPair => {
+      const questionKey = qaPair.Question?.question_key || qaPair.question_key;
+      const answer = qaPair.answer;
+      const question = qaPair.Question?.question || qaPair.question;
+      
+      if (!questionKey || !answer) return;
+      
+      // Check if this is a health-related question
+      if (healthQuestionKeys.includes(questionKey)) {
+        // Parse the answer
+        let answerArray = [];
+        
+        if (typeof answer === 'string') {
+          // Try to parse JSON array
+          if (answer.startsWith('[') && answer.endsWith(']')) {
+            try {
+              answerArray = JSON.parse(answer);
+            } catch (e) {
+              // If not valid JSON, treat as comma-separated
+              answerArray = answer.split(',').map(a => a.trim()).filter(a => a);
+            }
+          } else if (answer.toLowerCase() === 'yes') {
+            // For yes/no questions, add the question itself
+            affirmedQuestions.push(question);
+          } else if (answer.includes(',')) {
+            // Comma-separated values
+            answerArray = answer.split(',').map(a => a.trim()).filter(a => a);
+          } else {
+            // Single value
+            answerArray = [answer];
+          }
+        } else if (Array.isArray(answer)) {
+          answerArray = answer;
+        }
+        
+        // Add to healthInfo (only if not "None of the Above" or "No")
+        answerArray.forEach(item => {
+          const normalized = String(item).toLowerCase().trim();
+          if (normalized && 
+              normalized !== 'none of the above' && 
+              normalized !== 'no' &&
+              normalized !== 'none') {
+            healthInfo.push(String(item).trim());
+          }
+        });
+      }
+    });
+    
+    return {
+      healthInfo: healthInfo.length > 0 ? healthInfo : null,
+      affirmed_questions: affirmedQuestions.length > 0 ? affirmedQuestions : null
+    };
+  }
+
+  /**
+   * Parse foundation/travel grant related answers for email templates
+   */
+  parseFoundationStayData(qaPairs, emailData) {
+    const foundationData = {};
+    
+    // Map date fields
+    foundationData.arrivalDate = emailData.checkin_date || '';
+    foundationData.departureDate = emailData.checkout_date || '';
+    foundationData.nights_stay = emailData.number_of_nights || '';
+    foundationData.dob = emailData.guest_dob || '';
+    foundationData.package = emailData.package_name || '';
+    foundationData.funder = emailData.funding_source || '';
+    
+    // Find specific questions
+    const questionMappings = [
+      {
+        keys: ['why-are-you-applying-for-financial-assistance', 'please-tell-us-why-you-are-applying-for-financial-assistance'],
+        targetField: 'applying_assistance'
+      },
+      {
+        keys: ['what-goals-are-you-looking-to-achieve-by-staying-at-sargood-on-collaroy'],
+        targetField: 'goals1'
+      },
+      {
+        keys: ['why-are-you-applying-for-a-travel-grant', 'please-tell-us-why-you-are-applying-for-a-travel-grant'],
+        targetField: 'why_grant'
+      },
+      {
+        keys: ['what-goals-are-you-looking-to-achieve-at-sargood-on-collaroy', 'what-are-your-goals-for-staying-at-sargood'],
+        targetField: 'goals2'
+      },
+      {
+        keys: ['approx-how-much-funding-within-500-are-you-applying-for', 'how-much-funding-are-you-applying-for'],
+        targetField: 'how_much'
+      }
+    ];
+    
+    questionMappings.forEach(mapping => {
+      for (const key of mapping.keys) {
+        const answer = getAnswerByQuestionKey(qaPairs, key);
+        if (answer && answer !== 'null' && answer !== null) {
+          foundationData[mapping.targetField] = this.formatAnswerForEmail(answer);
+          break; // Stop after first match
+        }
+      }
+    });
+    
+    // Set a default message
+    foundationData.message = 'A guest has applied for financial assistance through the Sargood Foundation';
+    
+    return foundationData;
+  }
+
+  /**
+ * Parse coordinator/funder contact information
+ */
+parseCoordinatorInfo(qaPairs, emailData) {
+  const coordinatorData = {};
+  
+  // Find coordinator name
+  const coordinatorNameKeys = [
+    'icare-coordinator-name',
+    'ndis-support-coordinator-name',
+    'plan-management-company-name'
+  ];
+  
+  for (const key of coordinatorNameKeys) {
+    const answer = getAnswerByQuestionKey(qaPairs, key);
+    if (answer && answer !== 'null' && answer !== null) {
+      coordinatorData.coordinator_name = this.formatAnswerForEmail(answer);
+      break;
+    }
+  }
+  
+  // Find NDIS/iCare number
+  const numberKeys = [
+    'ndis-number',
+    'icare-number',
+    'icare-claim-number'
+  ];
+  
+  for (const key of numberKeys) {
+    const answer = getAnswerByQuestionKey(qaPairs, key);
+    if (answer && answer !== 'null' && answer !== null) {
+      coordinatorData.icare_or_ndis_number = this.formatAnswerForEmail(answer);
+      break;
+    }
+  }
+  
+  // Find reason for stay
+  const reasonKeys = [
+    'reason-for-stay',
+    'what-goals-are-you-looking-to-achieve-by-staying-at-sargood-on-collaroy'
+  ];
+  
+  for (const key of reasonKeys) {
+    const answer = getAnswerByQuestionKey(qaPairs, key);
+    if (answer && answer !== 'null' && answer !== null) {
+      coordinatorData.reason_for_stay = this.formatAnswerForEmail(answer);
+      break;
+    }
+  }
+  
+  // Add package_type as alias for package_name
+  if (emailData.package_name) {
+    coordinatorData.package_type = emailData.package_name;
+  }
+  
+  return coordinatorData;
+}
+
+/**
+ * Parse booking highlights from trigger questions
+ * This is used for the highlights template to show specific Q&A pairs
+ */
+parseBookingHighlights(qaPairs, triggerQuestions) {
+  const highlights = [];
+  
+  if (!triggerQuestions || triggerQuestions.length === 0) {
+    return null;
+  }
+  
+  triggerQuestions.forEach(triggerQuestion => {
+    const question = triggerQuestion.question;
+    
+    if (!question) return;
+    
+    // Use fallback to find the QaPair
+    const qaPair = this.findQaPairWithFallback(qaPairs, triggerQuestion);
+    
+    if (qaPair && qaPair.answer) {
+      highlights.push({
+        question: question.question || triggerQuestion.question_text || 'Question',
+        answer: this.formatAnswerForEmail(qaPair.answer)
+      });
+    }
+  });
+  
+  return highlights.length > 0 ? highlights : null;
+}
+
+/**
+ * Parse specific question answer for internal booking notifications
+ * This extracts the answered question for templates like "Guest answered Yes to X"
+ */
+parseSpecificQuestionAnswer(qaPairs, questionKey, questionText) {
+  const result = {
+    selected_yes_no_answer: null,
+    question: null,
+    selected_list_answer: null,
+    selected_clinical_nurse_consultation_services: null
+  };
+  
+  // Try to find by question key first, then by text
+  let qaPair = null;
+  
+  if (questionKey) {
+    qaPair = findByQuestionKey(qaPairs, questionKey);
+  }
+  
+  if (!qaPair && questionText) {
+    qaPair = qaPairs.find(qa => {
+      const qaQuestion = qa.question || qa.Question?.question || '';
+      return qaQuestion.toLowerCase().includes(questionText.toLowerCase()) ||
+             questionText.toLowerCase().includes(qaQuestion.toLowerCase());
+    });
+  }
+  
+  if (!qaPair) {
+    return result;
+  }
+  
+  // Set the question text
+  result.question = qaPair.Question?.question || qaPair.question || questionText || '';
+  
+  const answer = qaPair.answer;
+  const questionType = qaPair.Question?.question_type || qaPair.Question?.type;
+  
+  // Parse answer based on type
+  if (questionType === 'radio' || questionType === 'yes-no') {
+    result.selected_yes_no_answer = this.formatAnswerForEmail(answer);
+  } else if (questionType === 'checkbox' || Array.isArray(answer)) {
+    // Parse array answer
+    let answerArray = [];
+    
+    if (typeof answer === 'string') {
+      if (answer.startsWith('[') && answer.endsWith(']')) {
+        try {
+          answerArray = JSON.parse(answer);
+        } catch (e) {
+          answerArray = answer.split(',').map(a => a.trim()).filter(a => a);
+        }
+      } else if (answer.includes(',')) {
+        answerArray = answer.split(',').map(a => a.trim()).filter(a => a);
+      } else {
+        answerArray = [answer];
+      }
+    } else if (Array.isArray(answer)) {
+      answerArray = answer;
+    }
+    
+    result.selected_list_answer = answerArray;
+    
+    // Check if this is clinical nurse consultation services
+    const questionLower = result.question.toLowerCase();
+    if (questionLower.includes('clinical nurse') || 
+        questionLower.includes('nurse consultation') ||
+        questionKey === 'clinical-nurse-consultation-services') {
+      result.selected_clinical_nurse_consultation_services = answerArray;
+    }
+  }
+  
+  return result;
+}
 
   sanitizeQuestionText(questionText) {
     return questionText

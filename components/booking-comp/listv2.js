@@ -660,7 +660,6 @@ const fetchBookings = async (searchTerm = searchValue, invalidateCache = false) 
           const statusObj = original.status ? JSON.parse(original.status) : null;
           const cancellationType = getCancellationType(original);
           const isCancelled = isBookingCancelled(original.status);
-          console.log(original.reference_id, cancellationType, isCancelled);
           return (
             <div className="flex flex-col space-y-1">
               <DropdownStatus 

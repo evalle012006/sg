@@ -88,7 +88,8 @@ export default function AdminGuestProfile() {
                     guestEmail: guestInfo.email,
                     guestName: `${guestInfo.first_name} ${guestInfo.last_name}`,
                     guestData: guestInfo,
-                    healthData: healthInfo
+                    healthData: healthInfo,
+                    profileImageUrl: profileImageUrl
                 }),
             });
 

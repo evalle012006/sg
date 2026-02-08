@@ -2,28 +2,6 @@
 
 module.exports = {
   up: async (queryInterface, Sequelize) => {
-    // Rename table
-    await queryInterface.renameTable('guest_funding', 'guest_approvals');
-    
-    // Add new fields
-    await queryInterface.addColumn('guest_approvals', 'approval_name', {
-      type: Sequelize.STRING,
-      allowNull: true,
-      comment: 'Friendly name for the approval (e.g., "2024 Winter Package")'
-    });
-    
-    await queryInterface.addColumn('guest_approvals', 'approval_type', {
-      type: Sequelize.ENUM('icare', 'ndis', 'private', 'other'),
-      defaultValue: 'icare',
-      allowNull: false
-    });
-    
-    await queryInterface.addColumn('guest_approvals', 'status', {
-      type: Sequelize.ENUM('active', 'expired', 'exhausted', 'cancelled'),
-      defaultValue: 'active',
-      allowNull: false
-    });
-
     // Create booking-approval usage tracking table
     await queryInterface.createTable('booking_approval_usages', {
       id: {

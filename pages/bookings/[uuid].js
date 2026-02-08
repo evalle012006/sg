@@ -576,6 +576,10 @@ export default function BookingDetail() {
     return ['booking_cancelled', 'guest_cancelled'].includes(statusName);
   };
 
+  const hidePages = ['packages'];
+
+  const [isSavingPackage, setIsSavingPackage] = useState(false);
+
   useEffect(() => {
     const loadOptions = async () => {
       if (!editingPackage || !packageQaPairInfo) {
@@ -682,8 +686,14 @@ export default function BookingDetail() {
   }, [editingPackage, packageQaPairInfo, funderInfo]); 
 
   const handleUpdatePackage = useCallback(async (selectedOption) => {
-    if (!packageQaPairInfo || !selectedOption) return;
     
+    if (!packageQaPairInfo || !selectedOption) {
+      console.error('❌ Missing required data:', { packageQaPairInfo, selectedOption });
+      toast.error('Unable to update package. Missing required information.');
+      return;
+    }
+    
+    setIsSavingPackage(true);
     dispatch(globalActions.setLoading(true));
     
     try {
@@ -700,31 +710,43 @@ export default function BookingDetail() {
         })
       });
       
-      if (response.ok) {
-        const result = await response.json();
-        
-        if (result.success) {
-          toast.success('Package updated successfully!');
-          setEditingPackage(false);
-          setSelectedPackageValue(null);
-          setPackageOptions([]);
-          
-          // Refresh booking data
-          await fetchBooking();
-        } else {
-          toast.error(result.message || 'Failed to update package');
+      if (!response.ok) {
+        let errorMessage = 'Failed to update package';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.message || errorMessage;
+          console.error('❌ API Error:', errorData);
+        } catch (e) {
+          console.error('❌ Could not parse error response');
         }
+        toast.error(errorMessage);
+        return;
+      }
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        toast.success('Package updated successfully!');
+        setEditingPackage(false);
+        setSelectedPackageValue(null);
+        setPackageOptions([]);
+        
+        // Refresh booking data - use uuid directly instead of relying on closure
+        console.log('🔄 Refreshing booking data...');
+        await fetchBooking();
+        console.log('✅ Booking data refreshed');
       } else {
-        const errorData = await response.json();
-        toast.error(errorData.message || 'Failed to update package');
+        toast.error(result.message || 'Failed to update package');
+        console.error('❌ Update failed:', result);
       }
     } catch (error) {
-      console.error('Error updating package:', error);
-      toast.error('Failed to update package');
+      console.error('❌ Error updating package:', error);
+      toast.error(`Failed to update package: ${error.message}`);
     } finally {
+      setIsSavingPackage(false);
       dispatch(globalActions.setLoading(false));
     }
-  }, [packageQaPairInfo, dispatch, fetchBooking]);
+  }, [packageQaPairInfo, dispatch, uuid]);
 
   const handleEditPackage = useCallback(() => {
     setEditingPackage(true);
@@ -758,9 +780,7 @@ export default function BookingDetail() {
 
   // Get course information
   const courseInfo = useMemo(() => {
-    
     if (!booking?.Sections) {
-      console.log('❌ No booking.Sections found');
       return null;
     }
     
@@ -769,29 +789,23 @@ export default function BookingDetail() {
     let questionType = null;
     let questionKey = null;
     
-    booking.Sections.forEach((section, sectionIndex) => {
-      section.QaPairs?.forEach((qaPair, qaPairIndex) => {
+    booking.Sections.forEach((section) => {
+      section.QaPairs?.forEach((qaPair) => {
         const question = qaPair.Question;
-        const questionText = question?.question || '';
-        const qType = question?.question_type || question?.type || '';
-        const optionType = question?.option_type || '';
-        const qKey = qaPair.question_key || '';
+        const qKey = question?.question_key || '';
+        const qType = qaPair.question_type || question?.type || '';
         
-        // Check for course selection with multiple detection methods
+        // Use QUESTION_KEYS constant
         const isCourseQuestion = 
-          qKey === QUESTION_KEYS.COURSE_SELECTION || 
-          qKey === 'which-course' ||
-          questionText === 'Which course?' ||
-          questionText.toLowerCase().includes('which course') ||
-          (optionType === 'course' && qKey === 'which-course') ||
-          (qType === 'course');
+          qKey === QUESTION_KEYS.COURSE_SELECTION ||
+          qKey === QUESTION_KEYS.WHICH_COURSE ||
+          qType === 'course';
         
         if (isCourseQuestion) {
           course = qaPair.answer;
           questionType = qType;
           questionKey = qKey;
           
-          // If answer is numeric, treat as course ID (especially for option_type='course')
           if (qaPair.answer && /^\d+$/.test(qaPair.answer)) {
             courseId = qaPair.answer;
           }
@@ -799,14 +813,12 @@ export default function BookingDetail() {
       });
     });
     
-    const result = {
+    return {
       answer: course,
       courseId: courseId,
       questionType: questionType,
       questionKey: questionKey
     };
-    
-    return result;
   }, [booking]);
 
   useEffect(() => {
@@ -860,7 +872,7 @@ export default function BookingDetail() {
   }, [courseInfo?.courseId]);
 
   const getCourseTypeDisplay = () => {
-
+    // Check if we have a course ID and successfully fetched course details
     if (courseInfo?.courseId && courseDetails) {
       return {
         title: courseDetails.title,
@@ -875,7 +887,13 @@ export default function BookingDetail() {
         status: courseDetails.status,
         imageUrl: courseDetails.imageUrl
       };
-    } else if (courseInfo?.answer) {
+    } 
+    
+    // REMOVED: Don't show raw answer if it's just an ID
+    // The accordion section will handle showing the error message
+    
+    // Only return answer if it's not a numeric ID (i.e., it's an actual course name)
+    if (courseInfo?.answer && !/^\d+$/.test(courseInfo.answer)) {
       return {
         title: courseInfo.answer,
         description: null,
@@ -885,14 +903,14 @@ export default function BookingDetail() {
       };
     }
     
-    // console.log('❌ No course information available');
+    // Return null if no valid course data is available
+    // This will trigger the error message in the accordion section
     return null;
   };
 
   // Get funder information
   const funderInfo = useMemo(() => {
     if (!booking?.Sections) {
-      console.log('❌ No booking.Sections found');
       return null;
     }
     
@@ -900,24 +918,18 @@ export default function BookingDetail() {
     let funderQuestion = null;
     let funderOptions = null;
     
-    booking.Sections.forEach((section, sectionIndex) => {      
-      section.QaPairs?.forEach((qaPair, qaPairIndex) => {
+    booking.Sections.forEach((section) => {
+      section.QaPairs?.forEach((qaPair) => {
         const question = qaPair.Question;
-        const qKey = qaPair.question_key || '';
-        const questionText = question?.question || '';
+        const qKey = question?.question_key || '';
         
-        // Check for funding source question with multiple detection methods
-        const isFundingQuestion = 
-          qKey === QUESTION_KEYS.FUNDING_SOURCE || 
-          qKey === 'how-will-your-stay-be-funded' ||
-          questionText === 'How will your stay be funded?' ||
-          questionText.toLowerCase().includes('how will your stay be funded');
+        // Use QUESTION_KEYS constant
+        const isFundingQuestion = qKey === QUESTION_KEYS.FUNDING_SOURCE;
         
         if (isFundingQuestion) {
           funder = qaPair.answer;
           funderQuestion = question;
           
-          // Extract options if available
           if (question?.options) {
             try {
               funderOptions = typeof question.options === 'string' 
@@ -931,13 +943,11 @@ export default function BookingDetail() {
       });
     });
     
-    const result = {
+    return {
       answer: funder,
       question: funderQuestion,
       options: funderOptions
     };
-    
-    return result;
   }, [booking]);
 
   useEffect(() => {
@@ -1049,22 +1059,30 @@ export default function BookingDetail() {
   }, [booking, packageDetails]);
 
   const packageQaPairInfo = useMemo(() => {
-    if (!booking?.Sections) return null;
+    if (!booking?.Sections) {
+      console.log('❌ No booking.Sections found');
+      return null;
+    }
     
     let qaPairData = null;
     
-    booking.Sections.forEach(section => {
-      section.QaPairs?.forEach(qaPair => {
+    booking.Sections.forEach((section, sIdx) => {
+      section.QaPairs?.forEach((qaPair, qIdx) => {
         const question = qaPair.Question;
-        const questionType = question?.type || ''; // FIXED: use 'type' not 'question_type'
-        const questionKey = question?.question_key || ''; // FIXED: access from Question, not qaPair
         
-        // Check for package-related questions
-        if (questionKey === QUESTION_KEYS.ACCOMMODATION_PACKAGE_COURSES ||
-            questionKey === QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL ||
-            questionType === 'package-selection' ||
-            (question?.question?.toLowerCase().includes('accommodation') && 
-            question?.question?.toLowerCase().includes('package'))) {
+        // Get question_key from Question object
+        const questionKey = question?.question_key || '';
+        
+        // Get question type - check both qaPair level and Question level
+        const questionType = qaPair.question_type || question?.type || '';
+        
+        // Check for package-related questions using QUESTION_KEYS constants
+        const isPackageQuestion = 
+          questionKey === QUESTION_KEYS.ACCOMMODATION_PACKAGE_COURSES ||
+          questionKey === QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL ||
+          questionType === 'package-selection';
+        
+        if (isPackageQuestion) {
           
           qaPairData = {
             qaPair: qaPair,
@@ -1078,7 +1096,7 @@ export default function BookingDetail() {
         }
       });
     });
-  
+
     return qaPairData;
   }, [booking]);
 
@@ -1132,6 +1150,7 @@ export default function BookingDetail() {
 
   // Get serialized package type for display
   const getPackageTypeDisplay = () => {
+    // Check if we have a package ID and successfully fetched package details
     if (packageInfo?.packageId && packageDetails) {
       return {
         name: packageDetails.name,
@@ -1141,7 +1160,10 @@ export default function BookingDetail() {
         ndisPackageType: packageDetails.ndis_package_type,
         ndisLineItems: packageDetails.ndis_line_items
       };
-    } else if (packageInfo?.answer) {
+    } 
+    
+    // Only process answer if it's not a numeric ID (i.e., it's an actual package name)
+    if (packageInfo?.answer && !/^\d+$/.test(packageInfo.answer)) {
       let packageType = null;
       if (!courseInfo) {
         packageType = serializePackage(packageInfo.answer);
@@ -1159,17 +1181,18 @@ export default function BookingDetail() {
       };
     }
     
-    console.log('❌ No package information available');
+    // Return null if no valid package data is available
+    // This will trigger the error message in the accordion section
     return null;
   };
 
   // Get total guests helper function
   const getTotalGuests = (room) => {
     let totalGuests = 0;
-    totalGuests += room.adults || 0;
-    totalGuests += room.children || 0;
-    totalGuests += room.infants || 0;
-    totalGuests += room.pets || 0;
+    totalGuests += room.adults ?? 0;
+    totalGuests += room.children ?? 0;
+    totalGuests += room.infants ?? 0;
+    totalGuests += room.pets ?? 0;
     return totalGuests;
   };
 
@@ -1680,11 +1703,15 @@ export default function BookingDetail() {
                 const packageTypeDisplay = getPackageTypeDisplay();
                 const packageInfo = packageTypeDisplay?.code || packageTypeDisplay?.name || 'WHS';
                 
+                // Check if this is an additional room (index > 0)
+                const isAdditionalRoom = index > 0;
+                
                 return (
                   <div key={index} className="mb-6 last:mb-0">
-                    <div className="flex items-start space-x-6">
-                      {/* Large Room Image */}
-                      <div className="w-80 h-48 bg-gray-200 rounded-lg overflow-hidden flex-shrink-0">
+                    {/* Responsive flex container that stacks on mobile */}
+                    <div className="flex flex-col lg:flex-row items-start gap-6">
+                      {/* Large Room Image - responsive width */}
+                      <div className="w-full lg:w-80 h-48 bg-gray-200 rounded-lg overflow-hidden flex-shrink-0">
                         {room.imageUrl ? (
                           <img 
                             src={room.imageUrl}
@@ -1702,23 +1729,23 @@ export default function BookingDetail() {
                       </div>
                       
                       {/* Room Details */}
-                      <div className="flex-1">
+                      <div className="flex-1 w-full">
                         {/* Room Title */}
-                        <h4 className="text-xl font-semibold text-gray-900 mb-8">
+                        <h4 className="text-xl font-semibold text-gray-900 mb-4 lg:mb-8">
                           {room.RoomType?.name || room.label || 'Standard Studio Room'}
                         </h4>
                         
-                        {/* Info Grid - 4 columns with card styling */}
-                        <div className="grid grid-cols-4 gap-6">
+                        {/* Info Grid - responsive: 2 cols on mobile, 3 on tablet, 4 on desktop (or 3 for additional rooms without guest) */}
+                        <div className={`grid grid-cols-2 ${isAdditionalRoom ? 'sm:grid-cols-3' : 'md:grid-cols-3 lg:grid-cols-4'} gap-3 lg:gap-6`}>
                           {/* Check-in Card */}
-                          <div className="text-center p-4 rounded-lg" style={{ backgroundColor: '#F2F5F9' }}>
-                            <div className="mb-3">
-                              <svg className="w-6 h-6 text-blue-600 mx-auto" fill="currentColor" viewBox="0 0 24 24">
+                          <div className="text-center p-3 lg:p-4 rounded-lg" style={{ backgroundColor: '#F2F5F9' }}>
+                            <div className="mb-2 lg:mb-3">
+                              <svg className="w-5 h-5 lg:w-6 lg:h-6 text-blue-600 mx-auto" fill="currentColor" viewBox="0 0 24 24">
                                 <path d="M8.5 5L15.5 12L8.5 19" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
                               </svg>
                             </div>
-                            <div className="text-sm font-semibold text-gray-900 mb-2">CHECK-IN</div>
-                            <div className="text-lg font-bold text-gray-900 mb-1">
+                            <div className="text-xs lg:text-sm font-semibold text-gray-900 mb-1 lg:mb-2">CHECK-IN</div>
+                            <div className="text-sm lg:text-lg font-bold text-gray-900 mb-1 break-words">
                               {room.checkin ? 
                                 moment(room.checkin).format('DD/MM/YYYY') : 
                                 (booking.preferred_arrival_date ? 
@@ -1727,18 +1754,18 @@ export default function BookingDetail() {
                                 )
                               }
                             </div>
-                            <div className="text-sm text-gray-600">Preferred</div>
+                            <div className="text-xs lg:text-sm text-gray-600">Preferred</div>
                           </div>
                           
                           {/* Check-out Card */}
-                          <div className="text-center p-4 rounded-lg" style={{ backgroundColor: '#F2F5F9' }}>
-                            <div className="mb-3">
-                              <svg className="w-6 h-6 text-blue-600 mx-auto" fill="currentColor" viewBox="0 0 24 24">
+                          <div className="text-center p-3 lg:p-4 rounded-lg" style={{ backgroundColor: '#F2F5F9' }}>
+                            <div className="mb-2 lg:mb-3">
+                              <svg className="w-5 h-5 lg:w-6 lg:h-6 text-blue-600 mx-auto" fill="currentColor" viewBox="0 0 24 24">
                                 <path d="M15.5 19L8.5 12L15.5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
                               </svg>
                             </div>
-                            <div className="text-sm font-semibold text-gray-900 mb-2">CHECK-OUT</div>
-                            <div className="text-lg font-bold text-gray-900 mb-1">
+                            <div className="text-xs lg:text-sm font-semibold text-gray-900 mb-1 lg:mb-2">CHECK-OUT</div>
+                            <div className="text-sm lg:text-lg font-bold text-gray-900 mb-1 break-words">
                               {room.checkout ? 
                                 moment(room.checkout).format('DD/MM/YYYY') : 
                                 (booking.preferred_departure_date ? 
@@ -1747,23 +1774,23 @@ export default function BookingDetail() {
                                 )
                               }
                             </div>
-                            <div className="text-sm text-gray-600">Preferred</div>
+                            <div className="text-xs lg:text-sm text-gray-600">Preferred</div>
                           </div>
                           
                           {/* Package Card */}
-                          <div className="text-center p-4 rounded-lg" style={{ backgroundColor: '#F2F5F9' }}>
-                            <div className="mb-3">
-                              <svg className="w-6 h-6 text-blue-600 mx-auto" fill="currentColor" viewBox="0 0 24 24">
+                          <div className="text-center p-3 lg:p-4 rounded-lg" style={{ backgroundColor: '#F2F5F9' }}>
+                            <div className="mb-2 lg:mb-3">
+                              <svg className="w-5 h-5 lg:w-6 lg:h-6 text-blue-600 mx-auto" fill="currentColor" viewBox="0 0 24 24">
                                 <path d="M21 8.5V16.5C21 17.33 20.33 18 19.5 18H4.5C3.67 18 3 17.33 3 16.5V8.5L12 3L21 8.5Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
                                 <path d="M3 8.5L12 13.5L21 8.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
                               </svg>
                             </div>
-                            <div className="text-sm font-semibold text-gray-900 mb-2">PACKAGE</div>
+                            <div className="text-xs lg:text-sm font-semibold text-gray-900 mb-1 lg:mb-2">PACKAGE</div>
                             <div 
-                              className={`font-bold text-gray-900 ${
+                              className={`font-bold text-gray-900 break-words ${
                                 packageInfo && packageInfo.length > 12 
-                                  ? 'text-sm break-words' 
-                                  : 'text-lg'
+                                  ? 'text-xs lg:text-sm' 
+                                  : 'text-sm lg:text-lg'
                               }`}
                               title={packageInfo}
                             >
@@ -1771,28 +1798,30 @@ export default function BookingDetail() {
                             </div>
                           </div>
                           
-                          {/* Guests Card */}
-                          <div className="text-center p-4 rounded-lg" style={{ backgroundColor: '#F2F5F9' }}>
-                            <div className="mb-3">
-                              <svg className="w-6 h-6 text-blue-600 mx-auto" fill="currentColor" viewBox="0 0 24 24">
-                                <path d="M16 21V19C16 17.9 15.1 17 14 17H6C4.9 17 4 17.9 4 19V21" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
-                                <circle cx="10" cy="9" r="4" stroke="currentColor" strokeWidth="2" fill="none"/>
-                                <path d="M19 8V14" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                                <path d="M22 11H16" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                              </svg>
+                          {/* Guests Card - HIDDEN for additional rooms */}
+                          {!isAdditionalRoom && (
+                            <div className="text-center p-3 lg:p-4 rounded-lg" style={{ backgroundColor: '#F2F5F9' }}>
+                              <div className="mb-2 lg:mb-3">
+                                <svg className="w-5 h-5 lg:w-6 lg:h-6 text-blue-600 mx-auto" fill="currentColor" viewBox="0 0 24 24">
+                                  <path d="M16 21V19C16 17.9 15.1 17 14 17H6C4.9 17 4 17.9 4 19V21" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+                                  <circle cx="10" cy="9" r="4" stroke="currentColor" strokeWidth="2" fill="none"/>
+                                  <path d="M19 8V14" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                                  <path d="M22 11H16" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                                </svg>
+                              </div>
+                              <div className="text-xs lg:text-sm font-semibold text-gray-900 mb-1 lg:mb-2">GUEST</div>
+                              <div className="text-sm lg:text-lg font-bold text-gray-900">
+                                {totalGuests !== 0 ? totalGuests : (room.total_guests ?? 0)}
+                              </div>
                             </div>
-                            <div className="text-sm font-semibold text-gray-900 mb-2">GUEST</div>
-                            <div className="text-lg font-bold text-gray-900">
-                              {totalGuests || room.total_guests || 1}
-                            </div>
-                          </div>
+                          )}
                         </div>
                       </div>
                     </div>
                     
                     {/* Multiple rooms separator */}
                     {index < booking.Rooms.length - 1 && (
-                      <div className="mt-8 pt-6 border-t border-gray-200">
+                      <div className="mt-6 lg:mt-8 pt-4 lg:pt-6 border-t border-gray-200">
                         <div className="text-sm font-medium text-gray-700 mb-2">
                           Additional Room {index + 2}
                         </div>
@@ -1944,7 +1973,7 @@ export default function BookingDetail() {
                         width={20}
                         height={20}
                       />
-                      <p className="text-lg font-semibold">{booking.Rooms[0].adults}</p>
+                      <p className="text-lg font-semibold">{booking.Rooms[0].adults ?? 0}</p>
                     </div>
                   </div>
                   <div className="text-center p-4 bg-gray-50 rounded-lg">
@@ -1956,7 +1985,7 @@ export default function BookingDetail() {
                         width={20}
                         height={20}
                       />
-                      <p className="text-lg font-semibold">{booking.Rooms[0].children}</p>
+                      <p className="text-lg font-semibold">{booking.Rooms[0].children ?? 0}</p>
                     </div>
                   </div>
                   <div className="text-center p-4 bg-gray-50 rounded-lg">
@@ -1968,7 +1997,7 @@ export default function BookingDetail() {
                         width={20}
                         height={20}
                       />
-                      <p className="text-lg font-semibold">{booking.Rooms[0].infants || 0}</p>
+                      <p className="text-lg font-semibold">{booking.Rooms[0].infants ?? 0}</p>
                     </div>
                   </div>
                   <div className="text-center p-4 bg-gray-50 rounded-lg">
@@ -1980,7 +2009,7 @@ export default function BookingDetail() {
                         width={20}
                         height={20}
                       />
-                      <p className="text-lg font-semibold">{booking.Rooms[0].pets}</p>
+                      <p className="text-lg font-semibold">{booking.Rooms[0].pets ?? 0}</p>
                     </div>
                   </div>
                 </div>
@@ -2018,7 +2047,15 @@ export default function BookingDetail() {
         description: (() => {
           const packageDisplay = getPackageTypeDisplay();
           if (loadingPackageDetails) return 'Loading package details...';
-          if (packageDisplay) return `Package: ${packageDisplay.code || packageDisplay.name}`;
+          
+          if (packageDisplay && (packageDisplay.name || packageDisplay.code)) {
+            return `Package: ${packageDisplay.code || packageDisplay.name}`;
+          }
+          
+          if (packageInfo?.answer && /^\d+$/.test(packageInfo.answer)) {
+            return 'Package not found - see details';
+          }
+          
           return 'No package selected';
         })(),
         customContent: (
@@ -2028,130 +2065,150 @@ export default function BookingDetail() {
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
                 <span className="ml-3 text-gray-600">Loading package details...</span>
               </div>
-            ) : (() => {
-              const packageDisplay = getPackageTypeDisplay();
-              
-              return (
-                <div className="space-y-4">
-                  {packageDisplay ? (
-                    <div className="bg-gray-50 p-4 rounded-lg">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-4">
-                          <div className="flex-shrink-0">
-                            <Image
-                              alt={"check in sargood"}
-                              src={"/icons/check-green.png"}
-                              width={20}
-                              height={20}
-                            />
-                          </div>
-                          <div className="flex-1">
-                            <p className="font-medium text-gray-900">
-                              {packageDisplay.name}
-                            </p>
-                            {packageDisplay.code && (
-                              <p className="text-sm text-gray-600">
-                                Code: {packageDisplay.code}
-                              </p>
-                            )}
+            ) : (
+              <>
+                {/* ALWAYS show the current package info first */}
+                {(() => {
+                  const packageDisplay = getPackageTypeDisplay();
+                  
+                  if (packageDisplay && packageDisplay.name && packageDetails) {
+                    return (
+                      <div className="space-y-4 mb-4">
+                        <div className="bg-gray-50 p-4 rounded-lg">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-4">
+                              <div className="flex-shrink-0">
+                                <Image
+                                  alt={"check in sargood"}
+                                  src={"/icons/check-green.png"}
+                                  width={20}
+                                  height={20}
+                                />
+                              </div>
+                              <div className="flex-1">
+                                <p className="font-medium text-gray-900">
+                                  {packageDisplay.name}
+                                </p>
+                                {packageDisplay.code && (
+                                  <p className="text-sm text-gray-600">
+                                    Code: {packageDisplay.code}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                            
+                            {/* Edit Button */}
+                            <Can I="Create/Edit" a="Booking">
+                              {isUser && packageQaPairInfo && !editingPackage && (
+                                <Button
+                                  color="outline"
+                                  size="small"
+                                  label="EDIT"
+                                  onClick={handleEditPackage}
+                                />
+                              )}
+                            </Can>
                           </div>
                         </div>
-                        
-                        {/* Edit Button - Only show for users with edit permissions */}
-                        <Can I="Create/Edit" a="Booking">
-                          {isUser && packageQaPairInfo && (
-                            <Button
-                              color="outline"
-                              size="small"
-                              label="EDIT"
-                              onClick={handleEditPackage}
-                              disabled={editingPackage}
-                            />
-                          )}
-                        </Can>
                       </div>
-                    </div>
-                  ) : (
-                    <div className="text-center py-8">
-                      <Package className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                      <p className="text-gray-500">No package information available</p>
-                      
-                      {/* Add Package Button - Only show for users with edit permissions */}
-                      <Can I="Create/Edit" a="Booking">
-                        {isUser && packageQaPairInfo && (
-                          <div className="mt-4">
-                            <Button
-                              color="primary"
-                              size="small"
-                              label="ADD PACKAGE"
-                              onClick={handleEditPackage}
-                              disabled={editingPackage}
-                            />
-                          </div>
-                        )}
-                      </Can>
-                    </div>
-                  )}
+                    );
+                  }
                   
-                  {/* Package Edit Mode */}
-                    {editingPackage && (
-                      <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
-                        <h4 className="font-medium text-blue-900 mb-3">Update Package</h4>
-                        
-                        {loadingPackageOptions ? (
-                          <div className="flex items-center justify-center py-4">
-                            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
-                            <span className="ml-2 text-blue-700">Loading options...</span>
+                  if (packageInfo?.answer && /^\d+$/.test(packageInfo.answer)) {
+                    return (
+                      <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4">
+                        <div className="flex items-start space-x-3">
+                          <AlertCircle className="w-6 h-6 text-amber-600 flex-shrink-0 mt-0.5" />
+                          <div className="flex-1">
+                            <h4 className="text-sm font-semibold text-amber-900 mb-1">Package Not Found</h4>
+                            <p className="text-sm text-amber-700 mb-2">
+                              The selected package (ID: {packageInfo.answer}) could not be loaded.
+                            </p>
                           </div>
-                        ) : (
-                          <div className="space-y-3">
-                            <div className="w-full">
-                              <SelectComponent
-                                label="Select Package"
-                                placeholder="Choose a package..."
-                                value={packageOptions.find(opt => opt.value === selectedPackageValue)?.label || ''}
-                                options={packageOptions}
-                                onChange={(selected) => {
-                                  setSelectedPackageValue(selected.value);
-                                }}
-                                width="100%"
-                              />
-                            </div>
-                            
-                            <div className="flex space-x-2">
-                              <Button
-                                color="primary"
-                                size="small"
-                                label="Save"
-                                onClick={() => {
-                                  const selectedOption = packageOptions.find(opt => opt.value === selectedPackageValue);
-                                  if (selectedOption) {
-                                    handleUpdatePackage(selectedOption);
-                                  }
-                                }}
-                                disabled={!selectedPackageValue || selectedPackageValue === packageQaPairInfo?.currentAnswer}
-                              />
-                              <Button
-                                color="outline"
-                                size="small"
-                                label="Cancel"
-                                onClick={handleCancelPackageEdit}
-                              />
-                            </div>
-                            
-                            {/* Show current selection */}
-                            {selectedPackageValue && (
-                              <div className="text-sm text-blue-700 mt-2">
-                                Selected: {packageOptions.find(opt => opt.value === selectedPackageValue)?.label}
-                              </div>
-                            )}
+                        </div>
+                      </div>
+                    );
+                  }
+                  
+                  return (
+                    <div className="text-center py-4 mb-4">
+                      <Package className="w-8 h-8 text-gray-300 mx-auto mb-2" />
+                      <p className="text-gray-500 text-sm">No package selected</p>
+                    </div>
+                  );
+                })()}
+                
+                {/* Edit Form - Show BELOW current package when editing */}
+                {editingPackage && (
+                  <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                    <h4 className="font-medium text-blue-900 mb-3">Update Package</h4>
+                    
+                    {loadingPackageOptions ? (
+                      <div className="flex items-center justify-center py-4">
+                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+                        <span className="ml-2 text-blue-700">Loading options...</span>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <div className="w-full">
+                          <SelectComponent
+                            label="Select Package"
+                            placeholder="Choose a package..."
+                            value={packageOptions.find(opt => opt.value === selectedPackageValue)?.label || ''}
+                            options={packageOptions}
+                            onChange={(selected) => {
+                              setSelectedPackageValue(selected.value);
+                            }}
+                            width="100%"
+                          />
+                        </div>
+                        
+                        <div className="flex space-x-2">
+                          <Button
+                            color="primary"
+                            size="small"
+                            label={isSavingPackage ? "Saving..." : "Save"}
+                            onClick={() => {
+                              if (!packageQaPairInfo) {
+                                console.error('❌ Package QA pair information is missing');
+                                toast.error('Unable to update package. Please refresh the page and try again.');
+                                return;
+                              }
+                              
+                              const selectedOption = packageOptions.find(opt => opt.value === selectedPackageValue);
+                              
+                              if (!selectedOption) {
+                                console.error('❌ No valid option selected');
+                                toast.error('Please select a valid package option');
+                                return;
+                              }
+                              
+                              // Show immediate feedback
+                              toast.info('Updating package...');
+                              handleUpdatePackage(selectedOption);
+                            }}
+                            disabled={isSavingPackage || !selectedPackageValue || !packageQaPairInfo || selectedPackageValue === packageQaPairInfo?.currentAnswer}
+                          />
+                          <Button
+                            color="outline"
+                            size="small"
+                            label="Cancel"
+                            onClick={handleCancelPackageEdit}
+                            disabled={isSavingPackage}
+                          />
+                        </div>
+                        
+                        {selectedPackageValue && (
+                          <div className="text-sm text-blue-700 mt-2">
+                            Selected: {packageOptions.find(opt => opt.value === selectedPackageValue)?.label}
                           </div>
                         )}
                       </div>
                     )}
-                </div>
-              );
-            })()}
+                  </div>
+                )}
+              </>
+            )}
           </div>
         )
       },
@@ -2160,7 +2217,17 @@ export default function BookingDetail() {
         description: (() => {
           const courseDisplay = getCourseTypeDisplay();
           if (loadingCourseDetails) return 'Loading course details...';
-          if (courseDisplay) return `Course: ${courseDisplay.title}`;
+          
+          // Check if we have valid course data
+          if (courseDisplay && courseDisplay.title && courseDisplay.title !== courseInfo?.answer) {
+            return `Course: ${courseDisplay.title}`;
+          }
+          
+          // Check if we have a course ID but no details (404 error case)
+          if (courseInfo?.answer && /^\d+$/.test(courseInfo.answer)) {
+            return 'Course not found - see details';
+          }
+          
           return 'No course selected';
         })(),
         customContent: (
@@ -2172,39 +2239,66 @@ export default function BookingDetail() {
               </div>
             ) : (() => {
               const courseDisplay = getCourseTypeDisplay();
-              return courseDisplay ? (
-                <div className="bg-gray-50 p-4 rounded-lg">
-                  <div className="flex items-center space-x-4">
-                    {/* Course Image */}
-                    {courseDisplay.imageUrl && (
-                      <div className="flex-shrink-0">
-                        <img 
-                          src={courseDisplay.imageUrl}
-                          alt={courseDisplay.title}
-                          className="w-16 h-16 object-cover rounded-lg"
-                          onError={(e) => {
-                            e.target.style.display = 'none';
-                          }}
-                        />
-                      </div>
-                    )}
-                    
-                    <div className="flex items-center space-x-4 flex-1">
-                      <div className="flex-shrink-0">
-                        <Image
-                          alt={"check in sargood"}
-                          src={"/icons/check-green.png"}
-                          width={20}
-                          height={20}
-                        />
-                      </div>
-                      <div className="flex-1">
-                        <p className="font-medium text-gray-900">{courseDisplay.title}</p>
+              
+              // Case 1: Valid course data loaded successfully
+              if (courseDisplay && courseDisplay.title && courseDetails) {
+                return (
+                  <div className="bg-gray-50 p-4 rounded-lg">
+                    <div className="flex items-center space-x-4">
+                      {/* Course Image */}
+                      {courseDisplay.imageUrl && (
+                        <div className="flex-shrink-0">
+                          <img 
+                            src={courseDisplay.imageUrl}
+                            alt={courseDisplay.title}
+                            className="w-16 h-16 object-cover rounded-lg"
+                            onError={(e) => {
+                              e.target.style.display = 'none';
+                            }}
+                          />
+                        </div>
+                      )}
+                      
+                      <div className="flex items-center space-x-4 flex-1">
+                        <div className="flex-shrink-0">
+                          <Image
+                            alt={"check in sargood"}
+                            src={"/icons/check-green.png"}
+                            width={20}
+                            height={20}
+                          />
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-medium text-gray-900">{courseDisplay.title}</p>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              ) : (
+                );
+              }
+              
+              // Case 2: Course ID exists but data failed to load (404 error)
+              if (courseInfo?.answer && /^\d+$/.test(courseInfo.answer)) {
+                return (
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                    <div className="flex items-start space-x-3">
+                      <AlertCircle className="w-6 h-6 text-amber-600 flex-shrink-0 mt-0.5" />
+                      <div className="flex-1">
+                        <h4 className="text-sm font-semibold text-amber-900 mb-1">Course Not Found</h4>
+                        <p className="text-sm text-amber-700 mb-2">
+                          The selected course (ID: {courseInfo.answer}) could not be loaded.
+                        </p>
+                        <p className="text-xs text-amber-600">
+                          This course may have been deleted or is no longer available in the system. Please contact support if you need to update this booking.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+              
+              // Case 3: No course selected at all
+              return (
                 <div className="text-center py-8">
                   <div className="text-gray-400 mb-3">
                     <svg className="w-12 h-12 mx-auto" fill="currentColor" viewBox="0 0 24 24">
@@ -2238,6 +2332,11 @@ export default function BookingDetail() {
       const sortedTemplatePages = [...booking.templatePages].sort((a, b) => a.order - b.order);
       
       sortedTemplatePages.forEach((page) => {
+        // Don't show template pages if it's in hidePages
+        if (hidePages.includes(page.title?.toLowerCase())) {
+          return;
+        }
+
         const sectionQaPairs = booking.Sections?.filter(section => 
           section.pageId === page.id
         ) || [];
@@ -2316,6 +2415,7 @@ export default function BookingDetail() {
                                 optionType={question.option_type}
                                 courseData={courseDetails}
                                 packageData={packageDetails}
+                                fileUrls={qaPair.fileUrls || []}
                               />
                             );
                           })}

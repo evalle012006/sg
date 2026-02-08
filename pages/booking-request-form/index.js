@@ -613,7 +613,7 @@ const BookingRequestForm = () => {
                         const newCompletion = calculateFirstTimeGuestPageCompletion(page, {
                             visitedPages,
                             pagesWithSavedData,
-                            completedEquipments,
+                            equipmentPageCompleted,
                             currentBookingType
                         });
                         
@@ -3064,7 +3064,7 @@ const BookingRequestForm = () => {
         return calculateFirstTimeGuestPageCompletion(page, {
             visitedPages,
             pagesWithSavedData,
-            completedEquipments, // NEW: Pass the API flag
+            equipmentPageCompleted, // NEW: Pass the API flag
             currentBookingType
         });
     }, [
@@ -3423,7 +3423,9 @@ const BookingRequestForm = () => {
         // Check if page has validation errors
         const hasErrors = page.Sections?.some(section =>
             section.Questions?.some(question =>
-                question.error && question.error !== ''
+                !question.hidden &&
+                question.error && 
+                question.error !== ''
             )
         );
 
@@ -3480,6 +3482,7 @@ const BookingRequestForm = () => {
                 customContent: (
                     <QuestionPage
                         key={contentKey}
+                        uuid={uuid}
                         currentPage={page}
                         allPages={stableProcessedFormData}
                         updatePageData={(data) => {

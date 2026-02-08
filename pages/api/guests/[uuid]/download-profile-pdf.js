@@ -5,6 +5,7 @@ import { Address, Guest, HealthInfo } from '../../../../models';
 import path from 'path';
 import { promises as fs } from 'fs';
 import { getTemplatePath, getPublicDir } from '../../../../lib/paths';
+import { parseSciTypeLevel } from '../../../../utilities/common';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -113,7 +114,7 @@ export default async function handler(req, res) {
         sci_level_asia: guest.HealthInfo?.sci_level_asia || healthData?.sci_level_asia || '',
         sci_intial_spinal_rehab: guest.HealthInfo?.sci_intial_spinal_rehab || healthData?.sci_intial_spinal_rehab || '',
         sci_type: guest.HealthInfo?.sci_type || healthData?.sci_type || '',
-        sci_type_level: guest.HealthInfo?.sci_type_level || healthData?.sci_type_level || [],
+        sci_type_level: parseSciTypeLevel(guest.HealthInfo?.sci_type_level || healthData?.sci_type_level),
         sci_inpatient: guest.HealthInfo?.sci_inpatient ?? healthData?.sci_inpatient ?? null,
         sci_injury_type: guest.HealthInfo?.sci_injury_type || healthData?.sci_injury_type || '',
         sci_other_details: guest.HealthInfo?.sci_other_details || healthData?.sci_other_details || '',
@@ -165,6 +166,11 @@ export default async function handler(req, res) {
           },
           formatArray: function(arr) {
             return Array.isArray(arr) ? arr.join(', ') : arr;
+          },
+          // Helper to get substring for profile initials
+          substring: function(str, start, end) {
+            if (!str || typeof str !== 'string') return '';
+            return str.substring(start, end);
           }
         },
         withLetterHead: true

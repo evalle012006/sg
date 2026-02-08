@@ -2,13 +2,12 @@
 
 module.exports = {
   up: async (queryInterface, Sequelize) => {
-    // First, let's get all existing data and convert it
     const transaction = await queryInterface.sequelize.transaction();
     
     try {
       // Get all records with sci_type_level data
       const records = await queryInterface.sequelize.query(
-        'SELECT id, sci_type_level FROM health_info WHERE sci_type_level IS NOT NULL AND sci_type_level != ""',
+        "SELECT id, sci_type_level FROM health_info WHERE sci_type_level IS NOT NULL AND sci_type_level != ''",
         { type: Sequelize.QueryTypes.SELECT, transaction }
       );
 
@@ -52,7 +51,6 @@ module.exports = {
   },
 
   down: async (queryInterface, Sequelize) => {
-    // Reverse the migration
     const transaction = await queryInterface.sequelize.transaction();
     
     try {

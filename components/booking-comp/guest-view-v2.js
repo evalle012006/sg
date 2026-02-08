@@ -33,6 +33,7 @@ export default function GuestBookingsV2() {
     const router = useRouter();
     const [pastBookings, setPastBookings] = useState([]);
     const [upcomingBookings, setUpcomingBookings] = useState([]);
+    const [cancelledBookings, setCancelledBookings] = useState([]);
     const [latestBooking, setLatestBooking] = useState();
     const [prevBookingUuid, setPrevBookingUuid] = useState();
     const [showWarningNewBooking, setShowWarningNewBooking] = useState(false);
@@ -79,6 +80,7 @@ export default function GuestBookingsV2() {
     const tabs = [
         { label: "UPCOMING BOOKINGS" },
         { label: "PAST BOOKINGS" },
+        { label: "CANCELLED BOOKINGS" },
         { label: "COURSE CALENDAR" },
         { label: "MY PROFILE" },
         { label: "MY HEALTH" },
@@ -159,8 +161,8 @@ export default function GuestBookingsV2() {
     };
 
     useEffect(() => {
-        // Load health info when switching to health or profile tabs
-        if (activeTab >= 3 && user?.uuid) {
+        // Load health info when switching to health or funding tabs
+        if ((activeTab === 5 || activeTab === 6) && user?.uuid) {
             loadHealthInfo();
         }
     }, [activeTab, user?.uuid]);
@@ -481,12 +483,21 @@ export default function GuestBookingsV2() {
 
     useEffect(() => {
         if (bookings) {
-            const past = bookings.filter(booking => {
+            // Filter out cancelled bookings for past and upcoming
+            const nonCancelledBookings = bookings.filter(booking => {
+                const status = JSON.parse(booking.status);
+                return status.name !== 'booking_cancelled' && status.name !== 'guest_cancelled';
+            });
+
+            // Past bookings (excluding cancelled)
+            const past = nonCancelledBookings.filter(booking => {
                 if (booking.check_in_date && moment(booking.check_in_date).isBefore(moment())) {
                     return booking;
                 }
             });
-            const upcoming = bookings.filter(booking => {
+
+            // Upcoming bookings (excluding cancelled)
+            const upcoming = nonCancelledBookings.filter(booking => {
                 if (booking.check_in_date && moment(booking.check_in_date).isAfter(moment())) {
                     return booking;
                 }
@@ -495,17 +506,10 @@ export default function GuestBookingsV2() {
                 }
             });
 
-            // Sort upcoming bookings: non-cancelled first, then by status priority
+            // Sort upcoming bookings by status priority
             const sortedUpcoming = [...upcoming].sort((a, b) => {
                 const statusA = JSON.parse(a.status);
                 const statusB = JSON.parse(b.status);
-                
-                const isCancelledA = statusA.name === 'booking_cancelled' || statusA.name === 'guest_cancelled';
-                const isCancelledB = statusB.name === 'booking_cancelled' || statusB.name === 'guest_cancelled';
-                
-                // Cancelled bookings go last
-                if (isCancelledA && !isCancelledB) return 1;
-                if (!isCancelledA && isCancelledB) return -1;
                 
                 // For non-cancelled, sort by priority
                 const getPriority = (status) => {
@@ -517,8 +521,22 @@ export default function GuestBookingsV2() {
                 return getPriority(statusA) - getPriority(statusB);
             });
 
+            // NEW: Filter cancelled bookings
+            const cancelled = bookings.filter(booking => {
+                const status = JSON.parse(booking.status);
+                return status.name === 'booking_cancelled' || status.name === 'guest_cancelled';
+            });
+
+            // Sort cancelled bookings by most recent first
+            const sortedCancelled = [...cancelled].sort((a, b) => {
+                const dateA = a.check_in_date || a.preferred_arrival_date || a.createdAt;
+                const dateB = b.check_in_date || b.preferred_arrival_date || b.createdAt;
+                return moment(dateB).valueOf() - moment(dateA).valueOf();
+            });
+
             setPastBookings(past);
             setUpcomingBookings(sortedUpcoming);
+            setCancelledBookings(sortedCancelled); // NEW
         }
     }, [bookings]);
 
@@ -674,6 +692,23 @@ export default function GuestBookingsV2() {
                                 );
                             }
                         }
+
+                        if (activeTab === 2) {
+                            customButtons.push(
+                                <button 
+                                    key="view-details"
+                                    className="inline-flex items-center justify-center p-2 border border-blue-700 text-blue-700 rounded hover:bg-blue-50 transition-colors"
+                                    onClick={() => viewBooking(booking.uuid)}
+                                    aria-label="View Details"
+                                    title="View Details"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
+                                        <path d="M12 15a3 3 0 100-6 3 3 0 000 6z" />
+                                        <path fillRule="evenodd" d="M1.323 11.447C2.811 6.976 7.028 3.75 12.001 3.75c4.97 0 9.185 3.223 10.675 7.69.12.362.12.752 0 1.113-1.487 4.471-5.705 7.697-10.677 7.697-4.97 0-9.186-3.223-10.675-7.69a1.762 1.762 0 010-1.113zM17.25 12a5.25 5.25 0 11-10.5 0 5.25 5.25 0 0110.5 0z" clipRule="evenodd" />
+                                    </svg>
+                                </button>
+                            );
+                        }
                         
                         if (activeTab === 0 && !isCancelled && booking.complete === true) {
                             customButtons.push(
@@ -731,7 +766,7 @@ export default function GuestBookingsV2() {
                     })
                 ) : (
                     <div className="bg-yellow-100 rounded-lg py-2.5 px-3.5 mb-10 text-sm border w-fit my-8" role="alert">
-                        <p>No {activeTab === 0 ? 'upcoming' : 'past'} bookings</p>
+                        <p>No {activeTab === 0 ? 'upcoming' : activeTab === 1 ? 'past' : 'cancelled'} bookings</p>
                     </div>
                 )}
             </div>
@@ -1063,17 +1098,46 @@ export default function GuestBookingsV2() {
                         <div className="max-w-7xl mx-auto">
                             {activeTab === 0 && renderBookingCards(upcomingBookings)}
                             {activeTab === 1 && renderBookingCards(pastBookings)}
-                            {activeTab === 2 && renderCalendarView()}
+                            {activeTab === 2 && (
+                                <div>
+                                    {cancelledBookings.length > 0 ? (
+                                        renderBookingCards(cancelledBookings)
+                                    ) : (
+                                        <div className="flex flex-col items-center justify-center py-16 px-4">
+                                            <div className="mb-4">
+                                                <svg 
+                                                    className="w-16 h-16 text-gray-300" 
+                                                    fill="none" 
+                                                    stroke="currentColor" 
+                                                    viewBox="0 0 24 24"
+                                                >
+                                                    <path 
+                                                        strokeLinecap="round" 
+                                                        strokeLinejoin="round" 
+                                                        strokeWidth={1.5}
+                                                        d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"
+                                                    />
+                                                </svg>
+                                            </div>
+                                            <h3 className="text-lg font-semibold text-gray-800 mb-2">NO CANCELLED BOOKINGS</h3>
+                                            <p className="text-gray-500 text-center">
+                                                You don&apos;t have any cancelled bookings at the moment.
+                                            </p>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                            {activeTab === 3 && renderCalendarView()}
 
                             {/* Profile Tab */}
-                            {activeTab === 3 && (
+                            {activeTab === 4 && (
                                 <div className="max-w-7xl mx-auto">
                                     <GuestProfileTab isGuestUser={true} />
                                 </div>
                             )}
 
                             {/* Health Information Tab */}
-                            {activeTab === 4 && (
+                            {activeTab === 5 && (
                                 <div className="max-w-7xl mx-auto">
                                     <HealthInformation 
                                         healthInfo={healthInfo}
@@ -1085,7 +1149,7 @@ export default function GuestBookingsV2() {
                             )}
 
                             {/* Funding Approvals Tab */}
-                            {activeTab === 5 && (
+                            {activeTab === 6 && (
                                 <div className="max-w-7xl mx-auto">
                                     <FundingApprovalsReadOnly uuid={user?.uuid} />
                                 </div>
@@ -1093,7 +1157,7 @@ export default function GuestBookingsV2() {
                         </div>
                     </div>
 
-                    {activeTab < 2 && (
+                    {activeTab < 4 && (
                         <div style={{ background: '#EBECF0' }} className="py-8 sm:py-12">
                             <div className="max-w-7xl mx-auto px-4 sm:px-6">
                                 <div className="text-center mb-6 sm:mb-8">
@@ -1107,14 +1171,11 @@ export default function GuestBookingsV2() {
                         </div>
                     )}
 
-                    {activeTab < 3 && (
+                    {activeTab < 4 && (
                         <div className="py-8 sm:py-12">
                             <div className="max-w-7xl mx-auto px-4 sm:px-6">
                                 <div className="text-center mb-6 sm:mb-8">
                                     <h2 className="text-xl sm:text-2xl font-bold text-gray-800 mb-2">PROMOTIONS AND SPECIAL OFFERS</h2>
-                                    {/* <p className="text-sm text-gray-600 max-w-2xl mx-auto">
-                                        Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum
-                                    </p> */}
                                 </div>
                                 {renderPromotionCards()}
                             </div>

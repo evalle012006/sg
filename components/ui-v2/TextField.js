@@ -28,13 +28,15 @@ const TextField = (props) => {
 
     // Validation functions
     const validateEmail = (val) => {
+        if (!val) return false;
         const validEmail = /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/;
         return val.match(validEmail);
     };
 
     const validatePhoneNumber = (val) => {
+        if (!val) return false;
         const validPhoneNumber = /^\(?(\d{3})\)?[- ]?(\d{3})[- ]?(\d{2,4})$/;
-        return val.match(validPhoneNumber);
+        return String(val || '').match(validPhoneNumber);
     };
 
     // Autofill detection

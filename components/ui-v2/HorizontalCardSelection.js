@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef, memo } from 'react';
+import React, { useState, useEffect, useCallback, useRef, memo, useMemo } from 'react';
 import ImageModal from './ImageModal';
 import { getDefaultImage } from '../../lib/defaultImages';
 
@@ -15,11 +15,17 @@ const HorizontalCardSelection = memo(({
   const [isUpdating, setIsUpdating] = useState(false);
   const [imageModalOpen, setImageModalOpen] = useState(false);
   const [selectedImage, setSelectedImage] = useState({ url: '', alt: '' });
-  const [imageStates, setImageStates] = useState({}); // { index: { loading: bool, error: bool, url: string } }
+  const [imageStates, setImageStates] = useState({});
   
   const updateTimeoutRef = useRef(null);
   const mountedRef = useRef(true);
   const imageTimeoutsRef = useRef({});
+  
+  // Cache for successfully loaded images - persists across re-renders
+  const imageLoadCacheRef = useRef({});
+  
+  // Track if we've initialized to prevent re-initialization
+  const initializedRef = useRef(false);
 
   const sizeConfig = {
     small: {
@@ -78,36 +84,68 @@ const HorizontalCardSelection = memo(({
 
   const currentSize = sizeConfig[size] || sizeConfig.medium;
 
-  // Initialize image states when items change
-  useEffect(() => {
-    const initialStates = {};
-    items.forEach((item, index) => {
-      const hasCustomImage = Boolean(item.imageUrl);
-      initialStates[index] = {
-        loading: hasCustomImage, // Only show loading for custom images
-        error: false,
-        url: hasCustomImage ? item.imageUrl : getDefaultImage('equipment'),
-        hasCustomImage
-      };
-    });
-    setImageStates(initialStates);
-
-    // Clear any existing timeouts
-    Object.values(imageTimeoutsRef.current).forEach(timeout => clearTimeout(timeout));
-    imageTimeoutsRef.current = {};
+  // Create a stable key for items to detect real changes
+  const itemsKey = useMemo(() => {
+    return items.map(item => `${item.value}-${item.imageUrl || 'default'}`).join('|');
   }, [items]);
 
-  // Foolproof timeout: force clear loading state after 3 seconds
+  // Initialize image states only once or when items actually change
+  useEffect(() => {
+    // Skip if already initialized and items haven't changed
+    if (initializedRef.current) {
+      return;
+    }
+
+    const newStates = {};
+    
+    items.forEach((item, index) => {
+      const hasCustomImage = Boolean(item.imageUrl);
+      const cacheKey = item.imageUrl || `default-${index}`;
+      
+      // Check if this image was successfully loaded before
+      const cachedState = imageLoadCacheRef.current[cacheKey];
+      
+      if (cachedState && cachedState.url === (item.imageUrl || getDefaultImage('equipment'))) {
+        // Use cached state - image already loaded successfully
+        newStates[index] = {
+          loading: false,
+          error: false,
+          url: cachedState.url,
+          hasCustomImage
+        };
+      } else {
+        // New image or not in cache - initialize with loading state
+        newStates[index] = {
+          loading: hasCustomImage,
+          error: false,
+          url: hasCustomImage ? item.imageUrl : getDefaultImage('equipment'),
+          hasCustomImage
+        };
+      }
+    });
+    
+    setImageStates(newStates);
+    initializedRef.current = true;
+
+    // Clear any existing timeouts for items no longer in the list
+    const currentIndices = items.map((_, i) => i);
+    Object.keys(imageTimeoutsRef.current).forEach(key => {
+      if (!currentIndices.includes(parseInt(key))) {
+        clearTimeout(imageTimeoutsRef.current[key]);
+        delete imageTimeoutsRef.current[key];
+      }
+    });
+  }, [itemsKey]); // Only re-run if items actually change
+
+  // Timeout for loading images
   useEffect(() => {
     items.forEach((item, index) => {
       const state = imageStates[index];
       if (state?.loading) {
-        // Clear any existing timeout for this index
         if (imageTimeoutsRef.current[index]) {
           clearTimeout(imageTimeoutsRef.current[index]);
         }
 
-        // Set new timeout
         imageTimeoutsRef.current[index] = setTimeout(() => {
           console.warn(`Image ${index} timeout - forcing default image`);
           setImageStates(prev => ({
@@ -119,7 +157,7 @@ const HorizontalCardSelection = memo(({
               url: getDefaultImage('equipment')
             }
           }));
-        }, 3000); // 3 second timeout
+        }, 3000);
       }
     });
 
@@ -192,10 +230,9 @@ const HorizontalCardSelection = memo(({
     handleLocalChange(itemValue);
   }, [handleLocalChange]);
 
-  const handleImageError = useCallback((index) => {
+  const handleImageError = useCallback((index, imageUrl) => {
     console.log(`Image ${index} error - switching to default`);
     
-    // Clear timeout for this image
     if (imageTimeoutsRef.current[index]) {
       clearTimeout(imageTimeoutsRef.current[index]);
       delete imageTimeoutsRef.current[index];
@@ -212,10 +249,15 @@ const HorizontalCardSelection = memo(({
     }));
   }, []);
 
-  const handleImageLoad = useCallback((index) => {
-    // console.log(`Image ${index} loaded successfully`);
+  const handleImageLoad = useCallback((index, imageUrl) => {
+    const cacheKey = imageUrl || `default-${index}`;
     
-    // Clear timeout for this image
+    // Store in cache
+    imageLoadCacheRef.current[cacheKey] = {
+      url: imageUrl || getDefaultImage('equipment'),
+      loadedAt: Date.now()
+    };
+    
     if (imageTimeoutsRef.current[index]) {
       clearTimeout(imageTimeoutsRef.current[index]);
       delete imageTimeoutsRef.current[index];
@@ -244,7 +286,12 @@ const HorizontalCardSelection = memo(({
   return (
     <div className={`flex flex-col w-full ${currentSize.container}`}>
       {items.map((item, index) => {
-        const state = imageStates[index] || { loading: false, error: false, url: getDefaultImage('equipment'), hasCustomImage: false };
+        const state = imageStates[index] || { 
+          loading: false, 
+          error: false, 
+          url: getDefaultImage('equipment'), 
+          hasCustomImage: false 
+        };
         const { loading, error, url, hasCustomImage } = state;
         
         return (
@@ -259,26 +306,24 @@ const HorizontalCardSelection = memo(({
           >
             <div className={`flex w-full ${currentSize.card} items-center`}>
               <div className={`flex-shrink-0 ${currentSize.image} bg-gray-100 flex items-center justify-center overflow-hidden ${origin == 'room' ? '' : 'rounded-l-xl'} relative group`}>
-                {/* Loading spinner overlay - only show if still loading */}
                 {loading && (
                   <div className="absolute inset-0 flex items-center justify-center bg-gray-100 z-10">
                     <div className={`animate-spin rounded-full ${currentSize.spinner} border-b-2 border-blue-600`}></div>
                   </div>
                 )}
                 
-                {/* Image - always render, hide with opacity if loading */}
                 <img 
                   src={url} 
                   alt={item.label}
                   className={`w-full h-full object-cover transition-opacity duration-300 ${
                     loading ? 'opacity-0' : 'opacity-100'
                   } ${!hasCustomImage || error ? 'opacity-50' : ''}`}
-                  onLoad={() => handleImageLoad(index)}
-                  onError={() => handleImageError(index)}
+                  onLoad={() => handleImageLoad(index, url)}
+                  onError={() => handleImageError(index, url)}
                   loading="eager"
+                  decoding="async"
                 />
                 
-                {/* Zoom button overlay - only for successfully loaded custom images */}
                 {hasCustomImage && !error && !loading && (
                   <button
                     type="button"
@@ -298,13 +343,11 @@ const HorizontalCardSelection = memo(({
                 )}
               </div>
               
-              {/* Content container */}
               <div className={`flex flex-col flex-grow justify-center ${currentSize.content}`}>
                 <div className={`${currentSize.title} text-gray-800 mb-2`}>{item.label}</div>
                 <div className={`${currentSize.description} text-gray-600 leading-relaxed`}>{item.description}</div>
               </div>
               
-              {/* Selection control */}
               <div className={`flex-shrink-0 flex items-center justify-center ml-auto ${currentSize.controlPadding}`}>
                 {multi ? (
                   <div className={`${currentSize.control} rounded-full border-2 flex items-center justify-center ${
@@ -353,7 +396,6 @@ const HorizontalCardSelection = memo(({
           </label>
         );
       })}
-      {/* Image Modal */}
       <ImageModal
         isOpen={imageModalOpen}
         onClose={() => setImageModalOpen(false)}

@@ -213,8 +213,20 @@ export default function GuestProfileTab({ isGuestUser = false }) {
                     // Ensure sci_type_level is an array
                     const healthInfoData = { ...data.HealthInfo };
                     if (healthInfoData.sci_type_level && typeof healthInfoData.sci_type_level === 'string') {
-                        // Convert legacy comma-separated string to array
-                        healthInfoData.sci_type_level = healthInfoData.sci_type_level.split(',').filter(level => level.trim());
+                        try {
+                            // Try to parse as JSON first (handles escaped quotes)
+                            const parsed = JSON.parse(healthInfoData.sci_type_level);
+                            healthInfoData.sci_type_level = Array.isArray(parsed) ? parsed : [parsed];
+                        } catch {
+                            // Fallback: clean quotes manually and split
+                            let cleanedValue = healthInfoData.sci_type_level
+                                .replace(/^["']|["']$/g, '')  // Remove surrounding quotes
+                                .trim();
+                            healthInfoData.sci_type_level = cleanedValue
+                                .split(',')
+                                .map(v => v.trim().replace(/^["']|["']$/g, ''))
+                                .filter(v => v);
+                        }
                     }
                     
                     // Use the validation helper to clean all null values

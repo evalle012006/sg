@@ -1,12 +1,12 @@
 import React from 'react';
 import moment from 'moment';
-import { CheckCircle, XCircle, AlertCircle } from 'lucide-react';
+import { CheckCircle, XCircle, AlertCircle, Download, FileText, File } from 'lucide-react';
 import dynamic from 'next/dynamic';
 
 const GoalTableDisplay = dynamic(() => import('./GoalTableDisplay'), { ssr: false });
 const ServiceCardsDisplay = dynamic(() => import('./ServiceCardDisplay'), { ssr: false });
 
-const QuestionDisplay = ({ question, answer, questionType, options, optionType, courseData, packageData }) => {
+const QuestionDisplay = ({ question, answer, questionType, options, optionType, courseData, packageData, fileUrls }) => {
   
   // Helper function to safely parse JSON strings
   const safeJsonParse = (value) => {
@@ -18,6 +18,30 @@ const QuestionDisplay = ({ question, answer, questionType, options, optionType, 
       }
     }
     return value;
+  };
+
+  // FIXED: Helper to strip HTML tags and convert to plain text
+  const stripHtmlTags = (html) => {
+    if (!html || typeof html !== 'string') return html;
+    
+    // Replace common HTML tags with appropriate text equivalents
+    let text = html
+      .replace(/<\/p>/gi, '\n')           // Paragraphs end with newline
+      .replace(/<br\s*\/?>/gi, '\n')      // Line breaks
+      .replace(/<\/li>/gi, '\n')          // List items end with newline
+      .replace(/<li>/gi, '• ')            // Bullet points for list items
+      .replace(/<[^>]+>/g, '')            // Remove all other HTML tags
+      .replace(/&nbsp;/gi, ' ')           // Replace &nbsp; with space
+      .replace(/&amp;/gi, '&')            // Replace &amp; with &
+      .replace(/&lt;/gi, '<')             // Replace &lt; with <
+      .replace(/&gt;/gi, '>')             // Replace &gt; with >
+      .replace(/&quot;/gi, '"')           // Replace &quot; with "
+      .trim();                            // Remove leading/trailing whitespace
+    
+    // Clean up multiple newlines
+    text = text.replace(/\n\s*\n\s*\n/g, '\n\n');
+    
+    return text;
   };
 
   // Helper function to safely convert any value to a displayable string
@@ -75,17 +99,15 @@ const QuestionDisplay = ({ question, answer, questionType, options, optionType, 
     return careData;
   };
 
-  // UPDATED: Helper to format care table data for display only (not amendments)
+  // Helper to format care table data for display
   const formatCareTableForDisplay = (answer) => {
-    const data = processCareDataForDisplay(answer);
+    let data = processCareDataForDisplay(answer);
     
     try {
       if (typeof answer === 'string') {
         data = JSON.parse(answer);
       }
       
-      // UPDATED: Handle new data structure { careData: [], defaultValues: {} }
-      // Extract only careData for display, ignore defaultValues
       if (data && typeof data === 'object' && !Array.isArray(data)) {
         if (data.careData && Array.isArray(data.careData)) {
           data = data.careData;
@@ -149,6 +171,98 @@ const QuestionDisplay = ({ question, answer, questionType, options, optionType, 
     }
   };
 
+  // UPDATED: Simplified FileUploadDisplay that uses pre-fetched signed URLs
+  const FileUploadDisplay = ({ fileData }) => {
+    if (!fileData) {
+      return (
+        <div className="text-sm text-gray-600">
+          <File className="w-4 h-4 inline mr-2" />
+          File information unavailable
+        </div>
+      );
+    }
+
+    const { filename, url, signedUrl, error } = fileData;
+    const displayUrl = url || signedUrl;
+
+    if (error || !displayUrl) {
+      return (
+        <div className="flex items-center space-x-2 text-amber-600 text-sm">
+          <AlertCircle className="w-4 h-4" />
+          <span>File not found: {filename}</span>
+        </div>
+      );
+    }
+
+    // Determine if file is an image
+    const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp'];
+    const fileExtension = filename.split('.').pop()?.toLowerCase();
+    const isImage = imageExtensions.includes(fileExtension);
+
+    if (isImage) {
+      return (
+        <div className="space-y-2">
+          <img 
+            src={displayUrl} 
+            alt={filename}
+            className="max-w-full h-auto rounded-lg border border-gray-200"
+            style={{ maxHeight: '400px' }}
+            onError={(e) => {
+              e.target.style.display = 'none';
+              e.target.nextSibling.style.display = 'flex';
+            }}
+          />
+          <div style={{ display: 'none' }} className="flex items-center space-x-2 text-gray-600 text-sm">
+            <File className="w-4 h-4" />
+            <a 
+              href={displayUrl} 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="text-blue-600 hover:underline"
+            >
+              {filename}
+            </a>
+          </div>
+        </div>
+      );
+    }
+
+    // For non-image files, show download link
+    const getFileIcon = () => {
+      if (fileExtension === 'pdf') return <FileText className="w-5 h-5 text-red-500" />;
+      if (['doc', 'docx'].includes(fileExtension)) return <FileText className="w-5 h-5 text-blue-500" />;
+      if (['xls', 'xlsx'].includes(fileExtension)) return <FileText className="w-5 h-5 text-green-500" />;
+      return <File className="w-5 h-5 text-gray-500" />;
+    };
+
+    return (
+      <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 inline-flex items-center space-x-3">
+        {getFileIcon()}
+        <div className="flex-1">
+          <a 
+            href={displayUrl} 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="text-blue-600 hover:underline font-medium text-sm"
+          >
+            {filename}
+          </a>
+          <div className="text-xs text-gray-500 mt-0.5">
+            {fileExtension?.toUpperCase()} file
+          </div>
+        </div>
+        <a 
+          href={displayUrl}
+          download={filename}
+          className="text-blue-600 hover:text-blue-700"
+          title="Download file"
+        >
+          <Download className="w-5 h-5" />
+        </a>
+      </div>
+    );
+  };
+
   const formatAnswer = (answer, type, options) => {
     if (!answer && answer !== 0 && answer !== false) return <span className="text-gray-500 italic">Not answered</span>;
     
@@ -162,9 +276,48 @@ const QuestionDisplay = ({ question, answer, questionType, options, optionType, 
       case 'goal-table':
         return <GoalTableDisplay data={parsedAnswer} />;
 
+      // FIXED: Ensure service-cards are displayed
       case 'service-cards':
       case 'service-cards-multi':
         return <ServiceCardsDisplay data={parsedAnswer} options={options} />;
+
+      // UPDATED: Use pre-fetched file URLs from booking data
+      case 'file-upload':
+        if (fileUrls && fileUrls.length > 0) {
+          // Use the pre-fetched signed URLs
+          return (
+            <div className="space-y-3">
+              {fileUrls.map((fileData, idx) => (
+                <FileUploadDisplay key={idx} fileData={fileData} />
+              ))}
+            </div>
+          );
+        }
+        
+        // Fallback: show filename if no URLs available
+        if (typeof parsedAnswer === 'string') {
+          return (
+            <div className="text-sm text-gray-600">
+              <File className="w-4 h-4 inline mr-2" />
+              {parsedAnswer}
+            </div>
+          );
+        }
+        
+        if (Array.isArray(parsedAnswer)) {
+          return (
+            <div className="space-y-2">
+              {parsedAnswer.map((filename, idx) => (
+                <div key={idx} className="text-sm text-gray-600">
+                  <File className="w-4 h-4 inline mr-2" />
+                  {filename}
+                </div>
+              ))}
+            </div>
+          );
+        }
+        
+        return <span className="text-sm text-gray-500">No file uploaded</span>;
 
       case 'package-selection':
         // Use pre-fetched package data if available
@@ -177,12 +330,19 @@ const QuestionDisplay = ({ question, answer, questionType, options, optionType, 
           );
         }
         
-        // Fallback for package questions without pre-fetched data
+        // Enhanced error message when package is not found
         if (/^\d+$/.test(parsedAnswer)) {
           return (
-            <div className="flex items-center text-sm">
-              <AlertCircle className="w-4 h-4 text-orange-500 mr-2" />
-              <span>Package ID: {safeStringify(parsedAnswer)}</span>
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+              <div className="flex items-start space-x-2">
+                <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <div className="text-sm font-medium text-amber-900">Package Not Found</div>
+                  <div className="text-xs text-amber-700 mt-1">
+                    The selected package (ID: {safeStringify(parsedAnswer)}) could not be loaded. It may have been deleted or is no longer available.
+                  </div>
+                </div>
+              </div>
             </div>
           );
         }
@@ -309,11 +469,18 @@ const QuestionDisplay = ({ question, answer, questionType, options, optionType, 
             );
           }
           
-          // Fallback if no course data available
+          // Enhanced error message when course data is not available
           return (
-            <div className="flex items-center text-sm">
-              <AlertCircle className="w-4 h-4 text-orange-500 mr-2" />
-              <span>Course ID: {safeStringify(parsedAnswer)}</span>
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+              <div className="flex items-start space-x-2">
+                <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <div className="text-sm font-medium text-amber-900">Course Not Found</div>
+                  <div className="text-xs text-amber-700 mt-1">
+                    The selected course (ID: {safeStringify(parsedAnswer)}) could not be loaded. It may have been deleted or is no longer available.
+                  </div>
+                </div>
+              </div>
             </div>
           );
         }
@@ -332,10 +499,18 @@ const QuestionDisplay = ({ question, answer, questionType, options, optionType, 
             );
           }
           
+          // Enhanced error message when package data is not available
           return (
-            <div className="flex items-center text-sm">
-              <AlertCircle className="w-4 h-4 text-orange-500 mr-2" />
-              <span>Package ID: {safeStringify(parsedAnswer)}</span>
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+              <div className="flex items-start space-x-2">
+                <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <div className="text-sm font-medium text-amber-900">Package Not Found</div>
+                  <div className="text-xs text-amber-700 mt-1">
+                    The selected package (ID: {safeStringify(parsedAnswer)}) could not be loaded. It may have been deleted or is no longer available.
+                  </div>
+                </div>
+              </div>
             </div>
           );
         }
@@ -356,9 +531,12 @@ const QuestionDisplay = ({ question, answer, questionType, options, optionType, 
     }
   };
 
+  // FIXED: Clean HTML from question text
+  const cleanedQuestion = stripHtmlTags(question);
+
   return (
     <div className="border-b border-gray-100 pb-3 mb-3 last:border-b-0 last:pb-0 last:mb-0">
-      <div className="text-sm font-medium text-gray-700 mb-1">{question}</div>
+      <div className="text-sm font-medium text-gray-700 mb-1 whitespace-pre-wrap">{cleanedQuestion}</div>
       <div>{formatAnswer(answer, questionType, options)}</div>
     </div>
   );

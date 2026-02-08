@@ -34,24 +34,41 @@ export class BookingService extends EntityBuilder {
     }
 
     disseminateChanges = async (booking, qaPairs) => {
-        console.log('Disseminating changes for booking:', booking.id);
+        console.log('\n========================================');
+        console.log('🔧 DISSEMINATE CHANGES START');
+        console.log('  Booking ID:', booking.id);
+        console.log('  QA Pairs received:', qaPairs?.length || 0);
+        console.log('========================================\n');
 
-        if (!booking || !qaPairs || qaPairs.length === 0) return;
+        if (!booking || !qaPairs || qaPairs.length === 0) {
+            console.log('⚠️ Early return: invalid params');
+            return;
+        }
 
         let roomData = { booking_id: booking.id };
         let rooms = [];
+        let hasRoomUpdates = false;
+        
         const roomExists = await Room.findOne({ where: { booking_id: booking.id } });
         const guest = await Guest.findOne({ where: { id: booking.guest_id } });
 
         if (roomExists) {
-            roomData = { ...roomData, id: roomExists.id };
-            rooms.push({ label: roomExists.label, room_type_id: roomExists.room_type_id, order: 1 });
+            const existingOrder = roomExists.order || 1;
+            rooms.push({ 
+                label: roomExists.label, 
+                room_type_id: roomExists.room_type_id, 
+                order: existingOrder
+            });
+            console.log('📌 Found existing room:', roomExists.id);
         }
 
-        // Room selection using question key
+        // Room selection
         const roomQuestion = findByQuestionKey(qaPairs, QUESTION_KEYS.ROOM_SELECTION);
         if (roomQuestion) {
+            console.log('🏠 Room selection question found');
+            hasRoomUpdates = true;
             let selectedRooms = JSON.parse(roomQuestion.answer);
+            rooms = [];
             for (let i = 0; i < selectedRooms.length; i++) {
                 const roomType = await RoomType.findOne({ where: { name: selectedRooms[i].name } });
                 if (roomType) {
@@ -60,16 +77,23 @@ export class BookingService extends EntityBuilder {
             }
         }
 
-        // Check-in/out dates using helper method
+        // Check-in/out dates
+        console.log('\n📅 Checking for date questions...');
         const checkInOutAnswer = this.getCheckInOutAnswerByKeys(qaPairs);
         let checkInDateAnswer, checkOutDateAnswer;
 
         if (checkInOutAnswer?.length === 2) {
             [checkInDateAnswer, checkOutDateAnswer] = checkInOutAnswer;
+        } else {
+            checkInDateAnswer = getAnswerByQuestionKey(qaPairs, QUESTION_KEYS.CHECK_IN_DATE);
+            checkOutDateAnswer = getAnswerByQuestionKey(qaPairs, QUESTION_KEYS.CHECK_OUT_DATE);
         }
 
         if (checkInDateAnswer && checkOutDateAnswer) {
-            roomData = { ...roomData, checkin: checkInDateAnswer, checkout: checkOutDateAnswer };
+            console.log('    ✓ Date questions found, will update dates');
+            hasRoomUpdates = true;
+            roomData.checkin = checkInDateAnswer;
+            roomData.checkout = checkOutDateAnswer;
 
             await Booking.update({ 
                 preferred_arrival_date: checkInDateAnswer, 
@@ -90,58 +114,159 @@ export class BookingService extends EntityBuilder {
             }
         }
 
-        // Late arrival using question key
+        // Late arrival
         const lateArrivalQuestion = findByQuestionKey(qaPairs, QUESTION_KEYS.LATE_ARRIVAL);
         if (lateArrivalQuestion) {
+            hasRoomUpdates = true;
             const answerBool = lateArrivalQuestion.answer == true;
             await Booking.update({ late_arrival: answerBool }, { where: { id: booking.id } });
         }
 
-        // Arrival time using question key
+        // Arrival time
         const arrivalTimeAnswer = getAnswerByQuestionKey(qaPairs, QUESTION_KEYS.ARRIVAL_TIME);
         if (arrivalTimeAnswer) {
-            roomData = { ...roomData, arrival_time: arrivalTimeAnswer };
+            hasRoomUpdates = true;
+            roomData.arrival_time = arrivalTimeAnswer;
         }
 
-        // Guest counts using question keys
+        // Guest counts
         const infantsAnswer = getAnswerByQuestionKey(qaPairs, QUESTION_KEYS.INFANTS_COUNT);
         const childrenAnswer = getAnswerByQuestionKey(qaPairs, QUESTION_KEYS.CHILDREN_COUNT);
         const adultsAnswer = getAnswerByQuestionKey(qaPairs, QUESTION_KEYS.ADULTS_COUNT);
         const petsAnswer = getAnswerByQuestionKey(qaPairs, QUESTION_KEYS.ASSISTANCE_ANIMAL);
 
-        console.log('Guest counts:', {
-            infants: parseInt(infantsAnswer),
-            children: parseInt(childrenAnswer),
-            adults: parseInt(adultsAnswer),
-            pets: petsAnswer
-        });
+        const hasGuestCountQuestions = 
+            infantsAnswer !== null || 
+            childrenAnswer !== null || 
+            adultsAnswer !== null || 
+            petsAnswer !== null;
 
-        if (infantsAnswer != null) roomData = { ...roomData, infants: parseInt(infantsAnswer) };
-        if (childrenAnswer != null) roomData = { ...roomData, children: parseInt(childrenAnswer) };
-        if (adultsAnswer != null) roomData = { ...roomData, adults: parseInt(adultsAnswer) };
-        if (petsAnswer) roomData = { ...roomData, pets: petsAnswer == 'Yes' ? 1 : 0 };
+        if (hasGuestCountQuestions) {
+            console.log('    ✓ Guest count questions found, will update counts');
+            hasRoomUpdates = true;
 
-        const totalGuests = parseInt(roomData.infants || 0) + parseInt(roomData.children || 0) + 
-                           parseInt(roomData.adults || 0) + parseInt(roomData.pets || 0);
-        roomData = { ...roomData, total_guests: totalGuests };
+            if (infantsAnswer !== null) {
+                roomData.infants = parseInt(infantsAnswer) || 0;
+            }
+            if (childrenAnswer !== null) {
+                roomData.children = parseInt(childrenAnswer) || 0;
+            }
+            if (adultsAnswer !== null) {
+                roomData.adults = parseInt(adultsAnswer) || 0;
+            }
+            if (petsAnswer !== null) {
+                roomData.pets = petsAnswer === 'Yes' ? 1 : 0;
+            }
 
-        // Update/create rooms
-        for (let i = 0; i < rooms.length; i++) {
-            const room = await Room.findOne({ where: { booking_id: booking.id, order: rooms[i].order } });
-            if (room) {
-                room.update({ ...roomData, ...rooms[i] });
+            if (roomData.hasOwnProperty('adults') || roomData.hasOwnProperty('children') || 
+                roomData.hasOwnProperty('infants') || roomData.hasOwnProperty('pets')) {
+                
+                const totalInfants = roomData.hasOwnProperty('infants') ? roomData.infants : 0;
+                const totalChildren = roomData.hasOwnProperty('children') ? roomData.children : 0;
+                const totalAdults = roomData.hasOwnProperty('adults') ? roomData.adults : 0;
+                const totalPets = roomData.hasOwnProperty('pets') ? roomData.pets : 0;
+                
+                roomData.total_guests = totalInfants + totalChildren + totalAdults + totalPets;
+            }
+
+            console.log('📊 Guest counts to update:', {
+                infants: roomData.infants,
+                children: roomData.children,
+                adults: roomData.adults,
+                pets: roomData.pets,
+                total_guests: roomData.total_guests
+            });
+        }
+
+        // Exit early if no room updates needed
+        if (!hasRoomUpdates) {
+            
+            // Still process file uploads
+            const uploadQuestionKeys = [
+                QUESTION_KEYS.ICARE_APPROVAL_UPLOAD,
+                QUESTION_KEYS.APPROVAL_LETTER_UPLOAD,
+                QUESTION_KEYS.CARE_PLAN_UPLOAD,
+                QUESTION_KEYS.ASSISTANCE_ANIMAL_CERT_1,
+                QUESTION_KEYS.ASSISTANCE_ANIMAL_CERT_2,
+                QUESTION_KEYS.ASSISTANCE_ANIMAL_CERT_3
+            ];
+            
+            const uploadsExist = findMultipleByQuestionKeys(qaPairs, uploadQuestionKeys);
+            if (uploadsExist.length > 0) {
+                const storage = new StorageService({ bucketType: 'restricted' });
+                for (let i = 0; i < uploadsExist.length; i++) {
+                    const upload = uploadsExist[i];
+                    const copyDestination = storage.bucket.file('guests/' + guest.id + `/documents/${upload.answer}`);
+                    const [fileExists] = await copyDestination.exists();
+                    if (!fileExists) {
+                        await storage.bucket.file('booking_request_form/' + guest.id + `/${upload.answer}`).copy(copyDestination);
+                    }
+                }
+            }
+
+            return;
+        }
+
+        // Update or create room
+        if (rooms.length === 0) {
+            console.log('\n⚠️  No rooms array, checking for existing room...');
+            const existingRoom = await Room.findOne({ where: { booking_id: booking.id } });
+            
+            if (existingRoom) {
+                const updateData = { ...roomData };
+                delete updateData.id;
+                await existingRoom.update(updateData);
+                console.log('    ✅ Room updated successfully!');
             } else {
-                const newRoom = { ...roomData, ...rooms[i] };
-                delete newRoom.id;
-                await Room.create(newRoom);
+                // CREATE ROOM WITHOUT ROOM TYPE
+                // Room selection is on another page, so room_type_id and label will be NULL for now
+                console.log('ℹ️  No room exists yet, creating one...');
+                
+                const newRoomData = {
+                    ...roomData,
+                    room_type_id: null,  // Will be set when room selection page is completed
+                    label: null,         // Will be set when room selection page is completed
+                    order: 1
+                };
+                
+                delete newRoomData.id;
+                
+                const createdRoom = await Room.create(newRoomData);
+                console.log('    ✅ Room created successfully with ID:', createdRoom.id);
+                console.log('    ℹ️  Room type and label are NULL - will be set when room selection is made');
+            }
+        } else {
+            for (let i = 0; i < rooms.length; i++) {
+                const room = await Room.findOne({ 
+                    where: { 
+                        booking_id: booking.id, 
+                        order: rooms[i].order 
+                    } 
+                });
+                
+                if (room) {
+                    const updateData = { ...roomData, ...rooms[i] };
+                    delete updateData.id;
+                    await room.update(updateData);
+                } else {
+                    const newRoom = { ...roomData, ...rooms[i] };
+                    delete newRoom.id;
+                    await Room.create(newRoom);
+                }
             }
         }
 
+        // Cleanup extra rooms
         if (roomQuestion) {
-            await Room.destroy({ where: { booking_id: booking.id, order: { [Op.gt]: rooms.length } } });
+            await Room.destroy({ 
+                where: { 
+                    booking_id: booking.id, 
+                    order: { [Op.gt]: rooms.length } 
+                } 
+            });
         }
 
-        // File uploads using question keys
+        // File uploads
         const uploadQuestionKeys = [
             QUESTION_KEYS.ICARE_APPROVAL_UPLOAD,
             QUESTION_KEYS.APPROVAL_LETTER_UPLOAD,
@@ -163,8 +288,6 @@ export class BookingService extends EntityBuilder {
 
                 if (!fileExists) {
                     await storage.bucket.file('booking_request_form/' + guest.id + `/${upload.answer}`).copy(copyDestination);
-                } else {
-                    console.log('file already exists');
                 }
             }
         }
@@ -173,7 +296,7 @@ export class BookingService extends EntityBuilder {
     getBookingTemplate = async (booking, raw, includeSections = true) => {
         const bookingOriginalSectionId = booking.Sections[0].orig_section_id;
         const originalSection = await Section.findOne({ where: { id: bookingOriginalSectionId } });
-        const page = await Page.findOne({ where: { id: originalSection.model_id } })
+        const page = await Page.findOne({ where: { id: originalSection?.model_id } })
 
         let template;
 

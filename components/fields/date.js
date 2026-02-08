@@ -375,7 +375,10 @@ const DateField = (props) => {
     }, [props.error]);
 
     useEffect(() => {
-        if (day !== '' && month !== '' && year !== '' && year.length === 4) {
+        // Check if date is complete
+        const isComplete = day !== '' && month !== '' && year !== '' && year.length === 4;
+        
+        if (isComplete) {
             const selectedDate = `${year}-${month}-${day}`;
             const validation = validateCurrentDate(selectedDate);
             
@@ -395,15 +398,21 @@ const DateField = (props) => {
                 notifyParent(day, month, year, null);
             }
             setDirty(true);
-        } else if (props.required && (dirty || props.forceShowErrors)) {
+        } else if (props.required && props.forceShowErrors) {
+            // Only show "required" error when form submission is forced (e.g., user clicked submit)
+            // Don't show it while user is still typing
             const requiredError = 'This field is required';
             setError(true);
             setErrorMessage(requiredError);
             setIsValid(false);
             notifyParent(day, month, year, requiredError);
-        } else if (!props.required && !dirty && !props.forceShowErrors) {
-            setError(false);
-            setErrorMessage('');
+        } else if (!isComplete) {
+            // Date is incomplete but we're not forcing errors - clear validation state
+            // Keep dirty state but don't show errors while user is typing
+            if (!props.error) {
+                setError(false);
+                setErrorMessage('');
+            }
             setIsValid(false);
         }
     }, [day, month, year, allowPrevDate, props.required, props.error, props.forceShowErrors]);
@@ -509,7 +518,7 @@ const DateField = (props) => {
                                     className="w-5 h-5 cursor-pointer text-gray-500 hover:text-blue-600 transition-colors mr-2" 
                                     onClick={openCalendar}
                                 >
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0121 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
                                 </svg>
                                 <StatusIcon />
                             </div>

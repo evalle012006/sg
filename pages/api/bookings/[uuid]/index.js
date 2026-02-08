@@ -129,6 +129,79 @@ export default async function handler(req, res) {
                         pageId: sectionToPageMap[section.orig_section_id] || null
                     }));
                 }
+
+                bookingData.Sections = await Promise.all(bookingData.Sections.map(async (section) => {
+                    if (section.QaPairs && section.QaPairs.length > 0) {
+                        section.QaPairs = await Promise.all(section.QaPairs.map(async (qaPair) => {
+                            // Check if this is a file-upload question
+                            const questionType = qaPair.Question?.question_type || qaPair.Question?.type;
+                            
+                            if (questionType === 'file-upload' && qaPair.answer) {
+                                try {
+                                    let filenames = [];
+                                    
+                                    // Parse answer if it's a JSON string
+                                    if (typeof qaPair.answer === 'string') {
+                                        try {
+                                            const parsed = JSON.parse(qaPair.answer);
+                                            filenames = Array.isArray(parsed) ? parsed : [parsed];
+                                        } catch (e) {
+                                            // If not JSON, treat as single filename
+                                            filenames = [qaPair.answer];
+                                        }
+                                    } else if (Array.isArray(qaPair.answer)) {
+                                        filenames = qaPair.answer;
+                                    } else {
+                                        filenames = [qaPair.answer];
+                                    }
+                                    
+                                    // Generate signed URLs for each file
+                                    const guestId = booking.guest_id;
+                                    const fileUrls = await Promise.all(
+                                        filenames.map(async (filename) => {
+                                            if (!filename) return null;
+                                            
+                                            try {
+                                                const filePath = `booking_request_form/${guestId}/${filename}`;
+                                                
+                                                const fileExists = await storage.fileExists(filePath);
+                                                if (fileExists) {
+                                                    const signedUrl = await storage.getSignedUrl(filePath);
+                                                    return {
+                                                        filename: filename,
+                                                        url: signedUrl,
+                                                        signedUrl: signedUrl
+                                                    };
+                                                }
+                                            } catch (error) {
+                                                console.error(`Error generating signed URL for ${filename}:`, error);
+                                            }
+                                            
+                                            return {
+                                                filename: filename,
+                                                url: null,
+                                                signedUrl: null,
+                                                error: 'File not found'
+                                            };
+                                        })
+                                    );
+                                    
+                                    // Add file URLs to the QaPair
+                                    return {
+                                        ...qaPair,
+                                        fileUrls: fileUrls.filter(Boolean)
+                                    };
+                                } catch (error) {
+                                    console.error('Error processing file-upload answer:', error);
+                                }
+                            }
+                            
+                            return qaPair;
+                        }));
+                    }
+                    
+                    return section;
+                }));
             }
 
             // Determine cancellation type from approval usages

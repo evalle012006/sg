@@ -1,3 +1,4 @@
+// new version
 import moment from 'moment';
 import { serializePackage } from '../../utilities/common';
 import { QUESTION_KEYS, questionMatches, questionHasKey } from './question-helper';
@@ -51,11 +52,20 @@ export const calculateDaysBreakdown = async (startDateStr, numberOfNights, inclu
   const dates = startDateStr.split(' - ');
   const holidays = await getNSWHolidaysV2(dates[0], dates[1]);
   
+  // Create a Set of holiday dates for quick lookup
+  const holidayDates = new Set(holidays.map(h => h.date));
+  // Create a Set specifically for ANZAC Day dates
+  const anzacDates = new Set(
+    holidays
+      .filter(h => h.name === 'Anzac Day')
+      .map(h => h.date)
+  );
+  
   let breakdown = {
     weekdays: 0,
     saturdays: 0,
     sundays: 0,
-    publicHolidays: holidays.length || 0
+    publicHolidays: 0
   };
 
   const daysToCount = includeAllDays ? numberOfNights + 1 : numberOfNights;
@@ -64,8 +74,31 @@ export const calculateDaysBreakdown = async (startDateStr, numberOfNights, inclu
     const currentDate = new Date(startDate);
     currentDate.setDate(currentDate.getDate() + i);
     
+    // Format date as YYYY-MM-DD to match holiday date format
+    const dateStr = currentDate.toISOString().split('T')[0];
     const day = currentDate.getDay();
-    if (day === 6) {
+    
+    // Check if this date is a public holiday
+    const isPublicHoliday = holidayDates.has(dateStr);
+    const isAnzacDay = anzacDates.has(dateStr);
+    
+    // ANZAC Day logic: If ANZAC Day falls on a weekend, 
+    // it's still priced as a public holiday (no substitute Monday)
+    if (isAnzacDay) {
+      breakdown.publicHolidays++;
+    } 
+    // For other public holidays on weekends, they would typically be 
+    // moved to Monday by the API, so this shouldn't happen
+    // But if it does, count as public holiday
+    else if (isPublicHoliday && (day === 0 || day === 6)) {
+      breakdown.publicHolidays++;
+    }
+    // Regular public holidays (weekdays)
+    else if (isPublicHoliday) {
+      breakdown.publicHolidays++;
+    }
+    // Regular weekend/weekday counting (only if NOT a public holiday)
+    else if (day === 6) {
       breakdown.saturdays++;
     } else if (day === 0) {
       breakdown.sundays++;
@@ -529,7 +562,7 @@ const getCheckInOutAnswer = (qaPairs) => {
   return checkInOutAnswers;
 };
 
-export const generateSummaryData = (stayData, question, answer, questionType = null, qaPairs = [], questionKey = null) => {
+export const generateSummaryData = (stayData, question, answer, questionType = null, qaPairs = [], questionKey = null, ndisOnly = false) => {
   let summaryOfStayData = { ...stayData };
   
   if (answer) {
@@ -607,15 +640,34 @@ export const generateSummaryData = (stayData, question, answer, questionType = n
       summaryOfStayData.packageType = 'PACKAGE_SELECTION';
       summaryOfStayData.packageTypeAnswer = `Package ID: ${answer}`;
     } 
-    else if (question.includes('Is Short-Term Accommodation including Respite a stated support in your plan?') ||
-             question.includes('What is the purpose of this stay and how does it align with your plan goals?') ||
-             question.includes('How is this service value for money?') || 
-             question == 'Please specify.' ||
-             question.includes('Do you live in supported independent living (SIL)?')) {
+    // ✅ UPDATED: Check for NDIS question keys first, then fallback to text matching
+    else if (
+      ndisOnly ||
+      // Check by question key first
+      questionKey === QUESTION_KEYS.IS_STA_STATED_SUPPORT ||
+      questionKey === QUESTION_KEYS.IS_STA_STATED_SUPPORT_IN_PLAN ||
+      questionKey === QUESTION_KEYS.DO_YOU_LIVE_ALONE ||
+      questionKey === QUESTION_KEYS.WE_ALSO_NEED_TO_KNOW ||
+      questionKey === QUESTION_KEYS.DO_YOU_LIVE_IN_SIL ||
+      questionKey === QUESTION_KEYS.ARE_YOU_STAYING_WITH_INFORMAL_SUPPORTS ||
+      questionKey === QUESTION_KEYS.ARE_YOU_TRAVELLING_WITH_INFORMAL_SUPPORTS ||
+      // Fallback to text matching for legacy questions without keys
+      question.includes('Is Short-Term Accommodation including Respite a stated support in your plan?') ||
+      question.includes('What is the purpose of this stay and how does it align with your plan goals?') ||
+      question.includes('How is this service value for money?') || 
+      question == 'Please specify.' ||
+      question.includes('Do you live in supported independent living (SIL)?') ||
+      question.includes('Do you live alone?') ||
+      question.includes('Are you staying with any informal supports?') ||
+      question.includes('Are you travelling with any informal supports?') ||
+      question.includes('We also need to know at least one of the below factors applies to you')
+    ) {
       const ndisQuestions = summaryOfStayData?.ndisQuestions || [];
+      // ✅ Strip HTML tags from question text before storing
+      const cleanQuestion = question.replace(/<[^>]*>/g, '');
       summaryOfStayData.ndisQuestions = [
-        ...ndisQuestions.filter(q => q.question !== question),
-        { question, answer: tryParseJSON(answer) }
+        ...ndisQuestions.filter(q => q.question !== cleanQuestion),
+        { question: cleanQuestion, answer: tryParseJSON(answer) }
       ];
     }
   }
@@ -632,7 +684,8 @@ export const createSummaryData = async (booking, resolvedPackage = null) => {
       const answer = pair.answer;
       const questionKey = pair.Question?.question_key;
       const questionType = pair.Question?.question_type;
-      data = generateSummaryData(data, question, answer, questionType, section.QaPairs, questionKey);
+      const ndisOnlyQuestion = pair.Question?.ndis_only || false;
+      data = generateSummaryData(data, question, answer, questionType, section.QaPairs, questionKey, ndisOnlyQuestion);
     });
     return data;
   }, {});

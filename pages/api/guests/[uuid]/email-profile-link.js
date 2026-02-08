@@ -9,6 +9,7 @@ import { Address, Guest, HealthInfo } from '../../../../models';
 import { getTemplatePath, getPublicDir } from '../../../../lib/paths';
 import EmailService from '../../../../services/booking/emailService';
 import { TEMPLATE_IDS } from '../../../../services/booking/templateIds';
+import { parseSciTypeLevel } from '../../../../utilities/common';
 
 
 const writeFileAsync = promisify(fs.writeFile);
@@ -21,7 +22,7 @@ export default async function handler(req, res) {
   }
 
   const { uuid } = req.query;
-  const { adminEmail, origin, guestEmail, guestName, guestData, healthData } = req.body;
+  const { adminEmail, origin, guestEmail, guestName, guestData, healthData, profileImageUrl } = req.body;
 
   let tempPdfPath = null;
   let browser = null;
@@ -68,6 +69,7 @@ export default async function handler(req, res) {
     handlebars.registerHelper('and', function() { return Array.prototype.slice.call(arguments, 0, -1).every(Boolean); });
     handlebars.registerHelper('isArray', function(value) { return Array.isArray(value); });
     handlebars.registerHelper('formatArray', function(arr) { return Array.isArray(arr) ? arr.join(', ') : arr; });
+    handlebars.registerHelper('substring', function(str, start, end) { if (!str || typeof str !== 'string') return ''; return str.substring(start, end); });
 
     // Read and compile the HTML template for PDF using path utility
     const templatePath = getTemplatePath('exports/guest-profile.html');
@@ -148,7 +150,7 @@ export default async function handler(req, res) {
         sci_level_asia: guest.HealthInfo?.sci_level_asia || healthData?.sci_level_asia || '',
         sci_intial_spinal_rehab: guest.HealthInfo?.sci_intial_spinal_rehab || healthData?.sci_intial_spinal_rehab || '',
         sci_type: guest.HealthInfo?.sci_type || healthData?.sci_type || '',
-        sci_type_level: guest.HealthInfo?.sci_type_level || healthData?.sci_type_level || [],
+        sci_type_level: parseSciTypeLevel(guest.HealthInfo?.sci_type_level || healthData?.sci_type_level),
         sci_inpatient: guest.HealthInfo?.sci_inpatient ?? healthData?.sci_inpatient ?? null,
         sci_injury_type: guest.HealthInfo?.sci_injury_type || healthData?.sci_injury_type || '',
         sci_other_details: guest.HealthInfo?.sci_other_details || healthData?.sci_other_details || '',
@@ -161,8 +163,11 @@ export default async function handler(req, res) {
       logo_base64: logoBase64,
       logo_footer_base64: logoFooterBase64,
       
-      // Profile image - intentionally empty for email PDF to avoid loading issues
-      profile_image_url: '',
+      // ✅ FIX: Use actual profile image URL from guest data
+      // Priority: guest.profileUrl > guestData.profileUrl > empty string
+      profile_image_url: profileImageUrl && typeof profileImageUrl === 'string' && profileImageUrl.trim() !== '' 
+        ? profileImageUrl 
+        : '',
       
       // Generation timestamp
       generated_at: formatAustralianDateTime(new Date()),
@@ -171,7 +176,7 @@ export default async function handler(req, res) {
     // Generate HTML with the template
     const html = template(templateData);
 
-    // Generate PDF using puppeteer - SIMPLE APPROACH
+    // ✅ FIX: Generate PDF with proper margins matching download API
     console.log('🚀 Starting PDF generation for guest profile...');
     
     try {
@@ -202,7 +207,10 @@ export default async function handler(req, res) {
       const pdf = await page.pdf({
         format: 'A4',
         printBackground: true,
-        margin: { top: '0', right: '0', bottom: '0', left: '0' }
+        // ✅ FIX 1: Use preferCSSPageSize to respect @page margins in CSS
+        preferCSSPageSize: true,
+        // ✅ FIX 2: Don't override CSS margins - let the template control them
+        // Removed: margin: { top: '0', right: '0', bottom: '0', left: '0' }
       });
       
       console.log('✅ PDF generated, size:', pdf.length, 'bytes');

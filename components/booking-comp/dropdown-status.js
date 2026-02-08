@@ -70,7 +70,7 @@ export const DropdownStatus = ({ status, booking, fetchData, disabled }) => {
 
   // Check if a status is a cancellation status that requires the charge type selection
   const isCancellationStatus = (statusName) => {
-    return ['booking_cancelled', 'guest_cancelled'].includes(statusName);
+    return ['booking_cancelled'].includes(statusName);
   };
 
   // Check if current booking status is "Cancellation Requested" (guest_cancelled)
@@ -152,7 +152,7 @@ export const DropdownStatus = ({ status, booking, fetchData, disabled }) => {
         toast.success("An invitation email has been sent to the guest.");
       } else if (newStatus.name === 'booking_confirmed') {
         toast.success("Booking has been confirmed successfully!");
-      } else if (newStatus.name === 'booking_cancelled' || newStatus.name === 'guest_cancelled') {
+      } else if (newStatus.name === 'booking_cancelled') {
         const chargeType = isFullCharge ? 'Full Charge' : 'No Charge';
         toast.success(`Booking has been cancelled (${chargeType}).`);
       } else if (newStatus.name === 'on_hold') {

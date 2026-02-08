@@ -13,6 +13,7 @@ import parse from 'html-react-parser';
 import { processCheckboxAnswerWithNoneLogic } from "../../utilities/checkboxHelpers";
 
 const QuestionPage = ({ 
+    uuid,
     currentPage, 
     allPages = [],
     updatePageData, 
@@ -1776,7 +1777,24 @@ const QuestionPage = ({
                                                                     {q.tooltip && <TooltipIcon tooltip={q.tooltip} />}
                                                                 </div>
                                                                 <div className="flex align-middle mt-2">
-                                                                    <GetField key={q.id} type='file-upload' value={q.answer ? q.answer : ''} url={url} width='100%' error={q.error} required={q.required ? true : false} onChange={(e) => handleFileUploadChange(e, idx, index)} fileType={`booking_request_form/${guest.id}/`} forceShowErrors={validationAttempted} />
+                                                                    <GetField key={q.id} type='file-upload' 
+                                                                        value={q.answer ? q.answer : ''} 
+                                                                        url={url} width='100%' 
+                                                                        error={q.error} 
+                                                                        required={q.required ? true : false} 
+                                                                        onChange={(e) => handleFileUploadChange(e, idx, index)} 
+                                                                        fileType={`booking_request_form/${guest.id}/`} 
+                                                                        forceShowErrors={validationAttempted} 
+                                                                        questionId={q.question_id || q.id}
+                                                                        sectionId={section.id}
+                                                                        qaPairId={q.id}
+                                                                        question={q.question}
+                                                                        questionKey={q.question_key}
+                                                                        origin={origin}
+                                                                        bookingUuid={uuid}
+                                                                        pageId={currentPage?.id}
+                                                                        templateId={currentPage?.template_id}
+                                                                    />
                                                                 </div>
                                                             </div>
                                                         </React.Fragment>

@@ -2,26 +2,36 @@
 
 module.exports = {
   async up(queryInterface, Sequelize) {
-    // Add calculated price columns to courses table
-    await queryInterface.addColumn('courses', 'holiday_price', {
+    const addColumnSafe = async (table, column, definition) => {
+      try {
+        await queryInterface.addColumn(table, column, definition);
+      } catch (error) {
+        if (!error.message.includes('Duplicate column')) {
+          throw error;
+        }
+        console.log(`Column ${column} already exists, skipping...`);
+      }
+    };
+
+    await addColumnSafe('courses', 'holiday_price', {
       type: Sequelize.DECIMAL(10, 2),
       allowNull: true,
       comment: 'Calculated holiday package price based on course dates and rates'
     });
 
-    await queryInterface.addColumn('courses', 'sta_price', {
+    await addColumnSafe('courses', 'sta_price', {
       type: Sequelize.DECIMAL(10, 2),
       allowNull: true,
       comment: 'Calculated STA service price based on course dates and rates'
     });
 
-    await queryInterface.addColumn('courses', 'price_calculated_at', {
+    await addColumnSafe('courses', 'price_calculated_at', {
       type: Sequelize.DATE,
       allowNull: true,
       comment: 'Timestamp when prices were last calculated'
     });
 
-    await queryInterface.addColumn('courses', 'rate_snapshot', {
+    await addColumnSafe('courses', 'rate_snapshot', {
       type: Sequelize.JSON,
       allowNull: true,
       comment: 'Snapshot of rates used for calculation (for historical reference)'
@@ -29,9 +39,17 @@ module.exports = {
   },
 
   async down(queryInterface, Sequelize) {
-    await queryInterface.removeColumn('courses', 'holiday_price');
-    await queryInterface.removeColumn('courses', 'sta_price');
-    await queryInterface.removeColumn('courses', 'price_calculated_at');
-    await queryInterface.removeColumn('courses', 'rate_snapshot');
+    const removeColumnSafe = async (table, column) => {
+      try {
+        await queryInterface.removeColumn(table, column);
+      } catch (error) {
+        console.log(`Column ${column} doesn't exist, skipping removal...`);
+      }
+    };
+
+    await removeColumnSafe('courses', 'holiday_price');
+    await removeColumnSafe('courses', 'sta_price');
+    await removeColumnSafe('courses', 'price_calculated_at');
+    await removeColumnSafe('courses', 'rate_snapshot');
   }
 };

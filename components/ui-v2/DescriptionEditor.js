@@ -3,7 +3,7 @@ import { List, ListOrdered, Bold, Italic, Minus, RotateCcw } from 'lucide-react'
 
 /**
  * DescriptionEditor - A textarea with formatting toolbar for package descriptions
- * Supports bullet lists, numbered lists, and basic text formatting
+ * Supports bullet lists, numbered lists, bold, italic, and basic text formatting
  */
 const DescriptionEditor = ({
     value = '',
@@ -57,6 +57,81 @@ const DescriptionEditor = ({
             textarea.setSelectionRange(newCursorPos, newCursorPos);
         }, 0);
     }, [value, onChange, disabled, id]);
+
+    // Wrap selected text with formatting markers
+    const wrapSelection = useCallback((wrapper) => {
+        const textarea = textareaRef.current;
+        if (!textarea || disabled) return;
+
+        const start = textarea.selectionStart;
+        const end = textarea.selectionEnd;
+        const currentValue = value || '';
+        const selectedText = currentValue.substring(start, end);
+
+        if (!selectedText) {
+            // No selection - insert wrapper with placeholder
+            const placeholder = wrapper === '**' ? 'bold text' : 'italic text';
+            insertAtCursor(wrapper, placeholder + wrapper);
+            setTimeout(() => {
+                textarea.focus();
+                textarea.setSelectionRange(
+                    start + wrapper.length,
+                    start + wrapper.length + placeholder.length
+                );
+            }, 0);
+            return;
+        }
+
+        // Check if selection is already wrapped
+        const beforeSelection = currentValue.substring(Math.max(0, start - wrapper.length), start);
+        const afterSelection = currentValue.substring(end, Math.min(currentValue.length, end + wrapper.length));
+
+        if (beforeSelection === wrapper && afterSelection === wrapper) {
+            // Remove wrapper
+            const newValue = 
+                currentValue.substring(0, start - wrapper.length) + 
+                selectedText + 
+                currentValue.substring(end + wrapper.length);
+            
+            onChange({ target: { name: id, value: newValue } });
+            
+            setTimeout(() => {
+                textarea.focus();
+                textarea.setSelectionRange(
+                    start - wrapper.length,
+                    end - wrapper.length
+                );
+            }, 0);
+        } else {
+            // Add wrapper
+            const newValue = 
+                currentValue.substring(0, start) + 
+                wrapper + 
+                selectedText + 
+                wrapper + 
+                currentValue.substring(end);
+            
+            onChange({ target: { name: id, value: newValue } });
+            
+            setTimeout(() => {
+                textarea.focus();
+                textarea.setSelectionRange(
+                    start + wrapper.length,
+                    end + wrapper.length
+                );
+            }, 0);
+        }
+    }, [value, onChange, disabled, insertAtCursor, id]);
+
+    // Insert bold formatting
+    const insertBold = useCallback(() => {
+        wrapSelection('**');
+    }, [wrapSelection]);
+
+    // Insert italic formatting
+    const insertItalic = useCallback(() => {
+        wrapSelection('*');
+    }, [wrapSelection]);
 
     // Insert bullet point at beginning of current line or new line
     const insertBullet = useCallback(() => {
@@ -146,7 +221,7 @@ const DescriptionEditor = ({
             .replace(/^[-•]\s+/gm, '')  // Remove bullet points
             .replace(/^\d+\.\s+/gm, '') // Remove numbered items
             .replace(/\*\*(.*?)\*\*/g, '$1') // Remove bold
-            .replace(/\*(.*?)\*/g, '$1'); // Remove italic
+            .replace(/\*([^*]+?)\*/g, '$1'); // Remove italic
         
         onChange({ target: { name: id, value: cleaned } });
     }, [value, onChange, disabled, id]);
@@ -223,6 +298,30 @@ const DescriptionEditor = ({
                 ${error ? 'border-red-300 bg-red-50' : 'border-gray-300'}
             `}>
                 <div className="flex items-center gap-1">
+                    {/* Bold */}
+                    <button
+                        type="button"
+                        onClick={insertBold}
+                        className="p-1.5 rounded hover:bg-gray-200 transition-colors"
+                        title="Bold (**text**)"
+                        disabled={disabled}
+                    >
+                        <Bold className="w-4 h-4 text-gray-600" />
+                    </button>
+
+                    {/* Italic */}
+                    <button
+                        type="button"
+                        onClick={insertItalic}
+                        className="p-1.5 rounded hover:bg-gray-200 transition-colors"
+                        title="Italic (*text*)"
+                        disabled={disabled}
+                    >
+                        <Italic className="w-4 h-4 text-gray-600" />
+                    </button>
+
+                    <div className="w-px h-5 bg-gray-300 mx-1" />
+
                     {/* Bullet List */}
                     <button
                         type="button"
@@ -272,8 +371,9 @@ const DescriptionEditor = ({
 
                 {/* Formatting hints */}
                 <div className="ml-auto text-xs text-gray-500 hidden sm:block">
-                    <span className="mr-3">Use <code className="bg-gray-200 px-1 rounded">-</code> for bullets</span>
-                    <span>Use <code className="bg-gray-200 px-1 rounded">1.</code> for numbered lists</span>
+                    <span className="mr-3">Use <code className="bg-gray-200 px-1 rounded">**</code> for bold</span>
+                    <span className="mr-3">Use <code className="bg-gray-200 px-1 rounded">*</code> for italic</span>
+                    <span>Use <code className="bg-gray-200 px-1 rounded">-</code> for bullets</span>
                 </div>
             </div>
 
