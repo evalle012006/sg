@@ -1,7 +1,7 @@
 import React, { useMemo, useEffect, useState, useContext } from "react";
 import { useRouter } from "next/router";
 import Image from 'next/image';
-import { getGuestList } from '../../utilities/api/guests';
+import { getGuestList, updateGuestEmailVerification } from '../../utilities/api/guests';
 import { guestActions } from "../../store/guestSlice";
 import { globalActions } from "../../store/globalSlice";
 import { useDispatch, useSelector } from "react-redux";
@@ -31,6 +31,7 @@ function GuestList() {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [selectedGuest, setSelectedGuest] = useState();
   const [showDeactivateDialog, setShowDeactivateDialog] = useState(false);
+  const [showAccountStatusDialog, setShowAccountStatusDialog] = useState(false);
   const [data, setData] = useState([]);
 
   const debounceDeleteGuest = useDebouncedCallback((e, selected) => {
@@ -75,6 +76,11 @@ function GuestList() {
     setShowDeactivateDialog(true);
   }
 
+  const handleShowAccountStatusDialog = (selected) => {
+    setSelectedGuest(selected);
+    setShowAccountStatusDialog(true);
+  }
+
   const toggleGuestActive = async (e, guest) => {
     e.preventDefault();
     dispatch(globalActions.setLoading(true));
@@ -89,6 +95,22 @@ function GuestList() {
     dispatch(globalActions.setLoading(false));
 
     loadGuests();
+  }
+
+  const toggleEmailVerified = async (e, guest) => {
+    e.preventDefault();
+    dispatch(globalActions.setLoading(true));
+    
+    try {
+      await updateGuestEmailVerification(guest.uuid, !guest.email_verified);
+      toast.success(`Account ${!guest.email_verified ? 'activated' : 'deactivated'} successfully.`);
+      loadGuests();
+    } catch (error) {
+      console.error('Error updating email verification:', error);
+      toast.error('Failed to update account status.');
+    } finally {
+      dispatch(globalActions.setLoading(false));
+    }
   }
 
   const renderGuestFlags = (flags) => {
@@ -199,13 +221,21 @@ function GuestList() {
       });
     }
 
-    // Add Account Activated column
+    // Add Account Activated column - clickable if user has permission
     baseColumns.push({
       key: 'email_verified',
       label: 'ACCOUNT STATUS',
       searchable: false,
-      render: (value) => (
-        <div className="flex justify-center">
+      render: (value, row) => (
+        <div 
+          className={`flex justify-center ${ability.can("Create/Edit", "Guest") ? 'cursor-pointer' : ''}`}
+          onClick={(e) => {
+            if (ability.can("Create/Edit", "Guest")) {
+              e.stopPropagation();
+              handleShowAccountStatusDialog(row);
+            }
+          }}
+        >
           { value ? (
             <StatusBadge type="success" label="Active" />
           ) : (
@@ -258,16 +288,25 @@ function GuestList() {
   async function loadGuests() {
     setIsLoading(true);
     try {
-      const result = await getGuestList();
+      // Use the optimized listv2 endpoint
+      // No need to pass parameters - defaults to loading all guests without bookings
+      // This is much faster than the old endpoint
+      const result = await getGuestList({
+        include_bookings: false, // Don't load booking data for performance
+        include_profile_urls: true // Load profile URLs for display
+      });
+      
       if (result) {
         const guestList = [];
-        const responseData = result.users;
-        responseData.map(guest => {
+        const responseData = result.users || result.data || [];
+        
+        responseData.forEach(guest => {
           let temp = { ...guest };
           temp.name = temp.first_name + " " + temp.last_name;
           temp.status = temp.email_verified ? "approved" : "pending";
           guestList.push(temp);
         });
+        
         dispatch(guestActions.setList(guestList));
         setIsLoading(false);
       }
@@ -334,6 +373,23 @@ function GuestList() {
             onConfirm={(e) => {
               toggleGuestActive(e, selectedGuest)
               setShowDeactivateDialog(false)
+            }} 
+          />
+        )}
+
+        {showAccountStatusDialog && (
+          <Modal 
+            title={`${selectedGuest?.email_verified ? 'Deactivate' : 'Activate'} account status?`}
+            description={`This will ${selectedGuest?.email_verified ? 'deactivate' : 'activate'} the guest's account${!selectedGuest?.email_verified ? ', allowing them to log in' : ''}.`}
+            confirmLabel='Proceed'
+            confirmColor='text-sargood-blue'
+            onClose={() => {
+              setSelectedGuest(null)
+              setShowAccountStatusDialog(false)
+            }}
+            onConfirm={(e) => {
+              toggleEmailVerified(e, selectedGuest)
+              setShowAccountStatusDialog(false)
             }} 
           />
         )}

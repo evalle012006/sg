@@ -677,16 +677,27 @@ const QuestionPage = ({
                 isPersonalCareNoAnswer
             });
             
-            // Call the force update function if it's passed as a prop
+            // ✅ FIX: Calculate the care hours directly from the answer
+            // Don't wait for state to update
+            let careHoursOverride = null;
+            
+            if (isPersonalCareNoAnswer) {
+                // If answering "No" to personal care, care hours should be 0
+                careHoursOverride = 0;
+                console.log('🔍 Personal care "No" detected - forcing care hours to 0');
+            }
+            
+            // ✅ FIX: Pass the care hours override to the callback
+            if (typeof onCareQuestionUpdate === 'function') {
+                console.log('🔄 Calling onCareQuestionUpdate callback with care hours:', careHoursOverride);
+                onCareQuestionUpdate(question, value, careHoursOverride);
+            }
+            
+            // Also call the force update function if it's passed as a prop
             if (typeof updateAndDispatchPageDataImmediate === 'function') {
                 setTimeout(() => {
                     // Trigger immediate update for care questions
                     updateAndDispatchPageDataImmediate(updatedPageData.Sections, currentPage.id);
-                    
-                    // Additional callback for care-specific updates if provided
-                    if (typeof onCareQuestionUpdate === 'function') {
-                        onCareQuestionUpdate(question, value);
-                    }
                 }, 50);
             }
         } else {

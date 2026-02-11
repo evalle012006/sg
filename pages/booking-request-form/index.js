@@ -163,6 +163,10 @@ const BookingRequestForm = () => {
     const careSaveTimeoutRef = useRef(null);
     const originalSavedDatesRef = useRef({ checkInDate: null, checkOutDate: null });
     const isCommittingDatesRef = useRef(false);
+    const dateUpdateLockRef = useRef(false);
+    const lastRefreshTimeRef = useRef(0);
+    const REFRESH_DEBOUNCE = 500; // Minimum time between refreshes in ms
+    const latestDateValuesRef = useRef({});
 
     const saveCareDataToAPI = async (careQuestion, sectionId, pageId, templateId) => {
         try {
@@ -342,63 +346,127 @@ const BookingRequestForm = () => {
             return;
         }
         
-        // ✅ IMPROVED: Only proceed if we have at least one date
-        if (!newDates.checkInDate && !newDates.checkOutDate) {
-            console.log('📅 No date changes provided');
-            return;
-        }
+        // ✅ NEW: Lock date updates during user interaction
+        dateUpdateLockRef.current = true;
+        console.log('🔒 Date update lock ENGAGED');
         
-        // ✅ FIX: Use pendingDatesRef first, then stayDatesRef for fallback
-        // This ensures we preserve the user's most recent unsaved changes
-        const updatedDates = {
-            checkInDate: newDates.checkInDate || pendingDatesRef.current?.checkInDate || stayDatesRef.current?.checkInDate || null,
-            checkOutDate: newDates.checkOutDate || pendingDatesRef.current?.checkOutDate || stayDatesRef.current?.checkOutDate || null
-        };
-        
-        const originalDates = originalSavedDatesRef.current;
-        
-        console.log('📅 Date change detected:', {
-            newDates: updatedDates,
-            originalSaved: originalDates,
-            hasPending: !!pendingDatesRef.current
-        });
-        
-        // Check if dates match the original saved dates
-        const datesMatchOriginal = 
-            updatedDates.checkInDate === originalDates.checkInDate &&
-            updatedDates.checkOutDate === originalDates.checkOutDate;
-        
-        if (datesMatchOriginal) {
-            // ✅ If we have pending dates, this is a form refresh with old data - IGNORE
-            if (pendingDatesRef.current) {
-                console.log('📅 Ignoring form refresh with old data - pending dates preserved');
+        try {
+            // ✅ IMPROVED: Only proceed if we have at least one date
+            if (!newDates.checkInDate && !newDates.checkOutDate) {
+                console.log('📅 No date changes provided');
                 return;
             }
             
-            console.log('📅 Dates match original - no changes needed');
-            return;
-        }
-        
-        // Check if dates match pending dates (already tracked)
-        if (pendingDatesRef.current &&
-            updatedDates.checkInDate === pendingDatesRef.current.checkInDate &&
-            updatedDates.checkOutDate === pendingDatesRef.current.checkOutDate) {
-            console.log('📅 Dates match pending - already tracked');
-            return;
-        }
-        
-        // ✅ ADD: Don't store partial date ranges as pending for care regeneration
-        if (!updatedDates.checkInDate || !updatedDates.checkOutDate) {
-            console.log('📅 Partial date update detected - waiting for complete range:', updatedDates);
+            // ✅ FIX: Use pendingDatesRef first, then stayDatesRef for fallback
+            // This ensures we preserve the user's most recent unsaved changes
+            const updatedDates = {
+                checkInDate: newDates.checkInDate || pendingDatesRef.current?.checkInDate || stayDatesRef.current?.checkInDate || null,
+                checkOutDate: newDates.checkOutDate || pendingDatesRef.current?.checkOutDate || stayDatesRef.current?.checkOutDate || null
+            };
             
-            // Update the date question in form but don't mark as pending for care regeneration
+            const originalDates = originalSavedDatesRef.current;
+            
+            console.log('📅 Date change detected:', {
+                newDates: updatedDates,
+                originalSaved: originalDates,
+                hasPending: !!pendingDatesRef.current
+            });
+            
+            // ✅ NEW: Check if we're setting a new value where there was none before
+            const isSettingNewValue = (
+                (originalDates.checkInDate === null && updatedDates.checkInDate !== null) ||
+                (originalDates.checkOutDate === null && updatedDates.checkOutDate !== null)
+            );
+            
+            // Check if dates match the original saved dates
+            const datesMatchOriginal = 
+                updatedDates.checkInDate === originalDates.checkInDate &&
+                updatedDates.checkOutDate === originalDates.checkOutDate;
+            
+            // ✅ MODIFIED: Don't block if we're setting new values
+            if (datesMatchOriginal && !isSettingNewValue) {
+                // ✅ If we have pending dates, this is a form refresh with old data - IGNORE
+                if (pendingDatesRef.current) {
+                    console.log('📅 Ignoring form refresh with old data - pending dates preserved');
+                    return;
+                }
+                
+                console.log('📅 Dates match original - no changes needed');
+                return;
+            }
+            
+            // Check if dates match pending dates (already tracked)
+            if (pendingDatesRef.current &&
+                updatedDates.checkInDate === pendingDatesRef.current.checkInDate &&
+                updatedDates.checkOutDate === pendingDatesRef.current.checkOutDate) {
+                console.log('📅 Dates match pending - already tracked');
+                return;
+            }
+            
+            // ✅ ADD: Don't store partial date ranges as pending for care regeneration
+            if (!updatedDates.checkInDate || !updatedDates.checkOutDate) {
+                console.log('📅 Partial date update detected - waiting for complete range:', updatedDates);
+                
+                // Update the date question in form but don't mark as pending for care regeneration
+                const currentFormData = processedFormData;
+                
+                if (currentFormData && currentFormData.length > 0) {
+                    const updatedPages = currentFormData.map(page => {
+                        const updatedSections = page.Sections.map(section => {
+                            const updatedQuestions = section.Questions.map(question => {
+                                // Clear course errors when dates are being changed
+                                if (questionHasKey(question, QUESTION_KEYS.COURSE_OFFER_QUESTION) ||
+                                    questionHasKey(question, QUESTION_KEYS.WHICH_COURSE)) {
+                                    return {
+                                        ...question,
+                                        error: null,
+                                        validationAttempted: false
+                                    };
+                                }
+                                
+                                // Update date question display
+                                if (questionHasKey(question, QUESTION_KEYS.CHECK_IN_OUT_DATE) ||
+                                    questionHasKey(question, QUESTION_KEYS.CHECK_IN_DATE) ||
+                                    questionHasKey(question, QUESTION_KEYS.CHECK_OUT_DATE)) {
+                                    
+                                    const formattedAnswer = updatedDates.checkInDate && updatedDates.checkOutDate 
+                                        ? `${updatedDates.checkInDate} - ${updatedDates.checkOutDate}`
+                                        : question.answer;
+                                    
+                                    return {
+                                        ...question,
+                                        answer: formattedAnswer,
+                                        dirty: true,
+                                        error: null
+                                    };
+                                }
+                                
+                                return question;
+                            });
+                            return { ...section, Questions: updatedQuestions };
+                        });
+                        return { ...page, Sections: updatedSections };
+                    });
+                    
+                    setProcessedFormData(updatedPages);
+                }
+                
+                // Don't proceed with pending dates - wait for complete range
+                return;
+            }
+            
+            // ✅ ONLY reach here if we have BOTH dates - safe to mark as pending
+            console.log('📅 Complete date range - new pending dates stored:', updatedDates);
+            pendingDatesRef.current = updatedDates;
+            
+            // Update only the date question in form data
             const currentFormData = processedFormData;
             
             if (currentFormData && currentFormData.length > 0) {
                 const updatedPages = currentFormData.map(page => {
                     const updatedSections = page.Sections.map(section => {
                         const updatedQuestions = section.Questions.map(question => {
-                            // Clear course errors when dates are being changed
+                            // Clear course validation errors when dates change
                             if (questionHasKey(question, QUESTION_KEYS.COURSE_OFFER_QUESTION) ||
                                 questionHasKey(question, QUESTION_KEYS.WHICH_COURSE)) {
                                 return {
@@ -408,11 +476,10 @@ const BookingRequestForm = () => {
                                 };
                             }
                             
-                            // Update date question display
+                            // Update date question
                             if (questionHasKey(question, QUESTION_KEYS.CHECK_IN_OUT_DATE) ||
                                 questionHasKey(question, QUESTION_KEYS.CHECK_IN_DATE) ||
                                 questionHasKey(question, QUESTION_KEYS.CHECK_OUT_DATE)) {
-                                
                                 const formattedAnswer = updatedDates.checkInDate && updatedDates.checkOutDate 
                                     ? `${updatedDates.checkInDate} - ${updatedDates.checkOutDate}`
                                     : question.answer;
@@ -435,55 +502,12 @@ const BookingRequestForm = () => {
                 setProcessedFormData(updatedPages);
             }
             
-            // Don't proceed with pending dates - wait for complete range
-            return;
-        }
-        
-        // ✅ ONLY reach here if we have BOTH dates - safe to mark as pending
-        console.log('📅 Complete date range - new pending dates stored:', updatedDates);
-        pendingDatesRef.current = updatedDates;
-        
-        // Update only the date question in form data
-        const currentFormData = processedFormData;
-        
-        if (currentFormData && currentFormData.length > 0) {
-            const updatedPages = currentFormData.map(page => {
-                const updatedSections = page.Sections.map(section => {
-                    const updatedQuestions = section.Questions.map(question => {
-                        // Clear course validation errors when dates change
-                        if (questionHasKey(question, QUESTION_KEYS.COURSE_OFFER_QUESTION) ||
-                            questionHasKey(question, QUESTION_KEYS.WHICH_COURSE)) {
-                            return {
-                                ...question,
-                                error: null,
-                                validationAttempted: false
-                            };
-                        }
-                        
-                        // Update date question
-                        if (questionHasKey(question, QUESTION_KEYS.CHECK_IN_OUT_DATE) ||
-                            questionHasKey(question, QUESTION_KEYS.CHECK_IN_DATE) ||
-                            questionHasKey(question, QUESTION_KEYS.CHECK_OUT_DATE)) {
-                            const formattedAnswer = updatedDates.checkInDate && updatedDates.checkOutDate 
-                                ? `${updatedDates.checkInDate} - ${updatedDates.checkOutDate}`
-                                : question.answer;
-                            
-                            return {
-                                ...question,
-                                answer: formattedAnswer,
-                                dirty: true,
-                                error: null
-                            };
-                        }
-                        
-                        return question;
-                    });
-                    return { ...section, Questions: updatedQuestions };
-                });
-                return { ...page, Sections: updatedSections };
-            });
-            
-            setProcessedFormData(updatedPages);
+        } finally {
+            // ✅ NEW: Release lock after a delay to prevent refresh interference
+            setTimeout(() => {
+                dateUpdateLockRef.current = false;
+                console.log('🔓 Date update lock RELEASED');
+            }, 300);
         }
     }, [processedFormData]);
 
@@ -943,7 +967,7 @@ const BookingRequestForm = () => {
             question.question?.toLowerCase().includes('personal care');
     }, []);
 
-    const forceCareAnalysisAndPackageUpdate = useCallback(async () => {
+    const forceCareAnalysisAndPackageUpdate = useCallback(async (question, value, careHoursFromAnswer = null) => {
         const now = Date.now();
         const timeSinceLastUpdate = now - lastCareQuestionUpdateRef.current;
         
@@ -954,7 +978,11 @@ const BookingRequestForm = () => {
         
         lastCareQuestionUpdateRef.current = now;
         
-        console.log('🏥 Care-related question updated, forcing analysis refresh...');
+        console.log('🏥 Care-related question updated, forcing analysis refresh...', {
+            question: question?.question_key,
+            value,
+            careHoursFromAnswer
+        });
         
         // Clear any pending timeouts
         if (careQuestionUpdateRef.current) {
@@ -967,8 +995,20 @@ const BookingRequestForm = () => {
                 // Force recalculation of care analysis by updating a trigger
                 const currentData = stableProcessedFormData || stableBookingRequestFormData;
                 if (currentData && currentData.length > 0) {
-                    // Re-trigger NDIS filters calculation
-                    const newFilters = calculateNdisFilters(currentData);
+                    // ✅ FIX: Use care hours from the answer if provided
+                    // This is more reliable than waiting for state to update
+                    const careHoursToUse = careHoursFromAnswer !== null 
+                        ? careHoursFromAnswer 
+                        : (currentCareAnalysis?.totalHoursPerDay || 0);
+                    
+                    console.log('🔍 Recalculating NDIS filters with care hours:', {
+                        careHours: careHoursToUse,
+                        source: careHoursFromAnswer !== null ? 'answer (immediate)' : 'currentCareAnalysis (state)'
+                    });
+                    
+                    // Re-trigger NDIS filters calculation WITH care hours
+                    const newFilters = calculateNdisFilters(currentData, careHoursToUse);
+                    
                     if (JSON.stringify(newFilters) !== JSON.stringify(ndisFormFilters)) {
                         console.log('🔄 Care question update - updating NDIS filters:', newFilters);
                         setNdisFormFilters(newFilters);
@@ -989,7 +1029,8 @@ const BookingRequestForm = () => {
         stableBookingRequestFormData, 
         calculateNdisFilters, 
         ndisFormFilters, 
-        autoUpdatePackageSelection
+        autoUpdatePackageSelection,
+        currentCareAnalysis
     ]);
 
     const savePackageSelection = useCallback(async (updatedQuestion, sectionId, packagePage) => {
@@ -1444,6 +1485,12 @@ const BookingRequestForm = () => {
                 return;
             }
             
+            // ✅ NEW: Skip if date update is in progress
+            if (dateUpdateLockRef.current) {
+                console.log('⏸️ Skipping NDIS processing - date update in progress');
+                return;
+            }
+            
             setIsProcessingNdis(true);
             
             try {
@@ -1506,7 +1553,6 @@ const BookingRequestForm = () => {
                             prevBookingId,
                             currentBookingType
                         });
-                        // console.log(`🔒 NDIS Processing: Using helper completion for "${page.title}": ${wasCompleted} → ${newCompleted}`);
                     } else {
                         // For first-time guests, use standard calculation
                         if (page.id === 'ndis_packages_page') {
@@ -2149,24 +2195,34 @@ const BookingRequestForm = () => {
                         }
 
                         if (questionHasKey(question, QUESTION_KEYS.WE_ALSO_NEED_TO_KNOW) && question.answer) {
-                            // Handle both array (checkbox) and string answers
+                            // ✅ FIX: Improved detection for "None of these apply to me"
                             let answerToCheck = question.answer;
+                            let hasNoneApply = false;
+                            
                             if (Array.isArray(answerToCheck)) {
-                                // For checkbox/multi-select, check if "None of these apply to me" is in the array
-                                const hasNoneApply = answerToCheck.some(a => 
-                                    typeof a === 'string' && a.toLowerCase() === 'none of these apply to me'
-                                );
-                                if (hasNoneApply) {
-                                    isHolidayType = true;
-                                    console.log('✅ Holiday type detected: Need to know factor (array check)');
-                                }
-                            } else if (typeof answerToCheck === 'string' && 
-                                    answerToCheck.toLowerCase() === 'none of these apply to me') {
+                                // For checkbox/multi-select arrays
+                                hasNoneApply = answerToCheck.some(a => {
+                                    if (typeof a === 'string') {
+                                        const normalized = a.toLowerCase().trim();
+                                        return normalized === 'none of these apply to me' ||
+                                            normalized === 'none of these apply' ||
+                                            normalized.includes('none') && normalized.includes('apply');
+                                    }
+                                    return false;
+                                });
+                            } else if (typeof answerToCheck === 'string') {
+                                // For single string answers
+                                const normalized = answerToCheck.toLowerCase().trim();
+                                hasNoneApply = normalized === 'none of these apply to me' ||
+                                            normalized === 'none of these apply' ||
+                                            (normalized.includes('none') && normalized.includes('apply'));
+                            }
+                            
+                            if (hasNoneApply) {
                                 isHolidayType = true;
-                                console.log('✅ Holiday type detected: Need to know factor');
+                                console.log('✅ Holiday type detected: "None of these apply to me" selected');
                             }
                         }
-
 
                         if (questionHasKey(question, QUESTION_KEYS.DO_YOU_LIVE_IN_SIL) &&
                             (question.answer && question.answer.toLowerCase() === 'yes')) {
@@ -2180,7 +2236,7 @@ const BookingRequestForm = () => {
                             console.log('✅ Holiday type detected: Staying with informal supports');
                         }
                         
-                        // ✅ FIX: Calculate care hours from the CURRENT formData instead of relying on currentCareAnalysis
+                        // ✅ FIX: Calculate care hours from the CURRENT formData
                         if (isHolidayType) {
                             // Get care hours from the form data
                             const careHours = extractCareHoursFromFormData(formData);
@@ -2188,10 +2244,10 @@ const BookingRequestForm = () => {
                             // ✅ FIX: Only use holiday-plus if care hours is EXPLICITLY greater than 0
                             if (careHours > 0) {
                                 ndisPackageType = 'holiday-plus';
-                                console.log(`✅ Holiday-Plus package: Holiday type with ${careHours}h care required`);
+                                console.log(`✅ Holiday-Plus package: Holiday conditions met with ${careHours}h care required`);
                             } else {
-                                ndisPackageType = 'holiday';  // Default to regular holiday for 0 care
-                                console.log('✅ Holiday package: Holiday type with no care required');
+                                ndisPackageType = 'holiday';
+                                console.log('✅ Holiday package: Holiday conditions met with no care required');
                             }
                         }
                     }
@@ -2204,6 +2260,7 @@ const BookingRequestForm = () => {
         // Default NDIS package type if none determined AND funding is NDIS
         if (funderType === 'NDIS' && !ndisPackageType) {
             ndisPackageType = 'sta'; // Default to STA
+            console.log('⚠️ Defaulting to STA package type (no holiday conditions detected)');
         }
 
         const newFilters = {
@@ -2214,14 +2271,42 @@ const BookingRequestForm = () => {
             }
         };
 
-        console.log('Calculated NDIS filters:', newFilters);
+        console.log('🎯 Final calculated NDIS filters:', newFilters);
         return newFilters;
-    }, [ndisFormFilters.additionalFilters]);
+    }, [ndisFormFilters.additionalFilters, extractCareHoursFromFormData]);
 
     // ✅ NEW HELPER FUNCTION: Extract care hours directly from form data
-    const extractCareHoursFromFormData = (formData) => {
+    const extractCareHoursFromFormData = useCallback((formData) => {
         try {
-            // Find the care schedule question
+            // ✅ FIX: First check if personal care is required
+            // If "No", return 0 immediately without looking at care schedule
+            for (const page of formData) {
+                for (const section of page.Sections || []) {
+                    // Check Questions array first
+                    for (const question of section.Questions || []) {
+                        if (questionHasKey(question, QUESTION_KEYS.DO_YOU_REQUIRE_ASSISTANCE_WITH_PERSONAL_CARE) ||
+                            question.question_key === 'do-you-require-assistance-with-personal-care') {
+                            if (question.answer === 'No' || question.answer === 'no') {
+                                console.log('🚫 Personal care "No" detected - returning 0 care hours');
+                                return 0;
+                            }
+                        }
+                    }
+                    
+                    // Check QaPairs as fallback
+                    for (const qaPair of section.QaPairs || []) {
+                        if (questionHasKey(qaPair.Question, QUESTION_KEYS.DO_YOU_REQUIRE_ASSISTANCE_WITH_PERSONAL_CARE) ||
+                            qaPair.Question?.question_key === 'do-you-require-assistance-with-personal-care') {
+                            if (qaPair.answer === 'No' || qaPair.answer === 'no') {
+                                console.log('🚫 Personal care "No" detected in QaPairs - returning 0 care hours');
+                                return 0;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // If personal care is not "No", proceed to extract care hours from schedule
             for (const page of formData) {
                 for (const section of page.Sections || []) {
                     // Check Questions array first
@@ -2245,7 +2330,7 @@ const BookingRequestForm = () => {
             console.error('Error extracting care hours:', error);
             return 0;
         }
-    };
+    }, [calculateCareHoursFromAnswer]);
 
     // ✅ NEW HELPER FUNCTION: Calculate care hours from answer data
     const calculateCareHoursFromAnswer = (answer) => {
@@ -3032,8 +3117,8 @@ const BookingRequestForm = () => {
             if (booking?.Guest?.id) {
                 return booking.Guest.id;
             }
-            if (booking?.guest_id) {
-                return booking.guest_id;
+            if (booking?.GuestId) {
+                return booking.GuestId;
             }
         }
 
@@ -3928,6 +4013,65 @@ const BookingRequestForm = () => {
             return stableProcessedFormData;
         }
         
+        // ✅ Check if date field has value
+        const dateFieldInfo = validatedSections.flatMap(section =>
+            section.Questions?.filter(q => q.type === 'date' && q.dirty === true).map(q => ({
+                questionKey: q.question_key || q.id,
+                question: q.question,
+                answer: q.answer,
+                hasValue: q.answer && q.answer !== null && q.answer !== ''
+            })) || []
+        );
+        
+        // ✅ CRITICAL: Check if this update has stale date data
+        if (dateUpdateLockRef.current && dateFieldInfo.length > 0) {
+            const hasStaleData = dateFieldInfo.some(info => {
+                const latestValue = latestDateValuesRef.current[info.questionKey];
+                const currentValue = info.answer;
+                
+                // If we have a stored value and current is empty/null, this is stale
+                if (latestValue && !currentValue) {
+                    console.log(`🚫 REJECTING stale update for "${info.question}": latest="${latestValue}", incoming="${currentValue}"`);
+                    return true;
+                }
+                return false;
+            });
+            
+            if (hasStaleData) {
+                console.log('🚫 ENTIRE UPDATE REJECTED - contains stale date data');
+                return stableProcessedFormData; // Return unchanged data
+            }
+        }
+        
+        // ✅ Log all date fields for debugging
+        dateFieldInfo.forEach(info => {
+            console.log(`📅 Date field check: "${info.question}", dirty=true, hasValue=${info.hasValue}, answer="${info.answer}"`);
+        });
+        
+        // ✅ Detect date field with value and engage lock
+        const dateFieldWithValue = dateFieldInfo.some(info => info.hasValue);
+        
+        if (dateFieldWithValue && !dateUpdateLockRef.current) {
+            dateUpdateLockRef.current = true;
+            console.log('🔒 Date field with VALUE detected - lock ENGAGED');
+            
+            // ✅ Store the latest date values
+            dateFieldInfo.forEach(info => {
+                if (info.hasValue) {
+                    latestDateValuesRef.current[info.questionKey] = info.answer;
+                    console.log(`💾 Stored latest value for "${info.question}": "${info.answer}"`);
+                }
+            });
+            
+            // Release lock after delay
+            setTimeout(() => {
+                dateUpdateLockRef.current = false;
+                // ✅ Clear stored values when lock releases
+                latestDateValuesRef.current = {};
+                console.log('🔓 Date field lock RELEASED, stored values cleared');
+            }, 300);
+        }
+        
         const pages = structuredClone(stableProcessedFormData);
         pages[pageIndex].Sections = validatedSections;
         pages[pageIndex].dirty = !hasError;
@@ -3957,18 +4101,22 @@ const BookingRequestForm = () => {
                     currentBookingType
                 });
             } else {
-                // For regular updates, refresh dependencies first
-                console.log('🔄 Refreshing dependencies for returning guest...');
-                updatedPages = forceRefreshAllDependencies(updatedPages, bookingFormRoomSelected);
-                updatedPages = clearHiddenQuestionAnswers(updatedPages);
-                
-                // ✅ ADD: Second pass specifically for NDIS page to ensure moved questions have dependencies applied
-                if (pageId === 'ndis_packages_page') {
-                    console.log('🔄 Second dependency refresh for NDIS page...');
+                // ✅ Check date update lock before refreshing dependencies
+                if (!dateUpdateLockRef.current) {
+                    console.log('🔄 Refreshing dependencies for returning guest...');
                     updatedPages = forceRefreshAllDependencies(updatedPages, bookingFormRoomSelected);
+                    updatedPages = clearHiddenQuestionAnswers(updatedPages);
+                    
+                    // ✅ Second pass specifically for NDIS page to ensure moved questions have dependencies applied
+                    if (pageId === 'ndis_packages_page') {
+                        console.log('🔄 Second dependency refresh for NDIS page...');
+                        updatedPages = forceRefreshAllDependencies(updatedPages, bookingFormRoomSelected);
+                    }
+                    
+                    updatedPages = forceRefreshAllDependencies(updatedPages, bookingFormRoomSelected);
+                } else {
+                    console.log('⏸️ Skipping dependency refresh - date update in progress');
                 }
-                
-                updatedPages = forceRefreshAllDependencies(updatedPages, bookingFormRoomSelected);
 
                 // Then use batch helper update for completion
                 updatedPages = batchUpdateReturningGuestCompletions(updatedPages, {
@@ -3985,10 +4133,16 @@ const BookingRequestForm = () => {
             if (submit) {
                 updatedPages = updatePageCompletionStatus(updatedPages, 'submit');
             } else {
-                console.log('🔄 Refreshing dependencies...');
-                updatedPages = forceRefreshAllDependencies(updatedPages, bookingFormRoomSelected);
-                updatedPages = clearHiddenQuestionAnswers(updatedPages);
-                updatedPages = forceRefreshAllDependencies(updatedPages, bookingFormRoomSelected);
+                // ✅ Check date update lock before refreshing dependencies
+                if (!dateUpdateLockRef.current) {
+                    console.log('🔄 Refreshing dependencies...');
+                    updatedPages = forceRefreshAllDependencies(updatedPages, bookingFormRoomSelected);
+                    updatedPages = clearHiddenQuestionAnswers(updatedPages);
+                    updatedPages = forceRefreshAllDependencies(updatedPages, bookingFormRoomSelected);
+                } else {
+                    console.log('⏸️ Skipping dependency refresh - date update in progress');
+                }
+                
                 updatedPages = updatePageCompletionStatus(updatedPages, 'after_dependencies');
             }
         }
@@ -5612,14 +5766,19 @@ const BookingRequestForm = () => {
 
                 if (data.booking?.Rooms) {
                     const selectedRooms = data.booking.Rooms.map((room, index) => {
+                        // ✅ FIX: Add null/undefined checks for RoomType
+                        if (!room.RoomType) {
+                            console.warn('⚠️ Room missing RoomType data:', room);
+                        }
+                        
                         return { 
                             room: room.label, 
                             name: room.label,
-                            type: index == 0 ? room.RoomType.type : 'upgrade', 
-                            price: room.RoomType.price_per_night,
-                            price_per_night: room.RoomType.price_per_night,
-                            peak_rate: room.RoomType.peak_rate,
-                            hsp_pricing: room.RoomType.hsp_pricing || 0
+                            type: index === 0 ? (room.RoomType?.type || 'studio') : 'upgrade',
+                            price: room.RoomType?.price_per_night || 0,
+                            price_per_night: room.RoomType?.price_per_night || 0,
+                            peak_rate: room.RoomType?.peak_rate || 0,
+                            hsp_pricing: room.RoomType?.hsp_pricing || 0
                         };
                     });
                     summaryOfStay.rooms = selectedRooms;
@@ -6175,6 +6334,15 @@ const BookingRequestForm = () => {
     ]);
 
     useEffect(() => {
+        // ✅ NEW: Add debouncing to prevent rapid-fire refreshes
+        const now = Date.now();
+        const timeSinceLastRefresh = now - lastRefreshTimeRef.current;
+        
+        if (timeSinceLastRefresh < REFRESH_DEBOUNCE) {
+            console.log(`⏸️ Skipping refresh - too soon since last refresh (${timeSinceLastRefresh}ms < ${REFRESH_DEBOUNCE}ms)`);
+            return;
+        }
+        
         if (isUpdating) {
             return;
         }
@@ -6185,6 +6353,12 @@ const BookingRequestForm = () => {
 
             // If template was already loaded with NDIS awareness, apply dependencies but lock completion
             if (analysis.templateAlreadyNdisAware) {
+                // ✅ NEW: Skip if date update is in progress
+                if (dateUpdateLockRef.current) {
+                    console.log('⏸️ Skipping template refresh - date update in progress');
+                    return;
+                }
+                
                 const updatedData = forceRefreshAllDependencies(stableBookingRequestFormData, bookingFormRoomSelected);
                 
                 // ✅ CRITICAL FIX: Apply locked completion for returning guests
@@ -6211,6 +6385,9 @@ const BookingRequestForm = () => {
                 if (JSON.stringify(stableProcessedFormData) !== JSON.stringify(withLockedCompletion)) {
                     setProcessedFormData(withLockedCompletion);
                 }
+                
+                // ✅ NEW: Update last refresh time
+                lastRefreshTimeRef.current = now;
                 return;
             }
             
@@ -6246,7 +6423,6 @@ const BookingRequestForm = () => {
             const currentFormDataKey = createFormDataKey(stableBookingRequestFormData, isNdisFunded);
             const currentFormDataStr = JSON.stringify(currentFormDataKey);
 
-            const now = Date.now();
             const timeSinceLastUpdate = now - (lastProcessingTimeRef.current || 0);
             const PROCESSING_COOLDOWN = 500;
 
@@ -6255,21 +6431,20 @@ const BookingRequestForm = () => {
             const canProcess = timeSinceLastUpdate > PROCESSING_COOLDOWN;
 
             if ((dataChanged || fundingChanged) && canProcess) {
-                // console.log('📊 Form data or NDIS funding status changed, processing with completion lock...', {
-                //     dataChanged,
-                //     fundingChanged,
-                //     newFundingStatus: isNdisFunded,
-                //     analysis,
-                //     timeSinceLastUpdate
-                // });
-
+                // ✅ NEW: Skip if date update is in progress
+                if (dateUpdateLockRef.current) {
+                    console.log('⏸️ Skipping NDIS processing - date update in progress');
+                    return;
+                }
+                
                 setIsUpdating(true);
                 lastProcessingTimeRef.current = now;
+                lastRefreshTimeRef.current = now; // ✅ NEW: Also update refresh time
                 prevFormDataRef.current = currentFormDataStr;
                 prevIsNdisFundedRef.current = isNdisFunded;
 
                 if (analysis.needsProcessing || fundingChanged) {
-                    // console.log('🔄 Using debounced NDIS processing with completion lock...');
+                    console.log('🔄 Using debounced NDIS processing with completion lock...');
                     processNdisWithDebounce(stableBookingRequestFormData, isNdisFunded);
                 } else {
                     const updatedData = forceRefreshAllDependencies(stableBookingRequestFormData, bookingFormRoomSelected);

@@ -580,6 +580,114 @@ export default function BookingDetail() {
 
   const [isSavingPackage, setIsSavingPackage] = useState(false);
 
+  // Helper function to find package QA pair info from current booking data
+  const findPackageQaPairInfo = useCallback(() => {
+    if (!booking?.Sections) {
+      console.log('❌ findPackageQaPairInfo: No booking.Sections found');
+      return null;
+    }
+    
+    let qaPairData = null;
+    
+    booking.Sections.forEach((section, sIdx) => {
+      section.QaPairs?.forEach((qaPair, qIdx) => {
+        const question = qaPair.Question;
+        
+        // Get question_key from Question object
+        const questionKey = question?.question_key || '';
+        
+        // Get question type - check both qaPair level and Question level
+        const questionType = qaPair.question_type || question?.type || '';
+        
+        // Check for package-related questions using QUESTION_KEYS constants
+        const isPackageQuestion = 
+          questionKey === QUESTION_KEYS.ACCOMMODATION_PACKAGE_COURSES ||
+          questionKey === QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL ||
+          questionType === 'package-selection';
+        
+        if (isPackageQuestion) {
+          qaPairData = {
+            qaPair: qaPair,
+            section: section,
+            question: question,
+            questionType: questionType,
+            questionKey: questionKey,
+            currentAnswer: qaPair.answer,
+            qaPairId: qaPair.id
+          };
+        }
+      });
+    });
+
+    if (!qaPairData) {
+      console.warn('⚠️ findPackageQaPairInfo: No package QA pair found');
+    }
+
+    return qaPairData;
+  }, [booking]);
+
+  const handleUpdatePackageWithData = useCallback(async (selectedOption, packageQaPairData) => {
+    if (!packageQaPairData || !selectedOption) {
+      console.error('❌ Missing required data:', { packageQaPairData, selectedOption });
+      toast.error('Unable to update package. Missing required information.');
+      return;
+    }
+    
+    setIsSavingPackage(true);
+    dispatch(globalActions.setLoading(true));
+    
+    try {
+      const { qaPairId, currentAnswer } = packageQaPairData;
+      
+      const response = await fetch(`/api/qa-pairs/${qaPairId}/update`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          answer: selectedOption.value,
+          oldAnswer: currentAnswer
+        })
+      });
+      
+      if (!response.ok) {
+        let errorMessage = 'Failed to update package';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.message || errorMessage;
+          console.error('❌ API Error:', errorData);
+        } catch (e) {
+          console.error('❌ Could not parse error response');
+        }
+        toast.error(errorMessage);
+        return;
+      }
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        toast.success('Package updated successfully!');
+        setEditingPackage(false);
+        setSelectedPackageValue(null);
+        setPackageOptions([]);
+        
+        // Refresh booking data
+        setTimeout(() => {
+          window.location.reload();
+        }, 500);
+      } else {
+        toast.error(result.message || 'Failed to update package');
+        console.error('❌ Update failed:', result);
+      }
+    } catch (error) {
+      console.error('❌ Error updating package:', error);
+      toast.error(`Failed to update package: ${error.message}`);
+    } finally {
+      setIsSavingPackage(false);
+      dispatch(globalActions.setLoading(false));
+    }
+  }, [dispatch, fetchBooking]);
+
   useEffect(() => {
     const loadOptions = async () => {
       if (!editingPackage || !packageQaPairInfo) {
@@ -748,10 +856,20 @@ export default function BookingDetail() {
     }
   }, [packageQaPairInfo, dispatch, uuid]);
 
-  const handleEditPackage = useCallback(() => {
+  // Change from useCallback to regular function
+  const handleEditPackage = () => {
+    console.log('🔍 Edit button clicked. Current packageQaPairInfo:', packageQaPairInfo);
+    
+    if (!packageQaPairInfo) {
+      console.error('❌ Cannot edit package - packageQaPairInfo is null');
+      toast.error('Package information is not ready. Please wait a moment and try again.');
+      return;
+    }
+    
+    console.log('✅ Starting package edit with:', packageQaPairInfo);
     setEditingPackage(true);
     setSelectedPackageValue(packageQaPairInfo?.currentAnswer || null);
-  }, [packageQaPairInfo]);
+  };
 
   const handleCancelPackageEdit = useCallback(() => {
     setEditingPackage(false);
@@ -2067,7 +2185,7 @@ export default function BookingDetail() {
               </div>
             ) : (
               <>
-                {/* ALWAYS show the current package info first */}
+                {/* Current Package Display */}
                 {(() => {
                   const packageDisplay = getPackageTypeDisplay();
                   
@@ -2097,14 +2215,28 @@ export default function BookingDetail() {
                               </div>
                             </div>
                             
-                            {/* Edit Button */}
+                            {/* Edit Button - FIXED VERSION */}
                             <Can I="Create/Edit" a="Booking">
-                              {isUser && packageQaPairInfo && !editingPackage && (
+                              {isUser && !editingPackage && (
                                 <Button
                                   color="outline"
                                   size="small"
                                   label="EDIT"
-                                  onClick={handleEditPackage}
+                                  onClick={() => {
+                                    // Access packageQaPairInfo directly at click time
+                                    console.log('🖱️ EDIT button clicked');
+                                    console.log('📦 packageQaPairInfo at click:', packageQaPairInfo);
+                                    
+                                    if (!packageQaPairInfo) {
+                                      console.error('❌ packageQaPairInfo is null!');
+                                      toast.error('Package data not ready. Please refresh the page.');
+                                      return;
+                                    }
+                                    
+                                    console.log('✅ Starting edit mode with qaPairId:', packageQaPairInfo.qaPairId);
+                                    setEditingPackage(true);
+                                    setSelectedPackageValue(packageQaPairInfo.currentAnswer || null);
+                                  }}
                                 />
                               )}
                             </Can>
@@ -2169,9 +2301,12 @@ export default function BookingDetail() {
                             size="small"
                             label={isSavingPackage ? "Saving..." : "Save"}
                             onClick={() => {
-                              if (!packageQaPairInfo) {
-                                console.error('❌ Package QA pair information is missing');
-                                toast.error('Unable to update package. Please refresh the page and try again.');
+                              // Find fresh packageQaPairInfo right before saving
+                              const freshPackageQaPairInfo = findPackageQaPairInfo();
+                              
+                              if (!freshPackageQaPairInfo) {
+                                console.error('❌ Could not find package information in booking data');
+                                toast.error('Unable to save. Package information not found. Please refresh the page.');
                                 return;
                               }
                               
@@ -2183,17 +2318,32 @@ export default function BookingDetail() {
                                 return;
                               }
                               
-                              // Show immediate feedback
+                              // Check if actually different
+                              if (String(selectedPackageValue) === String(freshPackageQaPairInfo.currentAnswer)) {
+                                toast.info('No changes detected - package is already set to this value');
+                                return;
+                              }
+                              
                               toast.info('Updating package...');
-                              handleUpdatePackage(selectedOption);
+                              
+                              // Call update function with fresh data
+                              handleUpdatePackageWithData(selectedOption, freshPackageQaPairInfo);
                             }}
-                            disabled={isSavingPackage || !selectedPackageValue || !packageQaPairInfo || selectedPackageValue === packageQaPairInfo?.currentAnswer}
+                            disabled={
+                              isSavingPackage || 
+                              !selectedPackageValue
+                            }
                           />
                           <Button
                             color="outline"
                             size="small"
                             label="Cancel"
-                            onClick={handleCancelPackageEdit}
+                            onClick={() => {
+                              console.log('❌ Cancel clicked');
+                              setEditingPackage(false);
+                              setSelectedPackageValue(null);
+                              setPackageOptions([]);
+                            }}
                             disabled={isSavingPackage}
                           />
                         </div>
@@ -2437,7 +2587,38 @@ export default function BookingDetail() {
     }
 
     return items;
-  }, [booking, amendments, healthInfo, loadingStates, editEquipment, currentUser, roomSetupData, isUser, status, eligibility, statuses, eligibilities, handleUpdateStatus, handleUpdateEligibility, packageDetails, loadingPackageDetails, courseInfo, funderInfo, getPackageTypeDisplay]);
+  }, [
+    booking, 
+    amendments, 
+    healthInfo, 
+    loadingStates, 
+    editEquipment, 
+    currentUser, 
+    roomSetupData, 
+    isUser, 
+    status, 
+    eligibility, 
+    statuses, 
+    eligibilities, 
+    handleUpdateStatus, 
+    handleUpdateEligibility, 
+    packageDetails, 
+    loadingPackageDetails, 
+    courseInfo, 
+    funderInfo, 
+    getPackageTypeDisplay,
+    packageQaPairInfo,
+    editingPackage,
+    handleEditPackage,
+    packageOptions,
+    selectedPackageValue,     
+    loadingPackageOptions,    
+    isSavingPackage,          
+    handleUpdatePackage,      
+    courseDetails,            
+    loadingCourseDetails,
+    handleCancelPackageEdit
+  ]);
 
   // useEffect(() => {
   //   // Set all accordion items to open by default when booking data loads

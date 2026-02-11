@@ -21,15 +21,14 @@ const DateField = (props) => {
     
     // Refs
     const container = useRef();
-    const monthRef = useRef();
-    const yearRef = useRef();
+    const lastNotifiedValue = useRef(null); // NEW: Track last notified value
 
     //  New prop to check if booking is confirmed/completed
     const isConfirmedBooking = props.isConfirmedBooking || false;
 
     // Props with defaults
-     const allowPrevDate = props.hasOwnProperty('allowPrevDate') 
-        ? (props.allowPrevDate || isConfirmedBooking)  // Allow past dates if confirmed
+    const allowPrevDate = props.hasOwnProperty('allowPrevDate') 
+        ? (props.allowPrevDate || isConfirmedBooking)
         : true;
     
     // Determine if this is a booking field that needs cross-validation
@@ -54,13 +53,13 @@ const DateField = (props) => {
 
     // Open calendar handler
     const openCalendar = () => {
+        if (props.disabled) return;
+        
         // Special handling for checkout date field
         if (isBookingField && props.name === 'checkoutDate' && crossValidationValue) {
-            // Set calendar view to check-in date's month (or day after)
             const checkinDate = new Date(crossValidationValue);
             checkinDate.setHours(0, 0, 0, 0);
             
-            // Set to the day after check-in as a starting point
             const suggestedCheckoutDate = new Date(checkinDate);
             suggestedCheckoutDate.setDate(suggestedCheckoutDate.getDate() + 1);
             
@@ -129,33 +128,17 @@ const DateField = (props) => {
         return dateToCheck < today;
     };
 
-    const normalizeDate = (dateStr) => {
-        if (!dateStr) return null;
-        
-        if (dateStr.includes('/')) {
-            const parts = dateStr.split('/');
-            if (parts.length === 3) {
-                return `${parts[2]}-${parts[1]}-${parts[0]}`;
-            }
-        }
-        
-        return dateStr;
-    };
-
     // Enhanced validation with cross-field validation for booking dates
     const validateCurrentDate = (selectedDate) => {
-        // Basic date validation
         const basicValidationError = validateDate(selectedDate);
         if (basicValidationError) {
             return { isValid: false, error: 'Invalid date entered!' };
         }
 
-        // Past date validation
         if (!allowPrevDate && !isConfirmedBooking && isDateInPast(selectedDate)) {
             return { isValid: false, error: 'Past dates are not allowed!' };
         }
 
-        // Special cross-validation for booking dates
         if (isBookingField && props.name === 'checkinDate' && crossValidationValue) {
             const selectedMoment = moment(selectedDate);
             const checkoutMoment = moment(crossValidationValue);
@@ -190,7 +173,6 @@ const DateField = (props) => {
         const currentMonth = dateValue.getMonth();
         const currentYear = dateValue.getFullYear();
         
-        // Get first day of month and number of days
         const firstDay = new Date(currentYear, currentMonth, 1);
         const lastDay = new Date(currentYear, currentMonth + 1, 0);
         const daysInMonth = lastDay.getDate();
@@ -198,19 +180,16 @@ const DateField = (props) => {
         
         const days = [];
         
-        // Add empty cells for days before the first day of the month
         for (let i = 0; i < startingDayOfWeek; i++) {
             days.push(null);
         }
         
-        // Parse cross-validation value if it exists
         let crossValidationDate = null;
         if (crossValidationValue) {
             crossValidationDate = new Date(crossValidationValue);
             crossValidationDate.setHours(0, 0, 0, 0);
         }
         
-        // Add days of the month
         for (let dayNum = 1; dayNum <= daysInMonth; dayNum++) {
             const date = new Date(currentYear, currentMonth, dayNum);
             date.setHours(0, 0, 0, 0);
@@ -221,21 +200,16 @@ const DateField = (props) => {
                             (currentMonth + 1).toString() === month && 
                             currentYear.toString() === year;
             
-            // Enhanced disable logic with cross-validation
             let isDisabled = false;
             
-            // 1. Disable past dates if not allowed
             if (!allowPrevDate && isPastDate) {
                 isDisabled = true;
             }
             
-            // 2. Cross-validation for booking dates
             if (crossValidationDate && isBookingField) {
                 if (props.name === 'checkoutDate') {
-                    // For checkout date: disable dates on or before check-in date
                     isDisabled = isDisabled || (date.getTime() <= crossValidationDate.getTime());
                 } else if (props.name === 'checkinDate') {
-                    // For check-in date: disable dates on or after check-out date
                     isDisabled = isDisabled || (date.getTime() >= crossValidationDate.getTime());
                 }
             }
@@ -262,7 +236,6 @@ const DateField = (props) => {
             return;
         }
 
-        // Set the selected date
         const formattedDate = moment(selectedDate).format('DD-MM-YYYY');
         const dateArr = formattedDate.split('-');
         setDay(dateArr[0]);
@@ -275,23 +248,36 @@ const DateField = (props) => {
         setError(false);
         setErrorMessage('');
 
-        // Notify parent
         if (props.onChange) {
             const isoFormattedDate = moment(selectedDate).format('YYYY-MM-DD');
             props.onChange(isoFormattedDate, null);
         }
     };
 
-    // Helper function to notify parent
+    // MODIFIED: Helper function to notify parent with duplicate detection
     const notifyParent = (dayVal, monthVal, yearVal, errorMsg = null) => {
         if (props.onChange) {
             if (dayVal && monthVal && yearVal && yearVal.length === 4) {
                 const formattedDate = `${yearVal}-${monthVal.padStart(2, '0')}-${dayVal.padStart(2, '0')}`;
-                props.onChange(formattedDate, errorMsg);
+                
+                // Create a signature of what we're about to notify
+                const notificationSignature = `${formattedDate}|${errorMsg || 'null'}`;
+                
+                // Only notify if this is different from last notification
+                if (lastNotifiedValue.current !== notificationSignature) {
+                    lastNotifiedValue.current = notificationSignature;
+                    props.onChange(formattedDate, errorMsg);
+                }
             } else if (errorMsg) {
                 const formattedDate = (dayVal && monthVal && yearVal) ? 
                     `${yearVal}-${monthVal.padStart(2, '0')}-${dayVal.padStart(2, '0')}` : '';
-                props.onChange(formattedDate, errorMsg);
+                
+                const notificationSignature = `${formattedDate}|${errorMsg}`;
+                
+                if (lastNotifiedValue.current !== notificationSignature) {
+                    lastNotifiedValue.current = notificationSignature;
+                    props.onChange(formattedDate, errorMsg);
+                }
             }
         }
     };
@@ -368,14 +354,12 @@ const DateField = (props) => {
             setErrorMessage(props.error);
             setIsValid(false);
         } else if (!props.error && error && errorMessage === props.error) {
-            // Only clear if this was the external error
             setError(false);
             setErrorMessage('');
         }
     }, [props.error]);
 
     useEffect(() => {
-        // Check if date is complete
         const isComplete = day !== '' && month !== '' && year !== '' && year.length === 4;
         
         if (isComplete) {
@@ -386,10 +370,12 @@ const DateField = (props) => {
                 setError(true);
                 setErrorMessage(validation.error);
                 setIsValid(false);
-                toast.error(validation.error);
+                // Only show toast on user interaction, not on re-renders
+                if (dirty) {
+                    toast.error(validation.error);
+                }
                 notifyParent(day, month, year, validation.error);
             } else {
-                // Only clear our own validation errors, not external ones
                 if (!props.error) {
                     setError(false);
                     setErrorMessage('');
@@ -398,24 +384,24 @@ const DateField = (props) => {
                 notifyParent(day, month, year, null);
             }
             setDirty(true);
-        } else if (props.required && props.forceShowErrors) {
-            // Only show "required" error when form submission is forced (e.g., user clicked submit)
-            // Don't show it while user is still typing
+        } else if (props.required && props.forceShowErrors && !isComplete) {
             const requiredError = 'This field is required';
             setError(true);
             setErrorMessage(requiredError);
             setIsValid(false);
+            // IMPORTANT: Only notify for incomplete required fields, don't spam notifications
             notifyParent(day, month, year, requiredError);
         } else if (!isComplete) {
-            // Date is incomplete but we're not forcing errors - clear validation state
-            // Keep dirty state but don't show errors while user is typing
             if (!props.error) {
                 setError(false);
                 setErrorMessage('');
             }
             setIsValid(false);
+            // IMPORTANT: Don't call notifyParent for incomplete non-required fields to reduce notifications
         }
-    }, [day, month, year, allowPrevDate, props.required, props.error, props.forceShowErrors]);
+        // IMPORTANT: Removed 'dirty' from dependencies as it can cause loops
+        // The 'dirty' flag is set above when needed, but shouldn't trigger this effect
+    }, [day, month, year, allowPrevDate, crossValidationValue, props.required, props.error, props.forceShowErrors]);
 
     // Keyboard and click outside handlers
     const escFunction = useCallback((event) => {
@@ -465,49 +451,24 @@ const DateField = (props) => {
                                 ${getBorderClasses()} ${getBackgroundClasses()}`}>
                     <div className="relative">
                         <div className="flex flex-row items-center" ref={container}>
-                            <input 
-                                type="text" 
-                                disabled={props.disabled} 
-                                value={day} 
-                                className="w-8 border-0 focus:outline-none bg-transparent placeholder:text-gray-400 text-center" 
-                                onChange={(e) => {
-                                    setDay(e.target.value);
-                                    setDirty(true);
-                                    if (e.target.value.length === 2) {
-                                        monthRef.current.focus();
-                                    }
-                                }}
-                                placeholder="DD" 
-                            />
-                            <p className="mx-2 text-gray-300">/</p>
-                            <input 
-                                ref={monthRef} 
-                                type="text" 
-                                disabled={props.disabled} 
-                                value={month} 
-                                className="w-8 border-0 focus:outline-none bg-transparent placeholder:text-gray-400 text-center" 
-                                onChange={(e) => {
-                                    setMonth(e.target.value);
-                                    setDirty(true);
-                                    if (e.target.value.length === 2) {
-                                        yearRef.current.focus();
-                                    }
-                                }}
-                                placeholder="MM" 
-                            />
-                            <p className="mx-2 text-gray-300">/</p>
-                            <input 
-                                ref={yearRef} 
-                                type="text" 
-                                disabled={props.disabled} 
-                                value={year} 
-                                className="w-12 border-0 focus:outline-none bg-transparent placeholder:text-gray-400 text-center mr-1" 
-                                onChange={(e) => { 
-                                    setYear(e.target.value); 
-                                    setDirty(true);
-                                }}
-                                placeholder="YYYY" 
-                            />
+                            {/* Display date in three-field style */}
+                            <div 
+                                className="flex flex-row items-center flex-1 cursor-pointer"
+                                onClick={openCalendar}
+                            >
+                                <span className={`text-center ${day ? '' : 'text-gray-400'}`} style={{ minWidth: '32px' }}>
+                                    {day || 'DD'}
+                                </span>
+                                <span className="mx-3 text-gray-300">/</span>
+                                <span className={`text-center ${month ? '' : 'text-gray-400'}`} style={{ minWidth: '32px' }}>
+                                    {month || 'MM'}
+                                </span>
+                                <span className="mx-3 text-gray-300">/</span>
+                                <span className={`text-center ${year ? '' : 'text-gray-400'}`} style={{ minWidth: '48px' }}>
+                                    {year || 'YYYY'}
+                                </span>
+                            </div>
+                            
                             <div className="flex items-center ml-auto">
                                 <svg 
                                     xmlns="http://www.w3.org/2000/svg" 

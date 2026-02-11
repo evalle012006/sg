@@ -90,25 +90,38 @@ export class BookingService extends EntityBuilder {
         }
 
         if (checkInDateAnswer && checkOutDateAnswer) {
-            console.log('    ✓ Date questions found, will update dates');
-            hasRoomUpdates = true;
-            roomData.checkin = checkInDateAnswer;
-            roomData.checkout = checkOutDateAnswer;
+            // Validate dates before attempting update
+            const checkInMoment = moment(checkInDateAnswer);
+            const checkOutMoment = moment(checkOutDateAnswer);
+            
+            if (!checkInMoment.isValid() || !checkOutMoment.isValid()) {
+                console.log('⚠️ Invalid date detected - skipping date update:', {
+                    checkInDateAnswer,
+                    checkOutDateAnswer,
+                    checkInValid: checkInMoment.isValid(),
+                    checkOutValid: checkOutMoment.isValid()
+                });
+            } else {
+                console.log('    ✓ Date questions found, will update dates');
+                hasRoomUpdates = true;
+                roomData.checkin = checkInDateAnswer;
+                roomData.checkout = checkOutDateAnswer;
 
-            await Booking.update({ 
-                preferred_arrival_date: checkInDateAnswer, 
-                preferred_departure_date: checkOutDateAnswer 
-            }, { where: { id: booking.id } });
+                await Booking.update({ 
+                    preferred_arrival_date: checkInDateAnswer, 
+                    preferred_departure_date: checkOutDateAnswer 
+                }, { where: { id: booking.id } });
 
-            const bookingEquipments = await BookingEquipment.findAll({ where: { booking_id: booking.id } });
-            if (bookingEquipments.length > 0) {
-                for (let i = 0; i < bookingEquipments.length; i++) {
-                    const currentBookingEquipment = bookingEquipments[i];
-                    if (!currentBookingEquipment.start_date && !currentBookingEquipment.end_date) {
-                        await currentBookingEquipment.update({ 
-                            start_date: checkInDateAnswer, 
-                            end_date: checkOutDateAnswer 
-                        });
+                const bookingEquipments = await BookingEquipment.findAll({ where: { booking_id: booking.id } });
+                if (bookingEquipments.length > 0) {
+                    for (let i = 0; i < bookingEquipments.length; i++) {
+                        const currentBookingEquipment = bookingEquipments[i];
+                        if (!currentBookingEquipment.start_date && !currentBookingEquipment.end_date) {
+                            await currentBookingEquipment.update({ 
+                                start_date: checkInDateAnswer, 
+                                end_date: checkOutDateAnswer 
+                            });
+                        }
                     }
                 }
             }

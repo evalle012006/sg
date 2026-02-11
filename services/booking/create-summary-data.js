@@ -1,4 +1,3 @@
-// new version
 import moment from 'moment';
 import { serializePackage } from '../../utilities/common';
 import { QUESTION_KEYS, questionMatches, questionHasKey } from './question-helper';
@@ -52,20 +51,11 @@ export const calculateDaysBreakdown = async (startDateStr, numberOfNights, inclu
   const dates = startDateStr.split(' - ');
   const holidays = await getNSWHolidaysV2(dates[0], dates[1]);
   
-  // Create a Set of holiday dates for quick lookup
-  const holidayDates = new Set(holidays.map(h => h.date));
-  // Create a Set specifically for ANZAC Day dates
-  const anzacDates = new Set(
-    holidays
-      .filter(h => h.name === 'Anzac Day')
-      .map(h => h.date)
-  );
-  
   let breakdown = {
     weekdays: 0,
     saturdays: 0,
     sundays: 0,
-    publicHolidays: 0
+    publicHolidays: holidays.length || 0
   };
 
   const daysToCount = includeAllDays ? numberOfNights + 1 : numberOfNights;
@@ -74,31 +64,8 @@ export const calculateDaysBreakdown = async (startDateStr, numberOfNights, inclu
     const currentDate = new Date(startDate);
     currentDate.setDate(currentDate.getDate() + i);
     
-    // Format date as YYYY-MM-DD to match holiday date format
-    const dateStr = currentDate.toISOString().split('T')[0];
     const day = currentDate.getDay();
-    
-    // Check if this date is a public holiday
-    const isPublicHoliday = holidayDates.has(dateStr);
-    const isAnzacDay = anzacDates.has(dateStr);
-    
-    // ANZAC Day logic: If ANZAC Day falls on a weekend, 
-    // it's still priced as a public holiday (no substitute Monday)
-    if (isAnzacDay) {
-      breakdown.publicHolidays++;
-    } 
-    // For other public holidays on weekends, they would typically be 
-    // moved to Monday by the API, so this shouldn't happen
-    // But if it does, count as public holiday
-    else if (isPublicHoliday && (day === 0 || day === 6)) {
-      breakdown.publicHolidays++;
-    }
-    // Regular public holidays (weekdays)
-    else if (isPublicHoliday) {
-      breakdown.publicHolidays++;
-    }
-    // Regular weekend/weekday counting (only if NOT a public holiday)
-    else if (day === 6) {
+    if (day === 6) {
       breakdown.saturdays++;
     } else if (day === 0) {
       breakdown.sundays++;

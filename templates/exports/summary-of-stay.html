@@ -103,7 +103,7 @@
             border-radius: 4px;
         }
         
-        /* ✅ NEW: Custom Quote Required Box Styling */
+        /* ✅ Custom Quote Required Box Styling */
         .custom-quote-box {
             margin-top: 10px;
             padding: 15px;
@@ -306,8 +306,9 @@
                     <p class="info-label">Package Name: {{package_type}}</p>
                 </div>
                 
-                {{#if is_holiday_support_plus}}
-                    <!-- ✅ Show Custom Quote Required box for Holiday Support Plus -->
+                {{!-- ✅ UPDATED: Show Custom Quote Required box for ALL Holiday Support packages (both HOLIDAY_SUPPORT and HOLIDAY_SUPPORT_PLUS) --}}
+                {{#if is_hsp_package}}
+                    <!-- ✅ Show Custom Quote Required box for Holiday Support packages -->
                     <div class="custom-quote-box">
                         <svg class="custom-quote-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -434,7 +435,8 @@
             <div class="summary-box">
                 <h2>Cost Summary</h2>
                 <div class="summary-row">
-                    {{#if is_holiday_support_plus}}
+                    {{!-- ✅ UPDATED: Use is_hsp_package for TBD display --}}
+                    {{#if is_hsp_package}}
                     <span>Package Costs <span style="font-style: italic;">(Quote to be provided by bookings team)</span>:</span>
                     <span style="color: #F59E0B; font-weight: 500;">TBD</span>
                     {{else}}
@@ -452,7 +454,8 @@
                     {{/if}}
                 </div>
                 <div class="summary-row summary-total">
-                    {{#if is_holiday_support_plus}}
+                    {{!-- ✅ UPDATED: Use is_hsp_package for Grand Total label --}}
+                    {{#if is_hsp_package}}
                     <span>Grand Total (excluding package costs):</span>
                     {{else}}
                     <span>Grand Total:</span>

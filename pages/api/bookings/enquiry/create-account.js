@@ -40,8 +40,8 @@ export default async function handler(request, response) {
 
         await sendMail(data.email, 'Sargood On Collaroy - Account Creation', 'create-account',
             {
-                guest_name: data.first_name,
-                set_new_password_link: `${process.env.APP_URL}/auth/onboarding/set-new-password?token=${accessToken.token}`
+                username: data.first_name,
+                create_password_link: `${process.env.APP_URL}/auth/onboarding/set-new-password?token=${accessToken.token}`
             });
     } catch (error) {
         let message = error.errors ? { error: error.errors.map(e => e.message)[0], type: error.errors.map(e => e.type)[0] } : { error: "Something went wrong", type: "error" };

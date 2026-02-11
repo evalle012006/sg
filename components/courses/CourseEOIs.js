@@ -3,6 +3,7 @@ import { toast } from 'react-toastify';
 import moment from 'moment';
 import { Eye, Check, X } from 'lucide-react';
 import dynamic from 'next/dynamic';
+import { useRouter } from 'next/router';
 
 const Table = dynamic(() => import('../ui-v2/Table'));
 const Button = dynamic(() => import('../ui-v2/Button'));
@@ -11,6 +12,7 @@ const Spinner = dynamic(() => import('../ui/spinner'));
 const ConfirmDialog = dynamic(() => import('../ui-v2/ConfirmDialog'));
 
 export default function CourseEOIs() {
+    const router = useRouter();
     const [eois, setEois] = useState([]);
     const [courses, setCourses] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -30,6 +32,22 @@ export default function CourseEOIs() {
         loadEOIs();
         loadCourses();
     }, []);
+
+    useEffect(() => {
+        if (router.query.eoiId && eois.length > 0 && !isLoading) {
+            const eoiId = parseInt(router.query.eoiId);
+            const eoi = eois.find(e => e.id === eoiId);
+            
+            if (eoi) {
+                handleViewDetails(eoi);
+                // Clean up the URL without reloading the page
+                router.replace('/courses?selectedTab=eoi', undefined, { shallow: true });
+            } else {
+                toast.warning(`EOI #${eoiId} not found`);
+                router.replace('/courses?selectedTab=eoi', undefined, { shallow: true });
+            }
+        }
+    }, [router.query.eoiId, eois, isLoading]);
 
     const loadCourses = async () => {
         try {

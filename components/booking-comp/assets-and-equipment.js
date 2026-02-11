@@ -22,6 +22,7 @@ function AssetsAndEquipment(props) {
     const [showSearch, setShowSearch] = useState(false);
     const [newEquipments, setNewEquipments] = useState([]);
     const [searchResults, setSearchResults] = useState([]);
+    const [loadingEquipments, setLoadingEquipments] = useState(false);
     const dispatch = useDispatch();
 
     useEffect(() => {
@@ -72,33 +73,58 @@ function AssetsAndEquipment(props) {
     }
 
     const fetchNewEquipments = async () => {
-        const response = await fetch("/api/equipments?" + new URLSearchParams({ includeHidden: false }), {
-            method: 'GET',
-            headers: {
-                'Content-Type': 'application/json'
-            }
-        });
+        setLoadingEquipments(true);
+        try {
+            const response = await fetch("/api/equipments?" + new URLSearchParams({ includeHidden: false }), {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
 
-        const data = await response.json();
+            const data = await response.json();
 
-        setSearchResults(data);
-        setNewEquipments(data);
+            setNewEquipments(data);
+            // FIX: Set initial search results after fetch completes
+            // This will be filtered by the useEffect below if there's a searchQuery
+            setSearchResults(data);
+        } catch (error) {
+            console.error('Error fetching equipment:', error);
+            toast.error('Failed to load equipment');
+        } finally {
+            setLoadingEquipments(false);
+        }
     }
 
-    const searchNewEquipments = async () => {
+    const searchNewEquipments = () => {
         if (searchQuery.length == 0) {
             setSearchResults(newEquipments);
         } else {
-            const filteredResults = searchResults.filter(result => result.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                result.EquipmentCategory.name.toLowerCase().includes(searchQuery.toLowerCase()));
+            // FIX: Filter from newEquipments (the full list) instead of searchResults
+            const filteredResults = newEquipments.filter(result => {
+                const nameMatch = result.name?.toLowerCase().includes(searchQuery.toLowerCase());
+                const categoryMatch = result.EquipmentCategory?.name?.toLowerCase().includes(searchQuery.toLowerCase());
+                return nameMatch || categoryMatch;
+            });
+            console.log('🔍 Search query:', searchQuery);
+            console.log('📦 Filtered results count:', filteredResults.length);
+            console.log('👁️ Show search state:', showSearch);
             setSearchResults(filteredResults);
         }
-
     }
 
+    // Re-run search when searchQuery changes
     useEffect(() => {
         searchNewEquipments();
     }, [searchQuery]);
+
+    // FIX: Re-run search when newEquipments is populated (after fetch completes)
+    // This handles the race condition where user types before fetch completes
+    useEffect(() => {
+        if (newEquipments.length > 0 && searchQuery.length > 0) {
+            searchNewEquipments();
+        }
+    }, [newEquipments]);
 
     const addEquipmentToBooking = async (equipment) => {
         setSearchQuery('');
@@ -247,7 +273,7 @@ function AssetsAndEquipment(props) {
 
             {/* Equipment Content */}
             {editMode ? (
-                <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                <div className="bg-white border border-gray-200 rounded-lg" style={{ overflow: 'visible' }}>
                     {/* Edit Mode Alert */}
                     <div className="bg-blue-50 border-b border-blue-200 px-6 py-3">
                         <div className="flex items-center space-x-2">
@@ -258,16 +284,17 @@ function AssetsAndEquipment(props) {
                         </div>
                     </div>
 
-                    <table className="w-full">
-                        <thead>
-                            <tr className="bg-gray-50 border-b border-gray-200">
-                                <th className="text-left p-4 px-6 font-semibold text-gray-700">Asset, Serial Number</th>
-                                <th className="text-left p-4 px-6 font-semibold text-gray-700">Date Range</th>
-                                <th className="text-left p-4 px-6 w-24 font-semibold text-gray-700">Status</th>
-                                <th className="text-left p-4 px-6 w-20 font-semibold text-gray-700">Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
+                    <div style={{ overflow: 'visible' }}>
+                        <table className="w-full">
+                            <thead>
+                                <tr className="bg-gray-50 border-b border-gray-200">
+                                    <th className="text-left p-4 px-6 font-semibold text-gray-700">Asset, Serial Number</th>
+                                    <th className="text-left p-4 px-6 font-semibold text-gray-700">Date Range</th>
+                                    <th className="text-left p-4 px-6 w-24 font-semibold text-gray-700">Status</th>
+                                    <th className="text-left p-4 px-6 w-20 font-semibold text-gray-700">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody style={{ overflow: 'visible' }}>
                             {equipments.map((equipment, index) => {
                                 return (
                                     <tr key={index} className={`border-b border-gray-100 hover:bg-gray-50 ${index % 2 ? 'bg-gray-25' : 'bg-white'}`}>
@@ -330,7 +357,18 @@ function AssetsAndEquipment(props) {
                                 )
                             })}
                             <tr className="border-b border-gray-100">
-                                <td className="relative p-0">
+                                <td className="relative p-0" style={{ overflow: 'visible' }}>
+                                    {/* Backdrop overlay - render FIRST so dropdown appears above it */}
+                                    {showSearch && (
+                                        <div 
+                                            className="fixed inset-0 z-40" 
+                                            onClick={() => {
+                                                setShowSearch(false);
+                                                setSearchQuery('');
+                                            }}
+                                        />
+                                    )}
+                                    
                                     <input 
                                         className="w-full p-4 px-6 focus:outline-none focus:bg-blue-50 border-2 border-transparent focus:border-blue-200 rounded-md" 
                                         placeholder="Add Equipment - Start typing to search..."
@@ -346,13 +384,23 @@ function AssetsAndEquipment(props) {
                                             setSearchQuery(e.target.value);
                                         }} 
                                     />
+                                    
+                                    {/* Dropdown - render AFTER overlay so it appears on top */}
                                     {showSearch && (
-                                        <div className="absolute z-50 bg-white rounded-lg w-full shadow-lg border border-gray-200 max-h-64 overflow-y-auto mt-1">
-                                            {searchResults.length > 0 ? (
+                                        <div className="absolute left-0 right-0 z-50 bg-white rounded-lg shadow-lg border border-gray-200 max-h-64 overflow-y-auto mt-1">
+                                            {loadingEquipments ? (
+                                                <div className="p-4 text-center text-gray-500">
+                                                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mx-auto mb-2"></div>
+                                                    Loading equipment...
+                                                </div>
+                                            ) : searchResults.length > 0 ? (
                                                 searchResults.map((result, index) => (
                                                     <div 
                                                         key={index} 
-                                                        onClick={() => addEquipmentToBooking(result)} 
+                                                        onClick={() => {
+                                                            addEquipmentToBooking(result);
+                                                            setShowSearch(false);
+                                                        }} 
                                                         className="hover:bg-blue-50 p-3 px-4 cursor-pointer border-b border-gray-100 last:border-b-0 transition-colors duration-150"
                                                     >
                                                         <div className="font-medium text-gray-900">{result.name}</div>
@@ -362,12 +410,11 @@ function AssetsAndEquipment(props) {
                                                 ))
                                             ) : (
                                                 <div className="p-4 text-center text-gray-500">
-                                                    {searchQuery ? 'No equipment found matching your search' : 'Loading equipment...'}
+                                                    {searchQuery ? 'No equipment found matching your search' : 'No equipment available'}
                                                 </div>
                                             )}
                                         </div>
                                     )}
-                                    {showSearch && <div className="fixed inset-0 z-40" onClick={() => setShowSearch(false)}></div>}
                                 </td>
                                 <td colSpan="3" className="p-4 px-6 text-sm text-gray-500">
                                     Search for equipment to add to this booking
@@ -375,6 +422,7 @@ function AssetsAndEquipment(props) {
                             </tr>
                         </tbody>
                     </table>
+                    </div>
                 </div>
             ) : (
                 // View Mode

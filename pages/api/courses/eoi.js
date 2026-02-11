@@ -179,7 +179,7 @@ async function createEOI(req, res) {
                     support_role: support_role,
                     preferred_dates: course_date_preferences ? JSON.stringify(course_date_preferences) : 'Not specified',
                     comments: comments || 'None provided',
-                    admin_link: `${baseUrl}/admin/course-eoi/${eoiRecord.id}`,
+                    admin_link: `${baseUrl}/courses?selectedTab=eoi&eoiId=${eoiRecord.id}`,
                     submitted_at: moment(submitted_at || Date.now()).format('dddd, D MMMM YYYY [at] h:mm A')
                 }
             );

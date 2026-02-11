@@ -716,75 +716,68 @@ const PackageSelection = ({
 
           // 1. Check care requirements with detailed logging
           const careHours = criteria.care_hours || 0;
-          
+
           console.log(`   🏥 Care Analysis for ${pkg.package_code}:`);
           console.log(`      Guest care hours: ${careHours}`);
           console.log(`      Package requires_no_care: ${req.requires_no_care}`);
           console.log(`      Package care_hours_min: ${req.care_hours_min}`);
           console.log(`      Package care_hours_max: ${req.care_hours_max}`);
 
-          // If package requires care (requires_no_care: false) but guest has 0 care hours, exclude it
-          if (req.requires_no_care === false && careHours === 0) {
-              console.log(`❌ Excluding ${pkg.package_code}: requires care but guest has 0 care hours`);
-              return false;
-          }
-          
-          // If package requires no care, guest must have 0 care hours
+          // ✅ FIX 1: Correct care hours logic
+          // If package requires NO care (requires_no_care: true) but guest HAS care, exclude it
           if (req.requires_no_care === true && careHours > 0) {
-              console.log(`   ❌ ${pkg.package_code} REJECTED: Package requires no care but guest needs ${careHours}h care`);
+              console.log(`   ❌ ${pkg.package_code} REJECTED: Package requires NO care but guest needs ${careHours}h care`);
               return false;
           }
-          
-          // If package requires no care and guest has no care - this should PASS
+
+          // If package requires NO care and guest has NO care - this should PASS
           if (req.requires_no_care === true && careHours === 0) {
               console.log(`   ✅ ${pkg.package_code} CARE MATCH: Package requires no care and guest has no care`);
           }
 
-          // Check care hours range (only if package doesn't require no care)
+          // For packages that CAN have care (requires_no_care: false or null), check care hours range
           if (req.requires_no_care !== true) {
+              // Check minimum care hours
               if (req.care_hours_min !== null && careHours < req.care_hours_min) {
-                  console.log(`   ❌ ${pkg.package_code} REJECTED: Package requires min ${req.care_hours_min}h but guest only needs ${careHours}h`);
+                  console.log(`   ❌ ${pkg.package_code} REJECTED: Package requires minimum ${req.care_hours_min}h but guest only needs ${careHours}h`);
                   return false;
               }
 
+              // Check maximum care hours
               if (req.care_hours_max !== null && careHours > req.care_hours_max) {
-                  console.log(`   ❌ ${pkg.package_code} REJECTED: Package allows max ${req.care_hours_max}h but guest needs ${careHours}h`);
+                  console.log(`   ❌ ${pkg.package_code} REJECTED: Package allows maximum ${req.care_hours_max}h but guest needs ${careHours}h`);
                   return false;
               }
+              
+              // If we reach here, care hours are within acceptable range
+              console.log(`   ✅ ${pkg.package_code} CARE MATCH: Guest care hours (${careHours}h) within package range (${req.care_hours_min || 0}-${req.care_hours_max || 'unlimited'}h)`);
           }
 
           // 2. Check course requirements with detailed logging
           const hasCourse = criteria.has_course || false;
           const courseOffered = criteria.course_offered || false;
-          
+
           console.log(`   🎓 Course Analysis for ${pkg.package_code}:`);
           console.log(`      Guest has_course: ${hasCourse}`);
           console.log(`      Guest course_offered: ${courseOffered}`);
           console.log(`      Package requires_course: ${req.requires_course}`);
           console.log(`      Package compatible_with_course: ${req.compatible_with_course}`);
-          
-          // If package requires a course, guest must have one
+
+          // ✅ FIX 2: Correct course logic
+          // If package REQUIRES a course, guest must have one
           if (req.requires_course === true && !hasCourse && !courseOffered) {
-              console.log(`   ❌ ${pkg.package_code} REJECTED: Package requires course but guest has no course`);
+              console.log(`   ❌ ${pkg.package_code} REJECTED: Package REQUIRES course but guest has no course`);
               return false;
           }
 
-          // If package forbids courses (requires_course = false), guest must not have one
-          if (req.requires_course === false && (hasCourse || courseOffered)) {
-              console.log(`   ❌ ${pkg.package_code} REJECTED: Package forbids courses but guest has a course`);
-              return false;
-          }
-          
-          // If package forbids courses and guest has no course - this should PASS
-          if (req.requires_course === false && !hasCourse && !courseOffered) {
-              console.log(`   ✅ ${pkg.package_code} COURSE MATCH: Package forbids courses and guest has no course`);
-          }
-
-          // If package is not compatible with courses, guest must not have one
+          // If package is NOT compatible with courses (forbids courses), guest must NOT have one
           if (req.compatible_with_course === false && (hasCourse || courseOffered)) {
-              console.log(`   ❌ ${pkg.package_code} REJECTED: Package is not compatible with courses but guest has a course`);
+              console.log(`   ❌ ${pkg.package_code} REJECTED: Package is NOT compatible with courses but guest has a course`);
               return false;
           }
+
+          // If we reach here, course requirements are satisfied
+          console.log(`   ✅ ${pkg.package_code} COURSE MATCH: Course requirements satisfied`);
 
           // 3. Check STA requirements for NDIS packages
           if (pkg.funder === 'NDIS' && req.sta_requirements) {
@@ -1349,10 +1342,10 @@ const PackageSelection = ({
           }
         </p>
         <button
-          onClick={fetchPackages}
+          onClick={() => window.location.reload()}
           className="px-4 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 transition-colors"
         >
-          Refresh
+          Refresh to Retry
         </button>
       </div>
     );

@@ -102,12 +102,20 @@ export default async function handler(req, res) {
                     );
 
                     await Guest.update({ active: false }, { where: { id: booking.Guest.id } });
-                    const bookingCanceledStatus = await Setting.findOne({ where: { attribute: 'booking_status', value: { [Op.like]: '%booking_cancelled%' } } });
+                    
+                    const bookingCanceledStatus = await Setting.findOne({ 
+                        where: { attribute: 'booking_status', value: { [Op.like]: '%booking_cancelled%' } } 
+                    });
+                    
+                    // Parse the JSON to get the actual status name
+                    const cancelledStatusObj = JSON.parse(bookingCanceledStatus.value);
+                    
                     await booking.update({ 
                         status: bookingCanceledStatus.value, 
-                        status_name: bookingCanceledStatus.name, 
+                        status_name: cancelledStatusObj.name,  // ✅ Now using the correct value
                         status_logs: JSON.stringify(updateStatusLogs(statusLogs, 'canceled')) 
                     });
+                    
                     generateNotifications(booking, 'ineligible', true);
                     break;
                 default:

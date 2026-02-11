@@ -177,30 +177,21 @@ export default async function handler(req, res) {
       const whereClause = {};
       const orderClause = [];
 
-      // Apply funder filter with mapping
+      // ✅ FIXED: Apply funder filter with proper mapping
+      // Since packages table only has "NDIS" or "Non-NDIS", we need to map all incoming funder values
       if (funder) {
-        // Map funder query values to database values
         const funderLower = funder.toLowerCase();
         
-        // NDIS funders
-        if (funderLower === 'ndis') {
+        // NDIS funders - check for variations (ndis, ndia)
+        if (funderLower === 'ndis' || funderLower === 'ndia') {
           whereClause.funder = 'NDIS';
           console.log(`📤 Added funder filter: NDIS`);
         } 
-        // Non-NDIS funders (icare, private pay, etc.)
-        else if (['icare', 'non-ndis', 'private', 'privatepay', 'private-pay'].includes(funderLower)) {
+        // All other funders are Non-NDIS
+        // This includes: icare, private-pay, promotional-stay, etc.
+        else {
           whereClause.funder = 'Non-NDIS';
           console.log(`📤 Added funder filter: Non-NDIS (from ${funder})`);
-        }
-        // If exact match to database values (case-insensitive)
-        else if (funderLower === 'non-ndis') {
-          whereClause.funder = 'Non-NDIS';
-          console.log(`📤 Added funder filter: Non-NDIS`);
-        }
-        // Default: try to use as-is but log a warning
-        else {
-          whereClause.funder = funder;
-          console.warn(`⚠️ Unknown funder type: ${funder}. Searching as-is, but may return no results.`);
         }
       }
 

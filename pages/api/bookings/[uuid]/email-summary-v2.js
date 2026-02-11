@@ -201,9 +201,9 @@ export default async function handler(req, res) {
     const isHolidaySupport = packageCode === 'HOLIDAY_SUPPORT';
     const isHSPPackage = isHolidaySupportPlus || isHolidaySupport;
     
-    // ✅ Format NDIS package details for template with proper currency and rounding
-    // Only include details if NOT Holiday Support Plus
-    const formattedNdisDetails = !isHolidaySupportPlus ? (summaryData.packageCosts.details?.map(item => ({
+    // ✅ UPDATED: Format NDIS package details for template with proper currency and rounding
+    // Only include details if NOT any Holiday Support package (both HOLIDAY_SUPPORT and HOLIDAY_SUPPORT_PLUS)
+    const formattedNdisDetails = !isHSPPackage ? (summaryData.packageCosts.details?.map(item => ({
       package: item.package,
       lineItem: item.lineItem,
       price: `AUD ${item.price.toFixed(2)}${item.rateCategoryLabel || ''}`,
@@ -281,7 +281,7 @@ export default async function handler(req, res) {
       package_cost: summaryData.data?.packageCost?.toFixed(2) || 0,
       ndis_package_type: (isNDISFunder && summaryData.data.packageType === 'HCSP') ? '1:1 STA Package' : '1:2 STA Package',
       
-      // ✅ NEW: Holiday Support flags and conditional details
+      // ✅ Holiday Support flags and conditional details
       is_holiday_support_plus: isHolidaySupportPlus,
       is_holiday_support: isHolidaySupport,
       is_hsp_package: isHSPPackage,
@@ -345,6 +345,8 @@ export default async function handler(req, res) {
 
     console.log('📦 Package type for email:', {
       isHolidaySupportPlus: templateData.is_holiday_support_plus,
+      isHolidaySupport: templateData.is_holiday_support,
+      isHSPPackage: templateData.is_hsp_package,
       packageCode,
       hasNdisDetails: !!templateData.ndis_package_details
     });
