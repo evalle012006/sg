@@ -3931,33 +3931,44 @@ const BookingRequestForm = () => {
 
                 switch (action) {
                     case 'UPDATE_DATA':
-                        if (currentQuestion.hidden === false && currentQuestion.required === true && (currentQuestion.hasOwnProperty('dirty') && currentQuestion.dirty)) {
-                            // ENHANCED: Always preserve existing errors for validation fields
-                            if (currentQuestion.error && (
-                                currentQuestion.type === 'date' ||
-                                currentQuestion.type === 'date-range' ||
-                                currentQuestion.type === 'phone-number' ||
-                                currentQuestion.type === 'email' ||
-                                currentQuestion.type === 'goal-table' ||
-                                currentQuestion.type === 'care-table'
-                            )) {
-                                // Keep existing validation error - don't override
-                                console.log(`Preserving validation error for ${currentQuestion.type}: ${currentQuestion.error}`);
-                            }
-                            else if ((currentQuestion.type == 'checkbox' || currentQuestion.type == 'checkbox-button' || currentQuestion.type == 'multi-select') && !currentQuestion.answer || (currentQuestion.answer && currentQuestion.answer.length == 0)) {
-                                currentQuestion.error = 'This is a required field.'
-                            }
-                            else if (currentQuestion.answer === null || currentQuestion.answer === undefined || currentQuestion.answer === '') {
-                                currentQuestion.error = 'This is a required field.'
-                            }
-                            else {
-                                // Only clear error if there's a valid answer and no existing validation error
-                                if (!currentQuestion.error || currentQuestion.error === 'This is a required field.') {
-                                    currentQuestion.error = null;
-                                }
+                    if (currentQuestion.hidden === false && currentQuestion.required === true && (currentQuestion.hasOwnProperty('dirty') && currentQuestion.dirty)) {
+                        
+                        // 🔧 NEW: Check if this field was just saved to profile - don't override with error
+                        if ((currentQuestion.type === 'date' || currentQuestion.type === 'date-range') && 
+                            currentQuestion.fromProfile && 
+                            !currentQuestion.dirty && 
+                            currentQuestion.answer) {
+                            console.log(`✅ Skipping error for just-saved date field: "${currentQuestion.question}"`);
+                            currentQuestion.error = null;
+                            break; // Skip to next question
+                        }
+                        
+                        // ENHANCED: Always preserve existing errors for validation fields
+                        if (currentQuestion.error && (
+                            currentQuestion.type === 'date' ||
+                            currentQuestion.type === 'date-range' ||
+                            currentQuestion.type === 'phone-number' ||
+                            currentQuestion.type === 'email' ||
+                            currentQuestion.type === 'goal-table' ||
+                            currentQuestion.type === 'care-table'
+                        )) {
+                            // Keep existing validation error - don't override
+                            console.log(`Preserving validation error for ${currentQuestion.type}: ${currentQuestion.error}`);
+                        }
+                        else if ((currentQuestion.type == 'checkbox' || currentQuestion.type == 'checkbox-button' || currentQuestion.type == 'multi-select') && !currentQuestion.answer || (currentQuestion.answer && currentQuestion.answer.length == 0)) {
+                            currentQuestion.error = 'This is a required field.'
+                        }
+                        else if (currentQuestion.answer === null || currentQuestion.answer === undefined || currentQuestion.answer === '') {
+                            currentQuestion.error = 'This is a required field.'
+                        }
+                        else {
+                            // Only clear error if there's a valid answer and no existing validation error
+                            if (!currentQuestion.error || currentQuestion.error === 'This is a required field.') {
+                                currentQuestion.error = null;
                             }
                         }
-                        break;
+                    }
+                    break;
 
                     case 'VALIDATE_DATA':
                         if (currentQuestion.hidden === false && currentQuestion.required === true) {
@@ -5273,6 +5284,79 @@ const BookingRequestForm = () => {
                             if (profileResponse.ok) {
                                 const profileResult = await profileResponse.json();
                                 console.log('✅ Profile update successful:', profileResult.message);
+                                
+                                // 🔧 STEP 1: Immediately update local Questions array with saved profile values
+                                if (Object.keys(batchUpdate).length > 0 && stableProcessedFormData) {
+                                    console.log('🔄 Syncing local form state with saved profile data...');
+                                    
+                                    const updatedPages = stableProcessedFormData.map(page => {
+                                        // Only update the current page to avoid unnecessary re-renders
+                                        if (page.id !== cPage.id) return page;
+                                        
+                                        const updatedSections = page.Sections.map(section => {
+                                            const updatedQuestions = section.Questions.map(question => {
+                                                // Check if this question was just saved to profile
+                                                const savedField = profileFieldsToSave.find(
+                                                    field => field.question_key === question.question_key
+                                                );
+                                                
+                                                if (savedField) {
+                                                    console.log(`✅ Syncing "${question.question}" with saved value:`, savedField.answer);
+                                                    return {
+                                                        ...question,
+                                                        answer: savedField.answer, // ✅ Update with saved value
+                                                        error: null, // ✅ Clear validation error
+                                                        dirty: false, // ✅ Mark as clean
+                                                        fromProfile: true,
+                                                        oldAnswer: savedField.answer // ✅ Prevent re-save
+                                                    };
+                                                }
+                                                return question;
+                                            });
+                                            return { ...section, Questions: updatedQuestions };
+                                        });
+                                        return { ...page, Sections: updatedSections };
+                                    });
+                                    
+                                    // ✅ Update state immediately BEFORE form refresh
+                                    setProcessedFormData(updatedPages);
+                                    
+                                    // ✅ Force immediate Redux dispatch to ensure all components see the update
+                                    safeDispatchData(updatedPages, 'Profile data synced to local state');
+                                    
+                                    console.log('✅ Local form state synced - validation errors cleared');
+                                    
+                                    // 🔧 STEP 3: Recalculate page completion to clear error status
+                                    setTimeout(() => {
+                                        const pagesWithUpdatedCompletion = updatedPages.map(page => {
+                                            if (page.id === cPage.id) {
+                                                // Recalculate completion for the page we just updated
+                                                const newCompletion = currentBookingType === BOOKING_TYPES.RETURNING_GUEST && prevBookingId
+                                                    ? calculateReturningGuestPageCompletion(page, {
+                                                        visitedPages,
+                                                        pagesWithSavedData,
+                                                        equipmentPageCompleted,
+                                                        equipmentChangesState,
+                                                        prevBookingId,
+                                                        currentBookingType
+                                                    })
+                                                    : calculateFirstTimeGuestPageCompletion(page, {
+                                                        visitedPages,
+                                                        pagesWithSavedData,
+                                                        equipmentPageCompleted,
+                                                        currentBookingType
+                                                    });
+                                                
+                                                console.log(`📊 Page completion recalculated after profile sync: ${page.completed} → ${newCompletion}`);
+                                                return { ...page, completed: newCompletion };
+                                            }
+                                            return page;
+                                        });
+                                        
+                                        setProcessedFormData(pagesWithUpdatedCompletion);
+                                        safeDispatchData(pagesWithUpdatedCompletion, 'Completion updated after profile sync');
+                                    }, 100); // Small delay to ensure state propagation
+                                }
                             } else {
                                 const errorResult = await profileResponse.json();
                                 console.error('❌ Profile update failed:', errorResult.message);
