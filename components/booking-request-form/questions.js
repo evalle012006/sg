@@ -1052,15 +1052,19 @@ const QuestionPage = ({
                                             };
 
                                             const handleDateFieldChange = (e, secIdx, qIdx, checkInQuestion, checkOutQuestion, error) => {
+                                                console.log('🔍 handleDateFieldChange:', { e, checkInQuestion, checkOutQuestion, error });
+                                                
                                                 markQuestionAsInteracted(secIdx, qIdx);
                                                 
                                                 if (checkInQuestion) {
                                                     dispatch(bookingRequestFormActions.setCheckinDate(e))
-                                                    onStayDatesUpdate?.({ checkInDate: e, checkOutDate: null });
+                                                    // FIX: Only update checkInDate, don't set checkOutDate to null
+                                                    onStayDatesUpdate?.({ checkInDate: e });
                                                 }
                                                 if (checkOutQuestion) {
                                                     dispatch(bookingRequestFormActions.setCheckoutDate(e))
-                                                    onStayDatesUpdate?.({ checkInDate: null, checkOutDate: e });
+                                                    // FIX: Only update checkOutDate, don't set checkInDate to null
+                                                    onStayDatesUpdate?.({ checkOutDate: e });
                                                 }
 
                                                 // Handle date-range type (combined check-in/check-out)
@@ -1078,7 +1082,7 @@ const QuestionPage = ({
                                                         dispatch(bookingRequestFormActions.setCheckoutDate(checkOut));
                                                     }
                                                     
-                                                    // Immediately update parent's stayDates state
+                                                    // FIX: Update both dates together for date-range
                                                     onStayDatesUpdate?.({ checkInDate: checkIn, checkOutDate: checkOut });
                                                 }
 

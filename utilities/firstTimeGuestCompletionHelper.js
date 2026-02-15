@@ -17,7 +17,7 @@ export const calculateFirstTimeGuestPageCompletion = (
     const {
         visitedPages = new Set(),
         pagesWithSavedData = new Set(),
-        completedEquipments = false, // API flag for equipment completion
+        equipmentPageCompleted = false, // Use equipmentPageCompleted (from save-qa-pair API)
         currentBookingType = null
     } = context;
 
@@ -47,7 +47,7 @@ export const calculateFirstTimeGuestPageCompletion = (
     // SPECIAL CASE 1: Equipment Page - use API flag
     if (page.title === 'Equipment') {
         return calculateEquipmentPageCompletionForFirstTime(page, {
-            completedEquipments,
+            equipmentPageCompleted,
             visitedPages,
             pagesWithSavedData
         });
@@ -78,13 +78,14 @@ export const calculateFirstTimeGuestPageCompletion = (
 
 /**
  * Equipment page completion for first-time guests
- * Uses the completedEquipments API flag as the source of truth
+ * Uses the equipmentPageCompleted API flag as the source of truth
  */
 const calculateEquipmentPageCompletionForFirstTime = (page, context) => {
-    const { completedEquipments, visitedPages, pagesWithSavedData } = context;
-
-    // For first-time guests, rely on the API flag completedEquipments
-    return completedEquipments === true;
+    const { equipmentPageCompleted } = context;
+    
+    // ✅ SINGLE SOURCE OF TRUTH: Use API flag from save-qa-pair response
+    // This flag is updated every time equipment data is saved
+    return equipmentPageCompleted === true;
 };
 
 /**
@@ -249,7 +250,7 @@ export const debugFirstTimeGuestCompletion = (pages, context) => {
     console.log('Context:', {
         visitedPages: Array.from(context.visitedPages || []),
         pagesWithSavedData: Array.from(context.pagesWithSavedData || []),
-        completedEquipments: context.completedEquipments,
+        equipmentPageCompleted: context.equipmentPageCompleted,
         currentBookingType: context.currentBookingType
     });
 

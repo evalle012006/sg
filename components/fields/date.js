@@ -22,6 +22,9 @@ const DateField = (props) => {
     // Refs
     const container = useRef();
     const lastNotifiedValue = useRef(null); // NEW: Track last notified value
+    const monthRef = useRef();
+    const yearRef = useRef();
+    const isUpdatingFromProps = useRef(false);
 
     //  New prop to check if booking is confirmed/completed
     const isConfirmedBooking = props.isConfirmedBooking || false;
@@ -41,11 +44,12 @@ const DateField = (props) => {
         'July', 'August', 'September', 'October', 'November', 'December'
     ];
 
-    // Generate year range for dropdown (current year ± 10 years)
+    // Generate year range for dropdown (wider range for general use)
     const generateYearRange = () => {
         const currentYear = new Date().getFullYear();
         const years = [];
-        for (let i = currentYear - 10; i <= currentYear + 10; i++) {
+        // Show from 100 years ago to 10 years in the future
+        for (let i = currentYear - 100; i <= currentYear + 10; i++) {
             years.push(i);
         }
         return years;
@@ -330,20 +334,38 @@ const DateField = (props) => {
         return null;
     };
 
-    // EFFECTS
-
     // Initialize from props.value
     useEffect(() => {
+        console.log('📅 DateField props.value changed:', {
+            name: props.name,
+            newValue: props.value,
+            currentState: { day, month, year }
+        });
+        
         if (props.value) {
             const valArr = props.value.split('-');
             if (valArr.length === 3) {
-                setYear(valArr[0]);
-                setMonth(valArr[1]);
-                setDay(valArr[2]);
+                console.log('📅 Updating date state from props:', valArr);
+                
+                // ✅ Set flag to prevent notifying parent during props update
+                isUpdatingFromProps.current = true;
+                
+                setYear(valArr[0]);    // '2026'
+                setMonth(valArr[1]);   // '02' - keep the zero!
+                setDay(valArr[2]);     // '01' - keep the zero!
                 setDateValue(new Date(props.value));
                 setDirty(true);
                 setIsValid(true);
+                
+                // ✅ Clear flag after a brief delay to allow state updates
+                setTimeout(() => {
+                    isUpdatingFromProps.current = false;
+                }, 50);
             }
+        } else if (props.value === '' && (day || month || year)) {
+            // ✅ Only clear if we have values and props explicitly sets to empty
+            console.log('📅 props.value is empty/falsy - NOT clearing state');
+            // Don't clear state - keep existing values
         }
     }, [props.value]);
 
@@ -360,6 +382,12 @@ const DateField = (props) => {
     }, [props.error]);
 
     useEffect(() => {
+        // ✅ Don't notify parent if we're just updating from props
+        if (isUpdatingFromProps.current) {
+            console.log('⏭️ Skipping validation - updating from props');
+            return;
+        }
+        
         const isComplete = day !== '' && month !== '' && year !== '' && year.length === 4;
         
         if (isComplete) {
@@ -385,22 +413,21 @@ const DateField = (props) => {
             }
             setDirty(true);
         } else if (props.required && props.forceShowErrors && !isComplete) {
+            // ✅ FIX: Show error locally but DON'T notify parent while typing
             const requiredError = 'This field is required';
             setError(true);
             setErrorMessage(requiredError);
             setIsValid(false);
-            // IMPORTANT: Only notify for incomplete required fields, don't spam notifications
-            notifyParent(day, month, year, requiredError);
+            // ❌ REMOVED: Don't call notifyParent for incomplete dates during typing
+            // notifyParent(day, month, year, requiredError);
         } else if (!isComplete) {
             if (!props.error) {
                 setError(false);
                 setErrorMessage('');
             }
             setIsValid(false);
-            // IMPORTANT: Don't call notifyParent for incomplete non-required fields to reduce notifications
+            // ✅ GOOD: Already not notifying for incomplete non-required fields
         }
-        // IMPORTANT: Removed 'dirty' from dependencies as it can cause loops
-        // The 'dirty' flag is set above when needed, but shouldn't trigger this effect
     }, [day, month, year, allowPrevDate, crossValidationValue, props.required, props.error, props.forceShowErrors]);
 
     // Keyboard and click outside handlers
@@ -451,23 +478,80 @@ const DateField = (props) => {
                                 ${getBorderClasses()} ${getBackgroundClasses()}`}>
                     <div className="relative">
                         <div className="flex flex-row items-center" ref={container}>
-                            {/* Display date in three-field style */}
-                            <div 
-                                className="flex flex-row items-center flex-1 cursor-pointer"
-                                onClick={openCalendar}
-                            >
-                                <span className={`text-center ${day ? '' : 'text-gray-400'}`} style={{ minWidth: '32px' }}>
-                                    {day || 'DD'}
-                                </span>
-                                <span className="mx-3 text-gray-300">/</span>
-                                <span className={`text-center ${month ? '' : 'text-gray-400'}`} style={{ minWidth: '32px' }}>
-                                    {month || 'MM'}
-                                </span>
-                                <span className="mx-3 text-gray-300">/</span>
-                                <span className={`text-center ${year ? '' : 'text-gray-400'}`} style={{ minWidth: '48px' }}>
-                                    {year || 'YYYY'}
-                                </span>
-                            </div>
+                            <input 
+                                type="text" 
+                                disabled={props.disabled} 
+                                value={day} 
+                                className="w-8 border-0 focus:outline-none bg-transparent placeholder:text-gray-400 text-center" 
+                                onChange={(e) => {
+                                    const value = e.target.value.replace(/\D/g, ''); // Only allow digits
+                                    if (value.length <= 2) {
+                                        setDay(value);
+                                        setDirty(true);
+                                        // if (value.length === 2) {
+                                        //     monthRef.current?.focus();
+                                        // }
+                                    }
+                                }}
+                                onBlur={(e) => {
+                                    // Pad with zero when user leaves the field
+                                    if (day && day.length === 1) {
+                                        setDay(day.padStart(2, '0'));
+                                    }
+                                }}
+                                placeholder="DD" 
+                                maxLength={2}
+                            />
+                            <p className="mx-2 text-gray-300">/</p>
+                            <input 
+                                ref={monthRef} 
+                                type="text" 
+                                disabled={props.disabled} 
+                                value={month} 
+                                className="w-8 border-0 focus:outline-none bg-transparent placeholder:text-gray-400 text-center" 
+                                onChange={(e) => {
+                                    const value = e.target.value.replace(/\D/g, ''); // Only allow digits
+                                    if (value.length <= 2) {
+                                        setMonth(value);
+                                        setDirty(true);
+                                        // if (value.length === 2) {
+                                        //     yearRef.current?.focus();
+                                        // }
+                                    }
+                                }}
+                                onBlur={(e) => {
+                                    // Pad with zero when user leaves the field
+                                    if (month && month.length === 1) {
+                                        setMonth(month.padStart(2, '0'));
+                                    }
+                                }}
+                                placeholder="MM" 
+                                maxLength={2}
+                            />
+                            <p className="mx-2 text-gray-300">/</p>
+                            <input 
+                                ref={yearRef} 
+                                type="text" 
+                                disabled={props.disabled} 
+                                value={year} 
+                                className="w-12 border-0 focus:outline-none bg-transparent placeholder:text-gray-400 text-center mr-1" 
+                                onChange={(e) => { 
+                                    const value = e.target.value.replace(/\D/g, '');
+                                    if (value.length <= 4) {
+                                        setYear(value); 
+                                        setDirty(true);
+                                    }
+                                }}
+                                onBlur={() => {
+                                    // ✅ Notify parent when user leaves the field
+                                    const isComplete = day !== '' && month !== '' && year !== '' && year.length === 4;
+                                    if (!isComplete && props.required) {
+                                        notifyParent(day, month, year, 'This field is required');
+                                    }
+                                }}
+                                placeholder="YYYY" 
+                                maxLength={4}
+                            />
                             
                             <div className="flex items-center ml-auto">
                                 <svg 

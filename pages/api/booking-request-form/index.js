@@ -337,43 +337,43 @@ export default async function handler(req, res) {
 
         if (currentBookingData?.id) {
             await syncBookingSectionsWithTemplate(currentBookingData.id);
-        }
 
-        currentBooking = await Booking.findOne({
-            where: { id: currentBookingData?.id },
-            include: [
-                {
-                    model: Section,
-                    include: [
-                        {
-                            model: QaPair,
-                            include: [
-                                {
-                                    model: Question,
-                                    include: [
-                                        {
-                                            model: QuestionDependency,
-                                            include: ['dependency']
-                                        }
-                                    ],
-                                    raw: true
-                                }
-                            ]
-                        }
-                    ],
-                    order: [['order', 'ASC']]
-                },
-                {
-                    model: Guest,
-                    attributes: { exclude: ['password', 'email_verified'] },
-                    include: Address
-                },
-                { 
-                    model: Room, 
-                    include: RoomType 
-                }
-            ],
-        });
+            currentBooking = await Booking.findOne({
+                where: { id: currentBookingData?.id },
+                include: [
+                    {
+                        model: Section,
+                        include: [
+                            {
+                                model: QaPair,
+                                include: [
+                                    {
+                                        model: Question,
+                                        include: [
+                                            {
+                                                model: QuestionDependency,
+                                                include: ['dependency']
+                                            }
+                                        ],
+                                        raw: true
+                                    }
+                                ]
+                            }
+                        ],
+                        order: [['order', 'ASC']]
+                    },
+                    {
+                        model: Guest,
+                        attributes: { exclude: ['password', 'email_verified'] },
+                        include: Address
+                    },
+                    { 
+                        model: Room, 
+                        include: RoomType 
+                    }
+                ],
+            });
+        }
     } else if (bookingId) {
         bookingData = await Booking.findOne({ where: { uuid: bookingId } });
 
@@ -382,7 +382,7 @@ export default async function handler(req, res) {
         }
     }
 
-    if (bookingData) {
+    if (bookingData?.id) {
         booking = await Booking.findOne({
             where: { id: bookingData.id },
             include: [

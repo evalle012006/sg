@@ -52,6 +52,8 @@ import {
 import dynamic from 'next/dynamic';
 import Modal from "../../components/ui/modal";
 import SummaryOfStay from "../../components/booking-request-form/summary";
+import SummaryOfStayV1 from "../../components/booking-request-form/summary-v1";
+import { createSummaryData as createSummaryDataV1 } from "../../services/booking/create-summary-data-v1";
 import { useAutofillDetection } from "../../hooks/useAutofillDetection";
 import { BOOKING_TYPES } from "../../components/constants";
 import { calculateCareHours, createPackageFilterCriteria } from '../../utilities/careHoursCalculator';
@@ -74,6 +76,7 @@ const BookingRequestForm = () => {
     const bookingSubmitted = useSelector(state => state.bookingRequestForm.bookingSubmitted);
     const isNdisFunded = useSelector(state => state.bookingRequestForm.isNdisFunded);
     const bookingFormRoomSelected = useSelector(state => state.bookingRequestForm.rooms);
+    const [currentTemplateId, setCurrentTemplateId] = useState(null);
 
     const [booking, setBooking] = useState();
     const [guest, setGuest] = useState();
@@ -151,7 +154,6 @@ const BookingRequestForm = () => {
 
     const [selectedCourseOfferId, setSelectedCourseOfferId] = useState(null);
 
-    const [completedEquipments, setCompletedEquipments] = useState(false);
     const [hasFutureCourseOffers, setHasFutureCourseOffers] = useState(null); // null = not checked yet, true/false = has/doesn't have offers
     const [futureCourseOffersChecked, setFutureCourseOffersChecked] = useState(false);
     const courseValidationRef = useRef(false);
@@ -167,6 +169,8 @@ const BookingRequestForm = () => {
     const lastRefreshTimeRef = useRef(0);
     const REFRESH_DEBOUNCE = 500; // Minimum time between refreshes in ms
     const latestDateValuesRef = useRef({});
+    const syncJustHappenedRef = useRef(false);
+    const successfullySyncedDateFieldsRef = useRef(new Set());
 
     const saveCareDataToAPI = async (careQuestion, sectionId, pageId, templateId) => {
         try {
@@ -429,9 +433,23 @@ const BookingRequestForm = () => {
                                     questionHasKey(question, QUESTION_KEYS.CHECK_IN_DATE) ||
                                     questionHasKey(question, QUESTION_KEYS.CHECK_OUT_DATE)) {
                                     
-                                    const formattedAnswer = updatedDates.checkInDate && updatedDates.checkOutDate 
-                                        ? `${updatedDates.checkInDate} - ${updatedDates.checkOutDate}`
-                                        : question.answer;
+                                    // ✅ FIX: Format answer based on question type
+                                    let formattedAnswer;
+                                    
+                                    if (questionHasKey(question, QUESTION_KEYS.CHECK_IN_OUT_DATE)) {
+                                        // Date-range field: use combined format
+                                        formattedAnswer = updatedDates.checkInDate && updatedDates.checkOutDate 
+                                            ? `${updatedDates.checkInDate} - ${updatedDates.checkOutDate}`
+                                            : question.answer;
+                                    } else if (questionHasKey(question, QUESTION_KEYS.CHECK_IN_DATE)) {
+                                        // Individual Check In field: use only checkInDate
+                                        formattedAnswer = updatedDates.checkInDate || question.answer;
+                                    } else if (questionHasKey(question, QUESTION_KEYS.CHECK_OUT_DATE)) {
+                                        // Individual Check Out field: use only checkOutDate
+                                        formattedAnswer = updatedDates.checkOutDate || question.answer;
+                                    } else {
+                                        formattedAnswer = question.answer;
+                                    }
                                     
                                     return {
                                         ...question,
@@ -480,9 +498,24 @@ const BookingRequestForm = () => {
                             if (questionHasKey(question, QUESTION_KEYS.CHECK_IN_OUT_DATE) ||
                                 questionHasKey(question, QUESTION_KEYS.CHECK_IN_DATE) ||
                                 questionHasKey(question, QUESTION_KEYS.CHECK_OUT_DATE)) {
-                                const formattedAnswer = updatedDates.checkInDate && updatedDates.checkOutDate 
-                                    ? `${updatedDates.checkInDate} - ${updatedDates.checkOutDate}`
-                                    : question.answer;
+                                
+                                // ✅ FIX: Format answer based on question type
+                                let formattedAnswer;
+                                
+                                if (questionHasKey(question, QUESTION_KEYS.CHECK_IN_OUT_DATE)) {
+                                    // Date-range field: use combined format
+                                    formattedAnswer = updatedDates.checkInDate && updatedDates.checkOutDate 
+                                        ? `${updatedDates.checkInDate} - ${updatedDates.checkOutDate}`
+                                        : question.answer;
+                                } else if (questionHasKey(question, QUESTION_KEYS.CHECK_IN_DATE)) {
+                                    // Individual Check In field: use only checkInDate
+                                    formattedAnswer = updatedDates.checkInDate || question.answer;
+                                } else if (questionHasKey(question, QUESTION_KEYS.CHECK_OUT_DATE)) {
+                                    // Individual Check Out field: use only checkOutDate
+                                    formattedAnswer = updatedDates.checkOutDate || question.answer;
+                                } else {
+                                    formattedAnswer = question.answer;
+                                }
                                 
                                 return {
                                     ...question,
@@ -665,7 +698,6 @@ const BookingRequestForm = () => {
         pagesWithSavedData,
         equipmentPageCompleted,
         equipmentChangesState,
-        completedEquipments,
         calculateReturningGuestPageCompletion,
         calculateFirstTimeGuestPageCompletion
     ]);
@@ -971,7 +1003,6 @@ const BookingRequestForm = () => {
         const now = Date.now();
         const timeSinceLastUpdate = now - lastCareQuestionUpdateRef.current;
         
-        // Debounce to prevent excessive calls (500ms)
         if (timeSinceLastUpdate < 500) {
             return;
         }
@@ -983,6 +1014,35 @@ const BookingRequestForm = () => {
             value,
             careHoursFromAnswer
         });
+        
+        // ✅ NEW: If personal care just changed to "No", clear care table immediately
+        if (questionHasKey(question, QUESTION_KEYS.DO_YOU_REQUIRE_ASSISTANCE_WITH_PERSONAL_CARE) &&
+            (value === 'No' || value === 'no')) {
+            
+            console.log('🧹 Personal care set to "No" - clearing care table immediately');
+            
+            // Clear care table data
+            const updatedPages = stableProcessedFormData.map(page => {
+                const updatedSections = page.Sections.map(section => {
+                    const updatedQuestions = section.Questions.map(q => {
+                        if (questionHasKey(q, QUESTION_KEYS.WHEN_DO_YOU_REQUIRE_CARE)) {
+                            return {
+                                ...q,
+                                answer: null,
+                                dirty: true,
+                                error: null
+                            };
+                        }
+                        return q;
+                    });
+                    return { ...section, Questions: updatedQuestions };
+                });
+                return { ...page, Sections: updatedSections };
+            });
+            
+            setProcessedFormData(updatedPages);
+            safeDispatchData(updatedPages, 'Care table cleared due to personal care = No');
+        }
         
         // Clear any pending timeouts
         if (careQuestionUpdateRef.current) {
@@ -1025,12 +1085,14 @@ const BookingRequestForm = () => {
             }
         }, 150);
     }, [
-        stableProcessedFormData, 
+        stableProcessedFormData,
         stableBookingRequestFormData, 
         calculateNdisFilters, 
         ndisFormFilters, 
         autoUpdatePackageSelection,
-        currentCareAnalysis
+        currentCareAnalysis,
+        setProcessedFormData,
+        safeDispatchData
     ]);
 
     const savePackageSelection = useCallback(async (updatedQuestion, sectionId, packagePage) => {
@@ -1940,13 +2002,41 @@ const BookingRequestForm = () => {
         }).join('|') || ''
     ]);
 
+    // Force package filter refresh when entering Packages page
+    useEffect(() => {
+        if (currentPage?.title === 'Packages' || currentPage?.id === 'packages_page') {
+            console.log('📦 Entering Packages page - ensuring filters are up-to-date...');
+            
+            // Force immediate recalculation of package filter criteria
+            if (currentCareAnalysis && currentCareAnalysis.dataSource !== 'none') {
+                const careFilterCriteria = createPackageFilterCriteria(currentCareAnalysis.rawCareData || []);
+                const courseFilterCriteria = createCourseFilterCriteria(courseAnalysisData);
+                
+                const freshPackageFilterCriteria = {
+                    ...careFilterCriteria,
+                    ...courseFilterCriteria,
+                    funder_type: funder,
+                };
+                
+                console.log('📦 Updated package filters for Packages page:', {
+                    careHours: currentCareAnalysis.totalHoursPerDay,
+                    carePattern: currentCareAnalysis.carePattern,
+                    filters: freshPackageFilterCriteria
+                });
+                
+                setPackageFilterCriteria(freshPackageFilterCriteria);
+                
+                // Also trigger package auto-update after a brief delay to ensure state has propagated
+                setTimeout(() => {
+                    autoUpdatePackageSelection();
+                }, 100);
+            }
+        }
+    }, [currentPage?.id, currentPage?.title, currentCareAnalysis, courseAnalysisData, funder]);
+
+    // Also modify the existing packageFilterCriteria useEffect to be more reactive
     useEffect(() => {
         setCareAnalysisData(currentCareAnalysis);
-        
-        // Only update course analysis if it has actually changed
-        if (JSON.stringify(courseAnalysisData) !== JSON.stringify(courseAnalysisData)) {
-            setCourseAnalysisData(courseAnalysisData);
-        }
         
         // Create package filter criteria for package selection components
         const careFilterCriteria = createPackageFilterCriteria(currentCareAnalysis.rawCareData || []);
@@ -1956,19 +2046,26 @@ const BookingRequestForm = () => {
             ...careFilterCriteria,
             ...courseFilterCriteria,
             funder_type: funder,
-            // Add other form-derived criteria here
         };
         
-        // Only update if criteria actually changed
-        if (JSON.stringify(newPackageFilterCriteria) !== JSON.stringify(packageFilterCriteria)) {
-            setPackageFilterCriteria(newPackageFilterCriteria);
-        }
+        // ✅ CHANGED: Always update if any dependency changed, not just if the JSON differs
+        // This ensures updates propagate even if the object structure is the same
+        setPackageFilterCriteria(newPackageFilterCriteria);
+        
+        console.log('🔄 Package filter criteria updated:', {
+            careHours: currentCareAnalysis.totalHoursPerDay,
+            pattern: currentCareAnalysis.carePattern,
+            funder: funder
+        });
     }, [
-        currentCareAnalysis.totalHoursPerDay, // Only depend on the actual care hours
-        currentCareAnalysis.carePattern,      // and care pattern
-        courseAnalysisData?.hasCourse,        // and course participation
+        currentCareAnalysis.totalHoursPerDay,
+        currentCareAnalysis.carePattern,
+        currentCareAnalysis.dataSource, // ✅ ADDED: Also depend on data source
+        courseAnalysisData?.hasCourse,
         courseAnalysisData?.courseOffered,
         funder,
+        createPackageFilterCriteria, // ✅ ADDED: Ensure function updates trigger recalc
+        createCourseFilterCriteria  // ✅ ADDED: Ensure function updates trigger recalc
     ]);
 
     useEffect(() => {
@@ -1993,6 +2090,72 @@ const BookingRequestForm = () => {
         currentCareAnalysis.totalHoursPerDay,
         currentCareAnalysis.carePattern,
         currentCareAnalysis.dataSource
+    ]);
+
+    useEffect(() => {
+        if (!stableProcessedFormData || stableProcessedFormData.length === 0) return;
+        
+        // Find the personal care question answer
+        let personalCareAnswer = null;
+        for (const page of stableProcessedFormData) {
+            for (const section of page.Sections || []) {
+                for (const question of section.Questions || []) {
+                    if (questionHasKey(question, QUESTION_KEYS.DO_YOU_REQUIRE_ASSISTANCE_WITH_PERSONAL_CARE) ||
+                        question.question_key === 'do-you-require-assistance-with-personal-care') {
+                        personalCareAnswer = question.answer;
+                        break;
+                    }
+                }
+                if (personalCareAnswer !== null) break;
+            }
+            if (personalCareAnswer !== null) break;
+        }
+        
+        // If personal care is "No", clear the care table data
+        if (personalCareAnswer === 'No' || personalCareAnswer === 'no') {
+            console.log('🧹 Personal care is "No" - checking if care table needs clearing');
+            
+            // Check if care table has any data
+            const careTableQuestion = stableProcessedFormData
+                .flatMap(p => p.Sections || [])
+                .flatMap(s => s.Questions || [])
+                .find(q => questionHasKey(q, QUESTION_KEYS.WHEN_DO_YOU_REQUIRE_CARE));
+            
+            if (careTableQuestion && careTableQuestion.answer) {
+                console.log('✅ Clearing care table data - personal care is "No"');
+                
+                const updatedPages = stableProcessedFormData.map(page => {
+                    const updatedSections = page.Sections.map(section => {
+                        const updatedQuestions = section.Questions.map(question => {
+                            if (questionHasKey(question, QUESTION_KEYS.WHEN_DO_YOU_REQUIRE_CARE)) {
+                                return {
+                                    ...question,
+                                    answer: null,
+                                    dirty: true,
+                                    error: null
+                                };
+                            }
+                            return question;
+                        });
+                        return { ...section, Questions: updatedQuestions };
+                    });
+                    return { ...page, Sections: updatedSections };
+                });
+                
+                setProcessedFormData(updatedPages);
+                safeDispatchData(updatedPages, 'Care table cleared - personal care is No');
+            }
+        }
+    }, [
+        // Create a dependency that only changes when personal care answer changes
+        stableProcessedFormData?.flatMap(p => 
+            p.Sections?.flatMap(s => 
+                s.Questions?.filter(q => 
+                    questionHasKey(q, QUESTION_KEYS.DO_YOU_REQUIRE_ASSISTANCE_WITH_PERSONAL_CARE) ||
+                    q.question_key === 'do-you-require-assistance-with-personal-care'
+                ).map(q => q.answer)
+            )
+        ).join(',') || ''
     ]);
 
     // Enhanced function to get course-specific and care-specific form data for package selection
@@ -2275,57 +2438,96 @@ const BookingRequestForm = () => {
         return newFilters;
     }, [ndisFormFilters.additionalFilters, extractCareHoursFromFormData]);
 
-    // ✅ NEW HELPER FUNCTION: Extract care hours directly from form data
+    // Extract care hours directly from form data
     const extractCareHoursFromFormData = useCallback((formData) => {
         try {
-            // ✅ FIX: First check if personal care is required
-            // If "No", return 0 immediately without looking at care schedule
+            // ✅ STEP 1: Check personal care question in Questions array FIRST (current answer)
+            // If found, use it and STOP (don't check QaPairs)
+            let personalCareAnswerFound = false;
+            let personalCareAnswer = null;
+            
             for (const page of formData) {
                 for (const section of page.Sections || []) {
-                    // Check Questions array first
+                    // Check Questions array for current answer
                     for (const question of section.Questions || []) {
                         if (questionHasKey(question, QUESTION_KEYS.DO_YOU_REQUIRE_ASSISTANCE_WITH_PERSONAL_CARE) ||
                             question.question_key === 'do-you-require-assistance-with-personal-care') {
-                            if (question.answer === 'No' || question.answer === 'no') {
-                                console.log('🚫 Personal care "No" detected - returning 0 care hours');
-                                return 0;
-                            }
+                            personalCareAnswerFound = true;
+                            personalCareAnswer = question.answer;
+                            console.log('✅ Found personal care answer in Questions (current):', personalCareAnswer);
+                            break;
                         }
                     }
-                    
-                    // Check QaPairs as fallback
-                    for (const qaPair of section.QaPairs || []) {
-                        if (questionHasKey(qaPair.Question, QUESTION_KEYS.DO_YOU_REQUIRE_ASSISTANCE_WITH_PERSONAL_CARE) ||
-                            qaPair.Question?.question_key === 'do-you-require-assistance-with-personal-care') {
-                            if (qaPair.answer === 'No' || qaPair.answer === 'no') {
-                                console.log('🚫 Personal care "No" detected in QaPairs - returning 0 care hours');
-                                return 0;
+                    if (personalCareAnswerFound) break;
+                }
+                if (personalCareAnswerFound) break;
+            }
+            
+            // ✅ STEP 2: Only check QaPairs if NOT found in Questions (fallback to saved answer)
+            if (!personalCareAnswerFound) {
+                for (const page of formData) {
+                    for (const section of page.Sections || []) {
+                        for (const qaPair of section.QaPairs || []) {
+                            if (questionHasKey(qaPair.Question, QUESTION_KEYS.DO_YOU_REQUIRE_ASSISTANCE_WITH_PERSONAL_CARE) ||
+                                qaPair.Question?.question_key === 'do-you-require-assistance-with-personal-care') {
+                                personalCareAnswerFound = true;
+                                personalCareAnswer = qaPair.answer;
+                                console.log('✅ Found personal care answer in QaPairs (saved):', personalCareAnswer);
+                                break;
                             }
                         }
+                        if (personalCareAnswerFound) break;
                     }
+                    if (personalCareAnswerFound) break;
                 }
             }
             
-            // If personal care is not "No", proceed to extract care hours from schedule
+            // ✅ STEP 3: If personal care is "No", return 0 immediately
+            if (personalCareAnswer === 'No' || personalCareAnswer === 'no') {
+                console.log('🚫 Personal care "No" detected - returning 0 care hours (ignoring any care schedule)');
+                return 0;
+            }
+            
+            // ✅ STEP 4: Only if personal care is NOT "No", check for care schedule data
+            // Same priority: Questions first, then QaPairs
+            let careScheduleAnswerFound = false;
+            let careHours = 0;
+            
             for (const page of formData) {
                 for (const section of page.Sections || []) {
                     // Check Questions array first
                     for (const question of section.Questions || []) {
                         if (questionHasKey(question, QUESTION_KEYS.WHEN_DO_YOU_REQUIRE_CARE) && question.answer) {
-                            return calculateCareHoursFromAnswer(question.answer);
+                            careScheduleAnswerFound = true;
+                            careHours = calculateCareHoursFromAnswer(question.answer);
+                            console.log('✅ Found care schedule data in Questions (current) - using it:', careHours);
+                            break;
                         }
                     }
-                    
-                    // Check QaPairs as fallback
-                    for (const qaPair of section.QaPairs || []) {
-                        if (questionHasKey(qaPair.Question, QUESTION_KEYS.WHEN_DO_YOU_REQUIRE_CARE) && qaPair.answer) {
-                            return calculateCareHoursFromAnswer(qaPair.answer);
+                    if (careScheduleAnswerFound) break;
+                }
+                if (careScheduleAnswerFound) break;
+            }
+            
+            // Check QaPairs only if not found in Questions
+            if (!careScheduleAnswerFound) {
+                for (const page of formData) {
+                    for (const section of page.Sections || []) {
+                        for (const qaPair of section.QaPairs || []) {
+                            if (questionHasKey(qaPair.Question, QUESTION_KEYS.WHEN_DO_YOU_REQUIRE_CARE) && qaPair.answer) {
+                                careScheduleAnswerFound = true;
+                                careHours = calculateCareHoursFromAnswer(qaPair.answer);
+                                console.log('✅ Found care schedule data in QaPairs (saved) - using it:', careHours);
+                                break;
+                            }
                         }
+                        if (careScheduleAnswerFound) break;
                     }
+                    if (careScheduleAnswerFound) break;
                 }
             }
             
-            return 0; // No care data found
+            return careHours;
         } catch (error) {
             console.error('Error extracting care hours:', error);
             return 0;
@@ -2484,7 +2686,7 @@ const BookingRequestForm = () => {
             const updatedPages = mapProfileDataToQuestions(profileData, templatePages);
             // Preserve Equipment page completion before dependency processing
             const equipmentPageFromTemplate = templatePages.find(p => p.title === 'Equipment');
-            const equipmentWasCompleted = equipmentPageFromTemplate?.completed || completedEquipments || equipmentPageCompleted;
+            const equipmentWasCompleted = equipmentPageFromTemplate?.completed || equipmentPageCompleted;
 
             const finalPages = applyQuestionDependencies(updatedPages).map(page => {
                 // Ensure Equipment page completion is preserved from API/template
@@ -3159,7 +3361,6 @@ const BookingRequestForm = () => {
         pagesWithSavedData, 
         equipmentPageCompleted, 
         equipmentChangesState,
-        completedEquipments
     ]);
 
     const calculatePageCompletion = useCallback((page, currentVisitedPages = visitedPages, currentSavedPages = pagesWithSavedData) => {
@@ -3186,7 +3387,7 @@ const BookingRequestForm = () => {
         return calculateFirstTimeGuestPageCompletion(page, {
             visitedPages: currentVisitedPages,
             pagesWithSavedData: currentSavedPages,
-            completedEquipments, // NEW: Pass the API flag
+            equipmentPageCompleted, // NEW: Pass the API flag
             currentBookingType
         });
     }, [
@@ -3196,7 +3397,6 @@ const BookingRequestForm = () => {
         pagesWithSavedData, 
         equipmentPageCompleted, 
         equipmentChangesState,
-        completedEquipments
     ]);
 
     const updatePageCompletionStatus = useCallback((pages, context = 'general') => {
@@ -3253,7 +3453,7 @@ const BookingRequestForm = () => {
                 updatedPages = batchUpdateFirstTimeGuestCompletions(updatedPages, {
                     visitedPages,
                     pagesWithSavedData,
-                    completedEquipments, // NEW: Pass the API flag
+                    equipmentPageCompleted, // NEW: Pass the API flag
                     currentBookingType
                 });
             } else {
@@ -3267,7 +3467,7 @@ const BookingRequestForm = () => {
                 updatedPages = batchUpdateFirstTimeGuestCompletions(updatedPages, {
                     visitedPages,
                     pagesWithSavedData,
-                    completedEquipments,
+                    equipmentPageCompleted,
                     currentBookingType
                 });
             }
@@ -3281,7 +3481,6 @@ const BookingRequestForm = () => {
         prevBookingId,
         equipmentPageCompleted,
         equipmentChangesState,
-        completedEquipments,
         bookingFormRoomSelected
     ]);
 
@@ -3410,7 +3609,7 @@ const BookingRequestForm = () => {
             {
                 visitedPages: visitedSet,
                 pagesWithSavedData: savedSet,
-                completedEquipments, // NEW: Pass the API flag
+                equipmentPageCompleted, // NEW: Pass the API flag
                 currentBookingType
             }
         );
@@ -3431,7 +3630,6 @@ const BookingRequestForm = () => {
         prevBookingId,
         equipmentPageCompleted,
         equipmentChangesState,
-        completedEquipments // NEW: Add to dependencies
     ]);
 
     const extractInfantCareQuantities = useCallback(() => {
@@ -3943,8 +4141,9 @@ const BookingRequestForm = () => {
                             break; // Skip to next question
                         }
                         
-                        // ENHANCED: Always preserve existing errors for validation fields
-                        if (currentQuestion.error && (
+                        // ENHANCED: Only preserve errors if answer is STILL invalid
+                        // BUT: Skip if sync just happened OR field was previously successfully synced
+                        if (!syncJustHappenedRef.current && currentQuestion.error && (
                             currentQuestion.type === 'date' ||
                             currentQuestion.type === 'date-range' ||
                             currentQuestion.type === 'phone-number' ||
@@ -3952,8 +4151,28 @@ const BookingRequestForm = () => {
                             currentQuestion.type === 'goal-table' ||
                             currentQuestion.type === 'care-table'
                         )) {
-                            // Keep existing validation error - don't override
-                            console.log(`Preserving validation error for ${currentQuestion.type}: ${currentQuestion.error}`);
+                            // ✅ Check if this date field was successfully synced before
+                            const fieldKey = currentQuestion.question_key || currentQuestion.id;
+                            const wasPreviouslySynced = (currentQuestion.type === 'date' || currentQuestion.type === 'date-range') && 
+                                                        successfullySyncedDateFieldsRef.current.has(fieldKey);
+                            
+                            if (wasPreviouslySynced) {
+                                console.log(`⏭️ Skipping error preservation for "${currentQuestion.question}" - was previously synced with valid value`);
+                                currentQuestion.error = null;
+                            } else {
+                                // Check if answer is NOW valid - if so, clear the error
+                                const hasValidAnswer = currentQuestion.answer && 
+                                                    currentQuestion.answer !== null && 
+                                                    currentQuestion.answer !== undefined && 
+                                                    currentQuestion.answer !== '';
+                                
+                                if (hasValidAnswer) {
+                                    console.log(`✅ Clearing error for ${currentQuestion.type} - now has valid answer: ${currentQuestion.answer}`);
+                                    currentQuestion.error = null;
+                                } else {
+                                    console.log(`Preserving validation error for ${currentQuestion.type}: ${currentQuestion.error}`);
+                                }
+                            }
                         }
                         else if ((currentQuestion.type == 'checkbox' || currentQuestion.type == 'checkbox-button' || currentQuestion.type == 'multi-select') && !currentQuestion.answer || (currentQuestion.answer && currentQuestion.answer.length == 0)) {
                             currentQuestion.error = 'This is a required field.'
@@ -4024,49 +4243,55 @@ const BookingRequestForm = () => {
             return stableProcessedFormData;
         }
         
-        // ✅ Check if date field has value
+        // ✅ Date field lock mechanism - applies to ALL date fields
         const dateFieldInfo = validatedSections.flatMap(section =>
             section.Questions?.filter(q => q.type === 'date' && q.dirty === true).map(q => ({
                 questionKey: q.question_key || q.id,
                 question: q.question,
                 answer: q.answer,
-                hasValue: q.answer && q.answer !== null && q.answer !== ''
+                hasValue: q.answer && q.answer !== null && q.answer !== '',
+                isCheckInOut: questionHasKey(q, QUESTION_KEYS.CHECK_IN_DATE) ||
+                            questionHasKey(q, QUESTION_KEYS.CHECK_OUT_DATE) ||
+                            questionHasKey(q, QUESTION_KEYS.CHECK_IN_OUT_DATE)
             })) || []
         );
-        
-        // ✅ CRITICAL: Check if this update has stale date data
+
+        // ✅ Log all date fields for debugging
+        dateFieldInfo.forEach(info => {
+            console.log(`📅 Date field check: "${info.question}", dirty=true, hasValue=${info.hasValue}, answer="${info.answer}", isCheckInOut=${info.isCheckInOut}`);
+        });
+
+        // ✅ CRITICAL: When lock is engaged, reject ANY date field with empty/stale data
         if (dateUpdateLockRef.current && dateFieldInfo.length > 0) {
             const hasStaleData = dateFieldInfo.some(info => {
                 const latestValue = latestDateValuesRef.current[info.questionKey];
                 const currentValue = info.answer;
                 
-                // If we have a stored value and current is empty/null, this is stale
-                if (latestValue && !currentValue) {
-                    console.log(`🚫 REJECTING stale update for "${info.question}": latest="${latestValue}", incoming="${currentValue}"`);
-                    return true;
+                // ✅ AGGRESSIVE: If lock is engaged and this field now has empty value, it's stale
+                if (!currentValue || currentValue === null || currentValue === '') {
+                    // Check if we stored a value for this field OR if it was previously dirty with a value
+                    if (latestValue || (info.questionKey && latestDateValuesRef.current[info.questionKey])) {
+                        console.log(`🚫 REJECTING stale update for "${info.question}": latest="${latestValue}", incoming="${currentValue}"`);
+                        return true;
+                    }
                 }
                 return false;
             });
             
             if (hasStaleData) {
-                console.log('🚫 ENTIRE UPDATE REJECTED - contains stale date data');
+                console.log('🚫 ENTIRE UPDATE REJECTED - contains stale date data (lock engaged)');
                 return stableProcessedFormData; // Return unchanged data
             }
         }
-        
-        // ✅ Log all date fields for debugging
-        dateFieldInfo.forEach(info => {
-            console.log(`📅 Date field check: "${info.question}", dirty=true, hasValue=${info.hasValue}, answer="${info.answer}"`);
-        });
-        
-        // ✅ Detect date field with value and engage lock
-        const dateFieldWithValue = dateFieldInfo.some(info => info.hasValue);
-        
-        if (dateFieldWithValue && !dateUpdateLockRef.current) {
+
+        // ✅ Store values for ALL dirty date fields that have values
+        const anyDateFieldWithValue = dateFieldInfo.some(info => info.hasValue);
+
+        if (anyDateFieldWithValue && !dateUpdateLockRef.current) {
             dateUpdateLockRef.current = true;
-            console.log('🔒 Date field with VALUE detected - lock ENGAGED');
+            console.log('🔒 Date field with VALUE detected - lock ENGAGED (all dates protected)');
             
-            // ✅ Store the latest date values
+            // ✅ Store latest values for ALL date fields with values
             dateFieldInfo.forEach(info => {
                 if (info.hasValue) {
                     latestDateValuesRef.current[info.questionKey] = info.answer;
@@ -4077,7 +4302,6 @@ const BookingRequestForm = () => {
             // Release lock after delay
             setTimeout(() => {
                 dateUpdateLockRef.current = false;
-                // ✅ Clear stored values when lock releases
                 latestDateValuesRef.current = {};
                 console.log('🔓 Date field lock RELEASED, stored values cleared');
             }, 300);
@@ -5302,6 +5526,17 @@ const BookingRequestForm = () => {
                                                 
                                                 if (savedField) {
                                                     console.log(`✅ Syncing "${question.question}" with saved value:`, savedField.answer);
+                                                    
+                                                    // Track successfully synced date/date-range fields
+                                                    if ((question.type === 'date' || question.type === 'date-range') && 
+                                                        savedField.answer && 
+                                                        savedField.answer !== null && 
+                                                        savedField.answer !== '') {
+                                                        const fieldKey = question.question_key || question.id;
+                                                        successfullySyncedDateFieldsRef.current.add(fieldKey);
+                                                        console.log(`📌 Marked "${question.question}" as successfully synced - error preservation disabled`);
+                                                    }
+                                                    
                                                     return {
                                                         ...question,
                                                         answer: savedField.answer, // ✅ Update with saved value
@@ -5325,6 +5560,12 @@ const BookingRequestForm = () => {
                                     safeDispatchData(updatedPages, 'Profile data synced to local state');
                                     
                                     console.log('✅ Local form state synced - validation errors cleared');
+                                    // Set flag to prevent error preservation from stale updates
+                                    syncJustHappenedRef.current = true;
+                                    setTimeout(() => {
+                                        syncJustHappenedRef.current = false;
+                                        console.log('🔓 Sync protection window closed - error preservation re-enabled');
+                                    }, 500);
                                     
                                     // 🔧 STEP 3: Recalculate page completion to clear error status
                                     setTimeout(() => {
@@ -5744,9 +5985,9 @@ const BookingRequestForm = () => {
             }
             
             // ✅ CRITICAL FIX: Preserve Equipment page completion from API flag
-            // Equipment completion is determined by API (completedEquipments) not by form validation
+            // Equipment completion is determined by API (equipmentPageCompleted) not by form validation
             if (page.title === 'Equipment') {
-                const equipmentCompleted = completedEquipments || equipmentPageCompleted || page.completed;
+                const equipmentCompleted = equipmentPageCompleted || page.completed;
                 // console.log(`🔧 Preserving Equipment page completion: ${equipmentCompleted}`);
                 return {
                     ...page,
@@ -5789,12 +6030,15 @@ const BookingRequestForm = () => {
             }
 
             if (data.completedEquipments !== undefined) {
-                setCompletedEquipments(data.completedEquipments);
-                // console.log('🔧 Equipment completion flag from API:', data.completedEquipments);
+                setEquipmentPageCompleted(data.completedEquipments);
+                console.log('🔧 Initial equipment completion from API:', data.completedEquipments);
             }
 
-            let summaryOfStay = { ...summaryData };
-            setEquipmentPageCompleted(data.completedEquipments);
+            const templateId = data.template.id;
+            setCurrentTemplateId(templateId);
+            const isOldTemplate = templateId <= 33;
+
+            let summaryOfStay = isOldTemplate ? await createSummaryDataV1(data) : { ...summaryData };
 
             let bookingType = BOOKING_TYPES.FIRST_TIME_GUEST;
             
@@ -6460,7 +6704,7 @@ const BookingRequestForm = () => {
                         return { ...page, completed: calculateFirstTimeGuestPageCompletion(page, {
                             visitedPages,
                             pagesWithSavedData,
-                            completedEquipments,
+                            equipmentPageCompleted,
                             currentBookingType
                         })};
                     }
@@ -6567,7 +6811,7 @@ const BookingRequestForm = () => {
         pagesWithSavedData,
         equipmentPageCompleted,
         equipmentChangesState,
-        completedEquipments
+        equipmentPageCompleted
     ]);
 
     // Also add cleanup in useEffect cleanup
@@ -7225,7 +7469,7 @@ const BookingRequestForm = () => {
             const validation = validateFirstTimeGuestCompletionConsistency(stableProcessedFormData, {
                 visitedPages,
                 pagesWithSavedData,
-                completedEquipments,
+                equipmentPageCompleted,
                 currentBookingType
             });
             
@@ -7237,7 +7481,7 @@ const BookingRequestForm = () => {
         stableProcessedFormData,
         visitedPages,
         pagesWithSavedData,
-        completedEquipments,
+        equipmentPageCompleted,
         currentBookingType
     ]);
 
@@ -7462,19 +7706,32 @@ const BookingRequestForm = () => {
                 )}
 
                 {bookingSubmitted || router.asPath.includes('&submit=true') ? (
-                    <SummaryOfStay
-                        bookingData={summaryData}
-                        bookingId={uuid}
-                        origin={origin}
-                        stayDates={stayDates}
-                        getRequestFormTemplate={getRequestFormTemplate}
-                        bookingAmended={bookingAmended}
-                        submitBooking={submitBooking}
-                        careAnalysisData={careAnalysisData}
-                        courseAnalysisData={courseAnalysisData}
-                        ndisFormFilters={ndisFormFilters}
-                        formData={stableProcessedFormData} 
-                    />
+                    <>
+                        {currentTemplateId <= 33 ? (
+                            <SummaryOfStayV1 
+                                bookingData={summaryData} 
+                                bookingId={uuid} 
+                                origin={origin} 
+                                getRequestFormTemplate={getRequestFormTemplate} 
+                                bookingAmended={bookingAmended} 
+                                submitBooking={submitBooking}
+                            />
+                        ) : (
+                            <SummaryOfStay
+                                bookingData={summaryData}
+                                bookingId={uuid}
+                                origin={origin}
+                                stayDates={stayDates}
+                                getRequestFormTemplate={getRequestFormTemplate}
+                                bookingAmended={bookingAmended}
+                                submitBooking={submitBooking}
+                                careAnalysisData={careAnalysisData}
+                                courseAnalysisData={courseAnalysisData}
+                                ndisFormFilters={ndisFormFilters}
+                                formData={stableProcessedFormData} 
+                            />
+                        )}
+                    </>
                 ) : (
                     <div className="flex flex-col">
                         <Accordion

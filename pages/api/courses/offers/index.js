@@ -2,7 +2,8 @@ import { Course, Guest, CourseOffer, User, Booking } from '../../../../models';
 import { v4 as uuidv4 } from 'uuid';
 import { Transaction, Op } from 'sequelize';
 import StorageService from '../../../../services/storage/storage';
-import sendMail from '../../../../utilities/mail';
+import EmailService from '../../../../services/booking/emailService';
+import { TEMPLATE_IDS } from '../../../../services/booking/templateIds';
 import moment from 'moment';
 
 const MAX_BULK_CREATE_SIZE = 100; // Limit bulk operations to prevent memory issues
@@ -40,7 +41,7 @@ async function createCourseOffer(req, res) {
     guest_ids,   // Multiple guests (for bulk creation)
     notes,
     offered_by,
-    timing_text,  // ← ADDED: Manual timing text override
+    timing_text,  // Manual timing text override
     status = 'offered', // Default to 'offered' when creating offers
     send_email = true   // Option to disable email sending
   } = req.body;
@@ -192,7 +193,7 @@ async function createCourseOffer(req, res) {
       guest_id: guestId,
       notes: notes || null,
       offered_by: offered_by || null,
-      timing_text: timing_text || null,  // ← ADDED: Include timing_text
+      timing_text: timing_text || null,
       status: status,
       created_at: new Date(),
       updated_at: new Date()
@@ -308,21 +309,9 @@ async function createCourseOffer(req, res) {
   }
 }
 
-// ✅ FIXED: Send course offer emails to guests with CORRECT field names
 async function sendCourseOfferEmails(createdOffers, course, guests) {
-  const storage = new StorageService({ bucketType: 'restricted' });
-  const baseUrl = process.env.APP_URL || 'https://booking.sargoodoncollaroy.com.au';
+  const baseUrl = process.env.APP_URL || 'https://bookings.sargoodoncollaroy.com.au';
   let emailResults = { sent: 0, failed: 0, errors: [] };
-
-  // Generate course image URL if available
-  let courseImageUrl = null;
-  if (course.image_filename) {
-    try {
-      courseImageUrl = await storage.getSignedUrl('courses/' + course.image_filename);
-    } catch (error) {
-      console.error('Error generating signed URL for course image:', error);
-    }
-  }
 
   // Create a map of guest_id to guest for easy lookup
   const guestMap = new Map(guests.map(guest => [guest.id, guest]));
@@ -338,52 +327,26 @@ async function sendCourseOfferEmails(createdOffers, course, guests) {
     }
 
     try {
-      // ✅ FIXED: Format dates consistently (DD MMMM YYYY format)
+      // Format dates consistently
       const startDate = moment(course.min_start_date);
       const endDate = moment(course.min_end_date);
       
-      const emailData = {
-        // ✅ FIXED: Match template variable names exactly
-        guest_name: guest.first_name,
-        course_name: course.title,
-        
-        // ✅ FIXED: Provide course_dates as a single formatted range
-        course_dates: `${startDate.format('D MMMM YYYY')} - ${endDate.format('D MMMM YYYY')}`,
-        
-        // ✅ FIXED: Add course_location (standard for all courses)
-        course_location: 'Sargood on Collaroy',
-        
-        // ✅ FIXED: Add course_description
-        course_description: course.description || '',
-        
-        // ✅ FIXED: Rename booking_deadline to response_deadline and use consistent format
-        response_deadline: endDate.format('D MMMM YYYY'),
-        
-        // Optional fields
-        duration_hours: course.duration_hours,
-        notes: offer.notes || '',
-        course_image_url: courseImageUrl,
-        
-        // ✅ FIXED: Add accept_link and decline_link (was missing decline_link)
-        accept_link: `${baseUrl}/course-offers/${offer.uuid}/accept`,
-        decline_link: `${baseUrl}/course-offers/${offer.uuid}/decline`,
-        
-        // Additional helper fields
-        start_date: startDate.format('D MMMM YYYY'),
-        end_date: endDate.format('D MMMM YYYY'),
-        start_date_long: startDate.format('dddd, D MMMM YYYY'),
-        end_date_long: endDate.format('dddd, D MMMM YYYY')
-      };
-
-      await sendMail(
+      await EmailService.sendWithTemplate(
         guest.email,
-        'New Course Offer Available - Sargood on Collaroy',
-        'course-offer-notification',
-        emailData
+        TEMPLATE_IDS.COURSE_OFFER_NOTIFICATION,
+        {
+          guest_name: guest.first_name,
+          course_name: course.title,
+          course_dates: `${startDate.format('D MMMM YYYY')} - ${endDate.format('D MMMM YYYY')}`,
+          course_location: 'Sargood on Collaroy',
+          course_description: course.description || '',
+          response_deadline: endDate.format('D MMMM YYYY'),
+          booking_url: `${baseUrl}/auth/login?redirect=/bookings`
+        }
       );
 
       emailResults.sent++;
-      console.log(`✅ Course offer email sent successfully to ${guest.email} for course ${course.title}`);
+      console.log(`✅ Course offer email sent to ${guest.email} for course ${course.title}`);
 
     } catch (error) {
       emailResults.failed++;
@@ -395,7 +358,7 @@ async function sendCourseOfferEmails(createdOffers, course, guests) {
   return emailResults;
 }
 
-// UPDATED: Get course offers with booking support
+// Get course offers with booking support
 async function getCourseOffers(req, res) {
   const { 
     course_id, 
@@ -406,7 +369,7 @@ async function getCourseOffers(req, res) {
     orderBy = 'created_at',
     orderDirection = 'DESC',
     include_invalid = 'false',
-    include_booked = 'false', // NEW: Include courses already linked to bookings
+    include_booked = 'false', // Include courses already linked to bookings
     search = ''
   } = req.query;
 
@@ -428,7 +391,6 @@ async function getCourseOffers(req, res) {
         as: 'offeredBy',
         attributes: ['id', 'first_name', 'last_name', 'email']
       },
-      // NEW: Include booking information when available
       {
         model: Booking,
         as: 'booking',
@@ -440,12 +402,10 @@ async function getCourseOffers(req, res) {
     if (course_id) whereClause.course_id = course_id;
     if (guest_id) whereClause.guest_id = guest_id;
     
-    // NEW: Filter by booking status if requested
+    // Filter by booking status if requested
     if (include_booked === 'false') {
-      // Only show offers not yet linked to bookings
       whereClause.booking_id = null;
     }
-    // If include_booked === 'true', we show all offers (both linked and unlinked)
     
     // Filter by status
     if (status) {

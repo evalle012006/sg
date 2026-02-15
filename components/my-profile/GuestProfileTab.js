@@ -6,6 +6,7 @@ import { toast } from "react-toastify";
 import ProfileImage from "./ProfileImage";
 import _ from 'lodash';
 import { AbilityContext, Can } from "../../services/acl/can";
+import { checkFileSize } from "../../utilities/common";
 
 const Spinner = dynamic(() => import('../ui/spinner'));
 const RadioButton = dynamic(() => import('../ui-v2/RadioButton'));
@@ -307,25 +308,80 @@ export default function GuestProfileTab({ isGuestUser = false }) {
         });
     };
 
-    const updateProfilePhoto = async (imageUrl) => {
-        setProfileImageUrl(imageUrl);
+    const updateProfilePhoto = async (e) => {
+        setImageUploading(true);
+        dispatch(globalActions.setLoading(true));
         
+        const file = e.target.files?.[0];
+        
+        if (!file) {
+            setImageUploading(false);
+            dispatch(globalActions.setLoading(false));
+            return;
+        }
+
+        const formData = new FormData();
+
+        const fileSizeMsg = checkFileSize(file.size, 5120000);
+        if (fileSizeMsg) {
+            toast.error(fileSizeMsg);
+            e.target.value = null;
+            setImageUploading(false);
+            dispatch(globalActions.setLoading(false));
+            return;
+        }
+
         try {
-            const response = await fetch('/api/my-profile/update-photo', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    guest_id: guestId,
-                    profile_filename: imageUrl.split('/').pop()
-                })
+            formData.append("fileType", "profile-photo");
+            formData.append("userType", "guest");
+            formData.append("file", file);
+
+            const response = await fetch("/api/storage/profile-photo?" + new URLSearchParams({ 
+                email: guestInfo.email, 
+                userType: "guest" 
+            }), {
+                method: "POST",
+                body: formData,
             });
-            
+
             if (response.ok) {
-                toast.success('Profile photo updated!');
+                const data = await response.json();
+                console.log('Upload response:', data);
+                
+                // Clear the previous URL to trigger a fresh load
+                setProfileImageUrl('');
+                
+                // Reload profile info after a short delay
+                setTimeout(async () => {
+                    try {
+                        await loadProfileInfo();
+                        toast.success('Profile picture updated successfully');
+                        setTimeout(() => {
+                            window.location.reload();
+                        }, 1000);
+                    } catch (error) {
+                        console.error('Error reloading profile:', error);
+                        toast.error('Profile picture uploaded but failed to refresh');
+                    } finally {
+                        setImageUploading(false);
+                        dispatch(globalActions.setLoading(false));
+                    }
+                }, 1500); // Increased delay to ensure server processing is complete
+            } else {
+                const errorData = await response.json();
+                toast.error(errorData.message || 'Failed to upload profile picture');
+                setImageUploading(false);
+                dispatch(globalActions.setLoading(false));
             }
         } catch (error) {
-            console.error('Error updating profile photo:', error);
+            console.error('Error uploading profile picture:', error);
+            toast.error('Failed to upload profile picture');
+            setImageUploading(false);
+            dispatch(globalActions.setLoading(false));
         }
+
+        // Clear the file input
+        e.target.value = null;
     };
 
     const handleSubmit = async (e) => {

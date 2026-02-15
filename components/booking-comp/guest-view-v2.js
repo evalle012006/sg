@@ -1028,7 +1028,7 @@ export default function GuestBookingsV2() {
                         
                         <div className="p-4">
                             <h3 className="font-semibold text-lg text-gray-900 mb-2">{promotion.title}</h3>
-                            <p className="text-gray-600 text-sm mb-3 line-clamp-2">{promotion.description}</p>
+                            <p className="text-gray-600 text-sm mb-3">{promotion.description}</p>
                             
                             <div className="space-y-1 mb-4">
                                 {promotion.availability && (

@@ -77,7 +77,7 @@ const PackageSelection = ({
     const funderType = localFilterState?.funderType || funder;
     return isAdminMode && funderType === 'NDIS';
   }, [isAdminMode, localFilterState?.funderType, funder]);
-
+  console.log('careData', value, careAnalysisData);
   useEffect(() => {
       console.log('📦 PackageSelection received careAnalysisData:', {
           received: !!careAnalysisData,
@@ -1227,7 +1227,7 @@ const PackageSelection = ({
               </span>
             </div>
 
-            {selectedFunder !== 'icare' && selectedFunder !== 'iCare' && (
+            {!['icare','promotional stay','promotional-stay'].includes(selectedFunder.toLowerCase()) && (
               <div className="text-2xl font-bold text-gray-900">
                 {safeRender(pkg.formattedPrice, 'Price not available')}
               </div>

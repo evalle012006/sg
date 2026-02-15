@@ -798,6 +798,85 @@ export default function CareTable({
     }
   }, [value, dates]);
 
+  // Detect prefilled data arriving after initial mount
+  useEffect(() => {
+      // Skip if this is the initial mount (handled by existing logic)
+      if (isInitialMount.current) {
+          return;
+      }
+      
+      // Check if we received new prefilled data (value changed and has content)
+      const newParsedValue = typeof value === 'string' && value.trim() 
+          ? (() => { try { return JSON.parse(value); } catch { return value; } })()
+          : value;
+      
+      const hasPrefilledData = newParsedValue && 
+          (Array.isArray(newParsedValue.careData) ? newParsedValue.careData.length > 0 : false) &&
+          newParsedValue.defaultValues &&
+          hasAnyDefaultValues(newParsedValue.defaultValues);
+      
+      if (hasPrefilledData) {
+          console.log('🔄 CareTable: Detected prefilled data after mount, marking as user-interacted');
+          
+          // ✅ Mark as user-interacted to enable auto-save
+          userHasInteractedRef.current = true;
+          
+          // Extract and set the data
+          const { tableData: existingData, extractedDefaults, extractedCareVaries } = 
+              convertValueToTableData(newParsedValue);
+          
+          if (extractedDefaults) {
+              console.log('✅ Setting defaultValues from prefilled data:', extractedDefaults);
+              setDefaultValues(extractedDefaults);
+              savedDefaultsRef.current = JSON.parse(JSON.stringify(extractedDefaults));
+          }
+          
+          if (extractedCareVaries !== null) {
+              console.log('✅ Setting careVaries from prefilled data:', extractedCareVaries);
+              setCareVaries(extractedCareVaries);
+              savedCareVariesRef.current = extractedCareVaries;
+              if (extractedCareVaries === true) {
+                  setShowDetailedTable(true);
+              }
+          }
+          
+          // Merge prefilled data into tableData
+          if (Object.keys(existingData).length > 0) {
+              setTableData(prev => {
+                  const newData = { ...prev };
+                  Object.keys(existingData).forEach(dateKey => {
+                      if (newData[dateKey]) {
+                          newData[dateKey] = {
+                              morning: { ...newData[dateKey].morning, ...existingData[dateKey].morning },
+                              afternoon: { ...newData[dateKey].afternoon, ...existingData[dateKey].afternoon },
+                              evening: { ...newData[dateKey].evening, ...existingData[dateKey].evening }
+                          };
+                      }
+                  });
+                  
+                  // If careVaries is false, merge defaultValues into all dates
+                  if (extractedCareVaries === false && extractedDefaults) {
+                      Object.keys(newData).forEach(dateKey => {
+                          ['morning', 'afternoon', 'evening'].forEach(period => {
+                              const defaultForPeriod = extractedDefaults[period];
+                              if (defaultForPeriod) {
+                                  newData[dateKey][period] = {
+                                      carers: defaultForPeriod.carers || newData[dateKey][period].carers,
+                                      time: defaultForPeriod.time || newData[dateKey][period].time,
+                                      duration: defaultForPeriod.duration || newData[dateKey][period].duration
+                                  };
+                              }
+                          });
+                      });
+                      console.log('🔄 Merged defaultValues into tableData (careVaries=false) from prefilled data');
+                  }
+                  
+                  return newData;
+              });
+          }
+      }
+  }, [value, isInitialMount.current]); // Depend on value changes after mount
+
   useEffect(() => {
     setHasValues(hasAnyValues(tableData));
     if (validationErrors) {
@@ -805,68 +884,64 @@ export default function CareTable({
     }
   }, [tableData, defaultValues, careVaries]);
 
-  // ============================================
-  // AUTO-SAVE EFFECT - replaces the Done button
-  // ============================================
   useEffect(() => {
-    // Skip if user hasn't interacted yet (prevents auto-saving on initial load)
-    if (!userHasInteractedRef.current) {
-      return;
-    }
-    
-    // Skip if no onChange handler
-    if (!onChange) {
-      return;
-    }
-    
-    // Skip if there are no values to save (user hasn't entered any care)
-    if (!hasAnyDefaultValues(defaultValues) && !hasAnyValues(tableData)) {
-      return;
-    }
-    
-    // Clear any existing timeout to debounce rapid changes
-    if (autoSaveTimeoutRef.current) {
-      clearTimeout(autoSaveTimeoutRef.current);
-    }
-    
-    // Debounce the auto-save (300ms)
-    autoSaveTimeoutRef.current = setTimeout(() => {
-      const transformedData = transformDataForSaving(tableData, defaultValues, careVaries);
-      const transformedString = JSON.stringify(transformedData);
+      // Also trigger auto-save if we have prefilled data (even without user interaction)
+      const hasPrefilledData = hasAnyDefaultValues(defaultValues) || hasAnyValues(tableData);
       
-      // Skip if data hasn't actually changed from what we last sent
-      if (transformedString === lastSentDataRef.current) {
-        console.log('🔄 CareTable: Skipping auto-save - data unchanged');
-        return;
+      if (!userHasInteractedRef.current && !hasPrefilledData) {
+          return;
       }
       
-      // Validate if required and user has answered the "care varies" question
-      let hasErrors = false;
-      if (required && careVaries !== null) {
-        const errors = validateAllFieldsFilled(tableData, dates, careVaries, defaultValues);
-        hasErrors = errors.hasErrors;
-        setValidationErrors(hasErrors ? errors : null);
-      } else {
-        setValidationErrors(null);
+      if (!onChange) {
+          return;
       }
       
-      console.log('🔄 CareTable: Auto-saving changes', { hasErrors });
-      onChange(transformedData, hasErrors);
-      lastSentDataRef.current = transformedString;
+      if (!hasAnyDefaultValues(defaultValues) && !hasAnyValues(tableData)) {
+          return;
+      }
       
-      // Update saved refs
-      savedDataRef.current = JSON.parse(JSON.stringify(tableData));
-      savedDefaultsRef.current = JSON.parse(JSON.stringify(defaultValues));
-      savedCareVariesRef.current = careVaries;
-      
-    }, 300);
-    
-    // Cleanup timeout on unmount or when dependencies change
-    return () => {
       if (autoSaveTimeoutRef.current) {
-        clearTimeout(autoSaveTimeoutRef.current);
+          clearTimeout(autoSaveTimeoutRef.current);
       }
-    };
+      
+      autoSaveTimeoutRef.current = setTimeout(() => {
+          const transformedData = transformDataForSaving(tableData, defaultValues, careVaries);
+          const transformedString = JSON.stringify(transformedData);
+          
+          if (transformedString === lastSentDataRef.current) {
+              console.log('🔄 CareTable: Skipping auto-save - data unchanged');
+              return;
+          }
+          
+          let hasErrors = false;
+          if (required && careVaries !== null) {
+              const errors = validateAllFieldsFilled(tableData, dates, careVaries, defaultValues);
+              hasErrors = errors.hasErrors;
+              setValidationErrors(hasErrors ? errors : null);
+          } else {
+              setValidationErrors(null);
+          }
+          
+          console.log('🔄 CareTable: Auto-saving changes', { 
+              hasErrors,
+              hasPrefilledData,
+              userInteracted: userHasInteractedRef.current 
+          });
+          
+          onChange(transformedData, hasErrors);
+          lastSentDataRef.current = transformedString;
+          
+          savedDataRef.current = JSON.parse(JSON.stringify(tableData));
+          savedDefaultsRef.current = JSON.parse(JSON.stringify(defaultValues));
+          savedCareVariesRef.current = careVaries;
+          
+      }, 300);
+      
+      return () => {
+          if (autoSaveTimeoutRef.current) {
+              clearTimeout(autoSaveTimeoutRef.current);
+          }
+      };
   }, [tableData, defaultValues, careVaries, onChange, required, dates]);
 
   useEffect(() => {
@@ -1041,36 +1116,44 @@ export default function CareTable({
     
     setCareVaries(varies);
     
-    if (varies === true) {
-      // Apply defaults to all dates in the table
-      setTableData(prev => {
-        const newData = { ...prev };
-        Object.keys(newData).forEach(date => {
-          newData[date] = {
-            morning: { ...defaultValues.morning },
-            afternoon: { ...defaultValues.afternoon },
-            evening: { ...defaultValues.evening }
-          };
-        });
-        return newData;
-      });
-      setShowDetailedTable(true);
-    } else if (varies === false) {
-      // Apply defaults to all dates but don't show the table
-      setTableData(prev => {
-        const newData = { ...prev };
-        Object.keys(newData).forEach(date => {
-          newData[date] = {
-            morning: { ...defaultValues.morning },
-            afternoon: { ...defaultValues.afternoon },
-            evening: { ...defaultValues.evening }
-          };
-        });
-        return newData;
-      });
-      setShowDetailedTable(false);
+    // ✅ NEW: If there's a separate careVaries question, update it too
+    // This ensures validation passes for the checkbox question
+    if (onChange) {
+        // Force an immediate onChange call to update the parent form
+        const currentData = transformDataForSaving(tableData, defaultValues, varies);
+        onChange(currentData, false); // false = no errors
     }
-  }, [defaultValues]);
+    
+    if (varies === true) {
+        // Apply defaults to all dates in the table
+        setTableData(prev => {
+            const newData = { ...prev };
+            Object.keys(newData).forEach(date => {
+                newData[date] = {
+                    morning: { ...defaultValues.morning },
+                    afternoon: { ...defaultValues.afternoon },
+                    evening: { ...defaultValues.evening }
+                };
+            });
+            return newData;
+        });
+        setShowDetailedTable(true);
+    } else if (varies === false) {
+        // Apply defaults to all dates but don't show the table
+        setTableData(prev => {
+            const newData = { ...prev };
+            Object.keys(newData).forEach(date => {
+                newData[date] = {
+                    morning: { ...defaultValues.morning },
+                    afternoon: { ...defaultValues.afternoon },
+                    evening: { ...defaultValues.evening }
+                };
+            });
+            return newData;
+        });
+        setShowDetailedTable(false);
+    }
+  }, [defaultValues, tableData, onChange]);
 
   const formatDate = (date) => {
     return new Intl.DateTimeFormat('en-AU', {
