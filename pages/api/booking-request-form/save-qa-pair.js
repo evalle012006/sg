@@ -4,6 +4,8 @@ import { dispatchHttpTaskHandler } from "../../../services/queues/dispatchHttpTa
 import StorageService from "../../../services/storage/storage";
 import { QUESTION_KEYS } from "../../../services/booking/question-helper";
 import { BOOKING_TYPES } from "../../../components/constants";
+import moment from "moment";
+import { getFunder } from "../../../utilities/common";
 
 export default async function handler(req, res) {
     if (req.method !== "POST") {
@@ -333,65 +335,94 @@ const updateBooking = async (booking, qa_pairs = [], flags, bookingService) => {
 
             const metainfo = JSON.parse(booking.metainfo);
             let bookingAmended = false;
+            
             if (currentBookingStatus?.name === 'booking_confirmed') {
-                for (const qaPair of qa_pairs) {
-                    if (qaPair.hasOwnProperty('dirty') && qaPair.dirty == true && (qaPair.answer != qaPair.oldAnswer)) {
-                        let data = {
-                            approved: false,
-                            approved_by: null,
-                            approval_date: null,
-                            qa_pair: {
-                                id: qaPair?.id,
-                                sectionLabel: qaPair?.sectionLabel,
-                                question: qaPair.question,
-                                answer: qaPair.answer,
-                                question_type: qaPair.question_type,
-                                oldAnswer: qaPair.oldAnswer
-                            }
-                        }
-
-                        if (flags?.origin && flags.origin == 'admin') {
-                            data.modifiedBy = 'admin';
-                            data.modifiedDate = new Date();
-                            data.approved_by = 'admin';
-                            data.approved = true;
-                            data.approval_date = new Date();
-                        }
-
-                        const whereClause = {
-                            loggable_id: booking.id,
-                            loggable_type: 'booking',
-                            'data.approved': false,
-                        };
-
-                        if (qaPair?.id) {
-                            whereClause['data.qa_pair.id'] = qaPair.id;
-                        } else {
-                            whereClause['data.qa_pair.question'] = qaPair.question;
-                            whereClause['data.qa_pair.question_type'] = qaPair.question_type;
-                        }
-
-                        const logExists = await Log.findOne({
-                            where: whereClause
-                        });
-
-                        if (logExists) {
-                            logExists.update({
-                                data
-                            });
-                        } else {
-                            await Log.create({
-                                data,
-                                type: 'qa_pair',
-                                loggable_type: 'booking',
-                                loggable_id: booking.id,
-                                createdAt: new Date(),
-                                updatedAt: new Date()
-                            });
-                        }
-
-                        bookingAmended = true;
+                // Check if booking dates are in the past
+                const isBookingInPast = () => {
+                    // Use check_out_date first, fallback to preferred_departure_date
+                    const checkoutDate = booking.check_out_date || booking.preferred_departure_date;
+                    
+                    if (!checkoutDate) {
+                        console.log('⚠️ No checkout date found for booking');
+                        return false; // If no date, allow amendments
                     }
+                    
+                    const checkout = moment(checkoutDate);
+                    const now = moment();
+                    
+                    return checkout.isBefore(now, 'day');
+                };
+
+                const bookingInPast = isBookingInPast();
+                const isAdminOrigin = flags?.origin && flags.origin === 'admin';
+                
+                // Only process amendments if:
+                // 1. Booking is NOT in the past, OR
+                // 2. Changes are from admin (admins can amend past bookings)
+                if (!bookingInPast || isAdminOrigin) {
+                    console.log(`✅ Amendment validation passed - bookingInPast: ${bookingInPast}, isAdmin: ${isAdminOrigin}`);
+                    
+                    for (const qaPair of qa_pairs) {
+                        if (qaPair.hasOwnProperty('dirty') && qaPair.dirty == true && (qaPair.answer != qaPair.oldAnswer)) {
+                            let data = {
+                                approved: false,
+                                approved_by: null,
+                                approval_date: null,
+                                qa_pair: {
+                                    id: qaPair?.id,
+                                    sectionLabel: qaPair?.sectionLabel,
+                                    question: qaPair.question,
+                                    answer: qaPair.answer,
+                                    question_type: qaPair.question_type,
+                                    oldAnswer: qaPair.oldAnswer
+                                }
+                            }
+
+                            if (flags?.origin && flags.origin == 'admin') {
+                                data.modifiedBy = 'admin';
+                                data.modifiedDate = new Date();
+                                data.approved_by = 'admin';
+                                data.approved = true;
+                                data.approval_date = new Date();
+                            }
+
+                            const whereClause = {
+                                loggable_id: booking.id,
+                                loggable_type: 'booking',
+                                'data.approved': false,
+                            };
+
+                            if (qaPair?.id) {
+                                whereClause['data.qa_pair.id'] = qaPair.id;
+                            } else {
+                                whereClause['data.qa_pair.question'] = qaPair.question;
+                                whereClause['data.qa_pair.question_type'] = qaPair.question_type;
+                            }
+
+                            const logExists = await Log.findOne({
+                                where: whereClause
+                            });
+
+                            if (logExists) {
+                                logExists.update({
+                                    data
+                                });
+                            } else {
+                                await Log.create({
+                                    data,
+                                    type: 'qa_pair',
+                                    loggable_type: 'booking',
+                                    loggable_id: booking.id,
+                                    createdAt: new Date(),
+                                    updatedAt: new Date()
+                                });
+                            }
+
+                            bookingAmended = true;
+                        }
+                    }
+                } else {
+                    console.log(`🚫 Amendment blocked - booking is in the past (checkout: ${booking.check_out_date || booking.preferred_departure_date})`);
                 }
             }
 
@@ -408,8 +439,10 @@ const updateBooking = async (booking, qa_pairs = [], flags, bookingService) => {
                 await Booking.update({ status_logs: JSON.stringify(updateStatusLogs(statusLogs, 'booking_amended')), status: bookingAmendedStatus.value, status_name: bokkingStatusName }, { where: { id: booking.id } });
             } else if (currentBookingStatus?.name === 'pending_approval') {
                 const bookingHasCourse = await bookingService.validateBookingHasCourse(booking);
+                const bookingFunder = getFunder(booking.Sections);
+                const isSargoodFoundationFunder = bookingFunder ? bookingFunder.toLowerCase() == 'sargood-foundation' || bookingFunder.toLowerCase() == 'sargood foundation' : false;
 
-                if (booking.type == BOOKING_TYPES.RETURNING_GUEST && !bookingHasCourse && !booking.status.includes('ready_to_process')) {
+                if (booking.type == BOOKING_TYPES.RETURNING_GUEST && !bookingHasCourse && !booking.status.includes('ready_to_process') && !isSargoodFoundationFunder) {
                     const readyToProcessStatus = bookingStatuses.find(status => JSON.parse(status.value).name == 'ready_to_process');
                     const bokkingStatusName = JSON.parse(readyToProcessStatus.value).name;
                     await Booking.update({ status_logs: JSON.stringify(updateStatusLogs(statusLogs, 'ready_to_process')), status: readyToProcessStatus.value, status_name: bokkingStatusName }, { where: { id: booking.id } });

@@ -229,9 +229,10 @@ const extractCareAnalysisFromRawData = (rawCareData, datesOfStay, nights) => {
     
     if (isCheckIn) {
       // Check-in day: Only EVENING care counts
+      applicableCare.afternoon = rawCare.afternoon || 0;
       applicableCare.evening = rawCare.evening || 0;
     } else if (isCheckOut) {
-      // Check-out day: Only MORNING care counts
+      // ✅ Check-out day: Only MORNING care counts
       applicableCare.morning = rawCare.morning || 0;
     } else {
       // Middle day: All care periods count

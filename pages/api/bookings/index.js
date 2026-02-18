@@ -552,6 +552,46 @@ async function quickDataCheck(bookingIds) {
   }
 }
 
+// Get template IDs for bookings
+async function getBookingTemplateIds(bookingIds) {
+  if (!bookingIds || bookingIds.length === 0) {
+    return {};
+  }
+
+  try {
+    const templateResult = await Booking.sequelize.query(`
+      SELECT 
+        s.model_id as booking_id,
+        p.template_id
+      FROM sections s
+      INNER JOIN (
+        SELECT model_id, MIN(id) as first_section_id
+        FROM sections
+        WHERE model_type = 'booking'
+          AND model_id IN (:bookingIds)
+          AND orig_section_id IS NOT NULL
+        GROUP BY model_id
+      ) first_s ON s.id = first_s.first_section_id
+      INNER JOIN sections orig_s ON orig_s.id = s.orig_section_id
+      INNER JOIN pages p ON p.id = orig_s.model_id
+    `, {
+      replacements: { bookingIds },
+      type: Booking.sequelize.QueryTypes.SELECT,
+    });
+
+    // Create mapping: booking_id -> template_id
+    const bookingToTemplate = {};
+    templateResult.forEach(row => {
+      bookingToTemplate[row.booking_id] = row.template_id;
+    });
+
+    return bookingToTemplate;
+  } catch (error) {
+    console.error('Error getting booking template IDs:', error.message);
+    return {};
+  }
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ message: `Method ${req.method} Not Allowed` });
@@ -726,10 +766,18 @@ export default async function handler(req, res) {
         
         return bookingData;
       });
+      console.log(`Fetched ${processedData.length} bookings from database`);
+      // Get template IDs for all bookings (single batch operation)
+      const bookingIds = processedData.map(b => b.id).filter(id => id);
+      const templateIdMap = await getBookingTemplateIds(bookingIds);
+      
+      // Add templateId to each booking
+      processedData = processedData.map(booking => ({
+        ...booking,
+        templateId: templateIdMap[booking.id] || null
+      }));
       
       if (includeQA) {
-        const bookingIds = processedData.map(b => b.id).filter(id => id);
-        
         // Only proceed if we have bookingIds
         if (bookingIds && bookingIds.length > 0) {
           // Quick data verification

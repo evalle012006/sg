@@ -1473,10 +1473,14 @@ export default function BookingDetail() {
   }, []);
 
   // Summary PDF handlers
-  const handleDownloadPDF = async (bookingId) => {
+  const handleDownloadPDF = async (booking) => {
     toast.info('Generating PDF. Please wait...');
     try {
-      const response = await fetch(`/api/bookings/${bookingId}/download-summary-pdf-v2`, {
+      const isOldTemplate = booking.templateId <= 33;
+      const apiEndpoint = isOldTemplate
+            ? `/api/bookings/${booking.uuid}/download-summary-pdf-v1`
+            : `/api/bookings/${booking.uuid}/download-summary-pdf-v2`;
+      const response = await fetch(apiEndpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1490,7 +1494,7 @@ export default function BookingDetail() {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `summary-of-stay-${bookingId}.pdf`;
+      a.download = `summary-of-stay-${booking.uuid}.pdf`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
@@ -1501,10 +1505,14 @@ export default function BookingDetail() {
     }
   };
 
-  const handleEmailPDF = async (bookingId) => {
+  const handleEmailPDF = async (booking) => {
     toast.info('Your email is being sent in the background. Feel free to navigate away or continue with other tasks.');
     try {
-      const response = await fetch(`/api/bookings/${bookingId}/email-summary-v2`, {
+      const isOldTemplate = booking.templateId <= 33;
+      const apiEndpoint = isOldTemplate
+            ? `/api/bookings/${booking.uuid}/download-summary-pdf-v1`
+            : `/api/bookings/${booking.uuid}/download-summary-pdf-v2`;
+      const response = await fetch(apiEndpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -2710,7 +2718,7 @@ export default function BookingDetail() {
                     <>
                       {/* Download Summary Button */}
                       <button
-                        onClick={() => handleDownloadPDF(booking.uuid)}
+                        onClick={() => handleDownloadPDF(booking)}
                         className="p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                         title="Download Summary of Stay"
                       >
@@ -2721,7 +2729,7 @@ export default function BookingDetail() {
                       
                       {/* Email Summary Button */}
                       <button
-                        onClick={() => handleEmailPDF(booking.uuid)}
+                        onClick={() => handleEmailPDF(booking)}
                         className="p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                         title="Send Summary of Stay via Email"
                       >

@@ -21,17 +21,26 @@ export default async function handler(req, res) {
       email_template_id,
       type = 'highlights',
       enabled = true,
-      trigger_questions = [] // Now expects: [{ question_id, answer }]
+      trigger_questions = [],
+      trigger_conditions = null 
     } = req.body;
 
     // Validation
     const errors = [];
 
-    // Validate recipient email
-    if (!recipient || !recipient.trim()) {
-      errors.push('Recipient email is required');
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) {
-      errors.push('Invalid email format for recipient');
+    // Validate recipient email if not external type
+    if (type !== 'external') {
+      if (!recipient || !recipient.trim()) {
+        errors.push('Recipient email is required');
+      } else {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        const emails = recipient.split(',').map(e => e.trim());
+        const invalidEmails = emails.filter(email => !emailRegex.test(email));
+        
+        if (invalidEmails.length > 0) {
+          errors.push(`Invalid email format for recipient: ${invalidEmails.join(', ')}`);
+        }
+      }
     }
 
     // Validate email template
@@ -53,9 +62,11 @@ export default async function handler(req, res) {
       errors.push(`Type must be one of: ${validTypes.join(', ')}`);
     }
 
-    // Validate trigger questions
+    // Only require trigger_questions if no status conditions are set
     if (!Array.isArray(trigger_questions) || trigger_questions.length === 0) {
-      errors.push('At least one trigger question is required');
+      if (!trigger_conditions?.booking_status?.length) {
+        errors.push('At least one trigger question or booking status condition is required');
+      }
     }
 
     // Validate each trigger question and check if questions exist
@@ -113,7 +124,8 @@ export default async function handler(req, res) {
       email_template_id: email_template_id,
       type: type,
       enabled: enabled,
-      trigger_count: 0
+      trigger_count: 0,
+      trigger_conditions: trigger_conditions || null 
     });
 
     // Create the trigger question associations

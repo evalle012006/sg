@@ -3,6 +3,9 @@ import handlebars from 'handlebars';
 import sendMailWithHtml from '../../utilities/mailServiceHtml.js';
 import SendEmail from '../../utilities/mail.js';
 import { TEMPLATE_FALLBACK_MAP } from './templateFallbackMap.js';
+import { getPublicDir } from '../../lib/paths.js';
+import fs from 'fs/promises'; 
+import path from 'path';
 
 /**
  * Register Handlebars helpers
@@ -64,6 +67,22 @@ function registerHelpers() {
     }
   });
 
+  // Auto-stringify arrays and objects for simple {{variable}} usage
+  handlebars.registerHelper('safeString', function(value) {
+    if (Array.isArray(value)) {
+      return value.map(item => {
+        if (typeof item === 'object' && item !== null) {
+          return item.label || item.name || item.value || item.text || JSON.stringify(item);
+        }
+        return String(item);
+      }).join(', ');
+    }
+    if (typeof value === 'object' && value !== null) {
+      return JSON.stringify(value);
+    }
+    return value != null ? String(value) : '';
+  });
+
   // Default value helper
   handlebars.registerHelper('default', (value, defaultValue) => value || defaultValue);
 
@@ -82,6 +101,130 @@ function registerHelpers() {
   
   // Index helper
   handlebars.registerHelper('inc', value => Number(value) + 1);
+}
+
+/**
+ * Cached logo base64 string to avoid reading from disk on every email
+ */
+let _cachedLogoBase64 = null;
+
+/**
+ * Load the Sargood logo as a base64 data URI for inline embedding in emails.
+ * Tries the filesystem first, then falls back to the env variable.
+ */
+async function getLogoBase64() {
+  if (_cachedLogoBase64) {
+    console.log('📦 Using cached logo (length:', _cachedLogoBase64.length, ')');
+    return _cachedLogoBase64;
+  }
+
+  try {
+    const publicDir = getPublicDir();
+    const logoPath = path.join(publicDir, 'images/sargood-logo.png');
+    
+    console.log('🔍 Loading logo from:', logoPath);
+    console.log('🔍 process.cwd():', process.cwd());
+    console.log('🔍 PUBLIC_DIR env:', process.env.PUBLIC_DIR);
+    
+    const buffer = await fs.readFile(logoPath);
+    console.log('✅ Logo buffer loaded:', buffer.length, 'bytes');
+    
+    _cachedLogoBase64 = `data:image/png;base64,${buffer.toString('base64')}`;
+    console.log('✅ Base64 created, length:', _cachedLogoBase64.length);
+    console.log('✅ Base64 preview:', _cachedLogoBase64.substring(0, 100) + '...');
+    
+    return _cachedLogoBase64;
+  } catch (e) {
+    console.error('❌ Logo load error:', e);
+    return null;
+  }
+}
+
+/**
+ * Enrich email data with logo_base64 if not already provided
+ */
+async function enrichWithLogo(data) {
+  if (data.logo_base64) return data; // already set, don't overwrite
+  
+  const logo = await getLogoBase64();
+  if (!logo) return data;
+  
+  return { ...data, logo_base64: logo };
+}
+
+/**
+ * Convert hyphenated merge tags to underscore format for Handlebars compatibility.
+ * 
+ * Handlebars interprets hyphens as subtraction operators, so {{my-tag}} fails.
+ * This converts {{my-tag}} → {{my_tag}} and {{#each my-tag}} → {{#each my_tag_raw}}
+ * 
+ * Handles:
+ * - Simple tags: {{tag-name}}
+ * - Block helpers: {{#if tag-name}}
+ * - Helper functions: {{#if (isNotEmpty tag-name)}}
+ * - Each blocks: {{#each tag-name}}
+ * 
+ * @param {string} html - Template HTML with potentially hyphenated tags
+ * @returns {string} - HTML with converted tags
+ */
+function convertHyphenatedMergeTags(html) {
+  if (!html) return html;
+
+  let converted = html;
+  const conversions = [];
+
+  // Pattern 1: Convert hyphenated identifiers ANYWHERE in Handlebars expressions
+  // This catches tags inside helper functions: (isNotEmpty my-tag-name) → (isNotEmpty my_tag_name)
+  const hyphenatedIdentifierPattern = /\b(\w+(?:-\w+)+)\b/g;
+  
+  converted = html.replace(/\{\{([^}]+)\}\}/g, (match, innerContent) => {
+    // Skip if already using bracket notation
+    if (innerContent.includes('[')) return match;
+    
+    let convertedInner = innerContent;
+    let hasEachBlock = false;
+    
+    // Check if this is an #each block
+    if (innerContent.trim().startsWith('#each')) {
+      hasEachBlock = true;
+    }
+    
+    // Replace all hyphenated identifiers within this Handlebars expression
+    convertedInner = innerContent.replace(hyphenatedIdentifierPattern, (identifierMatch) => {
+      // Skip Handlebars keywords
+      const keywords = ['if', 'else', 'each', 'with', 'unless', 'lookup'];
+      if (keywords.includes(identifierMatch)) {
+        return identifierMatch;
+      }
+      
+      // Convert hyphens to underscores
+      let converted = identifierMatch.replace(/-/g, '_');
+      
+      // For #each blocks, add _raw suffix to access array data
+      if (hasEachBlock && !converted.endsWith('_raw')) {
+        converted = `${converted}_raw`;
+      }
+      
+      if (converted !== identifierMatch) {
+        conversions.push(`${identifierMatch} → ${converted}`);
+      }
+      
+      return converted;
+    });
+    
+    return `{{${convertedInner}}}`;
+  });
+
+  // Log conversions for monitoring
+  if (conversions.length > 0) {
+    console.log(`📝 Auto-converted ${conversions.length} hyphenated merge tags:`);
+    conversions.slice(0, 10).forEach(c => console.log(`   - ${c}`));
+    if (conversions.length > 10) {
+      console.log(`   ... and ${conversions.length - 10} more`);
+    }
+  }
+
+  return converted;
 }
 
 class EmailService {
@@ -203,11 +346,17 @@ class EmailService {
         this.validateRequiredVariables(template, data);
       }
 
-      const compiledSubject = handlebars.compile(template.subject);
-      const compiledHtml = handlebars.compile(template.html_content);
+      const enrichedData = await enrichWithLogo(data);
 
-      const subject = compiledSubject(data);
-      const html = compiledHtml(data);
+      // ✨ AUTO-CONVERT hyphenated tags to underscore format for backward compatibility
+      const convertedSubject = convertHyphenatedMergeTags(template.subject);
+      const convertedHtml = convertHyphenatedMergeTags(template.html_content);
+
+      const compiledSubject = handlebars.compile(convertedSubject);
+      const compiledHtml = handlebars.compile(convertedHtml);
+
+      const subject = compiledSubject(enrichedData);
+      const html = compiledHtml(enrichedData);
 
       await sendMailWithHtml(recipient, subject, html);
 
@@ -263,11 +412,17 @@ class EmailService {
         this.validateRequiredVariables(template, data);
       }
 
-      const compiledSubject = handlebars.compile(template.subject);
-      const compiledHtml = handlebars.compile(template.html_content);
+      const enrichedData = await enrichWithLogo(data);
 
-      const subject = compiledSubject(data);
-      const html = compiledHtml(data);
+      // ✨ AUTO-CONVERT hyphenated tags to underscore format
+      const convertedSubject = convertHyphenatedMergeTags(template.subject);
+      const convertedHtml = convertHyphenatedMergeTags(template.html_content);
+
+      const compiledSubject = handlebars.compile(convertedSubject);
+      const compiledHtml = handlebars.compile(convertedHtml);
+
+      const subject = compiledSubject(enrichedData);
+      const html = compiledHtml(enrichedData);
 
       await sendMailWithHtml(recipient, subject, html, attachments);
 
@@ -322,7 +477,8 @@ class EmailService {
       console.log(`  ℹ️  Using fallback: ${templateFilename}.html`);
       
       const subject = this.generateFallbackSubject(templateFilename, data);
-      await SendEmail(recipient, subject, templateFilename, data);
+      const enrichedData = await enrichWithLogo(data);
+      await SendEmail(recipient, subject, templateFilename, enrichedData);
       
       console.log(`✓ Email sent using fallback template ${templateFilename}`);
       
@@ -365,7 +521,8 @@ class EmailService {
       console.log(`  ℹ️  Using fallback: ${templateFilename}.html with ${attachments.length} attachment(s)`);
       
       const subject = this.generateFallbackSubject(templateFilename, data);
-      await SendEmail(recipient, subject, templateFilename, data, attachments);
+      const enrichedData = await enrichWithLogo(data);
+      await SendEmail(recipient, subject, templateFilename, enrichedData, attachments);
       
       console.log(`✓ Email sent using fallback template ${templateFilename} with attachments`);
       

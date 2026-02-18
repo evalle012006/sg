@@ -79,7 +79,7 @@ export default async function handler(req, res) {
 
     // Read logo files and convert to base64 using path utility
     const publicDir = getPublicDir();
-    const logoPath = path.join(publicDir, 'sargood-logo.png');
+    const logoPath = path.join(publicDir, 'images/sargood-logo.png');
     const logoFooterPath = path.join(publicDir, 'sargood-footer-image.jpg');
     const logo = fs.readFileSync(logoPath);
     const logoFooter = fs.readFileSync(logoFooterPath);

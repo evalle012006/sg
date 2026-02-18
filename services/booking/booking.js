@@ -307,8 +307,16 @@ export class BookingService extends EntityBuilder {
     }
 
     getBookingTemplate = async (booking, raw, includeSections = true) => {
-        const bookingOriginalSectionId = booking.Sections[0].orig_section_id;
+        const bookingOriginalSectionId = booking.Sections[0]?.orig_section_id;
+        if (!bookingOriginalSectionId) {
+            console.log('⚠️ No original section ID found for booking:', booking.id);
+            return null;
+        }
         const originalSection = await Section.findOne({ where: { id: bookingOriginalSectionId } });
+        if (!originalSection) {
+            console.log('⚠️ No original section found for booking:', booking.id);
+            return null;
+        }
         const page = await Page.findOne({ where: { id: originalSection?.model_id } })
 
         let template;
@@ -362,7 +370,7 @@ export class BookingService extends EntityBuilder {
         
         const defaultTemplate = await this.getBookingTemplate(booking, false);
         const qaPairs = booking.Sections.map(section => section.QaPairs).flat();
-        const templateQuestions = defaultTemplate.Pages.map(page => page.Sections.map(section => section.Questions).flat()).flat();
+        const templateQuestions = defaultTemplate ? defaultTemplate.Pages.map(page => page.Sections.map(section => section.Questions).flat()).flat() : [];
         
         // Check if NDIS funder
         const isNdisFunder = qaPairs.some(qa => {

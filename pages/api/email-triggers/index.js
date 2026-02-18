@@ -1,4 +1,4 @@
-import { EmailTrigger, EmailTemplate } from '../../../models';
+import { EmailTrigger, EmailTemplate, EmailTriggerQuestion, Question } from '../../../models';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -12,6 +12,25 @@ export default async function handler(req, res) {
           model: EmailTemplate,
           as: 'template',
           attributes: ['id', 'name', 'subject', 'preview_image']
+        },
+        {
+          model: EmailTriggerQuestion,
+          as: 'triggerQuestions',
+          include: [
+            {
+              model: Question,
+              as: 'question',
+              attributes: [
+                'id',
+                'section_id',
+                'question',
+                'question_key',
+                'type',
+                'options',
+                'required'
+              ]
+            }
+          ]
         }
       ],
       order: [['createdAt', 'DESC']]

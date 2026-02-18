@@ -238,19 +238,12 @@ class BookingEmailDataService {
       console.log(`   Trigger Type: ${trigger.type}`);
       
       const triggerQuestions = trigger.triggerQuestions || [];
+      const triggerConditions = trigger.trigger_conditions || null;  // ADD
+
       console.log(`   Trigger Questions: ${triggerQuestions.length}`);
+      console.log(`   Trigger Conditions: ${JSON.stringify(triggerConditions)}`);  // ADD
 
-      if (triggerQuestions.length === 0) {
-        console.log('   ⚠️ No trigger conditions specified - auto-pass');
-        return {
-          shouldSend: true,
-          reason: 'No trigger conditions specified',
-          matchedAnswers: {},
-          evaluationDetails: []
-        };
-      }
-
-      // ✨ OPTIMIZED: Use existing booking data if provided
+      // ADD: Check booking status condition FIRST (before the no-questions shortcut)
       const bookingData = typeof bookingOrId === 'object' && bookingOrId !== null
         ? bookingOrId
         : await this.fetchBookingData(bookingOrId);
@@ -260,6 +253,46 @@ class BookingEmailDataService {
         return {
           shouldSend: false,
           reason: 'Booking not found',
+          matchedAnswers: {},
+          evaluationDetails: []
+        };
+      }
+
+      // ADD: Evaluate booking status condition
+      if (triggerConditions?.booking_status?.length > 0) {
+        let currentStatusName = null;
+        try {
+          const statusObj = typeof bookingData.status === 'string'
+            ? JSON.parse(bookingData.status)
+            : bookingData.status;
+          currentStatusName = statusObj?.name;
+        } catch (e) {
+          currentStatusName = bookingData.status_name || null;
+        }
+
+        console.log(`   📋 Booking status: "${currentStatusName}"`);
+        console.log(`   📋 Required statuses: [${triggerConditions.booking_status.join(', ')}]`);
+
+        if (!currentStatusName || !triggerConditions.booking_status.includes(currentStatusName)) {
+          console.log('   ❌ Booking status condition NOT met');
+          return {
+            shouldSend: false,
+            reason: `Booking status "${currentStatusName}" not in required statuses [${triggerConditions.booking_status.join(', ')}]`,
+            matchedAnswers: {},
+            evaluationDetails: []
+          };
+        }
+        console.log('   ✅ Booking status condition met');
+      }
+
+      // EXISTING: If no trigger questions, pass (status already checked above)
+      if (triggerQuestions.length === 0) {
+        console.log('   ⚠️ No question conditions specified - passing (status check already done)');
+        return {
+          shouldSend: true,
+          reason: triggerConditions?.booking_status?.length 
+            ? `Booking status condition met: ${bookingData.status_name || ''}` 
+            : 'No trigger conditions specified',
           matchedAnswers: {},
           evaluationDetails: []
         };
@@ -561,15 +594,11 @@ class BookingEmailDataService {
     }
   }
 
-  /**
-   * ✨ OPTIMIZED: Evaluate and send with booking object
-   */
   async sendWithTriggerEvaluation(bookingOrId, trigger, additionalData = {}) {
     try {
       console.log('\n📧 Send with trigger evaluation...');
       console.log(`   Trigger ID: ${trigger.id}, Type: ${trigger.type}`);
       
-      // ✨ OPTIMIZED: Fetch booking data ONCE here if needed
       const bookingData = typeof bookingOrId === 'object' && bookingOrId !== null
         ? bookingOrId
         : await this.fetchBookingData(bookingOrId);
@@ -584,7 +613,6 @@ class BookingEmailDataService {
         };
       }
 
-      // ✨ OPTIMIZED: Pass booking object to processEmailTrigger
       const result = await this.processEmailTrigger(bookingData, trigger, additionalData);
 
       if (!result.shouldSend) {
@@ -597,21 +625,96 @@ class BookingEmailDataService {
         };
       }
 
-      // Determine recipient
-      let recipient;
+      // ✅ Determine recipient(s) based on trigger type
+      let recipients = [];
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      
       if (trigger.type === 'internal') {
-        recipient = trigger.recipient;
-        console.log(`   📬 Internal email to: ${recipient}`);
+        // Internal emails go to configured staff addresses (may be comma-separated)
+        const recipientString = trigger.recipient;
+        console.log(`   📬 Internal email to: ${recipientString}`);
+        
+        // ✨ Split comma-separated emails
+        if (recipientString && recipientString.includes(',')) {
+          recipients = recipientString.split(',').map(email => email.trim()).filter(email => email);
+          console.log(`   📧 Split into ${recipients.length} recipients`);
+        } else {
+          recipients = recipientString ? [recipientString.trim()] : [];
+        }
+        
       } else if (trigger.type === 'external') {
-        const matchedAnswerKey = Object.keys(result.evaluation.matchedAnswers)[0];
-        recipient = result.evaluation.matchedAnswers[matchedAnswerKey];
-        console.log(`   📬 External email to: ${recipient} (from answer)`);
+        // ✅ For external triggers:
+        // 1. Try to get email from matched answer (coordinator/manager email)
+        // 2. Validate it's actually an email address
+        // 3. Fallback to guest email if not valid
+        
+        if (result.evaluation.matchedAnswers && Object.keys(result.evaluation.matchedAnswers).length > 0) {
+          const matchedAnswerKey = Object.keys(result.evaluation.matchedAnswers)[0];
+          const matchedAnswerValue = result.evaluation.matchedAnswers[matchedAnswerKey];
+          
+          console.log(`   🔍 Checking matched answer: "${matchedAnswerValue}"`);
+          
+          // Check if matched answer is a valid email (or comma-separated emails)
+          if (matchedAnswerValue) {
+            if (matchedAnswerValue.includes(',')) {
+              // Multiple emails in the answer
+              recipients = matchedAnswerValue.split(',').map(email => email.trim()).filter(email => email && emailRegex.test(email));
+              if (recipients.length > 0) {
+                console.log(`   📬 External email to ${recipients.length} coordinator(s): ${recipients.join(', ')}`);
+              }
+            } else if (emailRegex.test(matchedAnswerValue)) {
+              // Single valid email
+              recipients = [matchedAnswerValue.trim()];
+              console.log(`   📬 External email to coordinator: ${matchedAnswerValue}`);
+            } else {
+              console.log(`   ⚠️ Matched answer is not a valid email: "${matchedAnswerValue}"`);
+            }
+          }
+        }
+        
+        // Fallback to guest email if no valid email from matched answer
+        if (recipients.length === 0) {
+          const guestEmail = result.emailData?.guest_email || result.emailData?.email;
+          
+          if (guestEmail && emailRegex.test(guestEmail)) {
+            recipients = [guestEmail.trim()];
+            console.log(`   🔄 Falling back to guest email: ${guestEmail}`);
+          } else {
+            console.log('   ❌ No valid guest email found in emailData');
+            return {
+              sent: false,
+              reason: 'No recipient email found (neither coordinator nor guest)',
+              recipient: null,
+              evaluation: result.evaluation
+            };
+          }
+        }
+        
       } else {
-        recipient = trigger.recipient;
-        console.log(`   📬 Email to: ${recipient}`);
+        // Default fallback
+        const recipientString = trigger.recipient;
+        if (recipientString && recipientString.includes(',')) {
+          recipients = recipientString.split(',').map(email => email.trim()).filter(email => email);
+        } else {
+          recipients = recipientString ? [recipientString.trim()] : [];
+        }
+        console.log(`   📬 Email to: ${recipients.join(', ')}`);
       }
 
-      if (!recipient) {
+      // ✅ Validate all recipients
+      const invalidRecipients = recipients.filter(email => !email || !emailRegex.test(email));
+      
+      if (invalidRecipients.length > 0) {
+        console.log(`   ❌ Invalid recipient email address(es): ${invalidRecipients.join(', ')}`);
+        return {
+          sent: false,
+          reason: `Invalid recipient email: ${invalidRecipients.join(', ')}`,
+          recipient: invalidRecipients.join(', '),
+          evaluation: result.evaluation
+        };
+      }
+
+      if (recipients.length === 0) {
         console.log('   ❌ No recipient found');
         return {
           sent: false,
@@ -632,19 +735,55 @@ class BookingEmailDataService {
         };
       }
 
-      console.log(`   📨 Queueing email to ${recipient} with template ${templateId}...`);
+      // ✨ Send to each recipient
+      const sentResults = [];
+      for (const recipient of recipients) {
+        console.log(`   📨 Queueing email to ${recipient} with template ${templateId}...`);
+        
+        try {
+          await this.queueEmail(recipient, templateId, result.emailData);
+          sentResults.push({ recipient, success: true });
+          console.log(`   ✅ Queued for ${recipient}`);
+        } catch (error) {
+          console.error(`   ❌ Failed to queue email to ${recipient}:`, error);
+          sentResults.push({ recipient, success: false, error: error.message });
+        }
+      }
 
-      // Queue email
-      await this.queueEmail(recipient, templateId, result.emailData);
+      const successfulSends = sentResults.filter(r => r.success);
+      const failedSends = sentResults.filter(r => !r.success);
 
-      console.log('   ✅ Email queued successfully!');
-
-      return {
-        sent: true,
-        reason: 'Email queued successfully',
-        recipient,
-        evaluation: result.evaluation
-      };
+      if (successfulSends.length === recipients.length) {
+        // All successful
+        console.log(`   ✅ Email queued successfully to all ${recipients.length} recipient(s)!`);
+        return {
+          sent: true,
+          reason: `Email queued successfully to ${recipients.length} recipient(s)`,
+          recipient: recipients.join(', '),
+          evaluation: result.evaluation,
+          sentResults
+        };
+      } else if (successfulSends.length > 0) {
+        // Partial success
+        console.log(`   ⚠️ Partially sent: ${successfulSends.length}/${recipients.length} successful`);
+        return {
+          sent: true,
+          reason: `Sent to ${successfulSends.length}/${recipients.length} recipients. Failed: ${failedSends.map(f => f.recipient).join(', ')}`,
+          recipient: recipients.join(', '),
+          evaluation: result.evaluation,
+          sentResults
+        };
+      } else {
+        // All failed
+        console.log(`   ❌ All sends failed`);
+        return {
+          sent: false,
+          reason: `Failed to send to all recipients: ${failedSends.map(f => f.error).join('; ')}`,
+          recipient: recipients.join(', '),
+          evaluation: result.evaluation,
+          sentResults
+        };
+      }
 
     } catch (error) {
       console.error('❌ Error in sendWithTriggerEvaluation:', error);
@@ -794,8 +933,6 @@ class BookingEmailDataService {
       throw error;
     }
   }
-
-  // ... rest of the helper methods (addSystemMetadata, addGuestData, etc.) remain the same ...
   
   addSystemMetadata(emailData, bookingData) {
     emailData._booking_id = bookingData.id;
@@ -877,6 +1014,94 @@ class BookingEmailDataService {
     }
   }
 
+  /**
+   * ✨ NEW: Format answer as a display-safe string for simple {{tag}} Handlebars usage.
+   * 
+   * Unlike formatAnswerForEmail (which preserves arrays/objects for #each loops),
+   * this always returns a string so {{tag}} never renders as [object Object].
+   * 
+   * Array of strings  → "Item 1, Item 2, Item 3"
+   * Array of objects  → extracts label/name/value/text property, joins with ", "
+   * Object            → JSON.stringify fallback
+   * Primitive         → String(value)
+   */
+  formatAnswerForDisplay(answer) {
+    if (answer === null || answer === undefined) {
+      return '';
+    }
+
+    if (typeof answer === 'boolean') {
+      return answer ? 'Yes' : 'No';
+    }
+
+    // Try to parse JSON strings first (answers stored as "[...]" or "{...}" in DB)
+    let parsed = answer;
+    if (typeof answer === 'string') {
+      if ((answer.startsWith('[') && answer.endsWith(']')) ||
+          (answer.startsWith('{') && answer.endsWith('}'))) {
+        try {
+          parsed = JSON.parse(answer);
+        } catch (e) {
+          // Not valid JSON - fall through to string handling below
+        }
+      }
+    }
+
+    // ✨ Handle service-selection object map: { "service-key": { selected: bool, subOptions: [] } }
+    // This is the format used by checkbox-with-suboptions question types
+    if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+      const entries = Object.entries(parsed);
+      
+      // Detect if this is a service map (values have a "selected" property)
+      const isServiceMap = entries.length > 0 && 
+        entries.every(([, v]) => typeof v === 'object' && v !== null && 'selected' in v);
+      
+      if (isServiceMap) {
+        const selectedServices = entries
+          .filter(([, v]) => v.selected === true)
+          .map(([key, v]) => {
+            // Convert slug key to readable label: "gym-at-sargood" → "Gym At Sargood"
+            const label = key
+              .split('-')
+              .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+              .join(' ');
+            
+            // Append any selected sub-options if present
+            if (Array.isArray(v.subOptions) && v.subOptions.length > 0) {
+              const subLabels = v.subOptions.map(sub => {
+                if (typeof sub === 'object' && sub !== null) {
+                  return sub.label || sub.name || sub.value || JSON.stringify(sub);
+                }
+                return String(sub);
+              });
+              return `${label} (${subLabels.join(', ')})`;
+            }
+            
+            return label;
+          });
+        
+        return selectedServices.length > 0 ? selectedServices.join(', ') : 'None selected';
+      }
+
+      // Generic object: try common label properties, fall back to JSON
+      return parsed.label || parsed.name || parsed.value || parsed.text || JSON.stringify(parsed);
+    }
+
+    // Flatten simple arrays to comma-joined string
+    if (Array.isArray(parsed)) {
+      return parsed.map(item => {
+        if (item === null || item === undefined) return '';
+        if (typeof item === 'object') {
+          return item.label || item.name || item.value || item.text || JSON.stringify(item);
+        }
+        return String(item);
+      }).filter(Boolean).join(', ');
+    }
+
+    // Plain string or number
+    return String(parsed).trim();
+  }
+
   async addPropertyData(emailData) {
     try {
       const logoPath = path.join(process.env.APP_ROOT || process.cwd(), 'public', 'sargood-logo-full.svg');
@@ -905,10 +1130,8 @@ class BookingEmailDataService {
       return;
     }
 
-    // ✅ This will now work because we're importing the CLASS
     const MERGE_TAG_MAP = EmailTemplateMappingService.MERGE_TAG_MAP;
 
-    // Check if MERGE_TAG_MAP exists (defensive programming)
     if (MERGE_TAG_MAP && typeof MERGE_TAG_MAP === 'object') {
       Object.entries(MERGE_TAG_MAP).forEach(([questionKey, mergeTag]) => {
         if (questionKey === 'property_name' || questionKey === 'property_address' || 
@@ -923,7 +1146,6 @@ class BookingEmailDataService {
       });
     }
 
-    // ✅ Process all QaPairs regardless of MERGE_TAG_MAP
     qaPairs.forEach(qaPair => {
       const questionKey = qaPair.Question?.question_key || qaPair.question_key;
       const sectionId = qaPair.section_id;
@@ -931,22 +1153,79 @@ class BookingEmailDataService {
       
       if (!questionKey) return;
 
-      // Add answer by question_key
+      const formattedAnswer = this.formatAnswerForEmail(answer);
+      const displayValue = this.formatAnswerForDisplay(answer);
+
+      // ✨ Calculate _raw data ONCE and reuse for both hyphenated and underscore versions
+      let rawData = null;
+      
+      if (Array.isArray(formattedAnswer)) {
+        rawData = formattedAnswer;
+      } else if (typeof formattedAnswer === 'object' && formattedAnswer !== null) {
+        // Check if it's a service map and create filtered array
+        const entries = Object.entries(formattedAnswer);
+        const isServiceMap = entries.length > 0 &&
+          entries.every(([, v]) => typeof v === 'object' && v !== null && 'selected' in v);
+        
+        if (isServiceMap) {
+          rawData = entries
+            .filter(([, v]) => v.selected === true)
+            .map(([key, v]) => ({
+              key,
+              label: key.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
+              subOptions: (v.subOptions || []).map(subOpt => {
+                // Convert slug to readable label
+                if (typeof subOpt === 'string') {
+                  return subOpt.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+                }
+                // If it's an object, use its label property
+                return subOpt.label || subOpt.name || subOpt.value || String(subOpt);
+              })
+            }));
+        } else {
+          rawData = formattedAnswer;
+        }
+      }
+
+      // Add answer by question_key (hyphenated version)
       if (!emailData[questionKey] && answer !== null && answer !== undefined) {
-        emailData[questionKey] = this.formatAnswerForEmail(answer);
+        emailData[questionKey] = displayValue;
+
+        // Store _raw version if we have structured data
+        if (rawData !== null) {
+          emailData[`${questionKey}_raw`] = rawData;
+        }
+      }
+
+      // ✅ Also store underscore version with SAME data
+      if (questionKey.includes('-')) {
+        const underscoreKey = questionKey.replace(/-/g, '_');
+        if (!emailData[underscoreKey] && answer !== null && answer !== undefined) {
+          emailData[underscoreKey] = displayValue;
+
+          // ✅ Reuse the same rawData we calculated above
+          if (rawData !== null) {
+            emailData[`${underscoreKey}_raw`] = rawData;
+          }
+        }
       }
 
       // Add section-specific keys if needed
       if (includeSectionSpecific && sectionId) {
         const sectionSpecificKey = `${questionKey}_s${sectionId}`;
-        emailData[sectionSpecificKey] = this.formatAnswerForEmail(answer);
+        emailData[sectionSpecificKey] = displayValue;
+
+        if (questionKey.includes('-')) {
+          const underscoreSectionKey = `${questionKey.replace(/-/g, '_')}_s${sectionId}`;
+          emailData[underscoreSectionKey] = displayValue;
+        }
       }
 
       // Add sanitized question text as key
       if (qaPair.Question?.question) {
         const textKey = this.sanitizeQuestionText(qaPair.Question.question);
         if (!emailData[textKey]) {
-          emailData[textKey] = this.formatAnswerForEmail(answer);
+          emailData[textKey] = displayValue;
         }
       }
     });

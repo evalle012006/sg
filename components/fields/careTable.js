@@ -178,7 +178,7 @@ const generateDateRange = (startDate, endDate) => {
   return dates;
 };
 
-const transformDataForSaving = (tableData, defaultValues = null, careVaries = false) => {
+const transformDataForSaving = (tableData, defaultValues = null, careVaries = false, dates = []) => {
   const result = {
     careData: [],
     defaultValues: defaultValues || {
@@ -188,6 +188,62 @@ const transformDataForSaving = (tableData, defaultValues = null, careVaries = fa
     },
     careVaries: careVaries
   };
+  
+  // Handle edge case: no dates provided
+  if (!dates || dates.length === 0) {
+    console.warn('⚠️ transformDataForSaving: No dates provided, saving all periods');
+    // Fallback to old behavior if dates not available
+    Object.entries(tableData).forEach(([date, periods]) => {
+      if (!date || date === 'undefined-undefined-undefined') return;
+      
+      let formattedDate;
+      if (date.includes('-')) {
+        const [year, month, day] = date.split('-');
+        formattedDate = `${day}/${month}/${year}`;
+      } else {
+        formattedDate = date;
+      }
+      
+      Object.entries(periods).forEach(([period, values]) => {
+        const carersToUse = !careVaries && defaultValues?.[period]?.carers 
+          ? defaultValues[period].carers 
+          : values.carers;
+        
+        if (carersToUse && carersToUse.trim() !== '' && !isNoCareRequired(carersToUse)) {
+          let timeToSave = values.time;
+          let durationToSave = values.duration;
+          
+          if (!careVaries && defaultValues?.[period]) {
+            timeToSave = defaultValues[period].time || values.time;
+            durationToSave = defaultValues[period].duration || values.duration;
+          }
+          
+          result.careData.push({
+            care: period,
+            date: formattedDate,
+            values: {
+              carers: carersToUse,
+              time: timeToSave,
+              duration: durationToSave
+            }
+          });
+        }
+      });
+    });
+    return result;
+  }
+  
+  // Determine first and last dates for filtering
+  const firstDateStr = formatDateLocal(dates[0]);
+  const lastDateStr = formatDateLocal(dates[dates.length - 1]);
+  const isSameDayCheckInOut = dates.length === 1 && firstDateStr === lastDateStr;
+  
+  console.log('💾 transformDataForSaving - Check-in/out dates:', {
+    firstDate: firstDateStr,
+    lastDate: lastDateStr,
+    totalDates: dates.length,
+    isSameDayCheckInOut: isSameDayCheckInOut
+  });
   
   Object.entries(tableData).forEach(([date, periods]) => {
     if (!date || date === 'undefined-undefined-undefined') return;
@@ -200,9 +256,35 @@ const transformDataForSaving = (tableData, defaultValues = null, careVaries = fa
       formattedDate = date;
     }
     
+    // Check if this is check-in or checkout date
+    const isCheckInDate = date === firstDateStr;
+    const isCheckOutDate = date === lastDateStr;
+    
     Object.entries(periods).forEach(([period, values]) => {
+      // ✅ EDGE CASE: Same-day check-in and checkout
+      // Allow only afternoon care for same-day stays
+      if (isSameDayCheckInOut) {
+        if (period === 'morning' || period === 'evening') {
+          console.log(`🚫 Same-day stay: Skipping ${period} care for ${formattedDate}`);
+          return; // Only allow afternoon for same-day stays
+        }
+      } 
+      // ✅ NORMAL CASE: Multi-day stays
+      else {
+        // Filter out morning care on check-in date
+        if (isCheckInDate && period === 'morning') {
+          console.log(`🚫 Skipping morning care for check-in date: ${formattedDate}`);
+          return;
+        }
+        
+        // Filter out evening care on checkout date
+        if (isCheckOutDate && (period === 'evening' || period === 'afternoon')) {
+          console.log(`🚫 Skipping afternoon and evening care for check-out date: ${formattedDate}`);
+          return;
+        }
+      }
+      
       // Determine the carers value to use
-      // When careVaries is false, prefer defaultValues
       const carersToUse = !careVaries && defaultValues?.[period]?.carers 
         ? defaultValues[period].carers 
         : values.carers;
@@ -210,13 +292,10 @@ const transformDataForSaving = (tableData, defaultValues = null, careVaries = fa
       // Only include periods that require care
       if (carersToUse && carersToUse.trim() !== '' && !isNoCareRequired(carersToUse)) {
         
-        // When careVaries is false, use the time/duration from defaultValues
-        // because that's what the user actually sees and edits
         let timeToSave = values.time;
         let durationToSave = values.duration;
         
         if (!careVaries && defaultValues?.[period]) {
-          // Use defaultValues since that's what's displayed when careVaries is false
           timeToSave = defaultValues[period].time || values.time;
           durationToSave = defaultValues[period].duration || values.duration;
         }
@@ -238,7 +317,11 @@ const transformDataForSaving = (tableData, defaultValues = null, careVaries = fa
     careDataLength: result.careData.length,
     hasDefaultValues: !!result.defaultValues,
     careVaries: result.careVaries,
-    firstEntry: result.careData[0] || null
+    firstEntry: result.careData[0] || null,
+    lastEntry: result.careData[result.careData.length - 1] || null,
+    checkInDate: firstDateStr,
+    checkOutDate: lastDateStr,
+    isSameDayStay: isSameDayCheckInOut
   });
   
   return result;
@@ -345,20 +428,26 @@ const getActivePeriods = (date, dates) => {
     return ['morning', 'afternoon', 'evening'];
   }
   
-  // Use local date formatting instead of toISOString()
   const dateStr = formatDateLocal(date);
   const firstDateStr = formatDateLocal(dates[0]);
   const lastDateStr = formatDateLocal(dates[dates.length - 1]);
   
+  // ✅ EDGE CASE: Same-day check-in and checkout
+  const isSameDayCheckInOut = dates.length === 1 && firstDateStr === lastDateStr;
+  if (isSameDayCheckInOut) {
+    return ['afternoon']; // Only afternoon for same-day stays
+  }
+  
+  // ✅ NORMAL CASES
   if (dateStr === firstDateStr) {
-    return ['afternoon', 'evening'];
+    return ['afternoon', 'evening']; // Check-in: no morning
   }
   
   if (dateStr === lastDateStr) {
-    return ['morning'];
+    return ['morning']; // Checkout: no evening and afternoon
   }
   
-  return ['morning', 'afternoon', 'evening'];
+  return ['morning', 'afternoon', 'evening']; // Middle days: all periods
 };
 
 const validateAllFieldsFilled = (tableData, dates, careVaries, defaultValues) => {
@@ -713,7 +802,8 @@ export default function CareTable({
             afternoon: { carers: '', time: '', duration: '' },
             evening: { carers: '', time: '', duration: '' }
           }, 
-          extractedCareVaries
+          extractedCareVaries,
+          dates
         );
         lastSentDataRef.current = JSON.stringify(initialTransformed);
       }
@@ -791,7 +881,8 @@ export default function CareTable({
         const incomingTransformed = transformDataForSaving(
           existingData,
           extractedDefaults || defaultValues,
-          extractedCareVaries ?? careVaries
+          extractedCareVaries ?? careVaries,
+          dates
         );
         lastSentDataRef.current = JSON.stringify(incomingTransformed);
       }
@@ -905,7 +996,7 @@ export default function CareTable({
       }
       
       autoSaveTimeoutRef.current = setTimeout(() => {
-          const transformedData = transformDataForSaving(tableData, defaultValues, careVaries);
+          const transformedData = transformDataForSaving(tableData, defaultValues, careVaries, dates);
           const transformedString = JSON.stringify(transformedData);
           
           if (transformedString === lastSentDataRef.current) {
@@ -1120,7 +1211,7 @@ export default function CareTable({
     // This ensures validation passes for the checkbox question
     if (onChange) {
         // Force an immediate onChange call to update the parent form
-        const currentData = transformDataForSaving(tableData, defaultValues, varies);
+        const currentData = transformDataForSaving(tableData, defaultValues, varies, dates);
         onChange(currentData, false); // false = no errors
     }
     
@@ -1153,7 +1244,7 @@ export default function CareTable({
         });
         setShowDetailedTable(false);
     }
-  }, [defaultValues, tableData, onChange]);
+  }, [defaultValues, tableData, onChange, dates]);
 
   const formatDate = (date) => {
     return new Intl.DateTimeFormat('en-AU', {

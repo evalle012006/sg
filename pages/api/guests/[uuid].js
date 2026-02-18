@@ -19,6 +19,7 @@ import {
     getAnswerByQuestionKey,
     findByQuestionKeyWithFallback
 } from "../../../services/booking/question-helper";
+import { BookingService } from "../../../services/booking/booking";
 
 export default async function handler(req, res) {
     const dateRangeRegEx = /^20\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])\s-\s20\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
@@ -104,10 +105,16 @@ export default async function handler(req, res) {
         }],
     });
 
+    const bookingService = new BookingService();
     let bookings = [];
     
     for (let i = 0; i < guestBookings.length; i++) {
         let currentBooking = { ...guestBookings[i] };
+        const template = await bookingService.getBookingTemplate(currentBooking, false);
+        let templateId = null;
+        if (template) {
+            templateId = template.id;
+        }
 
         let check_in_date = null;
         let check_out_date = null;
@@ -193,7 +200,8 @@ export default async function handler(req, res) {
             check_in_date, 
             check_out_date, 
             ndisNumber, 
-            icareNumber 
+            icareNumber,
+            templateId
         });
     }
 

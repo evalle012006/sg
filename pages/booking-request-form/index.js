@@ -6038,7 +6038,7 @@ const BookingRequestForm = () => {
             setCurrentTemplateId(templateId);
             const isOldTemplate = templateId <= 33;
 
-            let summaryOfStay = isOldTemplate ? await createSummaryDataV1(data) : { ...summaryData };
+            let summaryOfStay = isOldTemplate ? await createSummaryDataV1(data.booking) : { ...summaryData };
 
             let bookingType = BOOKING_TYPES.FIRST_TIME_GUEST;
             

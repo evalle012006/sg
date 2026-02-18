@@ -553,25 +553,46 @@ class EmailTriggerService {
         const trigger = result.trigger;
         
         if (trigger.type === 'internal') {
+            // Internal emails go to staff/configured addresses
             return trigger.recipient;
         }
 
-        if (trigger.type === 'external' && result.evaluation.matchedAnswers) {
-            const matchedAnswerKey = Object.keys(result.evaluation.matchedAnswers)[0];
-            return result.evaluation.matchedAnswers[matchedAnswerKey];
+        if (trigger.type === 'external') {
+            // External emails ALWAYS go to the guest
+            // The matched answers determine IF to send, not WHO to send to
+            if (result.emailData?.guest_email) {
+                return result.emailData.guest_email;
+            }
+            
+            // Fallback to other email fields if guest_email not available
+            if (result.emailData?.email) {
+                return result.emailData.email;
+            }
+            
+            console.warn('⚠️ External trigger has no guest email in emailData');
+            return null;
         }
 
         return trigger.recipient;
     }
 
-    determineRecipientFromEvaluation(trigger, evaluation) {
+    determineRecipientFromEvaluation(trigger, evaluation, emailData = null) {
         if (trigger.type === 'internal') {
             return trigger.recipient;
         }
 
-        if (trigger.type === 'external' && evaluation.matchedAnswers) {
-            const matchedAnswerKey = Object.keys(evaluation.matchedAnswers)[0];
-            return evaluation.matchedAnswers[matchedAnswerKey];
+        if (trigger.type === 'external') {
+            // External triggers send to guest email
+            if (emailData?.guest_email) {
+                return emailData.guest_email;
+            }
+            
+            if (emailData?.email) {
+                return emailData.email;
+            }
+            
+            console.warn('⚠️ External trigger has no guest email available');
+            return null;
         }
 
         return trigger.recipient;

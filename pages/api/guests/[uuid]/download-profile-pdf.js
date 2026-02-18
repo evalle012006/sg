@@ -41,7 +41,7 @@ export default async function handler(req, res) {
 
     // Read logo files using path utility
     const publicDir = getPublicDir();
-    const logoPath = path.join(publicDir, 'sargood-logo.png');
+    const logoPath = path.join(publicDir, 'images/sargood-logo.png');
     const logoBase64 = await fs.readFile(logoPath, { encoding: 'base64' });
     const logoFooterPath = path.join(publicDir, 'sargood-footer-image.jpg');
     const logoFooterBase64 = await fs.readFile(logoFooterPath, { encoding: 'base64' });

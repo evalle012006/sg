@@ -11,6 +11,7 @@ import { useAutofillDetection } from '../../hooks/useAutofillDetection';
 import TooltipIcon from "../ui-v2/TooltipIcon";
 import parse from 'html-react-parser';
 import { processCheckboxAnswerWithNoneLogic } from "../../utilities/checkboxHelpers";
+import { stripSimpleParagraphTags } from "../../utilities/common";
 
 const QuestionPage = ({ 
     uuid,
@@ -918,9 +919,11 @@ const QuestionPage = ({
                                                 }
                                                 
                                                 return false;
-                                            })
-                                            .map((question, index) => {
+                                        }).map((question, index) => {
                                             let q = { ...question };
+
+                                            if (q.question) q.question = stripSimpleParagraphTags(q.question);
+
                                             const options = typeof q.options === 'string' ? JSON.parse(q.options) : q.options;
                                             const details = typeof q.details === 'string' ? JSON.parse(q.details) : q.details;
                                             const url = q.url ? q.url : '';

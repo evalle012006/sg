@@ -24,7 +24,9 @@ export default function GoalTable(props) {
     // If props.value is a string, try to parse it
     if (typeof props.value === 'string') {
       try {
-        return JSON.parse(props.value);
+        const parsed = JSON.parse(props.value);
+        // Ensure we return an array even if parsed is null or not an array
+        return Array.isArray(parsed) ? parsed : [];
       } catch (e) {
         console.error("Error parsing props.value:", e);
         return [];

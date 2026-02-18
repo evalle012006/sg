@@ -359,24 +359,26 @@ const SummaryOfStayV1 = ({
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {summary.packageCosts.details.map((detail, index) => (
-                    <tr key={index} className="hover:bg-gray-50">
-                      <td className="px-4 py-3 text-sm text-gray-900">
-                        {detail.description || detail.package}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-600">
-                        {detail.lineItem}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-right text-gray-900">
-                        {formatAUD(detail.rate || detail.price)}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-right text-gray-600">
-                        {detail.quantity || detail.nights} {detail.rateCategoryQtyLabel || 'nights'}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-right font-medium text-gray-900">
-                        {formatAUD(detail.total || detail.subtotal)}
-                      </td>
-                    </tr>
+                  {summary.packageCosts.details
+                    .filter(detail => detail.quantity > 0)
+                    .map((detail, index) => (
+                      <tr key={index} className="hover:bg-gray-50">
+                        <td className="px-4 py-3 text-sm text-gray-900">
+                          {detail.description || detail.package}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-600">
+                          {detail.lineItem}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-right text-gray-900">
+                          {formatAUD(detail.rate || detail.price)}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-right text-gray-600">
+                          {detail.quantity || detail.nights} {detail.rateCategoryQtyLabel || 'nights'}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-right font-medium text-gray-900">
+                          {formatAUD(detail.total || detail.subtotal)}
+                        </td>
+                      </tr>
                   ))}
                 </tbody>
                 <tfoot className="bg-gray-50">
@@ -393,6 +395,37 @@ const SummaryOfStayV1 = ({
             </div>
           )}
         </div>
+
+        {/* Room Information */}
+        {summary.rooms && summary.rooms.length > 0 && (
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <h2 className="text-xl font-semibold mb-4 text-slate-700">
+              Selected Rooms
+            </h2>
+            <div className="space-y-3">
+              {summary.rooms.map((room, index) => (
+                <div key={index} className="flex justify-between items-center border-b border-gray-100 pb-2 last:border-b-0">
+                  <div>
+                    <span className="text-gray-900 font-medium">
+                      {room.room || room.name}
+                    </span>
+                    {room.type === 'studio' && (
+                      <span className="ml-2 text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">Studio</span>
+                    )}
+                  </div>
+                  <span className="text-gray-600">
+                    {formatAUD(room.price || room.price_per_night)} per night
+                  </span>
+                </div>
+              ))}
+            </div>
+            {summary.rooms.every(r => r.type === 'studio') && (
+              <p className="text-sm text-gray-500 mt-3 italic">
+                Studio rooms are included in the package cost
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Room Costs */}
         {(totalRoomCosts.roomUpgrade > 0 || totalRoomCosts.additionalRoom > 0) && (
@@ -466,11 +499,17 @@ const SummaryOfStayV1 = ({
               {summary.data.ndisQuestions.slice(0, 3).map((item, index) => (
                 <div key={index} className="border-b border-gray-200 pb-3 last:border-b-0">
                   <p className="text-sm font-medium text-gray-700 mb-1">{item.question}</p>
-                  <p className="text-sm text-gray-600">
-                    {typeof item.answer === 'object' 
-                      ? JSON.stringify(item.answer) 
-                      : item.answer}
-                  </p>
+                  <div className="text-sm text-gray-600">
+                    {Array.isArray(item.answer) ? (
+                      <ul className="list-disc list-inside space-y-1">
+                        {item.answer.map((ans, i) => (
+                          <li key={i}>{ans}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p>{item.answer}</p>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -482,7 +521,7 @@ const SummaryOfStayV1 = ({
           <div ref={signatureSectionRef} className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <h2 className="text-xl font-semibold mb-4 text-slate-700">Agreement Signature</h2>
             <p className="text-gray-700 mb-4">
-              I have read, understood and agreed to Sargood on Collaroy's Terms and Conditions
+              I have read, understood and agreed to Sargood on Collaroy&apos;s Terms and Conditions
             </p>
 
             {signatureValidationError && (

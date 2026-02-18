@@ -47,26 +47,6 @@ function EmailTemplateList() {
     }
   };
 
-  const handleSearch = (e) => {
-    const query = e.target.value.toLowerCase();
-    setSearchQuery(query);
-
-    if (query.trim() === '') {
-      setIsFiltering(false);
-      return;
-    }
-
-    const filtered = templates.filter(template =>
-      template.name?.toLowerCase().includes(query) ||
-      template.subject?.toLowerCase().includes(query) ||
-      template.description?.toLowerCase().includes(query) ||
-      template.template_code?.toLowerCase().includes(query)
-    );
-
-    setFilteredData(filtered);
-    setIsFiltering(true);
-  };
-
   const handleCreateNew = () => {
     router.push({
       pathname: router.pathname,
@@ -423,22 +403,6 @@ function EmailTemplateList() {
           </div>
         </div>
       )}
-
-      {/* Search Bar */}
-      <div className="mb-6">
-        <div className="relative max-w-md">
-          <span className="absolute inset-y-0 left-0 flex items-center pl-3">
-            <Search className="h-5 w-5 text-gray-400" />
-          </span>
-          <input
-            className="w-full bg-white border border-gray-300 rounded-lg py-2.5 pl-10 pr-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            onChange={handleSearch}
-            placeholder="Search templates by name, subject, code..."
-            type="text"
-            value={searchQuery}
-          />
-        </div>
-      </div>
 
       {/* Empty State */}
       {list.length === 0 && !isLoading && (

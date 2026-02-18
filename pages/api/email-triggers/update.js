@@ -1,10 +1,3 @@
-/**
- * Update Email Trigger API
- * POST /api/email-triggers/update
- * 
- * Updates an existing email trigger with question ID references
- */
-
 import { EmailTrigger, EmailTemplate, Question, EmailTriggerQuestion } from '../../../models';
 import { sequelize } from '../../../models';
 
@@ -25,7 +18,8 @@ export default async function handler(req, res) {
       email_template_id,
       type = 'highlights',
       enabled = true,
-      trigger_questions = [] // Now expects: [{ question_id, answer }]
+      trigger_questions = [],
+      trigger_conditions = null 
     } = req.body;
 
     // Validation
@@ -34,94 +28,6 @@ export default async function handler(req, res) {
     // Validate ID for update
     if (!id) {
       errors.push('Trigger ID is required for update');
-    }
-
-    // Validate recipient email - FIXED to handle comma-separated emails
-    if (!recipient || !recipient.trim()) {
-      errors.push('Recipient email is required');
-    } else {
-      // Handle comma-separated emails
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      const emails = recipient.split(',').map(e => e.trim());
-      const invalidEmails = emails.filter(email => !emailRegex.test(email));
-      
-      if (invalidEmails.length > 0) {
-        errors.push(`Invalid email format for recipient: ${invalidEmails.join(', ')}`);
-      }
-    }
-
-    // Validate email template
-    if (!email_template_id) {
-      errors.push('Email template ID is required');
-    } else {
-      const template = await EmailTemplate.findOne({ 
-        where: { id: email_template_id } 
-      });
-      
-      if (!template) {
-        errors.push('Email template not found');
-      }
-    }
-
-    // Validate type
-    const validTypes = ['highlights', 'external', 'internal'];
-    if (!validTypes.includes(type)) {
-      errors.push(`Type must be one of: ${validTypes.join(', ')}`);
-    }
-
-    // Validate trigger questions
-    if (!Array.isArray(trigger_questions) || trigger_questions.length === 0) {
-      errors.push('At least one trigger question is required');
-    }
-
-    // Validate each trigger question and check if questions exist
-    const questionIds = [];
-    for (let i = 0; i < trigger_questions.length; i++) {
-      const tq = trigger_questions[i];
-      
-      if (!tq.question_id) {
-        errors.push(`Trigger question ${i + 1} is missing question_id`);
-        continue;
-      }
-
-      questionIds.push(tq.question_id);
-
-      // Verify question exists
-      const question = await Question.findByPk(tq.question_id);
-      if (!question) {
-        errors.push(`Question with ID ${tq.question_id} not found`);
-        continue;
-      }
-
-      // For select and radio types, answer should not be empty
-      if ((question.question_type === 'select' || question.question_type === 'radio') && !tq.answer) {
-        errors.push(`Question "${question.question}" (ID: ${tq.question_id}) requires an answer to be selected`);
-      }
-
-      // Validate answer is one of the valid options for select/radio
-      if ((question.question_type === 'select' || question.question_type === 'radio') && tq.answer) {
-        const options = question.options || [];
-        const validValues = options.map(opt => opt.value);
-        if (!validValues.includes(tq.answer)) {
-          errors.push(`Invalid answer "${tq.answer}" for question "${question.question}". Valid options: ${validValues.join(', ')}`);
-        }
-      }
-    }
-
-    // Check for duplicate question IDs
-    const uniqueQuestionIds = new Set(questionIds);
-    if (uniqueQuestionIds.size !== questionIds.length) {
-      errors.push('Duplicate question IDs are not allowed');
-    }
-
-    // Return validation errors if any
-    if (errors.length > 0) {
-      await transaction.rollback();
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Validation failed',
-        errors: errors 
-      });
     }
 
     // Check if trigger exists
@@ -138,28 +44,149 @@ export default async function handler(req, res) {
       });
     }
 
+    // ✅ CHECK: If only toggling enabled status, skip full validation
+    const isOnlyTogglingEnabled = 
+      enabled !== existingTrigger.enabled && 
+      recipient === existingTrigger.recipient &&
+      email_template_id === existingTrigger.email_template_id &&
+      type === existingTrigger.type;
+
+    if (!isOnlyTogglingEnabled) {
+      // Full validation only when actually updating the trigger configuration
+
+      // Validate recipient email if not external type
+      if (type !== 'external') {
+        if (!recipient || !recipient.trim()) {
+          errors.push('Recipient email is required');
+        } else {
+          const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+          const emails = recipient.split(',').map(e => e.trim());
+          const invalidEmails = emails.filter(email => !emailRegex.test(email));
+          
+          if (invalidEmails.length > 0) {
+            errors.push(`Invalid email format for recipient: ${invalidEmails.join(', ')}`);
+          }
+        }
+      }
+
+      // Validate email template
+      if (!email_template_id) {
+        errors.push('Email template ID is required');
+      } else {
+        const template = await EmailTemplate.findOne({ 
+          where: { id: email_template_id } 
+        });
+        
+        if (!template) {
+          errors.push('Email template not found');
+        }
+      }
+
+      // Validate type
+      const validTypes = ['highlights', 'external', 'internal'];
+      if (!validTypes.includes(type)) {
+        errors.push(`Type must be one of: ${validTypes.join(', ')}`);
+      }
+
+      // Only require trigger_questions if no status conditions are set
+      if (!Array.isArray(trigger_questions) || trigger_questions.length === 0) {
+        if (!trigger_conditions?.booking_status?.length) {
+          errors.push('At least one trigger question or booking status condition is required');
+        }
+      }
+
+      // Validate each trigger question
+      const questionIds = [];
+      for (let i = 0; i < trigger_questions.length; i++) {
+        const tq = trigger_questions[i];
+        
+        if (!tq.question_id) {
+          errors.push(`Trigger question ${i + 1} is missing question_id`);
+          continue;
+        }
+
+        questionIds.push(tq.question_id);
+
+        // Verify question exists
+        const question = await Question.findByPk(tq.question_id);
+        if (!question) {
+          errors.push(`Question with ID ${tq.question_id} not found`);
+          continue;
+        }
+
+        const questionType = question.question_type || question.type;
+
+        // For single-select types, answer should not be empty
+        if (['select', 'radio'].includes(questionType) && !tq.answer) {
+          errors.push(`Question "${question.question}" (ID: ${tq.question_id}) requires an answer to be selected`);
+        }
+
+        // Validate answer for single-select
+        if (['select', 'radio'].includes(questionType) && tq.answer) {
+          const options = question.options || [];
+          const validValues = options.map(opt => opt.value || opt.label);
+          if (!validValues.includes(tq.answer)) {
+            errors.push(`Invalid answer "${tq.answer}" for question "${question.question}". Valid options: ${validValues.join(', ')}`);
+          }
+        }
+
+        // Validate answer for multi-select
+        if (['checkbox', 'service-cards', 'multi-select'].includes(questionType) && tq.answer) {
+          const options = question.options || [];
+          const validValues = options.map(opt => opt.value || opt.label);
+          const selectedValues = tq.answer.split(',').map(v => v.trim()).filter(Boolean);
+          
+          const invalidValues = selectedValues.filter(val => !validValues.includes(val));
+          if (invalidValues.length > 0) {
+            errors.push(`Invalid answer(s) for question "${question.question}": ${invalidValues.join(', ')}. Valid options: ${validValues.join(', ')}`);
+          }
+        }
+      }
+
+      // Check for duplicate question IDs
+      const uniqueQuestionIds = new Set(questionIds);
+      if (uniqueQuestionIds.size !== questionIds.length) {
+        errors.push('Duplicate question IDs are not allowed');
+      }
+    }
+
+    // Return validation errors if any
+    if (errors.length > 0) {
+      await transaction.rollback();
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Validation failed',
+        errors: errors 
+      });
+    }
+
     // Update the email trigger
     await existingTrigger.update({
       recipient: recipient.trim(),
       email_template_id: email_template_id,
       type: type,
-      enabled: enabled
+      enabled: enabled,
+      trigger_conditions: trigger_conditions || null,
+      trigger_questions: null  // Clear old JSON field
     }, { transaction });
 
-    // Remove all existing trigger question associations
-    await EmailTriggerQuestion.destroy({
-      where: { email_trigger_id: id },
-      transaction
-    });
+    // Only update trigger questions if not just toggling enabled
+    if (!isOnlyTogglingEnabled && trigger_questions.length > 0) {
+      // Remove all existing trigger question associations
+      await EmailTriggerQuestion.destroy({
+        where: { email_trigger_id: id },
+        transaction
+      });
 
-    // Create new trigger question associations
-    const triggerQuestionRecords = trigger_questions.map(tq => ({
-      email_trigger_id: id,
-      question_id: tq.question_id,
-      answer: tq.answer || null
-    }));
+      // Create new trigger question associations
+      const triggerQuestionRecords = trigger_questions.map(tq => ({
+        email_trigger_id: id,
+        question_id: tq.question_id,
+        answer: tq.answer || null
+      }));
 
-    await EmailTriggerQuestion.bulkCreate(triggerQuestionRecords, { transaction });
+      await EmailTriggerQuestion.bulkCreate(triggerQuestionRecords, { transaction });
+    }
 
     // Commit the transaction
     await transaction.commit();
@@ -185,10 +212,10 @@ export default async function handler(req, res) {
       ]
     });
 
-    // Log the update for audit purposes
     console.log('Email trigger updated:', {
       id: updatedTrigger.id,
       recipient: updatedTrigger.recipient,
+      enabled: updatedTrigger.enabled,
       questions_count: trigger_questions.length
     });
 
@@ -208,28 +235,3 @@ export default async function handler(req, res) {
     });
   }
 }
-
-/**
- * Example Request Body:
- * 
- * {
- *   "id": 1,
- *   "recipient": "newemail@company.com",
- *   "email_template_id": 2,
- *   "type": "highlights",
- *   "enabled": true,
- *   "trigger_questions": [
- *     {
- *       "question_id": 5,
- *       "answer": "26-50"
- *     },
- *     {
- *       "question_id": 12,
- *       "answer": "no"
- *     }
- *   ]
- * }
- * 
- * Supports comma-separated emails for recipient field:
- * "recipient": "email1@example.com, email2@example.com, email3@example.com"
- */

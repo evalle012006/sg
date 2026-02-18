@@ -23,6 +23,7 @@ export default async function createHttpTaskWithToken(url, httpMethod, payload =
       url,
       oidcToken: {
         serviceAccountEmail,
+        audience: url,
       },
     },
   };
@@ -38,6 +39,10 @@ export default async function createHttpTaskWithToken(url, httpMethod, payload =
   }
 
   console.log('Sending task:');
+  console.log('  URL:', url);
+  console.log('  Method:', httpMethod);
+  console.log('  Audience:', url);
+  
   // Send create task request.
   const request = { parent: parent, task: task };
   const [response] = await client.createTask(request);
@@ -113,7 +118,6 @@ export async function dispatchHttpTaskHandler(type, payload = null, seconds = nu
     //     throw error;
     //   }
     // }
-    
     return createHttpTaskWithToken(url, httpMethod, payload, seconds);
   }
 }

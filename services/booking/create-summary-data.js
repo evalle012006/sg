@@ -207,6 +207,7 @@ const extractCareAnalysisData = (qaPairs, datesOfStay = null, nights = 0) => {
       let applicableCare = { morning: 0, afternoon: 0, evening: 0 };
       
       if (isCheckIn) {
+        applicableCare.afternoon = rawCare.afternoon || 0;
         applicableCare.evening = rawCare.evening || 0;
       } else if (isCheckOut) {
         applicableCare.morning = rawCare.morning || 0;

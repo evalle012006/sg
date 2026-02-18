@@ -57,11 +57,14 @@ export default async function handler(req, res) {
             if (fileExists) {
                 pdfFileUrl = await storage.getSignedUrl('exports/' + booking.uuid + '.pdf');
             }
-
+            let templateId = null;
             if (booking.Sections && booking.Sections.length > 0) {
                 try {
                     const bookingService = new BookingService();
                     const template = await bookingService.getBookingTemplate(booking, false);
+                    if (template) {
+                        templateId = template.id;
+                    }
 
                     if (template && template.Pages) {
                         templatePages = template.Pages
@@ -222,7 +225,8 @@ export default async function handler(req, res) {
                 templatePages: templatePages || [],
                 guestProfileFileUrl: booking.Guest?.profileFileUrl || null,
                 Rooms: roomsWithImages,
-                cancellationType // Add cancellation type to response
+                cancellationType,
+                templateId
             };
 
             return res.status(200).json(response);

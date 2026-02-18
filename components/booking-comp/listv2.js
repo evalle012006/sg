@@ -265,50 +265,58 @@ const fetchBookings = async (searchTerm = searchValue, invalidateCache = false) 
     }
   };
 
-  const handleDownloadPDF = async (bookingId) => {
+  const handleDownloadPDF = async (booking) => {
     toast.info('Generating PDF. Please wait...');
     try {
-      const response = await fetch(`/api/bookings/${bookingId}/download-summary-pdf-v2`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ origin: currentUser.type }),
-      });
+        const isOldTemplate = booking.templateId <= 33;
+        const apiEndpoint = isOldTemplate
+            ? `/api/bookings/${booking.uuid}/download-summary-pdf-v1`
+            : `/api/bookings/${booking.uuid}/download-summary-pdf-v2`;
+        const response = await fetch(apiEndpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ origin: currentUser.type }),
+        });
 
-      if (!response.ok) throw new Error('Failed to generate PDF');
+        if (!response.ok) throw new Error('Failed to generate PDF');
 
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `summary-of-stay-${bookingId}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `summary-of-stay-${booking.uuid}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
     } catch (error) {
       console.error('Error downloading PDF:', error);
       toast.error('Failed to download summary of stay. Please try again.');
     }
   };
 
-  const handleEmailPDF = async (bookingId) => {
+  const handleEmailPDF = async (booking) => {
     toast.info('Your email is being sent in the background. Feel free to navigate away or continue with other tasks.');
     try {
-      const response = await fetch(`/api/bookings/${bookingId}/email-summary-v2`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          adminEmail: currentUser.type === 'user' ? currentUser.email : null, 
-          origin: currentUser.type 
-        }),
-      });
-  
-      if (!response.ok) throw new Error('Failed to send email');
-      toast.success('Summary sent to your email successfully!');
+        const isOldTemplate = booking.templateId <= 33;
+        const apiEndpoint = isOldTemplate
+            ? `/api/bookings/${booking.uuid}/download-summary-pdf-v1`
+            : `/api/bookings/${booking.uuid}/download-summary-pdf-v2`;
+        const response = await fetch(apiEndpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ 
+            adminEmail: currentUser.type === 'user' ? currentUser.email : null, 
+            origin: currentUser.type 
+          }),
+        });
+    
+        if (!response.ok) throw new Error('Failed to send email');
+        toast.success('Summary sent to your email successfully!');
     } catch (error) {
       console.error('Error sending email:', error);
       toast.error('Failed to send email. Please try again.');
@@ -807,7 +815,7 @@ const fetchBookings = async (searchTerm = searchValue, invalidateCache = false) 
               {
                 label: "Download Summary of Stay",
                 action: () => {
-                  handleDownloadPDF(original.uuid);
+                  handleDownloadPDF(original);
                 },
                 hidden: !showSummaryOptions,
                 icon: () => (
@@ -819,7 +827,7 @@ const fetchBookings = async (searchTerm = searchValue, invalidateCache = false) 
               {
                 label: "Send Summary of Stay via Email",
                 action: () => {
-                  handleEmailPDF(original.uuid);
+                  handleEmailPDF(original);
                 },
                 hidden: !showSummaryOptions,
                 icon: () => (

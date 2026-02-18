@@ -106,7 +106,7 @@ export default function GuestCourses({ guest, readOnly = false }) {
         courseName: offer.course?.title || 'Unknown Course',
         courseImage: offer.course?.imageUrl || '/course-placeholder.jpg',
         courseDates: offer.course ? 
-          `${moment(offer.course.start_date).format('DD MMM, YYYY')} - ${moment(offer.course.end_date).format('DD MMM, YYYY')}` : 
+          `${moment(offer.course.min_start_date).format('DD MMM, YYYY')} - ${moment(offer.course.min_end_date).format('DD MMM, YYYY')}` : 
           'Dates TBD',
         duration: offer.course?.duration_hours ? `(${offer.course.duration_hours} hours)` : '',
         isExpired: now.isAfter(bookingDeadline),

@@ -406,6 +406,27 @@ const InputField = (props) => {
                 onBlur(val);
             }
         }
+        
+        if (onChange) {
+            if (type === 'phone-number') {
+                let errorMsg = null;
+                if (required && val && !validatePhoneNumber(val)) {
+                    const digitCount = val.replace(/\D/g, '').length;
+                    errorMsg = digitCount < 10 
+                        ? 'Phone number must be at least 10 digits'
+                        : 'Please enter a valid phone number';
+                }
+                onChange(val, errorMsg);
+            } else if (type === 'email') {
+                let errorMsg = null;
+                if (required && val && !validateEmail(val)) {
+                    errorMsg = 'Please enter a valid email address';
+                }
+                onChange(val, errorMsg);
+            } else {
+                onChange(val);
+            }
+        }
     };
 
     const handleOnFocus = () => {
@@ -438,11 +459,8 @@ const InputField = (props) => {
         setIsAutofilled(false);
         validateInput(val, true); // ✅ Validates and shows red/green borders
         
-        // ❌ DO NOT call onChange for email/phone - prevents parent re-render
-        // Parent will be notified onBlur instead
-        if (onChange && type !== 'email' && type !== 'phone-number') {
-            onChange(val);
-        }
+        // ✅ DO NOT call onChange during typing - prevents parent re-render and focus loss
+        // Parent will be notified onBlur instead for all field types
     };
 
     const shouldShowError = propsError || (error && (effectiveDirty || forceShowErrors));

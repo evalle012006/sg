@@ -407,3 +407,41 @@ const parseSciTypeLevel = (value) => {
   
   return [];
 };
+
+export const isCheckInDatePassed = (booking) => {
+    if (!booking.preferred_arrival_date) return false;
+    return moment(booking.preferred_arrival_date).isSameOrBefore(moment(), 'day');
+};
+
+export const isBookingInPast = (booking) => {
+    // Use check_out_date first, fallback to preferred_departure_date
+    const checkoutDate = booking.check_out_date || booking.preferred_departure_date;
+    
+    if (!checkoutDate) {
+        console.log('⚠️ No checkout date found for booking');
+        return false; // If no date, allow amendments
+    }
+    
+    return moment(checkoutDate).isBefore(moment(), 'day');
+};
+
+export const canEditBooking = (booking) => {
+    const bookingInPast = isBookingInPast(booking);
+    const status = JSON.parse(booking.status);
+    const isCancelled = status.name === 'booking_cancelled' || status.name === 'guest_cancelled';
+    
+    // Can edit if:
+    // 1. Not cancelled AND
+    // 2. Not in the past (guests cannot edit past bookings)
+    return !isCancelled && !bookingInPast;
+};
+
+export const stripSimpleParagraphTags = (text) => {
+    if (!text) return text;
+    // Remove wrapping <p>...</p> only if those are the sole HTML tags present
+    const stripped = text.replace(/^<p>\s*/i, '').replace(/\s*<\/p>$/i, '').trim();
+    if (!/<[a-z][\s\S]*>/i.test(stripped)) {
+        return stripped;
+    }
+    return text; // Has other HTML — leave it untouched
+};

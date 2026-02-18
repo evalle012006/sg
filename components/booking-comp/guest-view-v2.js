@@ -9,7 +9,7 @@ import { globalActions } from "../../store/globalSlice";
 import Modal from "../ui/modal";
 import StatusBadge from "../ui-v2/StatusBadge";
 import { BOOKING_TYPES } from "../constants";
-import { getFunder } from "../../utilities/common";
+import { getFunder, isBookingInPast, isCheckInDatePassed } from "../../utilities/common";
 
 const Layout = dynamic(() => import('../layout'));
 const Spinner = dynamic(() => import('../ui/spinner'));
@@ -341,28 +341,32 @@ export default function GuestBookingsV2() {
         setBookingToCancel(null);
     };
 
-    const handleDownloadPDF = async (bookingId) => {
+    const handleDownloadPDF = async (booking) => {
         toast.info('Generating PDF. Please wait...');
         try {
-          const response = await fetch(`/api/bookings/${bookingId}/download-summary-pdf-v2`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ origin: user.type }),
-          });
-    
-          if (!response.ok) throw new Error('Failed to generate PDF');
-    
-          const blob = await response.blob();
-          const url = window.URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `summary-of-stay-${bookingId}.pdf`;
-          document.body.appendChild(a);
-          a.click();
-          window.URL.revokeObjectURL(url);
-          document.body.removeChild(a);
+            const isOldTemplate = booking.templateId <= 33;
+            const apiEndpoint = isOldTemplate
+                ? `/api/bookings/${booking.uuid}/download-summary-pdf-v1`
+                : `/api/bookings/${booking.uuid}/download-summary-pdf-v2`;
+            const response = await fetch(apiEndpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ origin: user.type }),
+            });
+        
+            if (!response.ok) throw new Error('Failed to generate PDF');
+        
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `summary-of-stay-${booking.uuid}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
         } catch (error) {
           console.error('Error downloading PDF:', error);
           toast.error('Failed to download summary of stay. Please try again.');
@@ -598,6 +602,12 @@ export default function GuestBookingsV2() {
     }
 
     const editBooking = async (booking) => {
+        // Check if check-in date has passed or is today
+        if (isCheckInDatePassed(booking)) {
+            toast.error('This booking cannot be amended as the check-in date has passed or is today.');
+            return;
+        }
+        
         if (booking.complete === true && booking.Sections.length > 0) {
             window.open(`/booking-request-form?uuid=${booking.uuid}`, '_self');
         } else {
@@ -640,26 +650,30 @@ export default function GuestBookingsV2() {
                         
                         let checkinDate = '-';
                         let checkoutDate = '-';
-    
+
                         if (booking.check_in_date) {
                             checkinDate = moment(booking.check_in_date).format('D MMM, YYYY');
                         } else if (booking.preferred_arrival_date) {
                             checkinDate = moment(booking.preferred_arrival_date).format('D MMM, YYYY');
                         }
-    
+
                         if (booking.check_out_date) {
                             checkoutDate = moment(booking.check_out_date).format('D MMM, YYYY');
                         } else if (booking.preferred_departure_date) {
                             checkoutDate = moment(booking.preferred_departure_date).format('D MMM, YYYY');
                         }
-    
+
                         const bookingDate = moment(booking.createdAt).format('D MMM, YYYY');
                         
                         const isCancelled = bookingStatus.name === 'booking_cancelled' || bookingStatus.name === 'guest_cancelled';
+                        const bookingInPast = isBookingInPast(booking);
+                        const checkInPassed = isCheckInDatePassed(booking);
                         const editButtonLabel = booking.complete ? "REQUEST TO AMEND" : "EDIT BOOKING";
+
                         
                         const customButtons = [];
                         
+                        // Past bookings tab - only view details and download
                         if (activeTab === 1) {
                             customButtons.push(
                                 <button 
@@ -681,7 +695,7 @@ export default function GuestBookingsV2() {
                                     <button 
                                         key="download-pdf"
                                         className="inline-flex items-center justify-center p-2 border border-blue-700 text-blue-700 rounded hover:bg-blue-50 transition-colors"
-                                        onClick={() => handleDownloadPDF(booking.uuid)}
+                                        onClick={() => handleDownloadPDF(booking)}
                                         aria-label="Download PDF"
                                         title="Download PDF"
                                     >
@@ -693,6 +707,7 @@ export default function GuestBookingsV2() {
                             }
                         }
 
+                        // Cancelled bookings tab - only view details
                         if (activeTab === 2) {
                             customButtons.push(
                                 <button 
@@ -710,12 +725,13 @@ export default function GuestBookingsV2() {
                             );
                         }
                         
+                        // Upcoming bookings tab - download PDF and cancel button
                         if (activeTab === 0 && !isCancelled && booking.complete === true) {
                             customButtons.push(
                                 <button 
                                     key="download-pdf"
                                     className="inline-flex items-center justify-center p-2 border border-blue-700 text-blue-700 rounded hover:bg-blue-50 transition-colors"
-                                    onClick={() => handleDownloadPDF(booking.uuid)}
+                                    onClick={() => handleDownloadPDF(booking)}
                                     aria-label="Download PDF"
                                     title="Download PDF"
                                 >
@@ -725,22 +741,25 @@ export default function GuestBookingsV2() {
                                 </button>
                             );
                             
-                            customButtons.push(
-                                <button 
-                                    key="cancel-booking"
-                                    className="inline-flex items-center justify-center p-2 border border-red-600 text-red-600 rounded hover:bg-red-50 transition-colors"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleCancelClick(booking);
-                                    }}
-                                    aria-label="Request Cancellation"
-                                    title="Request Cancellation"
-                                >
-                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
-                                        <path fillRule="evenodd" d="M12 2.25c-5.385 0-9.75 4.365-9.75 9.75s4.365 9.75 9.75 9.75 9.75-4.365 9.75-9.75S17.385 2.25 12 2.25zm-1.72 6.97a.75.75 0 10-1.06 1.06L10.94 12l-1.72 1.72a.75.75 0 101.06 1.06L12 13.06l1.72 1.72a.75.75 0 101.06-1.06L13.06 12l1.72-1.72a.75.75 0 10-1.06-1.06L12 10.94l-1.72-1.72z" clipRule="evenodd" />
-                                    </svg>
-                                </button>
-                            );
+                            // ✅ Only show cancel button if booking is not in the past
+                            if (!bookingInPast) {
+                                customButtons.push(
+                                    <button 
+                                        key="cancel-booking"
+                                        className="inline-flex items-center justify-center p-2 border border-red-600 text-red-600 rounded hover:bg-red-50 transition-colors"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleCancelClick(booking);
+                                        }}
+                                        aria-label="Request Cancellation"
+                                        title="Request Cancellation"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
+                                            <path fillRule="evenodd" d="M12 2.25c-5.385 0-9.75 4.365-9.75 9.75s4.365 9.75 9.75 9.75 9.75-4.365 9.75-9.75S17.385 2.25 12 2.25zm-1.72 6.97a.75.75 0 10-1.06 1.06L10.94 12l-1.72 1.72a.75.75 0 101.06 1.06L12 13.06l1.72 1.72a.75.75 0 101.06-1.06L13.06 12l1.72-1.72a.75.75 0 10-1.06-1.06L12 10.94l-1.72-1.72z" clipRule="evenodd" />
+                                        </svg>
+                                    </button>
+                                );
+                            }
                         }
                         
                         return (
@@ -757,7 +776,8 @@ export default function GuestBookingsV2() {
                                 statusColor={!bookingStatus?.label?.includes('Pending') ? `bg-${bookingStatus.color}-400` : null}
                                 image={imageUrl}
                                 buttonText={editButtonLabel}
-                                hideEditButton={isCancelled || activeTab === 1}
+                                hideEditButton={isCancelled || activeTab === 1 || checkInPassed} // Changed from bookingInPast
+                                disabledButtonTooltip={checkInPassed ? "This booking cannot be amended as the check-in date has passed" : undefined}
                                 customButtons={customButtons.length > 0 ? customButtons : undefined}
                                 onButtonClick={() => editBooking(booking)}
                                 viewDetails={() => viewBooking(booking.uuid)}
