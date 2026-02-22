@@ -25,6 +25,7 @@ import moment from 'moment';
 import { Op } from "sequelize";
 import EmailService from '../../../../services/booking/emailService';
 import { TEMPLATE_IDS } from '../../../../services/booking/templateIds';
+import EmailRecipientsService from '../../../../services/email/EmailRecipientsService';
 
 export default async function handler(req, res) {
     try {
@@ -352,18 +353,30 @@ export default async function handler(req, res) {
                         }
                     );
 
-                    EmailService.sendWithTemplate(
-                        "info@sargoodoncollaroy.com.au",
-                        TEMPLATE_IDS.BOOKING_CONFIRMED_ADMIN,
-                        {
-                            guest_name: booking.Guest.first_name + ' ' + booking.Guest.last_name,
-                            arrivalDate: booking.preferred_arrival_date ? moment(booking.preferred_arrival_date).format("DD-MM-YYYY") : '-',
-                            departureDate: booking.preferred_departure_date ? moment(booking.preferred_departure_date).format("DD-MM-YYYY") : '-',
-                            accommodation: roomTypes || '-',
-                            booking_package: bookingPackage || '-',
-                            booking_id: booking.reference_id
+                    try {
+                        const infoRecipients = await EmailRecipientsService.getRecipientsString('info');
+                        
+                        if (!infoRecipients) {
+                            console.warn('⚠️ No info recipients configured - skipping admin notification');
+                        } else {
+                            EmailService.sendWithTemplate(
+                                infoRecipients,
+                                TEMPLATE_IDS.BOOKING_CONFIRMED_ADMIN,
+                                {
+                                    guest_name: booking.Guest.first_name + ' ' + booking.Guest.last_name,
+                                    arrivalDate: booking.preferred_arrival_date ? moment(booking.preferred_arrival_date).format("DD-MM-YYYY") : '-',
+                                    departureDate: booking.preferred_departure_date ? moment(booking.preferred_departure_date).format("DD-MM-YYYY") : '-',
+                                    accommodation: roomTypes || '-',
+                                    booking_package: bookingPackage || '-',
+                                    booking_id: booking.reference_id
+                                }
+                            );
+                            console.log('✅ Admin notification sent to info recipients:', infoRecipients);
                         }
-                    );
+                    } catch (emailError) {
+                        console.error('Failed to send admin confirmation email:', emailError);
+                        // Don't fail the request if email fails
+                    }
 
                     generateNotifications(booking, 'confirmed', true);
                     break;

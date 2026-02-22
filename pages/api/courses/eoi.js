@@ -1,6 +1,7 @@
 import { Course, Guest, CourseEOI } from '../../../models';
 import moment from 'moment';
 import EmailService from '../../../services/booking/emailService';
+import EmailRecipientsService from '../../../services/email/EmailRecipientsService';
 import { TEMPLATE_IDS } from '../../../services/booking/templateIds';
 
 export default async function handler(req, res) {
@@ -158,32 +159,36 @@ async function createEOI(req, res) {
 
         // ✅ UPDATED: Send admin notification using EmailService
         try {
-            const adminEmail = process.env.ADMIN_EMAIL || 'bookings@sargoodoncollaroy.com';
-            const baseUrl = process.env.APP_URL || 'https://booking.sargoodoncollaroy.com.au';
-            
-            await EmailService.sendWithTemplate(
-                adminEmail,
-                TEMPLATE_IDS.COURSE_EOI_ADMIN,
-                {
-                    guest_name: guest_name,
-                    guest_email: guest_email,
-                    guest_phone: guest_phone,
-                    funding_type: funding_type || 'Not specified',
-                    has_sci: has_sci === 'yes' || has_sci === true ? 'Yes' : 'No',
-                    sci_levels: sciLevels || 'Not specified',
-                    course_name: courseNames,
-                    is_completing_for_other: completing_for === 'other',
-                    support_name: support_name,
-                    support_email: support_email,
-                    support_phone: support_phone,
-                    support_role: support_role,
-                    preferred_dates: course_date_preferences ? JSON.stringify(course_date_preferences) : 'Not specified',
-                    comments: comments || 'None provided',
-                    admin_link: `${baseUrl}/courses?selectedTab=eoi&eoiId=${eoiRecord.id}`,
-                    submitted_at: moment(submitted_at || Date.now()).format('dddd, D MMMM YYYY [at] h:mm A')
-                }
-            );
-            console.log('✅ Admin notification email sent');
+            const eoiRecipients = await EmailRecipientsService.getRecipientsString('eoi');
+            if (!eoiRecipients) {
+                console.warn('⚠️ No EOI recipients configured in settings');
+            } else {
+                const baseUrl = process.env.APP_URL || 'https://booking.sargoodoncollaroy.com.au';
+                
+                await EmailService.sendWithTemplate(
+                    eoiRecipients,
+                    TEMPLATE_IDS.COURSE_EOI_ADMIN,
+                    {
+                        guest_name: guest_name,
+                        guest_email: guest_email,
+                        guest_phone: guest_phone,
+                        funding_type: funding_type || 'Not specified',
+                        has_sci: has_sci === 'yes' || has_sci === true ? 'Yes' : 'No',
+                        sci_levels: sciLevels || 'Not specified',
+                        course_name: courseNames,
+                        is_completing_for_other: completing_for === 'other',
+                        support_name: support_name,
+                        support_email: support_email,
+                        support_phone: support_phone,
+                        support_role: support_role,
+                        preferred_dates: course_date_preferences ? JSON.stringify(course_date_preferences) : 'Not specified',
+                        comments: comments || 'None provided',
+                        admin_link: `${baseUrl}/courses?selectedTab=eoi&eoiId=${eoiRecord.id}`,
+                        submitted_at: moment(submitted_at || Date.now()).format('dddd, D MMMM YYYY [at] h:mm A')
+                    }
+                );
+                console.log('✅ Admin notification email sent to EOI recipients:', eoiRecipients);
+            }
         } catch (emailError) {
             console.error('Failed to send EOI notification email:', emailError);
             // Don't fail the request if email fails

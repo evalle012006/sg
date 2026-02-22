@@ -39,7 +39,7 @@ export default async function handler(req, res) {
                 where: {
                     deleted_at: null
                 },
-                attributes: ['id', 'created_at', 'status', 'eligibility', 'status_logs', 'complete']
+                attributes: ['id', 'created_at', 'updated_at', 'status', 'eligibility', 'status_logs', 'complete']
             })
         ]);
 
@@ -71,6 +71,43 @@ export default async function handler(req, res) {
         );
 
         const completedBookings = bookings.filter(booking => booking.complete);
+
+        // After fetching bookings, add this
+        // console.log('Total bookings:', bookings.length);
+        // console.log('Completed bookings:', completedBookings.length);
+
+        // const bookingsWithLogs = completedBookings.filter(b => b.status_logs != null);
+        // let confirmedCount = 0;
+        // let amendedCount = 0;
+        // let readyToProcessCount = 0;
+        // let pendingApprovalCount = 0;
+
+        // bookingsWithLogs.forEach(booking => {
+        //     try {
+        //         const logs = typeof booking.status_logs === 'string' ? 
+        //             JSON.parse(booking.status_logs) : booking.status_logs;
+                
+        //         if (Array.isArray(logs)) {
+        //             if (logs.find(sl => sl.status === 'confirmed')) confirmedCount++;
+        //             if (logs.find(sl => sl.status === 'booking_amended')) amendedCount++;
+        //             if (logs.find(sl => sl.status === 'ready_to_process' && booking.complete)) readyToProcessCount++;
+        //             if (logs.find(sl => sl.status === 'pending_approval' && booking.complete)) pendingApprovalCount++;
+        //         }
+        //     } catch (e) {
+        //         // ignore
+        //     }
+        // });
+
+        // console.log('Completion status breakdown:');
+        // console.log('- Confirmed:', confirmedCount);
+        // console.log('- Booking Amended:', amendedCount);
+        // console.log('- Ready to Process (complete):', readyToProcessCount);
+        // console.log('- Pending Approval (complete):', pendingApprovalCount);
+        // console.log('- Using updated_at fallback:', completedBookings.length - bookingsWithLogs.length);
+
+        // const leads = calculateLeadTimes(completedBookings);
+        // console.log('Lead times calculated:', leads);
+        // console.log('Total in lead times:', leads.zero19 + leads.twenty39 + leads.fourty59 + leads.sixtyPlus);
 
         // Calculate metrics
         const data = {
@@ -169,13 +206,44 @@ function calculateLeadTimes(completedBookings) {
     return completedBookings.reduce((acc, booking) => {
         try {
             const createdDate = moment(booking.created_at);
-            const statusLogs = typeof booking.status_logs === 'string' ? 
-                JSON.parse(booking.status_logs) : booking.status_logs;
-            const completedStatus = statusLogs?.find(sl => sl.status === 'complete');
+            let completionDate = null;
             
-            if (completedStatus) {
-                const completedDate = moment(completedStatus.created_at);
-                const noOfDays = completedDate.diff(createdDate, 'days');
+            // Try to get completion date from status_logs first
+            let statusLogs = booking.status_logs;
+            
+            if (statusLogs) {
+                // Parse if it's a string
+                if (typeof statusLogs === 'string') {
+                    try {
+                        statusLogs = JSON.parse(statusLogs);
+                    } catch (e) {
+                        statusLogs = null;
+                    }
+                }
+                
+                // Look for completion statuses
+                if (Array.isArray(statusLogs) && statusLogs.length > 0) {
+                    const completionStatus = statusLogs.find(sl => 
+                        sl.status === 'confirmed' || 
+                        sl.status === 'booking_amended' ||
+                        (sl.status === 'ready_to_process' && booking.complete === true) ||
+                        (sl.status === 'pending_approval' && booking.complete === true)
+                    );
+                    
+                    if (completionStatus && completionStatus.created_at) {
+                        completionDate = moment(completionStatus.created_at);
+                    }
+                }
+            }
+            
+            // Fallback: use updated_at if no status_logs found
+            if (!completionDate && booking.updated_at) {
+                completionDate = moment(booking.updated_at);
+            }
+            
+            // Calculate lead time if we have a completion date
+            if (completionDate) {
+                const noOfDays = completionDate.diff(createdDate, 'days');
 
                 if (noOfDays <= 19) acc.zero19++;
                 else if (noOfDays <= 39) acc.twenty39++;

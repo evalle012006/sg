@@ -12,9 +12,11 @@ export default async function handler(request, response) {
 
     const transaction = await sequelize.transaction();
     let booking;
+    let prevBooking;
+
     try {
         // SF-342: Succeeding Booking always gets answer from the First Booking
-        const prevBooking = await Booking.findOne({
+        prevBooking = await Booking.findOne({
             where: {
                 guest_id: data.guestId,
                 deleted_at: null,
@@ -83,13 +85,32 @@ export default async function handler(request, response) {
         }
 
         await transaction.commit();
+        
+    } catch (error) {
+        // Only rollback if transaction hasn't been committed
+        if (!transaction.finished) {
+            await transaction.rollback();
+        }
+        
+        let message = error.errors 
+            ? { error: error.errors.map(e => e.message)[0], type: error.errors.map(e => e.type)[0] } 
+            : { error: "Something went wrong", type: "error" };
+        
+        console.log('Transaction error:', error);
+        return response.status(403).json(message);
+    }
 
-        const notificationLibs = await NotificationLibrary.findOne({ where: { name: 'New Booking for Returning Guest', enabled: true } });
-        const notificationService = new NotificationService();
-
-        if (notificationLibs) {
+    // Post-commit operations (notifications, logging, etc.)
+    // These should not cause the booking creation to fail
+    try {
+        const notificationLibs = await NotificationLibrary.findOne({ 
+            where: { name: 'New Booking for Returning Guest', enabled: true } 
+        });
+        
+        if (notificationLibs && prevBooking?.Guest) {
+            const notificationService = new NotificationService();
             let message = notificationLibs.notification;
-            message = message.replace('[guest_name]', `${prevBooking?.Guest.first_name} ${prevBooking?.Guest.last_name}`);
+            message = message.replace('[guest_name]', `${prevBooking.Guest.first_name} ${prevBooking.Guest.last_name}`);
 
             const dispatch_date = moment().add(notificationLibs.date_factor, 'days').toDate();
             await notificationService.notificationHandler({
@@ -99,14 +120,20 @@ export default async function handler(request, response) {
                 dispatch_date: dispatch_date
             });
         }
-
-        console.log('============================================================')
-        console.log({ ...booking.dataValues, prevBookingId: (prevBooking && prevBooking.complete) ? prevBooking.uuid : null });
-        response.status(200).json({ ...booking.dataValues, prevBookingId: (prevBooking && prevBooking.complete) ? prevBooking.uuid : null });
-    } catch (error) {
-        let message = error.errors ? { error: error.errors.map(e => e.message)[0], type: error.errors.map(e => e.type)[0] } : { error: "Something went wrong", type: "error" };
-        response.status(403).json(message);
-        console.log(error);
-        await transaction.rollback();
+    } catch (notificationError) {
+        // Log notification errors but don't fail the request
+        console.error('Error sending notification:', notificationError);
+        // Optionally report to error tracking service (Sentry, etc.)
     }
+
+    console.log('============================================================');
+    console.log({ 
+        ...booking.dataValues, 
+        prevBookingId: (prevBooking && prevBooking.complete) ? prevBooking.uuid : null 
+    });
+    
+    return response.status(200).json({ 
+        ...booking.dataValues, 
+        prevBookingId: (prevBooking && prevBooking.complete) ? prevBooking.uuid : null 
+    });
 }

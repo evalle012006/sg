@@ -179,7 +179,10 @@ export default function GuestBookingsV2() {
 
     const handleCompletePrevBooking = async () => {
         const brf = await createBookingRequestForm(latestBooking.id);
-        const incompletePreviousBookingUuid = upcomingBookings.filter(booking => !booking.complete && !booking.status.includes('cancelled'))[0].uuid;
+
+        // Safely get the incomplete booking
+        const incompleteBookings = upcomingBookings.filter(booking => !booking.complete && !booking.status.includes('cancelled'));
+        const incompletePreviousBookingUuid = incompleteBookings.length > 0 ? incompleteBookings[0].uuid : null;
 
         if (brf.ok) {
             setTimeout(() => {
@@ -187,10 +190,11 @@ export default function GuestBookingsV2() {
                     window.open(`/booking-request-form?uuid=${incompletePreviousBookingUuid}&prevBookingId=${prevBookingUuid}`, '_self');
                 } else {
                     console.log('missing incompletePrevBookingUuid and prevBookingUuid');
+                    // window.open(`/booking-request-form?uuid=${incompletePreviousBookingUuid}`, '_self');
                 }
             }, 800);
         }
-    };
+    }
 
     const handleCheckPrevBookingStatus = async (courseContext = null) => {
         setLoading(true);

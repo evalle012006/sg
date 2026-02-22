@@ -1992,7 +1992,7 @@ ${bodyContent}
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                   <span>
-                    These will be auto-converted at send-time, but it's recommended to use underscores instead (e.g., <code className="px-1 py-0.5 bg-blue-100 rounded">my_tag_name</code>).
+                    These will be auto-converted at send-time, but it&apos;s recommended to use underscores instead (e.g., <code className="px-1 py-0.5 bg-blue-100 rounded">my_tag_name</code>).
                   </span>
                 </p>
               </div>
@@ -2002,7 +2002,7 @@ ${bodyContent}
                 </svg>
                 <div>
                   <p className="text-sm font-medium text-purple-900">Want to fix them now?</p>
-                  <p className="text-xs text-purple-700 mt-0.5">Click "Cancel" and use the "Fix Tags" button to auto-convert all hyphenated tags to underscores.</p>
+                  <p className="text-xs text-purple-700 mt-0.5">Click &quot;Cancel&quot; and use the &quot;Fix Tags&quot; button to auto-convert all hyphenated tags to underscores.</p>
                 </div>
               </div>
             </div>

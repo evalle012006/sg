@@ -236,6 +236,7 @@ export default function Sidebar({ isCollapsed }) {
                                 <div className="ml-8 relative">
                                     <div className="absolute left-0 top-2 bottom-0 w-1 bg-[#D9D9D9]"></div>
                                     
+                                    {/* Yellow indicators for active pages */}
                                     {router.pathname === '/settings/users' && (
                                         <div className="absolute left-0 top-2 w-1 h-10 bg-[#FFCE00]"></div>
                                     )}
@@ -251,24 +252,27 @@ export default function Sidebar({ isCollapsed }) {
                                     {router.pathname === '/settings/manage-room' && (
                                         <div className="absolute left-0 top-[10.5rem] w-1 h-10 bg-[#FFCE00]"></div>
                                     )}
-
                                     {router.pathname === '/settings/manage-packages' && (
                                         <div className="absolute left-0 top-[13rem] w-1 h-10 bg-[#FFCE00]"></div>
                                     )}
-
                                     {router.pathname === '/settings/manage-email-trigger' && (
                                         <div className="absolute left-0 top-[15.5rem] w-1 h-10 bg-[#FFCE00]"></div>
                                     )}
-
-                                    {router.pathname === '/settings/manage-emails' && (
+                                    {router.pathname === '/settings/manage-flags' && (
                                         <div className="absolute left-0 top-[18rem] w-1 h-10 bg-[#FFCE00]"></div>
                                     )}
-                                    
-                                    {router.pathname === '/settings/smtp-configuration' && (
+                                    {router.pathname === '/settings/manage-email-recipients' && (
                                         <div className="absolute left-0 top-[20.5rem] w-1 h-10 bg-[#FFCE00]"></div>
+                                    )}
+                                    {router.pathname === '/settings/manage-emails' && (
+                                        <div className="absolute left-0 top-[23rem] w-1 h-10 bg-[#FFCE00]"></div>
+                                    )}
+                                    {router.pathname === '/settings/smtp-configuration' && (
+                                        <div className="absolute left-0 top-[25.5rem] w-1 h-10 bg-[#FFCE00]"></div>
                                     )}
                                     
                                     <ul className="relative">
+                                        {/* 1. Users */}
                                         <li>
                                             <Link href="/settings/users">
                                                 <a className={`
@@ -282,6 +286,8 @@ export default function Sidebar({ isCollapsed }) {
                                                 </a>
                                             </Link>
                                         </li>
+
+                                        {/* 2. Roles & Permissions */}
                                         <li>
                                             <Link href="/settings/manage-roles">
                                                 <a className={`
@@ -295,6 +301,8 @@ export default function Sidebar({ isCollapsed }) {
                                                 </a>
                                             </Link>
                                         </li>
+
+                                        {/* 3. Booking Templates */}
                                         <li>
                                             <Link href="/settings/booking-templates">
                                                 <a className={`
@@ -308,6 +316,8 @@ export default function Sidebar({ isCollapsed }) {
                                                 </a>
                                             </Link>
                                         </li>
+
+                                        {/* 4. Manage Checklist */}
                                         <Can I="manage" a="Checklist">
                                             <li>
                                                 <Link href="/settings/manage-checklist">
@@ -323,6 +333,8 @@ export default function Sidebar({ isCollapsed }) {
                                                 </Link>
                                             </li>
                                         </Can>
+
+                                        {/* 5. Manage Room Setup */}
                                         <li>
                                             <Link href="/settings/manage-room">
                                                 <a className={`
@@ -336,6 +348,8 @@ export default function Sidebar({ isCollapsed }) {
                                                 </a>
                                             </Link>
                                         </li>
+
+                                        {/* 6. Manage Packages */}
                                         <li>
                                             <Link href="/settings/manage-packages">
                                                 <a className={`
@@ -350,6 +364,7 @@ export default function Sidebar({ isCollapsed }) {
                                             </Link>
                                         </li>
 
+                                        {/* 7. Manage Email Triggers */}
                                         <li>
                                             <Link href="/settings/manage-email-trigger">
                                                 <a className={`
@@ -363,6 +378,38 @@ export default function Sidebar({ isCollapsed }) {
                                                 </a>
                                             </Link>
                                         </li>
+
+                                        {/* 8. Manage Flags - NEW (AFTER Email Triggers) */}
+                                        <li>
+                                            <Link href="/settings/manage-flags">
+                                                <a className={`
+                                                    flex items-center px-4 py-2 text-sm transition-colors duration-200 h-10
+                                                    ${router.pathname === '/settings/manage-flags' 
+                                                        ? 'text-[#FFCE00]' 
+                                                        : 'text-gray-300 hover:text-white'
+                                                    }
+                                                `}>
+                                                    <span className="ml-4">Manage Flags</span>
+                                                </a>
+                                            </Link>
+                                        </li>
+
+                                        {/* 9. Email Recipients - NEW (AFTER Manage Flags) */}
+                                        <li>
+                                            <Link href="/settings/manage-email-recipients">
+                                                <a className={`
+                                                    flex items-center px-4 py-2 text-sm transition-colors duration-200 h-10
+                                                    ${router.pathname === '/settings/manage-email-recipients' 
+                                                        ? 'text-[#FFCE00]' 
+                                                        : 'text-gray-300 hover:text-white'
+                                                    }
+                                                `}>
+                                                    <span className="ml-4">Email Recipients</span>
+                                                </a>
+                                            </Link>
+                                        </li>
+
+                                        {/* 10. Manage In-App Notifications */}
                                         <li>
                                             <Link href="/settings/manage-emails">
                                                 <a className={`
@@ -376,6 +423,8 @@ export default function Sidebar({ isCollapsed }) {
                                                 </a>
                                             </Link>
                                         </li>
+
+                                        {/* 11. SMTP Configuration */}
                                         <li>
                                             <Link href="/settings/smtp-configuration">
                                                 <a className={`
