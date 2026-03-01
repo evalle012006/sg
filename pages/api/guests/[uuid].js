@@ -128,10 +128,11 @@ export default async function handler(req, res) {
         }
 
         // Extract dates using question keys with fallback to old question text
+        // First, try combined check-in/check-out date question
         const checkInOutDateQA = findByQuestionKeyWithFallback(
             allQaPairs,
             QUESTION_KEYS.CHECK_IN_OUT_DATE,
-            ['When would you like to stay?']
+            ['When would you like to stay?', 'Check In Date and Check Out Date']
         );
 
         if (checkInOutDateQA && checkInOutDateQA.answer) {
@@ -140,6 +141,31 @@ export default async function handler(req, res) {
                 const dates = answer.split(' - ');
                 check_in_date = dates[0];
                 check_out_date = dates[1];
+            }
+        }
+
+        // If not found in combined question, try individual check-in and check-out questions
+        if (!check_in_date || !check_out_date) {
+            // Try individual check-in date
+            const checkInDateQA = findByQuestionKeyWithFallback(
+                allQaPairs,
+                QUESTION_KEYS.CHECK_IN_DATE,
+                ['Check In Date']
+            );
+            
+            if (checkInDateQA && checkInDateQA.answer) {
+                check_in_date = checkInDateQA.answer;
+            }
+
+            // Try individual check-out date
+            const checkOutDateQA = findByQuestionKeyWithFallback(
+                allQaPairs,
+                QUESTION_KEYS.CHECK_OUT_DATE,
+                ['Check Out Date']
+            );
+            
+            if (checkOutDateQA && checkOutDateQA.answer) {
+                check_out_date = checkOutDateQA.answer;
             }
         }
 

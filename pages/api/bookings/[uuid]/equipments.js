@@ -1,6 +1,4 @@
 import { Booking, Equipment, EquipmentCategory } from "../../../../models";
-import sendMail from "../../../../utilities/mail";
-const jwt = require('jsonwebtoken');
 
 export default async function handler(req, res) {
     const { uuid } = req.query;

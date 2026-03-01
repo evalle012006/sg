@@ -227,6 +227,65 @@ function convertHyphenatedMergeTags(html) {
   return converted;
 }
 
+/**
+ * Convert internal relative URLs to absolute URLs for email links
+ * 
+ * Email clients require absolute URLs. This function:
+ * - Converts internal paths (/booking/confirm) to full URLs (https://app.com/booking/confirm)
+ * - Leaves external URLs (https://...) unchanged
+ * 
+ * @param {string} html - Compiled HTML content
+ * @returns {string} - HTML with converted URLs
+ */
+function convertInternalUrls(html) {
+  if (!html) return html;
+  
+  const appUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+  
+  // Remove trailing slash from app URL
+  const baseUrl = appUrl.replace(/\/$/, '');
+  
+  console.log(`🔗 Converting internal URLs (base: ${baseUrl})`);
+  
+  let converted = html;
+  let conversionCount = 0;
+  
+  // Pattern to match href attributes with relative paths
+  // Matches: href="/path" or href='/path'
+  // Doesn't match: href="http://..." or href="https://..." or href="mailto:..." or href="#"
+  const relativeHrefPattern = /href=["'](?!(?:https?:\/\/|mailto:|tel:|#))([^"']+)["']/gi;
+  
+  converted = html.replace(relativeHrefPattern, (match, path) => {
+    // Skip if already absolute or is an anchor/mailto/tel
+    if (path.startsWith('http://') || 
+        path.startsWith('https://') || 
+        path.startsWith('mailto:') ||
+        path.startsWith('tel:') ||
+        path.startsWith('#')) {
+      return match;
+    }
+    
+    // Ensure path starts with /
+    const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+    
+    // Create full URL
+    const fullUrl = `${baseUrl}${normalizedPath}`;
+    
+    console.log(`   - ${path} → ${fullUrl}`);
+    conversionCount++;
+    
+    // Preserve the original quote style
+    const quote = match.includes('href="') ? '"' : "'";
+    return `href=${quote}${fullUrl}${quote}`;
+  });
+  
+  if (conversionCount > 0) {
+    console.log(`✅ Converted ${conversionCount} internal URL(s) to absolute URLs`);
+  }
+  
+  return converted;
+}
+
 class EmailService {
   /**
    * Get template by ID or Code
@@ -356,7 +415,10 @@ class EmailService {
       const compiledHtml = handlebars.compile(convertedHtml);
 
       const subject = compiledSubject(enrichedData);
-      const html = compiledHtml(enrichedData);
+      let html = compiledHtml(enrichedData);
+
+      // ✨ NEW: Convert internal relative URLs to absolute URLs
+      html = convertInternalUrls(html);
 
       await sendMailWithHtml(recipient, subject, html);
 
@@ -422,7 +484,10 @@ class EmailService {
       const compiledHtml = handlebars.compile(convertedHtml);
 
       const subject = compiledSubject(enrichedData);
-      const html = compiledHtml(enrichedData);
+      let html = compiledHtml(enrichedData);
+
+      // ✨ NEW: Convert internal relative URLs to absolute URLs
+      html = convertInternalUrls(html);
 
       await sendMailWithHtml(recipient, subject, html, attachments);
 

@@ -2,7 +2,8 @@ import { AccessToken, Guest, NotificationLibrary, sequelize } from "../../../../
 import { Op } from "sequelize";
 import moment from 'moment';
 import { NotificationService } from "../../../../services/notification/notification";
-import sendMail from "../../../../utilities/mail";
+import EmailService from "../../../../services/booking/emailService";
+import { TEMPLATE_IDS } from '../../../../services/booking/templateIds';
 const jwt = require('jsonwebtoken');
 
 export default async function handler(request, response) {
@@ -38,11 +39,21 @@ export default async function handler(request, response) {
             }
         }
 
-        await sendMail(data.email, 'Sargood On Collaroy - Account Creation', 'create-account',
-            {
-                username: data.first_name,
-                create_password_link: `${process.env.APP_URL}/auth/onboarding/set-new-password?token=${accessToken.token}`
-            });
+        // Send account creation email using EmailService
+        try {
+            await EmailService.sendWithTemplate(
+                data.email,
+                TEMPLATE_IDS.CREATE_ACCOUNT,
+                {
+                    username: data.first_name,
+                    create_password_link: `${process.env.APP_URL}/auth/onboarding/set-new-password?token=${accessToken.token}`
+                }
+            );
+        } catch (emailError) {
+            console.error('Error sending account creation email:', emailError);
+            // Don't fail the request if email fails
+        }
+
     } catch (error) {
         let message = error.errors ? { error: error.errors.map(e => e.message)[0], type: error.errors.map(e => e.type)[0] } : { error: "Something went wrong", type: "error" };
         response.status(403).json(message);

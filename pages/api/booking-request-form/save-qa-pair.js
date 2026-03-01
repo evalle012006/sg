@@ -6,6 +6,7 @@ import { QUESTION_KEYS } from "../../../services/booking/question-helper";
 import { BOOKING_TYPES } from "../../../components/constants";
 import moment from "moment";
 import { getFunder } from "../../../utilities/common";
+import AuditLogService from "../../../services/AuditLogService";
 
 export default async function handler(req, res) {
     if (req.method !== "POST") {
@@ -120,6 +121,52 @@ export default async function handler(req, res) {
             }
             await transaction.commit();
             console.log('✅ QA pairs transaction committed successfully');
+
+            // ⭐⭐⭐ ADMIN FIELD CHANGES AUDIT LOG ⭐⭐⭐
+            // Track ALL admin changes immediately, even single field edits
+            // DO NOT track guest field changes here (only on submission)
+            if (flags?.origin === 'admin' && booking) {
+                try {
+                    for (const record of qa_pairs) {
+                        // Skip deletions and new fields without old answers
+                        if (record.delete || !record.hasOwnProperty('oldAnswer')) {
+                            continue;
+                        }
+                        
+                        // Only log if answer actually changed
+                        if (record.answer !== record.oldAnswer) {
+                            await AuditLogService.createAuditEntry({
+                                bookingId: booking.id,
+                                userId: flags.currentUserId,
+                                guestId: null,
+                                actionType: 'admin_note_added',
+                                userType: 'admin',
+                                description: `${record.question}: ~~${record.oldAnswer || 'N/A'}~~ → ${record.answer}`,
+                                oldValue: { 
+                                    question: record.question,
+                                    answer: record.oldAnswer,
+                                    question_type: record.question_type
+                                },
+                                newValue: { 
+                                    question: record.question,
+                                    answer: record.answer,
+                                    question_type: record.question_type
+                                },
+                                category: record.sectionLabel || 'Admin Edit',
+                                metadata: {
+                                    question_type: record.question_type,
+                                    section_label: record.sectionLabel,
+                                    edited_at: new Date(),
+                                    field_id: record.id || record.question_id
+                                }
+                            });
+                        }
+                    }
+                    console.log('✅ Admin field changes logged to audit trail');
+                } catch (auditError) {
+                    console.error('⚠️ Failed to log admin field changes:', auditError);
+                }
+            }
         } catch (err) {
             await transaction.rollback();
             console.error('Error in save-qa-pair transaction:', err);
@@ -328,15 +375,46 @@ const updateBooking = async (booking, qa_pairs = [], flags, bookingService) => {
         
         if (isBookingComplete && (booking.complete || allSubmitted)) {
             console.log('Booking is complete');
+            
             if (!booking.complete) {
                 console.log('Updating booking to complete')
                 await Booking.update({ complete: true }, { where: { id: booking.id } });
+                
+                // ⭐⭐⭐ GUEST SUBMISSION AUDIT LOG ⭐⭐⭐
+                // ONLY log guest submissions when they complete the entire form
+                // DO NOT log admin submissions here (they're tracked elsewhere)
+                try {
+                    const isAdminOrigin = flags?.origin === 'admin';
+                    
+                    // Only for guests AND only on final submission
+                    if (!isAdminOrigin && allSubmitted) {
+                        await AuditLogService.createAuditEntry({
+                            bookingId: booking.id,
+                            userId: null,
+                            guestId: flags.currentUserId || booking.guestId, // Use current user ID if available, otherwise fallback to guest ID
+                            actionType: 'booking_submitted',
+                            userType: 'guest',
+                            description: 'Booking request submitted for review',
+                            oldValue: { status: 'draft', complete: false },
+                            newValue: { status: 'submitted', complete: true },
+                            category: 'Submission',
+                            metadata: {
+                                submitted_at: new Date(),
+                                booking_type: booking.type
+                            }
+                        });
+                        console.log('✅ Guest booking submission logged to audit trail');
+                    }
+                } catch (auditError) {
+                    console.error('⚠️ Failed to create submission audit log:', auditError);
+                }
             }
 
             const metainfo = JSON.parse(booking.metainfo);
             let bookingAmended = false;
             
             if (currentBookingStatus?.name === 'booking_confirmed') {
+                console.log('Booking is confirmed, checking for amendments...');
                 // Check if booking dates are in the past
                 const isBookingInPast = () => {
                     // Use check_out_date first, fallback to preferred_departure_date
@@ -355,6 +433,7 @@ const updateBooking = async (booking, qa_pairs = [], flags, bookingService) => {
 
                 const bookingInPast = isBookingInPast();
                 const isAdminOrigin = flags?.origin && flags.origin === 'admin';
+                console.log(`Amendment attempt - bookingInPast: ${bookingInPast}, isAdminOrigin: ${isAdminOrigin}`);
                 
                 // Only process amendments if:
                 // 1. Booking is NOT in the past, OR
@@ -419,6 +498,46 @@ const updateBooking = async (booking, qa_pairs = [], flags, bookingService) => {
                             }
 
                             bookingAmended = true;
+
+                            // ⭐⭐⭐ AMENDMENT AUDIT LOG ⭐⭐⭐
+                            // Admin: Track ALL changes immediately
+                            // Guest: Only track changes to confirmed bookings
+                            try {
+                                const isAdminOrigin = flags?.origin === 'admin';
+                                const userType = isAdminOrigin ? 'admin' : 'guest';
+                                
+                                // Log the amendment to audit trail
+                                await AuditLogService.createAuditEntry({
+                                    bookingId: booking.id,
+                                    userId: isAdminOrigin ? flags.currentUserId : null,
+                                    guestId: isAdminOrigin ? null : flags.currentUserId,
+                                    actionType: isAdminOrigin ? 'admin_note_added' : 'amendment_submitted',
+                                    userType: userType,
+                                    description: `${qaPair.question}: ~~${qaPair.oldAnswer || 'N/A'}~~ → ${qaPair.answer}`,
+                                    oldValue: { 
+                                        question: qaPair.question,
+                                        answer: qaPair.oldAnswer,
+                                        question_type: qaPair.question_type
+                                    },
+                                    newValue: { 
+                                        question: qaPair.question,
+                                        answer: qaPair.answer,
+                                        question_type: qaPair.question_type
+                                    },
+                                    category: qaPair.sectionLabel || 'Field Update',
+                                    metadata: {
+                                        question_type: qaPair.question_type,
+                                        section_label: qaPair.sectionLabel,
+                                        modified_by: userType,
+                                        auto_approved: isAdminOrigin,
+                                        booking_status: currentBookingStatus?.name
+                                    }
+                                });
+                                
+                                console.log(`✅ ${userType} amendment logged to audit trail`);
+                            } catch (auditError) {
+                                console.error('⚠️ Failed to create amendment audit log:', auditError);
+                            }
                         }
                     }
                 } else {

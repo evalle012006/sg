@@ -256,7 +256,17 @@ export default async function handler(req, res) {
                                             const nightsToUse = allocation.nightsToUse;
                                             
                                             // ✅ FIX: Fetch fresh approval and use its nights_used value (respects manual adjustments)
-                                            const fundingApproval = await FundingApproval.findByPk(fundingApprovalId);
+                                            const fundingApproval = await FundingApproval.findByPk(fundingApprovalId, {
+                                                attributes: [
+                                                    'id', 
+                                                    'approval_number', 
+                                                    'approval_name', 
+                                                    'nights_approved', 
+                                                    'nights_used',
+                                                    'approval_from',
+                                                    'approval_to'
+                                                ]
+                                            });
                                             const currentNightsUsed = fundingApproval.nights_used || 0;
                                             const newNightsUsed = currentNightsUsed + nightsToUse;
                                             
@@ -290,7 +300,9 @@ export default async function handler(req, res) {
                                                 nightsUsedThisBooking: nightsToUse,  // Nights from this booking only
                                                 totalNightsApproved: fundingApproval.nights_approved,  // Total approved from DB
                                                 totalNightsUsed: newNightsUsed,  // Total used after this booking
-                                                remainingNights: fundingApproval.nights_approved - newNightsUsed
+                                                remainingNights: fundingApproval.nights_approved - newNightsUsed,
+                                                approvalFrom: fundingApproval.approval_from,
+                                                approvalTo: fundingApproval.approval_to
                                             });
                                         }
                                         
@@ -340,7 +352,7 @@ export default async function handler(req, res) {
                     const bookingPDFUrl = await dispatchHttpTaskHandler(`${process.env.APP_URL}/api/bookings/${booking.id}/generate-and-upload-pdf`, { booking_id: booking.id });
 
                     // ✅ UPDATED: Send guest confirmation using EmailService
-                    EmailService.sendWithTemplate(
+                    await EmailService.sendWithTemplate(
                         booking.Guest.email,
                         TEMPLATE_IDS.BOOKING_CONFIRMED,
                         {
@@ -359,7 +371,7 @@ export default async function handler(req, res) {
                         if (!infoRecipients) {
                             console.warn('⚠️ No info recipients configured - skipping admin notification');
                         } else {
-                            EmailService.sendWithTemplate(
+                            await EmailService.sendWithTemplate(
                                 infoRecipients,
                                 TEMPLATE_IDS.BOOKING_CONFIRMED_ADMIN,
                                 {
@@ -591,7 +603,7 @@ export default async function handler(req, res) {
                         }, { where: { id: booking.id } });
                         
                         // ✅ UPDATED: Send cancellation emails using EmailService
-                        EmailService.sendWithTemplate(
+                        await EmailService.sendWithTemplate(
                             booking.Guest.email,
                             TEMPLATE_IDS.BOOKING_CANCELLED,
                             {
@@ -601,7 +613,7 @@ export default async function handler(req, res) {
                             }
                         );
                         
-                        EmailService.sendWithTemplate(
+                        await EmailService.sendWithTemplate(
                             "info@sargoodoncollaroy.com.au",
                             TEMPLATE_IDS.BOOKING_CANCELLED_ADMIN,
                             {
@@ -621,7 +633,7 @@ export default async function handler(req, res) {
                     }, { where: { id: booking.id } });
                     
                     // ✅ Send guest-initiated cancellation emails using new template IDs
-                    EmailService.sendWithTemplate(
+                    await EmailService.sendWithTemplate(
                         booking.Guest.email,
                         TEMPLATE_IDS.BOOKING_GUEST_CANCELLATION_REQUEST, // ID: 35
                         {
@@ -631,7 +643,7 @@ export default async function handler(req, res) {
                         }
                     );
                     
-                    EmailService.sendWithTemplate(
+                    await EmailService.sendWithTemplate(
                         "info@sargoodoncollaroy.com.au",
                         TEMPLATE_IDS.BOOKING_GUEST_CANCELLATION_REQUEST_ADMIN, // ID: 36
                         {
@@ -818,6 +830,33 @@ const sendIcareNightsUpdateEmail = async (guest, allocationSummary, bookingDetai
         `• ${a.approvalNumber || a.approvalName || 'Approval'}: ${a.nightsUsedThisBooking} nights from this booking (${a.totalNightsUsed} total used), ${a.remainingNights} remaining`
     ).join('\n');
     
+    // ✅ Determine approval period to display
+    let approvalFrom = '-';
+    let approvalTo = '-';
+    
+    if (allocationSummary.length === 1) {
+        // Single approval - use its dates
+        approvalFrom = allocationSummary[0].approvalFrom 
+            ? moment(allocationSummary[0].approvalFrom).format('DD MMM YYYY') 
+            : '-';
+        approvalTo = allocationSummary[0].approvalTo 
+            ? moment(allocationSummary[0].approvalTo).format('DD MMM YYYY') 
+            : '-';
+    } else if (allocationSummary.length > 1) {
+        // Multiple approvals - show range from earliest to latest
+        const validDates = allocationSummary.filter(a => a.approvalFrom && a.approvalTo);
+        if (validDates.length > 0) {
+            const earliestFrom = validDates.reduce((earliest, curr) => 
+                moment(curr.approvalFrom).isBefore(moment(earliest.approvalFrom)) ? curr : earliest
+            );
+            const latestTo = validDates.reduce((latest, curr) => 
+                moment(curr.approvalTo).isAfter(moment(latest.approvalTo)) ? curr : latest
+            );
+            approvalFrom = moment(earliestFrom.approvalFrom).format('DD MMM YYYY');
+            approvalTo = moment(latestTo.approvalTo).format('DD MMM YYYY');
+        }
+    }
+    
     const templateData = {
         guest_name: `${guest.first_name} ${guest.last_name}`,
         nights_requested: nightsRequested,
@@ -825,12 +864,14 @@ const sendIcareNightsUpdateEmail = async (guest, allocationSummary, bookingDetai
         allocation_details: allocationDetails,
         // For backwards compatibility with existing template
         approval_number: allocationSummary[0]?.approvalNumber || 'Multiple approvals',
+        approval_from: approvalFrom,
+        approval_to: approvalTo,
         nights_approved: allocationSummary.reduce((sum, a) => sum + (a.totalNightsApproved || 0), 0),
         nights_used: allocationSummary.reduce((sum, a) => sum + (a.totalNightsUsed || 0), 0),
         nights_remaining: allocationSummary.reduce((sum, a) => sum + a.remainingNights, 0)
     };
     
-    EmailService.sendWithTemplate(
+    await EmailService.sendWithTemplate(
         guest.email,
         TEMPLATE_IDS.ICARE_NIGHTS_UPDATE,
         templateData
@@ -859,7 +900,7 @@ const sendIcareCancellationEmail = async (guest, returnSummary, cancellationDeta
         nights_remaining: returnSummary.reduce((sum, r) => sum + r.remainingNights, 0)
     };
     
-    EmailService.sendWithTemplate(
+    await EmailService.sendWithTemplate(
         guest.email,
         TEMPLATE_IDS.ICARE_NIGHTS_UPDATE,
         templateData
@@ -888,7 +929,7 @@ const sendIcareFullChargeCancellationEmail = async (guest, penaltySummary, penal
         nights_remaining: penaltySummary.reduce((sum, p) => sum + p.remainingNights, 0)
     };
     
-    EmailService.sendWithTemplate(
+    await EmailService.sendWithTemplate(
         guest.email,
         TEMPLATE_IDS.ICARE_NIGHTS_UPDATE,
         templateData

@@ -1,8 +1,9 @@
 const jwt = require("jsonwebtoken");
-const { Sequelize, sequelize, ModelHasRole, NotificationLibrary } = require("../../../models");
-import sendMail from "../../../utilities/mail";
+const { Sequelize, sequelize, ModelHasRole, NotificationLibrary, Role } = require("../../../models");
 import { getPasswordHash } from "../../../utilities/authentication";
 import { NotificationService } from "../../../services/notification/notification";
+import EmailService from "../../../services/booking/emailService";
+import { TEMPLATE_IDS } from '../../../services/booking/templateIds';
 import moment from "moment";
 
 const User = require("../../../models/user");
@@ -30,20 +31,26 @@ async function handler(req, res) {
 
     let userData = { ...data };
     if (data.password) {
-
       const hashedPassword = await getPasswordHash(data.password);
-
       userData = { ...data, ...{ password: hashedPassword } };
     }
 
     const user = await userModel.create(userData);
 
+    // FIX: Look up the role by name to get its ID
     if (data.role) {
-      await ModelHasRole.create({
-        role_id: data.role,
-        model_id: user.id,
-        model_type: "user",
-      });
+      const role = await Role.findOne({ where: { name: data.role } });
+      
+      if (role) {
+        await ModelHasRole.create({
+          role_id: role.id, // Use role.id instead of data.role
+          model_id: user.id,
+          model_type: "user",
+        });
+      } else {
+        // Handle case where role doesn't exist
+        console.warn(`Role "${data.role}" not found`);
+      }
     }
 
     let token = jwt.sign({ email: user.email, user_type: 'user' }, process.env.SECRET);
@@ -55,12 +62,22 @@ async function handler(req, res) {
       tokenable_type: "user",
     });
 
-    const sentEmail = await sendMail(
-      user.email,
-      "Sargood - Email Confirmation",
-      "team-email-confirmation-link",
-      { username: user.first_name, confirm_link: confirmLink }
-    );
+    // Send team email confirmation using EmailService
+    let emailSent = false;
+    try {
+      await EmailService.sendWithTemplate(
+        user.email,
+        TEMPLATE_IDS.TEAM_EMAIL_CONFIRMATION_LINK,
+        {
+          username: user.first_name,
+          confirmation_link: confirmLink
+        }
+      );
+      emailSent = true;
+    } catch (emailError) {
+      console.error('Error sending team email confirmation:', emailError);
+      // Don't fail the request if email fails
+    }
 
     if (notificationLibs) {
       let message = notificationLibs.notification;
@@ -77,7 +94,7 @@ async function handler(req, res) {
 
     return res
       .status(200)
-      .json({ users: user, emailSent: sentEmail, token: accessToken });
+      .json({ user: user, emailSent: emailSent, token: accessToken });
 
   } else {
     return res.status(405).json({ message: "Method Not Allowed" });

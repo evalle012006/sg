@@ -1,5 +1,7 @@
 import { Booking, BookingEquipment, Checklist, ChecklistAction, Comment, Guest, QaPair, Room, Section, sequelize } from '../../../models';
-import sendMail from '../../../utilities/mail';
+import EmailService from '../../../services/booking/emailService';
+import { TEMPLATE_IDS } from '../../../services/booking/templateIds';
+
 
 export default async function handler(req, res) {
     const data = JSON.parse(req.body);
@@ -30,8 +32,20 @@ export default async function handler(req, res) {
         await Guest.destroy({ where: { id: data.id } });
         await Comment.destroy({ where: { guest_id: data.id } });
 
+        // Send account termination email using EmailService
         if (guest) {
-            await sendMail(guest.email, 'Sargood On Collaroy - Account Termination', 'email-account-termination', { guest_name: guest.first_name });
+            try {
+                await EmailService.sendWithTemplate(
+                    guest.email,
+                    TEMPLATE_IDS.EMAIL_ACCOUNT_TERMINATION,
+                    {
+                        guest_name: guest.first_name
+                    }
+                );
+            } catch (emailError) {
+                console.error('Error sending account termination email:', emailError);
+                // Don't fail the request if email fails
+            }
         }
 
         return res.status(200).end(JSON.stringify({ success: true }));

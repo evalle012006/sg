@@ -5,7 +5,7 @@ import {
   Home, Save, Info, Eye, Code, Edit3, Bold, Italic, Underline, 
   AlignLeft, AlignCenter, AlignRight, List, ListOrdered, Link2, 
   Type, Palette, Minus, ChevronDown, ChevronRight, RefreshCw, X, Lock, AlertTriangle,
-  Search
+  Search, AlertCircle, CheckCircle
 } from 'lucide-react';
 import TemplateHelperDocumentation from './TemplateHelperDocumentation';
 
@@ -261,6 +261,12 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
   const [showLinkDialog, setShowLinkDialog] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
   const [linkText, setLinkText] = useState('');
+  const [linkType, setLinkType] = useState('external');
+  const [showButtonLinkDialog, setShowButtonLinkDialog] = useState(false);
+  const [buttonLinkUrl, setButtonLinkUrl] = useState('');
+  const [buttonLinkText, setButtonLinkText] = useState('');
+  const [buttonLinkType, setButtonLinkType] = useState('external');
+  const [buttonStyle, setButtonStyle] = useState('primary'); // 'primary' or 'secondary'
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [selectedColor, setSelectedColor] = useState('#000000');
   const [showHelperMenu, setShowHelperMenu] = useState(false);
@@ -280,6 +286,242 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
     '#000000', '#434343', '#666666', '#999999', '#b7b7b7', '#cccccc', '#d9d9d9', '#efefef', '#f3f3f3', '#ffffff',
     '#980000', '#ff0000', '#ff9900', '#ffff00', '#00ff00', '#00ffff', '#4a86e8', '#0000ff', '#9900ff', '#ff00ff',
   ];
+
+  // Add refs for dropdown positioning
+  const colorPickerButtonRef = useRef(null);
+  const linkButtonRef = useRef(null);
+  const savedSelectionRef = useRef(null);
+  const componentButtonRef = useRef(null);
+  
+  // Add state for dropdown positions
+  const [colorPickerPosition, setColorPickerPosition] = useState({ top: 0, left: 0 });
+  const [linkDialogPosition, setLinkDialogPosition] = useState({ top: 0, left: 0 });
+  const [componentMenuPosition, setComponentMenuPosition] = useState({ top: 0, left: 0 });
+
+  const [showStructureErrorDialog, setShowStructureErrorDialog] = useState(false);
+  const [structureValidationErrors, setStructureValidationErrors] = useState(null);
+
+  /**
+   * Comprehensive template structure validation
+   * Validates HTML tags and Handlebars block helpers for proper syntax
+   */
+  const validateTemplateStructure = (html) => {
+    if (!html || html.trim() === '') {
+      return {
+        isValid: true,
+        hasWarnings: false,
+        errors: [],
+        warnings: [],
+        errorCount: 0,
+        warningCount: 0
+      };
+    }
+
+    const errors = [];
+    const warnings = [];
+
+    // 1. Validate Handlebars block helpers
+    const handlebarsBlocks = [
+      { open: /\{\{#if\s+/g, close: /\{\{\/if\}\}/g, name: 'if' },
+      { open: /\{\{#each\s+/g, close: /\{\{\/each\}\}/g, name: 'each' },
+      { open: /\{\{#unless\s+/g, close: /\{\{\/unless\}\}/g, name: 'unless' },
+      { open: /\{\{#with\s+/g, close: /\{\{\/with\}\}/g, name: 'with' }
+    ];
+
+    handlebarsBlocks.forEach(block => {
+      const openMatches = html.match(block.open) || [];
+      const closeMatches = html.match(block.close) || [];
+      const openCount = openMatches.length;
+      const closeCount = closeMatches.length;
+      
+      if (openCount !== closeCount) {
+        errors.push({
+          type: 'handlebars',
+          blockType: block.name,
+          message: `Mismatched {{#${block.name}}} blocks: found ${openCount} opening tag(s) but ${closeCount} closing tag(s)`,
+          severity: 'error',
+          details: openCount > closeCount 
+            ? `Missing ${openCount - closeCount} closing {{/${block.name}}} tag(s)`
+            : `Extra ${closeCount - openCount} closing {{/${block.name}}} tag(s)`
+        });
+      }
+    });
+
+    // 2. Validate HTML tag structure
+    const htmlTagPattern = /<\/?([a-zA-Z][a-zA-Z0-9]*)\b[^>]*>/g;
+    const selfClosingTags = new Set([
+      'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 
+      'link', 'meta', 'param', 'source', 'track', 'wbr'
+    ]);
+    const stack = [];
+    let match;
+    const tagPositions = [];
+
+    // Collect all tags with positions
+    while ((match = htmlTagPattern.exec(html)) !== null) {
+      const fullTag = match[0];
+      const tagName = match[1].toLowerCase();
+      const position = match.index;
+      
+      // Skip self-closing tags
+      if (selfClosingTags.has(tagName) || fullTag.endsWith('/>') || fullTag.match(/\/\s*>$/)) {
+        continue;
+      }
+      
+      // Skip script and style content
+      if (tagName === 'script' || tagName === 'style') {
+        if (!fullTag.startsWith('</')) {
+          const closingPattern = new RegExp(`</${tagName}>`, 'i');
+          const closeMatch = closingPattern.exec(html.substring(position));
+          if (closeMatch) {
+            htmlTagPattern.lastIndex = position + closeMatch.index + closeMatch[0].length;
+          }
+        }
+        continue;
+      }
+      
+      tagPositions.push({
+        fullTag,
+        tagName,
+        position,
+        isClosing: fullTag.startsWith('</')
+      });
+    }
+
+    // Validate tag matching
+    tagPositions.forEach((tag) => {
+      if (tag.isClosing) {
+        // Closing tag
+        if (stack.length === 0) {
+          errors.push({
+            type: 'html',
+            tagName: tag.tagName,
+            message: `Unexpected closing tag </${tag.tagName}>`,
+            position: tag.position,
+            severity: 'error',
+            details: `Found closing tag </${tag.tagName}> with no matching opening tag`,
+            context: html.substring(Math.max(0, tag.position - 50), Math.min(html.length, tag.position + 50))
+          });
+        } else {
+          const lastOpened = stack[stack.length - 1];
+          if (lastOpened.tagName !== tag.tagName) {
+            errors.push({
+              type: 'html',
+              tagName: tag.tagName,
+              message: `Mismatched closing tag: expected </${lastOpened.tagName}>, found </${tag.tagName}>`,
+              position: tag.position,
+              severity: 'error',
+              details: `Opening tag <${lastOpened.tagName}> at position ${lastOpened.position} does not match closing tag </${tag.tagName}>`,
+              context: html.substring(Math.max(0, tag.position - 50), Math.min(html.length, tag.position + 50))
+            });
+            
+            // Try to recover
+            let found = false;
+            for (let i = stack.length - 1; i >= 0; i--) {
+              if (stack[i].tagName === tag.tagName) {
+                stack.splice(i);
+                found = true;
+                break;
+              }
+            }
+            if (!found) {
+              stack.pop();
+            }
+          } else {
+            stack.pop();
+          }
+        }
+      } else {
+        // Opening tag
+        stack.push({
+          tagName: tag.tagName,
+          position: tag.position,
+          fullTag: tag.fullTag
+        });
+      }
+    });
+
+    // Check for unclosed tags
+    stack.forEach(tag => {
+      errors.push({
+        type: 'html',
+        tagName: tag.tagName,
+        message: `Unclosed tag <${tag.tagName}>`,
+        position: tag.position,
+        severity: 'error',
+        details: `Tag <${tag.tagName}> opened at position ${tag.position} but never closed`,
+        context: html.substring(Math.max(0, tag.position - 30), Math.min(html.length, tag.position + 100))
+      });
+    });
+
+    // 3. Check for common syntax issues
+    
+    // Unclosed quotes in attributes
+    const attributeQuotePattern = /(\w+)=["']([^"']*)$/gm;
+    let quoteMatch;
+    while ((quoteMatch = attributeQuotePattern.exec(html)) !== null) {
+      warnings.push({
+        type: 'attribute',
+        message: `Possible unclosed quote in attribute near position ${quoteMatch.index}`,
+        position: quoteMatch.index,
+        severity: 'warning',
+        context: html.substring(Math.max(0, quoteMatch.index - 30), Math.min(html.length, quoteMatch.index + 50))
+      });
+    }
+
+    // Malformed Handlebars expressions
+    const malformedHandlebars = /\{\{[^}]*$|\{[^{]|\}[^}]/g;
+    let hbMatch;
+    while ((hbMatch = malformedHandlebars.exec(html)) !== null) {
+      if (hbMatch[0].startsWith('{{') && !hbMatch[0].includes('}}')) {
+        warnings.push({
+          type: 'handlebars',
+          message: `Possible malformed Handlebars expression near position ${hbMatch.index}`,
+          position: hbMatch.index,
+          severity: 'warning',
+          context: html.substring(Math.max(0, hbMatch.index - 20), Math.min(html.length, hbMatch.index + 40))
+        });
+      }
+    }
+
+    return {
+      isValid: errors.length === 0,
+      hasWarnings: warnings.length > 0,
+      errors: errors.sort((a, b) => a.position - b.position),
+      warnings: warnings.sort((a, b) => a.position - b.position),
+      errorCount: errors.length,
+      warningCount: warnings.length
+    };
+  };
+
+  // Function to calculate dropdown position
+  const calculatePosition = (buttonRef) => {
+    if (!buttonRef.current) return { top: 0, left: 0 };
+    const rect = buttonRef.current.getBoundingClientRect();
+    return {
+      top: rect.bottom + window.scrollY + 4, // 4px gap
+      left: rect.left + window.scrollX
+    };
+  };
+
+  // Update positions when dropdowns open
+  useEffect(() => {
+    if (showColorPicker) {
+      setColorPickerPosition(calculatePosition(colorPickerButtonRef));
+    }
+  }, [showColorPicker]);
+
+  useEffect(() => {
+    if (showLinkDialog) {
+      setLinkDialogPosition(calculatePosition(linkButtonRef));
+    }
+  }, [showLinkDialog]);
+
+  useEffect(() => {
+    if (showComponentMenu) {
+      setComponentMenuPosition(calculatePosition(componentButtonRef));
+    }
+  }, [showComponentMenu]);
 
   /**
    * Convert static logo images back to Handlebars format for email sending
@@ -313,22 +555,95 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
     );
   };
 
-  const insertPrimaryButton = () => {
-    const buttonHtml = `<a href="#" class="btn">Button Text</a>`;
+  /**
+   * Save the current cursor/selection position
+   */
+  const saveSelection = () => {
+    if (editorRef.current) {
+      const selection = window.getSelection();
+      if (selection.rangeCount > 0) {
+        savedSelectionRef.current = selection.getRangeAt(0);
+        console.log('💾 Saved cursor position');
+      }
+    }
+  };
+
+  /**
+   * Restore the previously saved cursor/selection position
+   */
+  const restoreSelection = () => {
+    if (editorRef.current && savedSelectionRef.current) {
+      editorRef.current.focus();
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(savedSelectionRef.current);
+      console.log('📍 Restored cursor position');
+      return true;
+    }
+    return false;
+  };
+
+  /**
+   * Insert HTML at the current cursor position
+   */
+  const insertHtmlAtCursor = (html) => {
+    // Try to restore saved position first
+    restoreSelection();
+    
     if (editorRef.current) {
       editorRef.current.focus();
-      document.execCommand('insertHTML', false, buttonHtml);
+      
+      // Use execCommand to insert at cursor
+      const success = document.execCommand('insertHTML', false, html);
+      
+      if (!success) {
+        // Fallback: insert at the end
+        console.warn('⚠️ execCommand failed, appending to end');
+        editorRef.current.innerHTML += html;
+      }
+      
       updateContent();
     }
   };
 
+  const insertPrimaryButton = () => {
+    setButtonStyle('primary');
+    setShowButtonLinkDialog(true);
+  };
+
   const insertSecondaryButton = () => {
-    const buttonHtml = `<a href="#" class="btn btn-outline">Button Text</a>`;
-    if (editorRef.current) {
-      editorRef.current.focus();
-      document.execCommand('insertHTML', false, buttonHtml);
-      updateContent();
+    setButtonStyle('secondary');
+    setShowButtonLinkDialog(true);
+  };
+
+  const insertButtonWithLink = () => {
+    if (!buttonLinkUrl || !buttonLinkText) {
+      toast.error('Please enter both URL and button text');
+      return;
     }
+    
+    // Validate URL format based on type
+    if (buttonLinkType === 'external') {
+      if (!buttonLinkUrl.startsWith('http://') && !buttonLinkUrl.startsWith('https://')) {
+        toast.error('External URLs must start with http:// or https://');
+        return;
+      }
+    } else {
+      if (!buttonLinkUrl.startsWith('/')) {
+        toast.error('Internal paths should start with /');
+        return;
+      }
+    }
+    
+    const buttonClass = buttonStyle === 'primary' ? 'btn' : 'btn btn-outline';
+    const buttonHtml = `<a href="${buttonLinkUrl}" class="${buttonClass}">${buttonLinkText}</a>`;
+    
+    insertHtmlAtCursor(buttonHtml); // ← Use the new function
+    
+    setShowButtonLinkDialog(false);
+    setButtonLinkUrl('');
+    setButtonLinkText('');
+    setButtonLinkType('external');
   };
 
   const insertDetailsBox = () => {
@@ -339,44 +654,28 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
           <span class="detail-value">Value</span>
       </div>
   </div>`;
-    if (editorRef.current) {
-      editorRef.current.focus();
-      document.execCommand('insertHTML', false, boxHtml);
-      updateContent();
-    }
+    insertHtmlAtCursor(boxHtml);
   };
 
   const insertNoteBox = () => {
     const noteHtml = `<div class="note">
       <strong>Note:</strong> Your note content here.
   </div>`;
-    if (editorRef.current) {
-      editorRef.current.focus();
-      document.execCommand('insertHTML', false, noteHtml);
-      updateContent();
-    }
+    insertHtmlAtCursor(noteHtml);
   };
 
   const insertInfoBox = () => {
     const infoHtml = `<div class="info-box">
       <strong>Info:</strong> Your information here.
   </div>`;
-    if (editorRef.current) {
-      editorRef.current.focus();
-      document.execCommand('insertHTML', false, infoHtml);
-      updateContent();
-    }
+    insertHtmlAtCursor(infoHtml);
   };
 
   const insertSuccessBox = () => {
     const successHtml = `<div class="success-box">
       <strong>Success:</strong> Your success message here.
   </div>`;
-    if (editorRef.current) {
-      editorRef.current.focus();
-      document.execCommand('insertHTML', false, successHtml);
-      updateContent();
-    }
+    insertHtmlAtCursor(successHtml);
   };
 
   // Filter merge tags based on search
@@ -647,11 +946,27 @@ ${bodyContent}
       return;
     }
     
+    // Validate URL format based on type
+    if (linkType === 'external') {
+      if (!linkUrl.startsWith('http://') && !linkUrl.startsWith('https://')) {
+        toast.error('External URLs must start with http:// or https://');
+        return;
+      }
+    } else {
+      // Internal path should start with /
+      if (!linkUrl.startsWith('/')) {
+        toast.error('Internal paths should start with /');
+        return;
+      }
+    }
+    
     const linkHtml = `<a href="${linkUrl}" target="_blank" rel="noopener noreferrer">${linkText}</a>`;
-    execCommand('insertHTML', linkHtml);
+    insertHtmlAtCursor(linkHtml); // ← Use the new function
+    
     setShowLinkDialog(false);
     setLinkUrl('');
     setLinkText('');
+    setLinkType('external');
   };
 
   const insertList = (tagName) => {
@@ -789,22 +1104,45 @@ ${bodyContent}
   };
 
   const handleSave = async () => {
+    console.log('🔍 Starting save validation...');
+    
+    // Step 1: Basic field validation
     if (!validateFields()) {
       toast.error('Please fix the validation errors');
       return;
     }
 
-    // ✨ Check for hyphenated tags
-    const validation = validateTemplateForHyphenatedTags(content);
+    // Step 2: ✨ NEW - Template structure validation (HTML + Handlebars)
+    console.log('🔍 Validating template structure...');
+    const structureValidation = validateTemplateStructure(content);
     
-    if (validation.hasIssues) {
-      // Store validation results and show dialog
-      setHyphenatedTagsValidation(validation);
-      setShowSaveConfirmDialog(true);
-      return; // Don't proceed with save yet
+    if (!structureValidation.isValid) {
+      console.error('❌ Structure validation failed:', structureValidation);
+      setStructureValidationErrors(structureValidation);
+      setShowStructureErrorDialog(true);
+      toast.error(`Template has ${structureValidation.errorCount} structural error(s). Please fix them before saving.`);
+      return;
     }
 
-    // If no issues, proceed with save
+    // Show warnings if any (but allow save)
+    if (structureValidation.hasWarnings) {
+      console.warn('⚠️ Structure validation warnings:', structureValidation.warnings);
+      structureValidation.warnings.forEach(warning => {
+        toast.warning(warning.message, { autoClose: 5000 });
+      });
+    }
+
+    // Step 3: Check for hyphenated tags (existing validation)
+    const hyphenValidation = validateTemplateForHyphenatedTags(content);
+    
+    if (hyphenValidation.hasIssues) {
+      setHyphenatedTagsValidation(hyphenValidation);
+      setShowSaveConfirmDialog(true);
+      return;
+    }
+
+    // If all validations pass, proceed with save
+    console.log('✅ All validations passed, proceeding with save');
     await performSave();
   };
 
@@ -947,7 +1285,8 @@ ${bodyContent}
   }, [content]);
 
   const getPreviewContent = () => {
-    return content;
+    // Use the same display conversion as the editor
+    return getEditorDisplayContent(content);
   };
 
   if (isPageLoading) {
@@ -1361,270 +1700,148 @@ ${bodyContent}
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
           {/* Toolbar - Responsive with horizontal scroll */}
           {viewMode === 'editor' && !isViewMode && (
-            <div className="bg-white border-b px-2 sm:px-4 py-2 flex-shrink-0 overflow-x-auto sticky top-0 z-10">
-              <div className="flex items-center gap-1 min-w-max">
-                {/* Text Formatting */}
-                <div className="flex items-center gap-1 pr-2 border-r border-gray-200">
-                  <button
-                    onClick={() => execCommand('bold')}
-                    className="p-2 hover:bg-gray-100 rounded"
-                    title="Bold"
-                  >
-                    <Bold className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => execCommand('italic')}
-                    className="p-2 hover:bg-gray-100 rounded"
-                    title="Italic"
-                  >
-                    <Italic className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => execCommand('underline')}
-                    className="p-2 hover:bg-gray-100 rounded"
-                    title="Underline"
-                  >
-                    <Underline className="w-4 h-4" />
-                  </button>
-                </div>
+            <div className="bg-white border-b px-2 sm:px-4 py-2 flex-shrink-0 sticky top-0 z-20">
+              <div className="overflow-x-auto">
+                <div className="flex items-center gap-1 min-w-max">
+                  {/* Text Formatting */}
+                  <div className="flex items-center gap-1 pr-2 border-r border-gray-200">
+                    <button
+                      onClick={() => execCommand('bold')}
+                      className="p-2 hover:bg-gray-100 rounded"
+                      title="Bold"
+                    >
+                      <Bold className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => execCommand('italic')}
+                      className="p-2 hover:bg-gray-100 rounded"
+                      title="Italic"
+                    >
+                      <Italic className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => execCommand('underline')}
+                      className="p-2 hover:bg-gray-100 rounded"
+                      title="Underline"
+                    >
+                      <Underline className="w-4 h-4" />
+                    </button>
+                  </div>
 
-                {/* Font Size */}
-                <div className="flex items-center gap-1 px-2 border-r border-gray-200">
-                  <select
-                    onChange={(e) => execCommand('fontSize', e.target.value)}
-                    className="text-xs sm:text-sm border border-gray-300 rounded px-2 py-1"
-                    defaultValue="3"
-                  >
-                    <option value="1">Small</option>
-                    <option value="3">Normal</option>
-                    <option value="5">Large</option>
-                    <option value="7">Huge</option>
-                  </select>
-                </div>
+                  {/* Font Size */}
+                  <div className="flex items-center gap-1 px-2 border-r border-gray-200">
+                    <select
+                      onChange={(e) => execCommand('fontSize', e.target.value)}
+                      className="text-xs sm:text-sm border border-gray-300 rounded px-2 py-1"
+                      defaultValue="3"
+                    >
+                      <option value="1">Small</option>
+                      <option value="3">Normal</option>
+                      <option value="5">Large</option>
+                      <option value="7">Huge</option>
+                    </select>
+                  </div>
 
-                {/* Color */}
-                <div className="relative px-2 border-r border-gray-200">
-                  <button
-                    onClick={() => setShowColorPicker(!showColorPicker)}
-                    className="p-2 hover:bg-gray-100 rounded flex items-center gap-1"
-                    title="Text Color"
-                  >
-                    <Palette className="w-4 h-4" />
-                    <ChevronDown className="w-3 h-3" />
-                  </button>
-                  
-                  {showColorPicker && (
-                    <div className="absolute top-full left-0 mt-1 bg-white border border-gray-300 rounded-lg shadow-lg p-3 z-10">
-                      <div className="grid grid-cols-10 gap-1 w-56">
-                        {commonColors.map((color) => (
-                          <button
-                            key={color}
-                            onClick={() => applyColor(color)}
-                            className="w-6 h-6 rounded border border-gray-300 hover:scale-110 transition-transform"
-                            style={{ backgroundColor: color }}
-                            title={color}
-                          />
-                        ))}
-                      </div>
-                      <input
-                        type="color"
-                        value={selectedColor}
-                        onChange={(e) => {
-                          setSelectedColor(e.target.value);
-                          applyColor(e.target.value);
-                        }}
-                        className="w-full mt-2 h-8 rounded border border-gray-300"
-                      />
-                    </div>
-                  )}
-                </div>
+                  {/* Color - ADD REF */}
+                  <div className="px-2 border-r border-gray-200">
+                    <button
+                      ref={colorPickerButtonRef}
+                      onClick={() => setShowColorPicker(!showColorPicker)}
+                      className="p-2 hover:bg-gray-100 rounded flex items-center gap-1"
+                      title="Text Color"
+                    >
+                      <Palette className="w-4 h-4" />
+                      <ChevronDown className="w-3 h-3" />
+                    </button>
+                  </div>
 
-                {/* Alignment */}
-                <div className="flex items-center gap-1 px-2 border-r border-gray-200">
-                  <button
-                    onClick={() => execCommand('justifyLeft')}
-                    className="p-2 hover:bg-gray-100 rounded"
-                    title="Align Left"
-                  >
-                    <AlignLeft className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => execCommand('justifyCenter')}
-                    className="p-2 hover:bg-gray-100 rounded"
-                    title="Align Center"
-                  >
-                    <AlignCenter className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => execCommand('justifyRight')}
-                    className="p-2 hover:bg-gray-100 rounded"
-                    title="Align Right"
-                  >
-                    <AlignRight className="w-4 h-4" />
-                  </button>
-                </div>
+                  {/* Alignment */}
+                  <div className="flex items-center gap-1 px-2 border-r border-gray-200">
+                    <button
+                      onClick={() => execCommand('justifyLeft')}
+                      className="p-2 hover:bg-gray-100 rounded"
+                      title="Align Left"
+                    >
+                      <AlignLeft className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => execCommand('justifyCenter')}
+                      className="p-2 hover:bg-gray-100 rounded"
+                      title="Align Center"
+                    >
+                      <AlignCenter className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => execCommand('justifyRight')}
+                      className="p-2 hover:bg-gray-100 rounded"
+                      title="Align Right"
+                    >
+                      <AlignRight className="w-4 h-4" />
+                    </button>
+                  </div>
 
-                {/* Lists */}
-                <div className="flex items-center gap-1 px-2 border-r border-gray-200">
-                  <button
-                    onClick={() => execCommand('insertUnorderedList')}
-                    className="p-2 hover:bg-gray-100 rounded"
-                    title="Bullet List"
-                  >
-                    <List className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => execCommand('insertOrderedList')}
-                    className="p-2 hover:bg-gray-100 rounded"
-                    title="Numbered List"
-                  >
-                    <ListOrdered className="w-4 h-4" />
-                  </button>
-                </div>
+                  {/* Lists */}
+                  <div className="flex items-center gap-1 px-2 border-r border-gray-200">
+                    <button
+                      onClick={() => execCommand('insertUnorderedList')}
+                      className="p-2 hover:bg-gray-100 rounded"
+                      title="Bullet List"
+                    >
+                      <List className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => execCommand('insertOrderedList')}
+                      className="p-2 hover:bg-gray-100 rounded"
+                      title="Numbered List"
+                    >
+                      <ListOrdered className="w-4 h-4" />
+                    </button>
+                  </div>
 
-                {/* Link */}
-                <div className="relative px-2 border-r border-gray-200">
-                  <button
-                    onClick={() => setShowLinkDialog(!showLinkDialog)}
-                    className="p-2 hover:bg-gray-100 rounded"
-                    title="Insert Link"
-                  >
-                    <Link2 className="w-4 h-4" />
-                  </button>
-                  
-                  {showLinkDialog && (
-                    <div className="absolute top-full left-0 mt-1 bg-white border border-gray-300 rounded-lg shadow-lg p-4 z-10 w-80">
-                      <h4 className="font-medium mb-3 text-sm">Insert Link</h4>
-                      <input
-                        type="text"
-                        placeholder="Link text"
-                        value={linkText}
-                        onChange={(e) => setLinkText(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded mb-2 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                      />
-                      <input
-                        type="url"
-                        placeholder="https://example.com"
-                        value={linkUrl}
-                        onChange={(e) => setLinkUrl(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                      />
-                      <div className="flex gap-2">
-                        <button
-                          onClick={insertLink}
-                          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex-1 text-sm"
-                        >
-                          Insert
-                        </button>
-                        <button
-                          onClick={() => {
-                            setShowLinkDialog(false);
-                            setLinkUrl('');
-                            setLinkText('');
-                          }}
-                          className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
+                  {/* Link - ADD REF */}
+                  <div className="px-2 border-r border-gray-200">
+                    <button
+                      ref={linkButtonRef}
+                      onClick={() => {
+                        saveSelection(); // ← Save cursor position
+                        setShowLinkDialog(!showLinkDialog);
+                      }}
+                      className="p-2 hover:bg-gray-100 rounded"
+                      title="Insert Link"
+                    >
+                      <Link2 className="w-4 h-4" />
+                    </button>
+                  </div>
 
-                {/* Horizontal Rule */}
-                <div className="px-2 border-r border-gray-200">
-                  <button
-                    onClick={() => execCommand('insertHorizontalRule')}
-                    className="p-2 hover:bg-gray-100 rounded"
-                    title="Horizontal Line"
-                  >
-                    <Minus className="w-4 h-4" />
-                  </button>
-                </div>
+                  {/* Horizontal Rule */}
+                  <div className="px-2 border-r border-gray-200">
+                    <button
+                      onClick={() => execCommand('insertHorizontalRule')}
+                      className="p-2 hover:bg-gray-100 rounded"
+                      title="Horizontal Line"
+                    >
+                      <Minus className="w-4 h-4" />
+                    </button>
+                  </div>
 
-                {/* Components Dropdown - NEW */}
-                <div className="relative px-2">
-                  <button
-                    onClick={() => setShowComponentMenu(!showComponentMenu)}
-                    className="p-2 hover:bg-gray-100 rounded flex items-center gap-1"
-                    title="Insert Components"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
-                    </svg>
-                    <span className="text-xs hidden sm:inline">Components</span>
-                    <ChevronDown className="w-3 h-3" />
-                  </button>
-                  
-                  {showComponentMenu && (
-                    <div className="absolute top-full left-0 mt-1 bg-white border border-gray-300 rounded-lg shadow-lg py-1 z-50 w-56">
-                      <button
-                        onClick={() => {
-                          insertPrimaryButton();
-                          setShowComponentMenu(false);
-                        }}
-                        className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2"
-                      >
-                        <div className="w-8 h-6 bg-yellow-400 rounded flex items-center justify-center text-xs">Btn</div>
-                        <span className="text-sm">Primary Button</span>
-                      </button>
-                      <button
-                        onClick={() => {
-                          insertSecondaryButton();
-                          setShowComponentMenu(false);
-                        }}
-                        className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2"
-                      >
-                        <div className="w-8 h-6 border border-gray-400 rounded flex items-center justify-center text-xs">Btn</div>
-                        <span className="text-sm">Secondary Button</span>
-                      </button>
-                      <div className="border-t border-gray-200 my-1"></div>
-                      <button
-                        onClick={() => {
-                          insertDetailsBox();
-                          setShowComponentMenu(false);
-                        }}
-                        className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2"
-                      >
-                        <div className="w-6 h-6 bg-gray-100 border-l-2 border-gray-400 flex items-center justify-center">
-                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                          </svg>
-                        </div>
-                        <span className="text-sm">Details Box</span>
-                      </button>
-                      <button
-                        onClick={() => {
-                          insertNoteBox();
-                          setShowComponentMenu(false);
-                        }}
-                        className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2"
-                      >
-                        <div className="w-6 h-6 bg-yellow-100 rounded flex items-center justify-center text-xs">!</div>
-                        <span className="text-sm">Note Box (Yellow)</span>
-                      </button>
-                      <button
-                        onClick={() => {
-                          insertInfoBox();
-                          setShowComponentMenu(false);
-                        }}
-                        className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2"
-                      >
-                        <div className="w-6 h-6 bg-blue-100 rounded flex items-center justify-center text-xs">i</div>
-                        <span className="text-sm">Info Box (Blue)</span>
-                      </button>
-                      <button
-                        onClick={() => {
-                          insertSuccessBox();
-                          setShowComponentMenu(false);
-                        }}
-                        className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2"
-                      >
-                        <div className="w-6 h-6 bg-green-100 rounded flex items-center justify-center text-xs">✓</div>
-                        <span className="text-sm">Success Box (Green)</span>
-                      </button>
-                    </div>
-                  )}
+                  {/* Components Dropdown - ADD REF */}
+                  <div className="px-2">
+                    <button
+                      ref={componentButtonRef}
+                      onClick={() => {
+                        saveSelection(); // ← Save cursor position before opening dropdown
+                        setShowComponentMenu(!showComponentMenu);
+                      }}
+                      className="p-2 hover:bg-gray-100 rounded flex items-center gap-1"
+                      title="Insert Components"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 6v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                      </svg>
+                      <span className="text-xs hidden sm:inline">Components</span>
+                      <ChevronDown className="w-3 h-3" />
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1794,6 +2011,8 @@ ${bodyContent}
                   onInput={updateContent}
                   onBlur={updateContent}
                   onFocus={handleEditorFocus}
+                  onMouseUp={saveSelection} // ← Save selection on mouse up
+                  onKeyUp={saveSelection}    // ← Save selection on key up
                   suppressContentEditableWarning={true}
                   className="email-editor p-4 sm:p-6 md:p-8 min-h-[400px] sm:min-h-[500px] focus:outline-none"
                   dir="ltr"
@@ -1814,29 +2033,36 @@ ${bodyContent}
                   </div>
                 </div>
                 
-                {/* Use iframe for full HTML documents to properly render styles */}
-                {htmlWrapper ? (
-                  <div className="bg-white border border-gray-300 rounded-lg shadow-sm overflow-hidden">
-                    <iframe
-                      srcDoc={getPreviewContent()}
-                      title="Email Preview"
-                      className="w-full min-h-[500px] border-0"
-                      sandbox="allow-same-origin"
-                    />
-                  </div>
-                ) : (
-                  <div className="bg-white border border-gray-300 rounded-lg shadow-sm p-4 sm:p-6 md:p-8">
-                    <div 
-                      dangerouslySetInnerHTML={{ __html: getPreviewContent() }}
-                      style={{ 
-                        fontFamily: 'Arial, Helvetica, sans-serif',
-                        fontSize: '14px',
-                        lineHeight: '1.6',
-                        color: '#333'
-                      }}
-                    />
-                  </div>
-                )}
+                {/* Use iframe with adjusted width */}
+                <div className="bg-white border border-gray-300 rounded-lg shadow-sm overflow-hidden">
+                  <style>{`
+                    #email-preview-iframe {
+                      width: 100%;
+                      min-height: 500px;
+                      border: 0;
+                    }
+                    /* Override template container width for preview */
+                    #email-preview-iframe .container {
+                      max-width: 100% !important;
+                      width: 100% !important;
+                    }
+                  `}</style>
+                  <iframe
+                    id="email-preview-iframe"
+                    srcDoc={`
+                      <style>
+                        .container {
+                          max-width: 100% !important;
+                          width: 100% !important;
+                        }
+                      </style>
+                      ${getPreviewContent()}
+                    `}
+                    title="Email Preview"
+                    className="w-full min-h-[500px] border-0"
+                    sandbox="allow-same-origin"
+                  />
+                </div>
                 
                 <div className="mt-4 md:mt-6 text-center text-xs sm:text-sm text-gray-500">
                   <Info className="w-4 h-4 inline mr-1" />
@@ -1863,6 +2089,342 @@ ${bodyContent}
           )}
         </div>
       </div>
+
+      {/* Color Picker Dropdown - FIXED POSITION */}
+      {showColorPicker && (
+        <>
+          <div 
+            className="fixed inset-0 z-30" 
+            onClick={() => setShowColorPicker(false)}
+          />
+          <div 
+            className="fixed z-40 bg-white border border-gray-300 rounded-lg shadow-lg p-3"
+            style={{ 
+              top: `${colorPickerPosition.top}px`, 
+              left: `${colorPickerPosition.left}px` 
+            }}
+          >
+            <div className="grid grid-cols-10 gap-1 w-56">
+              {commonColors.map((color) => (
+                <button
+                  key={color}
+                  onClick={() => applyColor(color)}
+                  className="w-6 h-6 rounded border border-gray-300 hover:scale-110 transition-transform"
+                  style={{ backgroundColor: color }}
+                  title={color}
+                />
+              ))}
+            </div>
+            <input
+              type="color"
+              value={selectedColor}
+              onChange={(e) => {
+                setSelectedColor(e.target.value);
+                applyColor(e.target.value);
+              }}
+              className="w-full mt-2 h-8 rounded border border-gray-300"
+            />
+          </div>
+        </>
+      )}
+
+      {/* Link Dialog - FIXED POSITION */}
+      {showLinkDialog && (
+        <>
+          <div 
+            className="fixed inset-0 z-30" 
+            onClick={() => {
+              setShowLinkDialog(false);
+              setLinkUrl('');
+              setLinkText('');
+              setLinkType('external');
+            }}
+          />
+          <div 
+            className="fixed z-40 bg-white border border-gray-300 rounded-lg shadow-lg p-4 w-96"
+            style={{ 
+              top: `${linkDialogPosition.top}px`, 
+              left: `${linkDialogPosition.left}px` 
+            }}
+          >
+            <h4 className="font-medium mb-3 text-sm">Insert Link</h4>
+            
+            {/* Link Type Selection */}
+            <div className="mb-3">
+              <label className="block text-xs font-medium text-gray-700 mb-2">Link Type</label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setLinkType('external')}
+                  className={`flex-1 px-3 py-2 rounded border text-sm transition-colors ${
+                    linkType === 'external'
+                      ? 'bg-blue-50 border-blue-500 text-blue-700'
+                      : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  <svg className="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                  </svg>
+                  External URL
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLinkType('internal')}
+                  className={`flex-1 px-3 py-2 rounded border text-sm transition-colors ${
+                    linkType === 'internal'
+                      ? 'bg-blue-50 border-blue-500 text-blue-700'
+                      : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  <svg className="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                  </svg>
+                  Internal Path
+                </button>
+              </div>
+            </div>
+
+            {/* Helper Text */}
+            <div className="mb-3 p-2 bg-gray-50 rounded text-xs text-gray-600">
+              {linkType === 'external' ? (
+                <>
+                  <strong>External URL:</strong> Full URL (e.g., https://example.com)
+                </>
+              ) : (
+                <>
+                  <strong>Internal Path:</strong> Relative path (e.g., /booking/confirm)
+                  <br />
+                  <span className="text-gray-500">Will be prefixed with app URL when sent</span>
+                </>
+              )}
+            </div>
+
+            <input
+              type="text"
+              placeholder="Link text"
+              value={linkText}
+              onChange={(e) => setLinkText(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded mb-2 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+            />
+            <input
+              type="text"
+              placeholder={linkType === 'external' ? 'https://example.com' : '/booking/confirm'}
+              value={linkUrl}
+              onChange={(e) => setLinkUrl(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={insertLink}
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex-1 text-sm"
+              >
+                Insert
+              </button>
+              <button
+                onClick={() => {
+                  setShowLinkDialog(false);
+                  setLinkUrl('');
+                  setLinkText('');
+                  setLinkType('external');
+                }}
+                className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Components Menu - FIXED POSITION */}
+      {showComponentMenu && (
+        <>
+          <div 
+            className="fixed inset-0 z-30" 
+            onClick={() => setShowComponentMenu(false)}
+          />
+          <div 
+            className="fixed z-40 bg-white border border-gray-300 rounded-lg shadow-lg py-1 w-56"
+            style={{ 
+              top: `${componentMenuPosition.top}px`, 
+              left: `${componentMenuPosition.left}px` 
+            }}
+          >
+            <button
+              onClick={() => {
+                insertPrimaryButton();
+                setShowComponentMenu(false);
+              }}
+              className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2"
+            >
+              <div className="w-8 h-6 bg-yellow-400 rounded flex items-center justify-center text-xs">Btn</div>
+              <span className="text-sm">Primary Button</span>
+            </button>
+            <button
+              onClick={() => {
+                insertSecondaryButton();
+                setShowComponentMenu(false);
+              }}
+              className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2"
+            >
+              <div className="w-8 h-6 border border-gray-400 rounded flex items-center justify-center text-xs">Btn</div>
+              <span className="text-sm">Secondary Button</span>
+            </button>
+            <div className="border-t border-gray-200 my-1"></div>
+            <button
+              onClick={() => {
+                insertDetailsBox();
+                setShowComponentMenu(false);
+              }}
+              className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2"
+            >
+              <div className="w-6 h-6 bg-gray-100 border-l-2 border-gray-400 flex items-center justify-center">
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+              </div>
+              <span className="text-sm">Details Box</span>
+            </button>
+            <button
+              onClick={() => {
+                insertNoteBox();
+                setShowComponentMenu(false);
+              }}
+              className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2"
+            >
+              <div className="w-6 h-6 bg-yellow-100 rounded flex items-center justify-center text-xs">!</div>
+              <span className="text-sm">Note Box (Yellow)</span>
+            </button>
+            <button
+              onClick={() => {
+                insertInfoBox();
+                setShowComponentMenu(false);
+              }}
+              className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2"
+            >
+              <div className="w-6 h-6 bg-blue-100 rounded flex items-center justify-center text-xs">i</div>
+              <span className="text-sm">Info Box (Blue)</span>
+            </button>
+            <button
+              onClick={() => {
+                insertSuccessBox();
+                setShowComponentMenu(false);
+              }}
+              className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2"
+            >
+              <div className="w-6 h-6 bg-green-100 rounded flex items-center justify-center text-xs">✓</div>
+              <span className="text-sm">Success Box (Green)</span>
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* Button Link Dialog - FIXED POSITION */}
+      {showButtonLinkDialog && (
+        <>
+          <div 
+            className="fixed inset-0 z-30" 
+            onClick={() => {
+              setShowButtonLinkDialog(false);
+              setButtonLinkUrl('');
+              setButtonLinkText('');
+              setButtonLinkType('external');
+            }}
+          />
+          <div 
+            className="fixed z-40 bg-white border border-gray-300 rounded-lg shadow-lg p-4 w-96"
+            style={{ 
+              top: `${componentMenuPosition.top}px`, 
+              left: `${componentMenuPosition.left}px` 
+            }}
+          >
+            <h4 className="font-medium mb-3 text-sm flex items-center gap-2">
+              <div className={`w-6 h-6 ${buttonStyle === 'primary' ? 'bg-yellow-400' : 'border border-gray-400'} rounded flex items-center justify-center text-xs`}>
+                Btn
+              </div>
+              Insert {buttonStyle === 'primary' ? 'Primary' : 'Secondary'} Button
+            </h4>
+            
+            {/* Link Type Selection */}
+            <div className="mb-3">
+              <label className="block text-xs font-medium text-gray-700 mb-2">Link Type</label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setButtonLinkType('external')}
+                  className={`flex-1 px-3 py-2 rounded border text-sm transition-colors ${
+                    buttonLinkType === 'external'
+                      ? 'bg-blue-50 border-blue-500 text-blue-700'
+                      : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  External URL
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setButtonLinkType('internal')}
+                  className={`flex-1 px-3 py-2 rounded border text-sm transition-colors ${
+                    buttonLinkType === 'internal'
+                      ? 'bg-blue-50 border-blue-500 text-blue-700'
+                      : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  Internal Path
+                </button>
+              </div>
+            </div>
+
+            {/* Helper Text */}
+            <div className="mb-3 p-2 bg-gray-50 rounded text-xs text-gray-600">
+              {buttonLinkType === 'external' ? (
+                <>
+                  <strong>External URL:</strong> Full URL (e.g., https://example.com)
+                </>
+              ) : (
+                <>
+                  <strong>Internal Path:</strong> Relative path (e.g., /booking/confirm)
+                  <br />
+                  <span className="text-gray-500">Will be prefixed with app URL when sent</span>
+                </>
+              )}
+            </div>
+
+            <input
+              type="text"
+              placeholder="Button text"
+              value={buttonLinkText}
+              onChange={(e) => setButtonLinkText(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded mb-2 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+            />
+            <input
+              type="text"
+              placeholder={buttonLinkType === 'external' ? 'https://example.com' : '/booking/confirm'}
+              value={buttonLinkUrl}
+              onChange={(e) => setButtonLinkUrl(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={insertButtonWithLink}
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex-1 text-sm"
+              >
+                Insert Button
+              </button>
+              <button
+                onClick={() => {
+                  setShowButtonLinkDialog(false);
+                  setButtonLinkUrl('');
+                  setButtonLinkText('');
+                  setButtonLinkType('external');
+                }}
+                className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Helper Menu Modal */}
       {showHelperMenu && selectedMergeTag && (
@@ -2053,6 +2615,133 @@ ${bodyContent}
           </div>
         </div>
       )}
+
+      {/* ✨ NEW: Structure Validation Error Dialog */}
+      {showStructureErrorDialog && structureValidationErrors && (
+        <div className="fixed inset-0 z-50 overflow-y-auto">
+          <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
+            <div 
+              className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75"
+              onClick={() => setShowStructureErrorDialog(false)}
+            />
+
+            <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-4xl sm:w-full">
+              {/* Header */}
+              <div className="bg-red-50 px-6 py-4 border-b border-red-200">
+                <div className="flex items-center gap-3">
+                  <AlertCircle className="h-6 w-6 text-red-600" />
+                  <div>
+                    <h3 className="text-lg font-semibold text-red-900">
+                      Template Structure Errors
+                    </h3>
+                    <p className="text-sm text-red-700 mt-1">
+                      Found {structureValidationErrors.errorCount} error(s) that must be fixed before saving
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Error List */}
+              <div className="bg-white px-6 py-4 max-h-[60vh] overflow-y-auto">
+                <div className="space-y-4">
+                  {structureValidationErrors.errors.map((error, index) => (
+                    <div key={index} className="border border-red-200 rounded-lg p-4 bg-red-50">
+                      <div className="flex items-start gap-3">
+                        <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-red-100 text-red-800">
+                              {error.type.toUpperCase()}
+                              {error.tagName && ` - <${error.tagName}>`}
+                              {error.blockType && ` - {{#${error.blockType}}}`}
+                            </span>
+                            {error.position !== undefined && (
+                              <span className="text-xs text-red-600">
+                                Position: {error.position}
+                              </span>
+                            )}
+                          </div>
+                          
+                          <p className="text-sm font-semibold text-red-900 mb-2">
+                            {error.message}
+                          </p>
+                          
+                          {error.details && (
+                            <p className="text-sm text-red-700 mb-2">
+                              {error.details}
+                            </p>
+                          )}
+                          
+                          {error.context && (
+                            <div className="mt-2 p-2 bg-white rounded border border-red-200">
+                              <p className="text-xs text-gray-500 mb-1">Context:</p>
+                              <pre className="text-xs font-mono text-gray-700 whitespace-pre-wrap break-all">
+                                {error.context}
+                              </pre>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Warnings if any */}
+                {structureValidationErrors.hasWarnings && (
+                  <div className="mt-6 pt-6 border-t border-gray-200">
+                    <h4 className="text-sm font-semibold text-yellow-900 mb-3 flex items-center gap-2">
+                      <AlertTriangle className="h-4 w-4" />
+                      Warnings ({structureValidationErrors.warningCount})
+                    </h4>
+                    <div className="space-y-2">
+                      {structureValidationErrors.warnings.map((warning, index) => (
+                        <div key={index} className="border border-yellow-200 rounded p-3 bg-yellow-50">
+                          <p className="text-sm text-yellow-800">{warning.message}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Help Section */}
+                <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                  <h4 className="text-sm font-semibold text-blue-900 mb-2 flex items-center gap-2">
+                    <Info className="h-4 w-4" />
+                    How to Fix These Errors
+                  </h4>
+                  <ul className="text-sm text-blue-800 space-y-1 ml-5 list-disc">
+                    <li>Switch to <strong>HTML View</strong> to see and edit the full code</li>
+                    <li>Ensure every opening tag has a matching closing tag</li>
+                    <li>Check that Handlebars blocks ({'{#if}'}, {'{#each}'}, etc.) are properly closed</li>
+                    <li>Make sure tags are properly nested (no overlapping)</li>
+                    <li>Use the position numbers to locate errors in your code</li>
+                  </ul>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="bg-gray-50 px-6 py-4 border-t border-gray-200 flex justify-between items-center">
+                <button
+                  onClick={() => {
+                    setShowStructureErrorDialog(false);
+                    setViewMode('code'); // Automatically switch to code view
+                  }}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-medium"
+                >
+                  Go to HTML View
+                </button>
+                <button
+                  onClick={() => setShowStructureErrorDialog(false)}
+                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 focus:outline-none text-sm font-medium"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      
     </div>
   );
 };

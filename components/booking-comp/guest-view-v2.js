@@ -497,21 +497,32 @@ export default function GuestBookingsV2() {
                 return status.name !== 'booking_cancelled' && status.name !== 'guest_cancelled';
             });
 
-            // Past bookings (excluding cancelled)
+            // Past bookings (excluding cancelled) - use check-out date
+            // A booking is "past" when the guest has already checked out
             const past = nonCancelledBookings.filter(booking => {
-                if (booking.check_in_date && moment(booking.check_in_date).isBefore(moment())) {
-                    return booking;
+                // Use check_out_date if available, otherwise use preferred_departure_date
+                const checkoutDate = booking.check_out_date || booking.preferred_departure_date;
+                
+                if (checkoutDate && moment(checkoutDate).isBefore(moment(), 'day')) {
+                    return true;
                 }
+                return false;
             });
 
-            // Upcoming bookings (excluding cancelled)
+            // Upcoming bookings (excluding cancelled) - use check-in date
+            // A booking is "upcoming" if the check-in date is today or in the future
             const upcoming = nonCancelledBookings.filter(booking => {
-                if (booking.check_in_date && moment(booking.check_in_date).isAfter(moment())) {
-                    return booking;
+                // Use check_in_date if available, otherwise use preferred_arrival_date
+                const checkinDate = booking.check_in_date || booking.preferred_arrival_date;
+                
+                if (checkinDate && moment(checkinDate).isSameOrAfter(moment(), 'day')) {
+                    return true;
                 }
-                if (booking.check_in_date == null) {
-                    return booking;
+                // Include bookings with no date set
+                if (!checkinDate && !booking.check_out_date && !booking.preferred_departure_date) {
+                    return true;
                 }
+                return false;
             });
 
             // Sort upcoming bookings by status priority

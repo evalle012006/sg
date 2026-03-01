@@ -1,7 +1,8 @@
 const jwt = require("jsonwebtoken");
 const { Sequelize, sequelize } = require("./../../../models");
-import sendMail from "../../../utilities/mail";
 import { getPasswordHash } from "../../../utilities/authentication";
+import EmailService from "../../../services/booking/emailService";
+import { TEMPLATE_IDS } from '../../../services/booking/templateIds';
 
 const Guest = require("../../../models/guest");
 const AccessToken = require("./../../../models/accesstoken");
@@ -37,15 +38,25 @@ async function handler(req, res) {
       tokenable_type: "guest",
     });
 
-    const sentEmail = await sendMail(
-      guest.email,
-      "Sargood - Email Confirmation",
-      "email-confirmation-link",
-      { username: guest.first_name, confirm_link: confirmLink }
-    );
+    // Send email confirmation using EmailService
+    let emailSent = false;
+    try {
+      await EmailService.sendWithTemplate(
+        guest.email,
+        TEMPLATE_IDS.EMAIL_CONFIRMATION_LINK,
+        {
+          username: guest.first_name,
+          confirmation_link: confirmLink
+        }
+      );
+      emailSent = true;
+    } catch (emailError) {
+      console.error('Error sending email confirmation:', emailError);
+      // Don't fail the request if email fails
+    }
 
     return res.status(200)
-      .json({ users: guest, emailSent: sentEmail, token: accessToken });
+      .json({ users: guest, emailSent: emailSent, token: accessToken });
 
   } else {
     return res.status(405).json({ message: "Method Not Allowed" });

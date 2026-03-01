@@ -149,6 +149,22 @@ function EmailTriggerList({ refreshData }) {
   };
 
   const handleDelete = (trigger) => {
+    // Check if trigger is active/enabled
+    if (trigger.enabled) {
+      setConfirmDialog({
+        isOpen: true,
+        type: 'warning',
+        title: 'Cannot Delete Active Trigger',
+        message: `This email trigger is currently active and cannot be deleted.\n\nPlease disable the trigger first before attempting to delete it.\n\nRecipient: ${trigger.recipient}\nTemplate: ${trigger.template?.name || 'N/A'}`,
+        confirmText: 'OK',
+        onConfirm: () => {
+          setConfirmDialog({ ...confirmDialog, isOpen: false });
+        }
+      });
+      return;
+    }
+
+    // Trigger is disabled, proceed with deletion confirmation
     setConfirmDialog({
       isOpen: true,
       type: 'danger',
@@ -162,8 +178,14 @@ function EmailTriggerList({ refreshData }) {
             method: 'DELETE'
           });
 
+          const data = await response.json();
+
           if (!response.ok) {
-            throw new Error('Failed to delete trigger');
+            // Handle specific error cases
+            if (data.trigger_enabled) {
+              throw new Error('Cannot delete an active trigger. Please disable it first.');
+            }
+            throw new Error(data.message || 'Failed to delete trigger');
           }
 
           toast.success('Email trigger deleted successfully');
@@ -171,7 +193,7 @@ function EmailTriggerList({ refreshData }) {
           refreshData();
         } catch (error) {
           console.error('Error deleting trigger:', error);
-          toast.error('Failed to delete trigger');
+          toast.error(error.message || 'Failed to delete trigger');
         } finally {
           setIsProcessing(false);
         }
@@ -238,32 +260,12 @@ function EmailTriggerList({ refreshData }) {
             }
             qCount = Array.isArray(parsedQuestions) ? parsedQuestions.length : 0;
           }
-
-          // Parse trigger_conditions
-          let conditions = row.trigger_conditions;
-          if (typeof conditions === 'string') {
-            try { conditions = JSON.parse(conditions); } catch { conditions = null; }
-          }
-          const statusConditions = conditions?.booking_status || [];
-
-          const hasAnything = qCount > 0 || statusConditions.length > 0;
-
+          
           return (
-            <div className="text-sm text-gray-600 space-y-1">
-              {qCount > 0 && (
-                <div>{qCount} question condition{qCount !== 1 ? 's' : ''}</div>
-              )}
-              {statusConditions.map(s => (
-                <span
-                  key={s}
-                  className="inline-block px-2 py-0.5 bg-orange-100 text-orange-800 rounded text-xs mr-1"
-                >
-                  Booking Status: {s.replace(/_/g, ' ')}
-                </span>
-              ))}
-              {!hasAnything && (
-                <span className="text-red-500 text-xs">⚠ No conditions (always fires)</span>
-              )}
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                {qCount} {qCount === 1 ? 'condition' : 'conditions'}
+              </span>
             </div>
           );
         }
@@ -273,23 +275,30 @@ function EmailTriggerList({ refreshData }) {
         label: 'STATUS',
         searchable: false,
         render: (value, row) => (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <Toggle
               checked={value}
-              onChange={() => handleToggleEnabled(row)}
+              onChange={(e) => {
+                e.stopPropagation();
+                handleToggleEnabled(row);
+              }}
+              disabled={isProcessing}
             />
+            <span className={`text-sm font-medium ${value ? 'text-green-600' : 'text-gray-500'}`}>
+              {value ? 'Active' : 'Disabled'}
+            </span>
           </div>
         )
       },
       {
         key: 'actions',
-        label: 'ACTION',
+        label: 'ACTIONS',
         searchable: false,
         render: (value, row) => (
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center gap-2">
             <button 
               className="p-2 rounded transition-colors duration-150 hover:opacity-80"
-              style={{ backgroundColor: '#00467F1A', color: '#00467F' }}
+              style={{ backgroundColor: '#3B82F61A', color: '#3B82F6' }}
               onClick={(e) => {
                 e.stopPropagation();
                 handleView(row);
@@ -317,14 +326,15 @@ function EmailTriggerList({ refreshData }) {
                 handleDelete(row);
               }}
               title="Delete Trigger"
+              disabled={row.enabled}
             >
-              <Trash2 className="w-4 h-4" />
+              <Trash2 className={`w-4 h-4 ${row.enabled ? 'opacity-50' : ''}`} />
             </button>
           </div>
         )
       }
     ],
-    []
+    [isProcessing]
   );
 
   return (

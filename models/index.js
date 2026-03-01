@@ -4,6 +4,7 @@ const Sequelize = require('sequelize');
 const accessTokenModel = require('./accesstoken');
 const addressModel = require('./address');
 const bookingModel = require('./booking');
+const bookingAuditLogModel = require('./bookingauditlog');
 const bookingEquipmentModel = require('./bookingequipment')
 const checklistModel = require('./checklist')
 const checklistactionModel = require('./checklistaction')
@@ -38,13 +39,11 @@ const courseModel = require('./course');
 const courseOfferModel = require('./courseoffer');
 const courseRateModel = require('./courserate');
 const packageRequirementModel = require('./packagerequirement');
-// REMOVED: const guestApprovalModel = require('./guestapproval');
 const promotionModel = require('./promotion');
 const emailTemplateModel = require('./emailtemplate');
 const emailTriggerQuestionModel = require('./emailtriggerquestion');
 const bookingApprovalUsageModel = require('./bookingapprovalusage');
 const fundingApprovalModel = require('./fundingapproval');
-// REMOVED: const guestApprovalFundingApprovalModel = require('./guestapprovalfundingapproval');
 const courseEOIModel = require('./courseeoi');
 
 const env = process.env.NODE_ENV || 'development';
@@ -60,6 +59,7 @@ if (config.use_env_variable) {
 const AccessToken = accessTokenModel(sequelize, Sequelize.DataTypes);
 const Address = addressModel(sequelize, Sequelize.DataTypes);
 const Booking = bookingModel(sequelize, Sequelize.DataTypes)
+const BookingAuditLog = bookingAuditLogModel(sequelize, Sequelize.DataTypes);
 const BookingEquipment = bookingEquipmentModel(sequelize, Sequelize.DataTypes)
 const Checklist = checklistModel(sequelize, Sequelize.DataTypes)
 const ChecklistAction = checklistactionModel(sequelize, Sequelize.DataTypes)
@@ -94,13 +94,11 @@ const Course = courseModel(sequelize, Sequelize.DataTypes);
 const CourseOffer = courseOfferModel(sequelize, Sequelize.DataTypes);
 const CourseRate = courseRateModel(sequelize, Sequelize.DataTypes);
 const PackageRequirement = packageRequirementModel(sequelize, Sequelize.DataTypes);
-// REMOVED: const GuestApproval = guestApprovalModel(sequelize, Sequelize.DataTypes);
 const Promotion = promotionModel(sequelize, Sequelize.DataTypes);
 const EmailTemplate = emailTemplateModel(sequelize, Sequelize.DataTypes);
 const EmailTriggerQuestion = emailTriggerQuestionModel(sequelize, Sequelize.DataTypes);
 const BookingApprovalUsage = bookingApprovalUsageModel(sequelize, Sequelize.DataTypes);
 const FundingApproval = fundingApprovalModel(sequelize, Sequelize.DataTypes);
-// REMOVED: const GuestApprovalFundingApproval = guestApprovalFundingApprovalModel(sequelize, Sequelize.DataTypes);
 const CourseEOI = courseEOIModel(sequelize, Sequelize.DataTypes);
 
 //ASSOCIATIONS
@@ -413,12 +411,38 @@ CourseEOI.belongsTo(Guest, {
   as: 'guest'
 });
 
+// Booking & BookingAuditLog associations
+Booking.hasMany(BookingAuditLog, {
+  foreignKey: 'booking_id',
+  as: 'auditLogs'
+});
+BookingAuditLog.belongsTo(Booking, {
+  foreignKey: 'booking_id',
+  as: 'booking'
+});
+
+// User & BookingAuditLog associations
+User.hasMany(BookingAuditLog, {
+  foreignKey: 'user_id',
+  as: 'auditLogEntries'
+});
+BookingAuditLog.belongsTo(User, {
+  foreignKey: 'user_id',
+  as: 'user'
+});
+
+BookingAuditLog.belongsTo(Guest, {
+  foreignKey: 'guest_id',
+  as: 'guest'
+});
+
 module.exports = {
   sequelize,
   Sequelize,
   AccessToken,
   Address,
   Booking,
+  BookingAuditLog,
   BookingEquipment,
   Checklist,
   ChecklistAction,

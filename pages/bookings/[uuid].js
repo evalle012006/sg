@@ -34,6 +34,7 @@ const CustomAccordionItem = dynamic(() => import('../../components/booking-comp/
 const FunderImageDisplay = dynamic(() => import('../../components/booking-comp/component-display/FunderImageDisplay'));
 const QuestionDisplay = dynamic(() => import('../../components/booking-comp/component-display/QuestionDisplay'));
 const AmendmentDisplay = dynamic(() => import('../../components/booking-comp/component-display/AmendmentDisplay'));
+const BookingAuditLog = dynamic(() => import('../../components/booking-comp/BookingAuditLog'));
 
 const handleEditBooking = (uuid) => {
   window.open(`/booking-request-form?uuid=${uuid}&origin=admin`, '_blank');
@@ -79,11 +80,8 @@ const DetailSidebar = ({ booking, callback, guest, address, setEditBooking }) =>
 
     if (response.ok) {
       toast.success('Checklist successfully added.');
-      // Close the edit mode
       setEditCheckList(false);
-      // Refresh the local checklist data
       await getCheckList();
-      // Refresh the booking data
       callback && callback();
     }
   };
@@ -109,17 +107,24 @@ const DetailSidebar = ({ booking, callback, guest, address, setEditBooking }) =>
 
   const handleOnChange = (e, index) => {
     let temp = { ...checklist };
+    let changedAction = null;
+    
     temp.ChecklistActions = temp.ChecklistActions.map((cka, idx) => {
       if (idx === index) {
+        changedAction = {
+          action: cka.action,
+          oldStatus: cka.status,
+          newStatus: e.target.checked
+        };
         cka.status = e.target.checked;
-        updateStatus(cka.id, cka.status);
+        updateStatus(cka.id, cka.status, changedAction);
       }
       return cka;
     });
     setChecklist(temp);
   };
 
-  const updateStatus = async (id, status) => {
+  const updateStatus = async (id, status, actionInfo) => {
     await fetch(`/api/bookings/checklist/update`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -174,19 +179,14 @@ const DetailSidebar = ({ booking, callback, guest, address, setEditBooking }) =>
   };
 
   const handleSelectBookingLabel = async (selectedLabels) => {
-    // Ensure selectedLabels is an array of strings
     const labelStrings = selectedLabels.map(item => {
-      // Handle case where item might be an object with a 'label' property
       if (typeof item === 'object' && item !== null) {
         return item.label || item.value || String(item);
       }
-      // Handle case where item is already a string
       return String(item);
     });
 
-    // Convert display labels back to original format for API
     const apiLabels = labelStrings.map(displayLabel => {
-      // Find the original flag value from the display label
       const matchingFlag = settingsFlags.find(flag => 
         _.startCase(flag) === displayLabel
       );
@@ -476,12 +476,25 @@ const DetailSidebar = ({ booking, callback, guest, address, setEditBooking }) =>
               )}
             </div>
 
-            {/* View Booking History */}
-            <div className="pt-4">
+            {/* Booking Audit Log */}
+            <div className="border-t border-gray-200 pt-4 mt-4">
+              <h3 className="text-sm font-semibold text-gray-900 mb-3 uppercase tracking-wide">
+                Booking History
+              </h3>
+              <BookingAuditLog 
+                bookingUuid={booking?.uuid}
+                userRole={user?.type}
+                compact={true}
+                maxEntries={10}
+              />
+            </div>
+
+            {/* View Full History Button - Optional: Keep if you want a link to full history page */}
+            <div className="pt-4 mt-4">
               <Button 
                 color="outline"
                 size="medium"
-                label="VIEW BOOKING HISTORY"
+                label="VIEW GUEST PROFILE"
                 onClick={handleViewBookingHistory}
                 fullWidth={true}
                 className="flex items-center justify-center"

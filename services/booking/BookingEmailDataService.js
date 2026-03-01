@@ -13,6 +13,8 @@ import EmailService from "./emailService";
 import { QUESTION_KEYS, getAnswerByQuestionKey, findByQuestionKey, mapQuestionTextToKey } from "./question-helper";
 import moment from "moment";
 import { EmailTemplateMappingService } from "./EmailTemplateService";
+import AuditLogService from "../../services/AuditLogService";
+
 const fs = require('fs').promises;
 const path = require('path');
 
@@ -605,6 +607,8 @@ class BookingEmailDataService {
 
       if (!bookingData) {
         console.log('   ❌ Booking not found');
+        
+        // ⭐ AUDIT LOG: Booking not found (can't log to booking, but could log to system)
         return {
           sent: false,
           reason: 'Booking not found',
@@ -617,6 +621,20 @@ class BookingEmailDataService {
 
       if (!result.shouldSend) {
         console.log(`   ⊘ Will not send: ${result.evaluation.reason}`);
+        
+        // ⭐ AUDIT LOG: Email not sent (trigger condition not met)
+        await this.logEmailSend(bookingData, {
+          success: false,
+          recipients: [],
+          templateId: trigger.email_template_id || trigger.template?.id,
+          templateName: trigger.name || `Trigger ${trigger.id}`,
+          triggerType: trigger.type,
+          triggerId: trigger.id,
+          triggerName: trigger.name,
+          reason: `Trigger conditions not met: ${result.evaluation.reason}`,
+          emailData: null
+        });
+
         return {
           sent: false,
           reason: result.evaluation.reason,
@@ -630,11 +648,9 @@ class BookingEmailDataService {
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       
       if (trigger.type === 'internal') {
-        // Internal emails go to configured staff addresses (may be comma-separated)
         const recipientString = trigger.recipient;
         console.log(`   📬 Internal email to: ${recipientString}`);
         
-        // ✨ Split comma-separated emails
         if (recipientString && recipientString.includes(',')) {
           recipients = recipientString.split(',').map(email => email.trim()).filter(email => email);
           console.log(`   📧 Split into ${recipients.length} recipients`);
@@ -643,27 +659,19 @@ class BookingEmailDataService {
         }
         
       } else if (trigger.type === 'external') {
-        // ✅ For external triggers:
-        // 1. Try to get email from matched answer (coordinator/manager email)
-        // 2. Validate it's actually an email address
-        // 3. Fallback to guest email if not valid
-        
         if (result.evaluation.matchedAnswers && Object.keys(result.evaluation.matchedAnswers).length > 0) {
           const matchedAnswerKey = Object.keys(result.evaluation.matchedAnswers)[0];
           const matchedAnswerValue = result.evaluation.matchedAnswers[matchedAnswerKey];
           
           console.log(`   🔍 Checking matched answer: "${matchedAnswerValue}"`);
           
-          // Check if matched answer is a valid email (or comma-separated emails)
           if (matchedAnswerValue) {
             if (matchedAnswerValue.includes(',')) {
-              // Multiple emails in the answer
               recipients = matchedAnswerValue.split(',').map(email => email.trim()).filter(email => email && emailRegex.test(email));
               if (recipients.length > 0) {
                 console.log(`   📬 External email to ${recipients.length} coordinator(s): ${recipients.join(', ')}`);
               }
             } else if (emailRegex.test(matchedAnswerValue)) {
-              // Single valid email
               recipients = [matchedAnswerValue.trim()];
               console.log(`   📬 External email to coordinator: ${matchedAnswerValue}`);
             } else {
@@ -672,7 +680,6 @@ class BookingEmailDataService {
           }
         }
         
-        // Fallback to guest email if no valid email from matched answer
         if (recipients.length === 0) {
           const guestEmail = result.emailData?.guest_email || result.emailData?.email;
           
@@ -681,6 +688,20 @@ class BookingEmailDataService {
             console.log(`   🔄 Falling back to guest email: ${guestEmail}`);
           } else {
             console.log('   ❌ No valid guest email found in emailData');
+            
+            // ⭐ AUDIT LOG: No valid recipient found
+            await this.logEmailSend(bookingData, {
+              success: false,
+              recipients: [],
+              templateId: trigger.email_template_id || trigger.template?.id,
+              templateName: trigger.name || `Trigger ${trigger.id}`,
+              triggerType: trigger.type,
+              triggerId: trigger.id,
+              triggerName: trigger.name,
+              reason: 'No recipient email found (neither coordinator nor guest)',
+              emailData: result.emailData
+            });
+
             return {
               sent: false,
               reason: 'No recipient email found (neither coordinator nor guest)',
@@ -691,7 +712,6 @@ class BookingEmailDataService {
         }
         
       } else {
-        // Default fallback
         const recipientString = trigger.recipient;
         if (recipientString && recipientString.includes(',')) {
           recipients = recipientString.split(',').map(email => email.trim()).filter(email => email);
@@ -706,6 +726,20 @@ class BookingEmailDataService {
       
       if (invalidRecipients.length > 0) {
         console.log(`   ❌ Invalid recipient email address(es): ${invalidRecipients.join(', ')}`);
+        
+        // ⭐ AUDIT LOG: Invalid recipient
+        await this.logEmailSend(bookingData, {
+          success: false,
+          recipients: invalidRecipients,
+          templateId: trigger.email_template_id || trigger.template?.id,
+          templateName: trigger.name || `Trigger ${trigger.id}`,
+          triggerType: trigger.type,
+          triggerId: trigger.id,
+          triggerName: trigger.name,
+          reason: `Invalid recipient email: ${invalidRecipients.join(', ')}`,
+          emailData: result.emailData
+        });
+
         return {
           sent: false,
           reason: `Invalid recipient email: ${invalidRecipients.join(', ')}`,
@@ -716,6 +750,20 @@ class BookingEmailDataService {
 
       if (recipients.length === 0) {
         console.log('   ❌ No recipient found');
+        
+        // ⭐ AUDIT LOG: No recipient found
+        await this.logEmailSend(bookingData, {
+          success: false,
+          recipients: [],
+          templateId: trigger.email_template_id || trigger.template?.id,
+          templateName: trigger.name || `Trigger ${trigger.id}`,
+          triggerType: trigger.type,
+          triggerId: trigger.id,
+          triggerName: trigger.name,
+          reason: 'No recipient found',
+          emailData: result.emailData
+        });
+
         return {
           sent: false,
           reason: 'No recipient found',
@@ -727,6 +775,20 @@ class BookingEmailDataService {
       const templateId = trigger.email_template_id || trigger.template?.id;
       if (!templateId) {
         console.log('   ❌ No email template configured');
+        
+        // ⭐ AUDIT LOG: No template configured
+        await this.logEmailSend(bookingData, {
+          success: false,
+          recipients: recipients,
+          templateId: null,
+          templateName: trigger.name || `Trigger ${trigger.id}`,
+          triggerType: trigger.type,
+          triggerId: trigger.id,
+          triggerName: trigger.name,
+          reason: 'No email template configured',
+          emailData: result.emailData
+        });
+
         return {
           sent: false,
           reason: 'No email template configured',
@@ -735,18 +797,32 @@ class BookingEmailDataService {
         };
       }
 
-      // ✨ Send to each recipient
+      // ✨ Send to each recipient with individual audit logging
       const sentResults = [];
+      const triggerInfo = {
+        id: trigger.id,
+        name: trigger.name,
+        type: trigger.type
+      };
+
       for (const recipient of recipients) {
         console.log(`   📨 Queueing email to ${recipient} with template ${templateId}...`);
         
         try {
-          await this.queueEmail(recipient, templateId, result.emailData);
+          await this.queueEmail(
+            recipient, 
+            templateId, 
+            result.emailData, 
+            bookingData, 
+            triggerInfo
+          );
           sentResults.push({ recipient, success: true });
           console.log(`   ✅ Queued for ${recipient}`);
         } catch (error) {
           console.error(`   ❌ Failed to queue email to ${recipient}:`, error);
           sentResults.push({ recipient, success: false, error: error.message });
+          
+          // Individual failure already logged in queueEmail
         }
       }
 
@@ -754,7 +830,6 @@ class BookingEmailDataService {
       const failedSends = sentResults.filter(r => !r.success);
 
       if (successfulSends.length === recipients.length) {
-        // All successful
         console.log(`   ✅ Email queued successfully to all ${recipients.length} recipient(s)!`);
         return {
           sent: true,
@@ -764,7 +839,6 @@ class BookingEmailDataService {
           sentResults
         };
       } else if (successfulSends.length > 0) {
-        // Partial success
         console.log(`   ⚠️ Partially sent: ${successfulSends.length}/${recipients.length} successful`);
         return {
           sent: true,
@@ -774,7 +848,6 @@ class BookingEmailDataService {
           sentResults
         };
       } else {
-        // All failed
         console.log(`   ❌ All sends failed`);
         return {
           sent: false,
@@ -787,6 +860,31 @@ class BookingEmailDataService {
 
     } catch (error) {
       console.error('❌ Error in sendWithTriggerEvaluation:', error);
+      
+      // ⭐ AUDIT LOG: Unexpected error
+      try {
+        const bookingData = typeof bookingOrId === 'object' && bookingOrId !== null
+          ? bookingOrId
+          : await this.fetchBookingData(bookingOrId);
+
+        if (bookingData) {
+          await this.logEmailSend(bookingData, {
+            success: false,
+            recipients: [],
+            templateId: trigger.email_template_id || trigger.template?.id,
+            templateName: trigger.name || `Trigger ${trigger.id}`,
+            triggerType: trigger.type,
+            triggerId: trigger.id,
+            triggerName: trigger.name,
+            error: error.message,
+            reason: `System error: ${error.message}`,
+            emailData: null
+          });
+        }
+      } catch (auditError) {
+        console.error('Failed to log error audit:', auditError);
+      }
+
       return {
         sent: false,
         reason: `Error: ${error.message}`,
@@ -797,23 +895,136 @@ class BookingEmailDataService {
   }
 
   /**
+   * Create audit log entry for email send
+   */
+  async logEmailSend(bookingData, emailInfo) {
+    try {
+      const {
+        success,
+        recipients,
+        templateId,
+        templateName,
+        triggerType,
+        triggerId,
+        triggerName,
+        error,
+        reason,
+        emailData
+      } = emailInfo;
+
+      // Build description based on success/failure
+      let description = '';
+      if (success) {
+        if (recipients.length === 1) {
+          description = `Email sent to ${recipients[0]}`;
+        } else {
+          description = `Email sent to ${recipients.length} recipients`;
+        }
+      } else {
+        description = `Email send failed: ${reason || error || 'Unknown error'}`;
+      }
+
+      // Prepare metadata
+      const metadata = {
+        email_template_id: templateId,
+        email_template_name: templateName,
+        recipients: recipients,
+        recipient_count: recipients.length,
+        trigger_type: triggerType,
+        trigger_id: triggerId,
+        trigger_name: triggerName,
+        timestamp: new Date(),
+        success: success,
+        error_message: error || null,
+        failure_reason: reason || null
+      };
+
+      // Add email subject/preview if available
+      if (emailData?.subject) {
+        metadata.email_subject = emailData.subject;
+      }
+
+      await AuditLogService.createAuditEntry({
+        bookingId: bookingData.id,
+        userId: null, // System-generated email
+        guestId: null,
+        actionType: success ? 'email_sent' : 'email_failed',
+        userType: 'system',
+        description: description,
+        oldValue: null,
+        newValue: {
+          recipients: recipients,
+          template_id: templateId,
+          trigger_id: triggerId
+        },
+        category: 'Email',
+        metadata: metadata
+      });
+
+      console.log(`✅ Email audit logged: ${description}`);
+    } catch (auditError) {
+      console.error('Failed to log email audit:', auditError);
+      // Don't throw - email audit logging failure shouldn't break email sending
+    }
+  }
+
+  /**
    * Queue email using dispatchHttpTaskHandler
    */
-  async queueEmail(recipient, templateId, emailData) {
+  async queueEmail(recipient, templateId, emailData, bookingData = null, triggerInfo = null) {
     console.log('\n📤 Queueing email task...');
     console.log(`   Recipient: ${recipient}`);
     console.log(`   Template ID: ${templateId}`);
     
-    await dispatchHttpTaskHandler('booking', { 
-      type: 'sendTriggerEmail',
-      payload: {
-        recipient,
-        templateId,
-        emailData
+    try {
+      await dispatchHttpTaskHandler('booking', { 
+        type: 'sendTriggerEmail',
+        payload: {
+          recipient,
+          templateId,
+          emailData
+        }
+      });
+      
+      console.log('   ✅ Email task queued\n');
+
+      // ⭐ AUDIT LOG: Email queued successfully
+      if (bookingData) {
+        await this.logEmailSend(bookingData, {
+          success: true,
+          recipients: [recipient],
+          templateId: templateId,
+          templateName: emailData?.template_name || `Template ${templateId}`,
+          triggerType: triggerInfo?.type || 'manual',
+          triggerId: triggerInfo?.id || null,
+          triggerName: triggerInfo?.name || null,
+          reason: 'Email queued successfully',
+          emailData: emailData
+        });
       }
-    });
-    
-    console.log('   ✅ Email task queued\n');
+
+      return true;
+    } catch (error) {
+      console.error('   ❌ Failed to queue email:', error);
+
+      // ⭐ AUDIT LOG: Email queue failed
+      if (bookingData) {
+        await this.logEmailSend(bookingData, {
+          success: false,
+          recipients: [recipient],
+          templateId: templateId,
+          templateName: emailData?.template_name || `Template ${templateId}`,
+          triggerType: triggerInfo?.type || 'manual',
+          triggerId: triggerInfo?.id || null,
+          triggerName: triggerInfo?.name || null,
+          error: error.message,
+          reason: 'Failed to queue email task',
+          emailData: emailData
+        });
+      }
+
+      throw error;
+    }
   }
 
   /**
@@ -1729,18 +1940,81 @@ parseSpecificQuestionAnswer(qaPairs, questionKey, questionText) {
 
   async prepareAndSendEmail(bookingId, templateId, recipient, additionalData = {}, options = {}) {
     try {
-      const emailData = await this.prepareEmailData(bookingId, additionalData, options);
-      
-      if (!emailData) {
-        console.error('Failed to prepare email data');
+      console.log('\n📧 Prepare and send email...');
+      console.log(`   Booking: ${bookingId}`);
+      console.log(`   Template: ${templateId}`);
+      console.log(`   Recipient: ${recipient}`);
+
+      const bookingData = typeof bookingId === 'object' && bookingId !== null
+        ? bookingId
+        : await this.fetchBookingData(bookingId);
+
+      if (!bookingData) {
+        console.error('❌ Booking not found');
         return false;
       }
 
-      await EmailService.sendWithTemplate(recipient, templateId, emailData);
+      const emailData = await this.prepareEmailData(bookingData, additionalData, options);
       
-      return true;
+      if (!emailData) {
+        console.error('❌ Failed to prepare email data');
+        
+        // ⭐ AUDIT LOG: Failed to prepare data
+        await this.logEmailSend(bookingData, {
+          success: false,
+          recipients: [recipient],
+          templateId: templateId,
+          templateName: `Template ${templateId}`,
+          triggerType: 'manual',
+          triggerId: null,
+          triggerName: 'Direct Send',
+          reason: 'Failed to prepare email data',
+          emailData: null
+        });
+
+        return false;
+      }
+
+      try {
+        await EmailService.sendWithTemplate(recipient, templateId, emailData);
+        
+        console.log('   ✅ Email sent successfully');
+
+        // ⭐ AUDIT LOG: Email sent successfully
+        await this.logEmailSend(bookingData, {
+          success: true,
+          recipients: [recipient],
+          templateId: templateId,
+          templateName: emailData?.template_name || `Template ${templateId}`,
+          triggerType: 'manual',
+          triggerId: null,
+          triggerName: 'Direct Send',
+          reason: 'Email sent successfully',
+          emailData: emailData
+        });
+        
+        return true;
+      } catch (sendError) {
+        console.error('❌ Failed to send email:', sendError);
+
+        // ⭐ AUDIT LOG: Email send failed
+        await this.logEmailSend(bookingData, {
+          success: false,
+          recipients: [recipient],
+          templateId: templateId,
+          templateName: emailData?.template_name || `Template ${templateId}`,
+          triggerType: 'manual',
+          triggerId: null,
+          triggerName: 'Direct Send',
+          error: sendError.message,
+          reason: 'Failed to send email',
+          emailData: emailData
+        });
+
+        return false;
+      }
     } catch (error) {
-      console.error('Error in prepareAndSendEmail:', error);
+      console.error('❌ Error in prepareAndSendEmail:', error);
       return false;
     }
   }

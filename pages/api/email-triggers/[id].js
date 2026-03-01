@@ -1,6 +1,7 @@
 /**
- * GET /api/email-triggers/[id]
- * Fetch a single email trigger by ID with template and question data
+ * Email Trigger API - GET and DELETE by ID
+ * GET /api/email-triggers/[id] - Fetch a single email trigger
+ * DELETE /api/email-triggers/[id] - Delete an email trigger
  */
 
 import { EmailTrigger, EmailTemplate, Question, EmailTriggerQuestion } from '../../../models';
@@ -8,13 +9,32 @@ import { EmailTrigger, EmailTemplate, Question, EmailTriggerQuestion } from '../
 export default async function handler(req, res) {
   const { id } = req.query;
 
-  if (req.method !== 'GET') {
-    return res.status(405).json({ 
+  // Validate ID
+  if (!id || isNaN(parseInt(id))) {
+    return res.status(400).json({ 
       success: false, 
-      message: 'Method not allowed' 
+      message: 'Invalid trigger ID' 
     });
   }
 
+  // Route based on HTTP method
+  switch (req.method) {
+    case 'GET':
+      return handleGet(req, res, id);
+    case 'DELETE':
+      return handleDelete(req, res, id);
+    default:
+      return res.status(405).json({ 
+        success: false, 
+        message: 'Method not allowed' 
+      });
+  }
+}
+
+/**
+ * GET Handler - Fetch email trigger by ID with template and question data
+ */
+async function handleGet(req, res, id) {
   try {
     const trigger = await EmailTrigger.findByPk(id, {
       include: [
@@ -58,7 +78,56 @@ export default async function handler(req, res) {
 }
 
 /**
- * Example Response:
+ * DELETE Handler - Delete email trigger and cascade to email_trigger_questions
+ */
+async function handleDelete(req, res, id) {
+  try {
+    // Find the trigger
+    const trigger = await EmailTrigger.findByPk(parseInt(id));
+
+    if (!trigger) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Email trigger not found' 
+      });
+    }
+
+    // Check if trigger is active/enabled
+    if (trigger.enabled) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Trigger is active',
+        message: 'Cannot delete an active email trigger. Please disable it first before deleting.',
+        trigger_enabled: true
+      });
+    }
+
+    // Delete the trigger (cascade delete will handle email_trigger_questions)
+    await trigger.destroy();
+
+    // Log deletion for audit purposes
+    console.log('Email trigger deleted:', {
+      id: trigger.id,
+      recipient: trigger.recipient,
+      deleted_at: new Date().toISOString()
+    });
+
+    return res.status(200).json({ 
+      success: true, 
+      message: 'Email trigger deleted successfully' 
+    });
+
+  } catch (error) {
+    console.error('Error deleting email trigger:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: error.message || 'Internal server error' 
+    });
+  }
+}
+
+/**
+ * Example GET Response:
  * 
  * {
  *   "success": true,
@@ -84,41 +153,38 @@ export default async function handler(req, res) {
  *         "email_trigger_id": 1,
  *         "question_id": 5,
  *         "answer": "11-25",
- *         "created_at": "2025-10-01T09:00:00.000Z",
- *         "updated_at": "2025-10-01T09:00:00.000Z",
  *         "question": {
  *           "id": 5,
  *           "question": "How many guests are you expecting?",
  *           "question_key": "guest_count",
  *           "question_type": "select",
  *           "section_id": 1,
- *           "options": [
- *             { "label": "1-10 guests", "value": "1-10" },
- *             { "label": "11-25 guests", "value": "11-25" },
- *             { "label": "26-50 guests", "value": "26-50" }
- *           ]
- *         }
- *       },
- *       {
- *         "id": 2,
- *         "email_trigger_id": 1,
- *         "question_id": 8,
- *         "answer": "yes",
- *         "created_at": "2025-10-01T09:00:00.000Z",
- *         "updated_at": "2025-10-01T09:00:00.000Z",
- *         "question": {
- *           "id": 8,
- *           "question": "Will you need catering services?",
- *           "question_key": "need_catering",
- *           "question_type": "radio",
- *           "section_id": 1,
- *           "options": [
- *             { "label": "Yes", "value": "yes" },
- *             { "label": "No", "value": "no" }
- *           ]
+ *           "options": [...]
  *         }
  *       }
  *     ]
  *   }
+ * }
+ * 
+ * Example DELETE Responses:
+ * 
+ * Success:
+ * {
+ *   "success": true,
+ *   "message": "Email trigger deleted successfully"
+ * }
+ * 
+ * Error - Active trigger:
+ * {
+ *   "success": false,
+ *   "error": "Trigger is active",
+ *   "message": "Cannot delete an active email trigger. Please disable it first before deleting.",
+ *   "trigger_enabled": true
+ * }
+ * 
+ * Error - Not found:
+ * {
+ *   "success": false,
+ *   "message": "Email trigger not found"
  * }
  */

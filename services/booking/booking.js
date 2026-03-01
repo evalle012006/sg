@@ -34,11 +34,11 @@ export class BookingService extends EntityBuilder {
     }
 
     disseminateChanges = async (booking, qaPairs) => {
-        console.log('\n========================================');
-        console.log('🔧 DISSEMINATE CHANGES START');
-        console.log('  Booking ID:', booking.id);
-        console.log('  QA Pairs received:', qaPairs?.length || 0);
-        console.log('========================================\n');
+        // console.log('\n========================================');
+        // console.log('🔧 DISSEMINATE CHANGES START');
+        // console.log('  Booking ID:', booking.id);
+        // console.log('  QA Pairs received:', qaPairs?.length || 0);
+        // console.log('========================================\n');
 
         if (!booking || !qaPairs || qaPairs.length === 0) {
             console.log('⚠️ Early return: invalid params');

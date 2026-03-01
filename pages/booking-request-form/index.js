@@ -201,7 +201,8 @@ const BookingRequestForm = () => {
                     bookingUuid: uuid || null,
                     pageId: pageId,
                     templateId: templateId,
-                    autoUpdate: true
+                    autoUpdate: true,
+                    currentUserId: currentUser.id
                 }
             };
 
@@ -1126,7 +1127,8 @@ const BookingRequestForm = () => {
                     bookingUuid: uuid || null,
                     pageId: packagePage.id, 
                     templateId: packagePage.template_id,
-                    autoUpdate: true // Flag to indicate this is an auto-update
+                    autoUpdate: true, // Flag to indicate this is an auto-update
+                    currentUserId: currentUser.id
                 }
             };
 
@@ -2912,34 +2914,56 @@ const BookingRequestForm = () => {
                             }
                             break;
                         case 'leveltype-of-spinal-cord-injury':
+                            // ✅ PRIORITY 1: Use sci_injury_type (proper field)
                             if (profileData.HealthInfo?.sci_injury_type) {
-                                // Map internal values to display values
                                 const injuryTypeMap = {
                                     'cervical': '(C) Cervical',
                                     'thoracic': '(T) Thoracic',
                                     'lumbar': '(L) Lumbar',
-                                    'sacral': '(S) Sacral',
-                                    'spina_bifida': 'Spina Bifida',
-                                    'cauda_equina': 'Cauda Equina',
-                                    'other': 'Other'
+                                    'sacral': '(S) Sacral'
                                 };
-                                const displayValue = injuryTypeMap[profileData.HealthInfo.sci_injury_type] || profileData.HealthInfo.sci_injury_type;
-                                updatedQuestion.answer = displayValue;
+                                updatedQuestion.answer = injuryTypeMap[profileData.HealthInfo.sci_injury_type];
                                 mapped = true;
                             }
+                            // ✅ PRIORITY 2: Fallback to sci_type if it has injury text
+                            else if (profileData.HealthInfo?.sci_type) {
+                                const sciType = profileData.HealthInfo.sci_type.toString().trim();
+                                
+                                if (sciType.includes('Cervical') || sciType.includes('(')) {
+                                    updatedQuestion.answer = sciType;  // "(C) Cervical"
+                                    mapped = true;
+                                }
+                            }
                             break;
-                        case 'level-of-function-or-asia-scale-score-movementsensation':
-                            if (profileData.HealthInfo?.sci_type) {
-                                // Map single letter to exact form option text
-                                const asiaScaleMap = {
-                                    'A': 'A - Complete, no motor or sensory function below the level of injury',
-                                    'B': 'B - Some sensation, no motor function below the level of injury',
-                                    'C': 'C - Less than 50% motor function below level of injury but cannot move against gravity',
-                                    'D': 'D - More than 50% motor function below level of injury and can move against gravity',
-                                    'E': 'E - All muscle, motor and sensory functions have returned',
-                                };
-                                const displayValue = asiaScaleMap[profileData.HealthInfo.sci_type] || profileData.HealthInfo.sci_type;
-                                updatedQuestion.answer = displayValue;
+                        case 'level-of-function-or-asia-scale-score-movementsensation':                            
+                            const asiaScaleMap = {
+                                'A': 'A - Complete, no motor or sensory function below the level of injury',
+                                'B': 'B - Some sensation, no motor function below the level of injury',
+                                'C': 'C - Less than 50% motor function below level of injury but cannot move against gravity',
+                                'D': 'D - More than 50% motor function below level of injury and can move against gravity',
+                                'E': 'E - All muscle, motor and sensory functions have returned',
+                            };
+                            
+                            let asiaValue = null;
+                            
+                            // ✅ ONLY check sci_level_asia - ignore sci_type completely
+                            if (profileData.HealthInfo?.sci_level_asia) {
+                                const sciLevelAsia = profileData.HealthInfo.sci_level_asia.toString().trim();
+                                
+                                // If it already contains the full text (has " - "), use it directly
+                                if (sciLevelAsia.includes(' - ')) {
+                                    asiaValue = sciLevelAsia;
+                                    console.log('  ✅ Using full ASIA text from sci_level_asia');
+                                } 
+                                // If it's just a letter
+                                else if (sciLevelAsia.length === 1 && /^[A-E]$/i.test(sciLevelAsia)) {
+                                    asiaValue = asiaScaleMap[sciLevelAsia.toUpperCase()];
+                                    console.log('  ✅ Mapped ASIA letter from sci_level_asia:', sciLevelAsia);
+                                }
+                            }
+                            
+                            if (asiaValue) {
+                                updatedQuestion.answer = asiaValue;
                                 mapped = true;
                             }
                             break;
@@ -3182,7 +3206,9 @@ const BookingRequestForm = () => {
                 if (value) {
                     const match = value.match(/^([A-E])\s*-/);
                     if (match) {
-                        profileData.sci_type = match[1];
+                        profileData.sci_level_asia = match[1];
+                    } else {
+                        profileData.sci_level_asia = value; // Save whatever text is there if it doesn't match expected format
                     }
                 }
                 break;
@@ -5385,7 +5411,7 @@ const BookingRequestForm = () => {
                 });
             }
 
-            let dataForm = { qa_pairs: qa_pairs, flags: { origin: origin, bookingUuid: uuid, pageId: cPage.id, templateId: cPage.template_id }};
+            let dataForm = { qa_pairs: qa_pairs, flags: { origin: origin, bookingUuid: uuid, pageId: cPage.id, templateId: cPage.template_id, currentUserId: currentUser.id, submit: submit } };
             if (equipmentChangesState.length > 0) {
                 dataForm.equipmentChanges = [...equipmentChangesState];
             }

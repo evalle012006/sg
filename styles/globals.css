@@ -460,3 +460,409 @@
 .rich-text-container ol {
   @apply list-decimal;
 }
+
+.audit-log-container {
+  background: #fff;
+  border-radius: 8px;
+  padding: 24px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  margin-top: 24px;
+}
+
+.audit-log-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 2px solid #e5e7eb;
+}
+
+.audit-log-header h3 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.audit-log-controls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.toggle-internal-notes {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #6b7280;
+}
+
+.toggle-internal-notes input[type="checkbox"] {
+  cursor: pointer;
+}
+
+.btn-add-note {
+  background: #3b82f6;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btn-add-note:hover {
+  background: #2563eb;
+}
+
+/* Add Note Form */
+.add-note-form {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 20px;
+  margin-bottom: 24px;
+}
+
+.add-note-form .form-group {
+  margin-bottom: 16px;
+}
+
+.add-note-form label {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  color: #374151;
+  margin-bottom: 6px;
+}
+
+.add-note-form .form-control {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: inherit;
+  transition: border-color 0.2s;
+}
+
+.add-note-form .form-control:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.add-note-form textarea.form-control {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.form-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.btn-primary,
+.btn-secondary {
+  padding: 10px 20px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s;
+}
+
+.btn-primary {
+  background: #3b82f6;
+  color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: #2563eb;
+}
+
+.btn-primary:disabled {
+  background: #9ca3af;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  background: #f3f4f6;
+  color: #374151;
+}
+
+.btn-secondary:hover {
+  background: #e5e7eb;
+}
+
+/* Audit Log Timeline */
+.audit-log-timeline {
+  position: relative;
+}
+
+.audit-log-timeline::before {
+  content: '';
+  position: absolute;
+  left: 15px;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  background: #e5e7eb;
+}
+
+.audit-log-entry {
+  position: relative;
+  display: flex;
+  gap: 16px;
+  padding: 16px 0;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.audit-log-entry:last-child {
+  border-bottom: none;
+}
+
+.audit-log-entry.internal-note {
+  background: #fef3c7;
+  margin-left: -12px;
+  margin-right: -12px;
+  padding-left: 12px;
+  padding-right: 12px;
+  border-radius: 6px;
+}
+
+.entry-icon {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: white;
+  border: 2px solid #e5e7eb;
+  border-radius: 50%;
+  font-size: 16px;
+  z-index: 1;
+}
+
+.internal-note .entry-icon {
+  background: #fef3c7;
+  border-color: #fbbf24;
+}
+
+.entry-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.entry-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 8px;
+  gap: 12px;
+}
+
+.entry-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.user-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.user-badge-admin {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.user-badge-guest {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.user-badge-system {
+  background: #e5e7eb;
+  color: #374151;
+}
+
+.entry-user {
+  font-weight: 500;
+  color: #111827;
+}
+
+.entry-timestamp {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.entry-category {
+  background: #f3f4f6;
+  color: #6b7280;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.entry-description {
+  color: #374151;
+  line-height: 1.6;
+  word-wrap: break-word;
+}
+
+.entry-changes {
+  margin-top: 12px;
+  padding: 12px;
+  background: #f9fafb;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.change-old,
+.change-new {
+  display: flex;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.change-label {
+  font-weight: 600;
+  color: #6b7280;
+  min-width: 70px;
+}
+
+.change-value {
+  color: #111827;
+  font-family: 'Monaco', 'Courier New', monospace;
+  word-break: break-all;
+}
+
+.change-old .change-value {
+  text-decoration: line-through;
+  color: #ef4444;
+}
+
+.change-new .change-value {
+  color: #10b981;
+}
+
+/* Loading and Error States */
+.audit-log-loading,
+.audit-log-error,
+.no-logs {
+  text-align: center;
+  padding: 40px 20px;
+  color: #6b7280;
+  font-size: 14px;
+}
+
+.audit-log-error {
+  color: #ef4444;
+}
+
+/* Compact Mode for Sidebar */
+.audit-log-container.compact {
+  padding: 0;
+  box-shadow: none;
+  border-radius: 0;
+  background: transparent;
+  margin-top: 0;
+}
+
+.audit-log-timeline.compact {
+  padding: 0;
+}
+
+.audit-log-timeline.compact::before {
+  left: 8px;
+}
+
+.audit-log-entry.compact {
+  padding: 8px 0;
+  gap: 8px;
+}
+
+.entry-icon.compact {
+  width: 20px;
+  height: 20px;
+  font-size: 12px;
+  border-width: 1px;
+}
+
+.entry-content.compact {
+  font-size: 13px;
+}
+
+.entry-description.compact {
+  font-size: 13px;
+  line-height: 1.4;
+  margin-bottom: 4px;
+}
+
+.entry-timestamp.compact {
+  font-size: 11px;
+  color: #9ca3af;
+}
+
+.audit-log-loading,
+.no-logs {
+  font-size: 13px;
+  padding: 16px;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .audit-log-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+  }
+
+  .audit-log-controls {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .btn-add-note {
+    width: 100%;
+    text-align: center;
+  }
+
+  .entry-header {
+    flex-direction: column;
+  }
+
+  .entry-meta {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .form-actions {
+    flex-direction: column-reverse;
+  }
+
+  .btn-primary,
+  .btn-secondary {
+    width: 100%;
+  }
+}

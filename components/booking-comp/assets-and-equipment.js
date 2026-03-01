@@ -82,13 +82,28 @@ function AssetsAndEquipment(props) {
             })
         });
 
-
         if (response.ok) {
             toast("Equipment removed successfully.", { type: 'success' });
             const newEquipments = equipments.filter(e => e.id != equipment.id);
             setEquipments(newEquipments);
+            
+            // ⭐ AUDIT LOG: Equipment Removed
+            try {
+                await fetch(`/api/bookings/${bookingId}/equipment-audit`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'removed',
+                        equipment_id: equipment.id,
+                        equipment_name: equipment.name,
+                        serial_number: equipment.serial_number,
+                        category: equipment.EquipmentCategory?.name
+                    })
+                });
+            } catch (auditError) {
+                console.error('Failed to log equipment removal:', auditError);
+            }
         }
-
     }
 
     const fetchNewEquipments = async () => {
@@ -161,6 +176,23 @@ function AssetsAndEquipment(props) {
         const data = await response.json();
         if (data.success) {
             fetchEquipmentsAvailability([...equipments, equipment]);
+            
+            // ⭐ AUDIT LOG: Equipment Added
+            try {
+                await fetch(`/api/bookings/${bookingId}/equipment-audit`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'added',
+                        equipment_id: equipment.id,
+                        equipment_name: equipment.name,
+                        serial_number: equipment.serial_number,
+                        category: equipment.EquipmentCategory?.name
+                    })
+                });
+            } catch (auditError) {
+                console.error('Failed to log equipment addition:', auditError);
+            }
         }
         toast("Equipment added successfully.", { type: 'success' });
     }
@@ -256,8 +288,8 @@ function AssetsAndEquipment(props) {
                 body: JSON.stringify({
                     booking_id: bookingId,
                     equipment_id: equipment.id,
-                    start_date: startMoment.format('YYYY-MM-DD'), // Use formatted valid date
-                    end_date: endMoment.format('YYYY-MM-DD'),     // Use formatted valid date
+                    start_date: startMoment.format('YYYY-MM-DD'),
+                    end_date: endMoment.format('YYYY-MM-DD'),
                 })
             });
 
@@ -265,6 +297,25 @@ function AssetsAndEquipment(props) {
             if (data.success) {
                 fetchEquipmentsAvailability(equipments);
                 toast("Equipment dates updated successfully.", { type: 'success' });
+                
+                // ⭐ AUDIT LOG: Equipment Dates Changed
+                try {
+                    await fetch(`/api/bookings/${bookingId}/equipment-audit`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            action: 'dates_changed',
+                            equipment_id: equipment.id,
+                            equipment_name: equipment.name,
+                            old_start_date: moment(equipment.start_date).format('YYYY-MM-DD'),
+                            old_end_date: moment(equipment.end_date).format('YYYY-MM-DD'),
+                            new_start_date: startMoment.format('YYYY-MM-DD'),
+                            new_end_date: endMoment.format('YYYY-MM-DD')
+                        })
+                    });
+                } catch (auditError) {
+                    console.error('Failed to log equipment date change:', auditError);
+                }
             } else {
                 toast.error(data.message || "Failed to update equipment dates.");
             }
