@@ -1,5 +1,7 @@
 import { Booking } from "../../../../models";
 import AuditLogService from "../../../../services/AuditLogService";
+import { getServerSession } from 'next-auth/next';
+import { authOptions } from '../../auth/[...nextauth]';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -7,15 +9,15 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { uuid } = req.query;
-    const { notes } = req.body;
-
-    // Get current user from session (you'll need to adapt this to your auth setup)
-    const currentUser = req.session?.user || req.user;
+    // Get session using NextAuth
+    const session = await getServerSession(req, res, authOptions);
     
-    if (!currentUser) {
+    if (!session) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
+
+    const { uuid } = req.query;
+    const { notes } = req.body;
 
     // Find booking
     const booking = await Booking.findOne({ where: { uuid } });
@@ -35,6 +37,7 @@ export default async function handler(req, res) {
 
     // ⭐ AUDIT LOG - Server side
     try {
+      const currentUser = session.user;
       const isAdmin = currentUser.type === 'user';
       
       await AuditLogService.createAuditEntry({

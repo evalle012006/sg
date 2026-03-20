@@ -8,6 +8,7 @@ import {
   Search, AlertCircle, CheckCircle
 } from 'lucide-react';
 import TemplateHelperDocumentation from './TemplateHelperDocumentation';
+import { extractTemplateVariables, normalizeTemplateTags } from '../../utilities/emailTemplateUtil';
 
 const Button = dynamic(() => import('../ui-v2/Button'));
 const TextField = dynamic(() => import('../ui-v2/TextField'));
@@ -1112,9 +1113,19 @@ ${bodyContent}
       return;
     }
 
-    // Step 2: ✨ NEW - Template structure validation (HTML + Handlebars)
+    // Step 2: ✨ AUTO-NORMALIZE template tags to underscore format
+    console.log('🔄 Auto-normalizing template tags...');
+    const normalizedContent = normalizeTemplateTags(content);
+    
+    // Update state with normalized content
+    setContent(normalizedContent);
+    const { bodyContent, wrapper } = parseHtmlDocument(normalizedContent);
+    setEditorContent(bodyContent);
+    setHtmlWrapper(wrapper);
+
+    // Step 3: Template structure validation (HTML + Handlebars)
     console.log('🔍 Validating template structure...');
-    const structureValidation = validateTemplateStructure(content);
+    const structureValidation = validateTemplateStructure(normalizedContent);
     
     if (!structureValidation.isValid) {
       console.error('❌ Structure validation failed:', structureValidation);
@@ -1132,35 +1143,35 @@ ${bodyContent}
       });
     }
 
-    // Step 3: Check for hyphenated tags (existing validation)
-    const hyphenValidation = validateTemplateForHyphenatedTags(content);
-    
-    if (hyphenValidation.hasIssues) {
-      setHyphenatedTagsValidation(hyphenValidation);
-      setShowSaveConfirmDialog(true);
-      return;
-    }
+    // Step 4: ✨ EXTRACT template variables for metadata
+    const templateVariables = extractTemplateVariables(normalizedContent);
+    console.log('📋 Template variables extracted:', templateVariables);
 
     // If all validations pass, proceed with save
     console.log('✅ All validations passed, proceeding with save');
-    await performSave();
+    await performSave(normalizedContent, templateVariables);
   };
 
   // Separated save logic for reuse
-  const performSave = async () => {
+  // Updated performSave to accept normalized content and variables
+  const performSave = async (normalizedContent, templateVariables) => {
     setIsLoading(true);
 
     try {
       // ✨ Convert static logo images back to Handlebars format
-      let htmlToSave = content;
+      let htmlToSave = normalizedContent;
       htmlToSave = convertStaticLogoToHandlebars(htmlToSave);
       
       const templatePayload = {
         name: name.trim(),
         subject: subject.trim(),
         description: description.trim(),
-        html_content: htmlToSave,  // ← Use converted HTML
-        json_design: { html: htmlToSave },
+        html_content: htmlToSave,
+        json_design: { 
+          html: htmlToSave,
+          variables: templateVariables  // ← Store extracted variables
+        },
+        required_variables: templateVariables,  // ← NEW: Store as required_variables
         is_active: templateData?.is_active !== undefined ? templateData.is_active : true
       };
 
@@ -1179,25 +1190,10 @@ ${bodyContent}
       const result = await response.json();
 
       if (!response.ok) {
-        if (result.is_system) {
-          if (result.missing_variables && result.missing_variables.length > 0) {
-            toast.error(
-              <div>
-                <strong>Required Variables Missing</strong>
-                <p className="text-sm mt-1">{result.message}</p>
-              </div>,
-              { autoClose: 8000 }
-            );
-          } else {
-            toast.error(result.message || 'Failed to save template');
-          }
-        } else {
-          throw new Error(result.message || 'Failed to save template');
-        }
-        return;
+        throw new Error(result.message || 'Failed to save template');
       }
 
-      toast.success('Email template saved successfully');
+      toast.success('Email template saved successfully (tags auto-normalized)');
       onSuccess();
     } catch (error) {
       console.error('Error saving template:', error);

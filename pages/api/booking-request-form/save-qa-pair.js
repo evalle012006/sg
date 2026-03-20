@@ -1,4 +1,4 @@
-import { Booking, Equipment, EquipmentCategory, Guest, Log, QaPair, Section, Setting, CourseOffer, Course, sequelize, BookingEquipment } from "../../../models"
+import { Booking, Equipment, EquipmentCategory, Guest, Log, QaPair, Section, Setting, CourseOffer, Course, sequelize, BookingEquipment, Package } from "../../../models"
 import { BookingService } from "../../../services/booking/booking";
 import { dispatchHttpTaskHandler } from "../../../services/queues/dispatchHttpTask";
 import StorageService from "../../../services/storage/storage";
@@ -23,6 +23,10 @@ export default async function handler(req, res) {
             uuid: bookingUuid 
         },
         include: [
+            {
+                model: Section,
+                include: [QaPair]
+            },
             Guest,
             {
                 model: Equipment,
@@ -556,12 +560,18 @@ const updateBooking = async (booking, qa_pairs = [], flags, bookingService) => {
                 const bookingAmendedStatus = bookingStatuses.find(status => JSON.parse(status.value).name == 'booking_amended');
                 const bokkingStatusName = JSON.parse(bookingAmendedStatus.value).name;
                 await Booking.update({ status_logs: JSON.stringify(updateStatusLogs(statusLogs, 'booking_amended')), status: bookingAmendedStatus.value, status_name: bokkingStatusName }, { where: { id: booking.id } });
-            } else if (currentBookingStatus?.name === 'pending_approval') {
+            } else if (currentBookingStatus?.name === 'pending_approval' || currentBookingStatus?.name == 'ready_to_process') {
                 const bookingHasCourse = await bookingService.validateBookingHasCourse(booking);
                 const bookingFunder = getFunder(booking.Sections);
-                const isSargoodFoundationFunder = bookingFunder ? bookingFunder.toLowerCase() == 'sargood-foundation' || bookingFunder.toLowerCase() == 'sargood foundation' : false;
+                const funderLower = bookingFunder ? bookingFunder.toLowerCase() : '';
+                const isBlockedFunder = funderLower === 'sargood-foundation' || 
+                                        funderLower === 'sargood foundation' || 
+                                        funderLower === 'ndis' || 
+                                        funderLower.includes('ndia') || 
+                                        funderLower.includes('ndis') || 
+                                        funderLower.includes('sargood');
 
-                if (booking.type == BOOKING_TYPES.RETURNING_GUEST && !bookingHasCourse && !booking.status.includes('ready_to_process') && !isSargoodFoundationFunder) {
+                if (booking.type == BOOKING_TYPES.RETURNING_GUEST && !bookingHasCourse && !booking.status.includes('ready_to_process') && !isBlockedFunder) {
                     const readyToProcessStatus = bookingStatuses.find(status => JSON.parse(status.value).name == 'ready_to_process');
                     const bokkingStatusName = JSON.parse(readyToProcessStatus.value).name;
                     await Booking.update({ status_logs: JSON.stringify(updateStatusLogs(statusLogs, 'ready_to_process')), status: readyToProcessStatus.value, status_name: bokkingStatusName }, { where: { id: booking.id } });
@@ -573,24 +583,6 @@ const updateBooking = async (booking, qa_pairs = [], flags, bookingService) => {
                 bookingService.generateNotifications(booking);
             }
 
-            // if (typeof metainfo.triggered_emails == 'boolean') {
-            //     if (metainfo.triggered_emails == undefined || metainfo.triggered_emails == false) {
-            //         dispatchHttpTaskHandler('booking', { type: 'triggerEmails', payload: { booking_id: booking.id } });
-            //     }
-            // }
-
-            // if (typeof metainfo.triggered_emails == 'object') {
-            //     if (metainfo.triggered_emails.on_submit == undefined || metainfo.triggered_emails.on_submit == false) {
-            //         dispatchHttpTaskHandler('booking', { type: 'triggerEmailsOnSubmit', payload: { booking_id: booking.id } });
-            //     }
-
-            //     if ((metainfo.triggered_emails.on_booking_confirmed == undefined || metainfo.triggered_emails.on_booking_confirmed == false) && booking.status.includes('booking_confirmed')) {
-            //         dispatchHttpTaskHandler('booking', { type: 'triggerEmailsOnBookingConfirmed', payload: { booking_id: booking.id } });
-            //     }
-            // }
-
-            // ✨ EMAIL TRIGGER INTEGRATION: Use EmailTriggerService within existing metainfo system
-            let emailTriggerResult = null;
             let completeBooking = null;
 
             // Check if we need to trigger any emails

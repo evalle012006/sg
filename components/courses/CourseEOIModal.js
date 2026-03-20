@@ -206,6 +206,39 @@ export default function CourseEOIModal({
             case 4:
                 // Course selection validation
                 if (formData.selected_courses.length === 0) return 'Please select at least one course';
+                
+                // ✅ NEW: Validate date preferences for each selected course
+                const availableCourses = selectedCourse ? [selectedCourse] : allCourses;
+                for (const courseId of formData.selected_courses) {
+                    const course = availableCourses.find(c => c.id === courseId);
+                    if (!course) continue;
+                    
+                    const datePrefs = formData.course_date_preferences[courseId];
+                    
+                    // Check if dates are provided
+                    if (!datePrefs || !datePrefs.arrival_date || !datePrefs.departure_date) {
+                        return `Please select arrival and departure dates for ${course.title}`;
+                    }
+                    
+                    // Validate dates are within the booking window
+                    // Note: All dates are handled in local Australian timezone since this is an AU-only app
+                    const arrivalDate = new Date(datePrefs.arrival_date + 'T00:00:00'); // Force local timezone
+                    const departureDate = new Date(datePrefs.departure_date + 'T00:00:00');
+                    const minStartDate = new Date(moment(course.min_start_date).format('YYYY-MM-DD') + 'T00:00:00');
+                    const minEndDate = new Date(moment(course.min_end_date).format('YYYY-MM-DD') + 'T00:00:00');
+                    
+                    if (arrivalDate < minStartDate) {
+                        return `Arrival date for ${course.title} cannot be before ${moment(course.min_start_date).format('DD MMM YYYY')}`;
+                    }
+                    
+                    if (departureDate > minEndDate) {
+                        return `Departure date for ${course.title} cannot be after ${moment(course.min_end_date).format('DD MMM YYYY')}`;
+                    }
+                    
+                    if (departureDate <= arrivalDate) {
+                        return `Departure date must be after arrival date for ${course.title}`;
+                    }
+                }
                 return null;
             default:
                 return null;
@@ -536,7 +569,7 @@ export default function CourseEOIModal({
             <div className="space-y-6">
                 <div>
                     <h3 className="text-lg font-semibold text-gray-900 mb-2">Course Interested In</h3>
-                    <p className="text-sm text-gray-600 mb-4">Please select all that apply</p>
+                    <p className="text-sm text-gray-600 mb-4">Please select all that apply and specify your preferred dates</p>
                 </div>
 
                 <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
@@ -546,15 +579,26 @@ export default function CourseEOIModal({
                             ? `${moment(course.start_date).format('DD MMM YYYY')} - ${moment(course.end_date).format('DD MMM YYYY')}`
                             : 'Dates TBD';
                         
+                        // Get the date preferences for this course
+                        const coursePrefs = formData.course_date_preferences[course.id] || {};
+                        const arrivalDate = coursePrefs.arrival_date || '';
+                        const departureDate = coursePrefs.departure_date || '';
+                        
+                        // Calculate min/max dates for validation
+                        const minArrivalDate = course.min_start_date ? moment(course.min_start_date).format('YYYY-MM-DD') : '';
+                        const maxDepartureDate = course.min_end_date ? moment(course.min_end_date).format('YYYY-MM-DD') : '';
+                        
                         return (
                             <div 
                                 key={course.id} 
-                                className={`border rounded-lg p-4 cursor-pointer transition-all ${
-                                    isSelected ? 'border-[#00467F] bg-blue-50' : 'border-gray-200 hover:border-gray-300'
+                                className={`border rounded-lg p-4 transition-all ${
+                                    isSelected ? 'border-[#00467F] bg-blue-50' : 'border-gray-200'
                                 }`}
-                                onClick={() => handleCourseToggle(course.id)}
                             >
-                                <div className="flex items-start space-x-3">
+                                <div 
+                                    className="flex items-start space-x-3 cursor-pointer"
+                                    onClick={() => handleCourseToggle(course.id)}
+                                >
                                     <input
                                         type="checkbox"
                                         checked={isSelected}
@@ -572,7 +616,7 @@ export default function CourseEOIModal({
                                             )}
                                             <div>
                                                 <h4 className="font-medium text-gray-900">{course.title}</h4>
-                                                <p className="text-sm text-gray-500">{courseDates}</p>
+                                                <p className="text-sm text-gray-500">Course dates: {courseDates}</p>
                                                 {course.description && (
                                                     <p className="text-xs text-gray-400 mt-1 line-clamp-2">{course.description}</p>
                                                 )}
@@ -580,6 +624,70 @@ export default function CourseEOIModal({
                                         </div>
                                     </div>
                                 </div>
+                                
+                                {/* Date Preferences - only show if course is selected */}
+                                {isSelected && (
+                                    <div className="mt-4 pl-8 border-t pt-4 space-y-3" onClick={(e) => e.stopPropagation()}>
+                                        <p className="text-sm font-medium text-gray-700">
+                                            When would you like to attend? <span className="text-red-500">*</span>
+                                        </p>
+                                        <p className="text-xs text-gray-500">
+                                            Available booking window: {moment(course.min_start_date).format('DD MMM YYYY')} - {moment(course.min_end_date).format('DD MMM YYYY')}
+                                        </p>
+                                        
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div>
+                                                <label className="block text-xs font-medium text-gray-600 mb-1">
+                                                    Preferred Arrival Date
+                                                </label>
+                                                <input
+                                                    type="date"
+                                                    value={arrivalDate}
+                                                    min={minArrivalDate}
+                                                    max={maxDepartureDate}
+                                                    onChange={(e) => {
+                                                        setFormData(prev => ({
+                                                            ...prev,
+                                                            course_date_preferences: {
+                                                                ...prev.course_date_preferences,
+                                                                [course.id]: {
+                                                                    ...prev.course_date_preferences[course.id],
+                                                                    arrival_date: e.target.value
+                                                                }
+                                                            }
+                                                        }));
+                                                    }}
+                                                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#00467F] focus:border-transparent"
+                                                />
+                                            </div>
+                                            
+                                            <div>
+                                                <label className="block text-xs font-medium text-gray-600 mb-1">
+                                                    Preferred Departure Date
+                                                </label>
+                                                <input
+                                                    type="date"
+                                                    value={departureDate}
+                                                    min={arrivalDate || minArrivalDate}
+                                                    max={maxDepartureDate}
+                                                    onChange={(e) => {
+                                                        setFormData(prev => ({
+                                                            ...prev,
+                                                            course_date_preferences: {
+                                                                ...prev.course_date_preferences,
+                                                                [course.id]: {
+                                                                    ...prev.course_date_preferences[course.id],
+                                                                    departure_date: e.target.value
+                                                                }
+                                                            }
+                                                        }));
+                                                    }}
+                                                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#00467F] focus:border-transparent"
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         );
                     })}
@@ -594,74 +702,91 @@ export default function CourseEOIModal({
         );
     };
 
-    const renderStep5 = () => (
-        <div className="space-y-6">
-            <div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Additional Information</h3>
-            </div>
+    const renderStep5 = () => {
+        const availableCourses = selectedCourse ? [selectedCourse] : allCourses;
+        
+        return (
+            <div className="space-y-6">
+                <div>
+                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Additional Information</h3>
+                </div>
 
-            <div className="bg-gray-50 rounded-lg p-4 text-sm text-gray-600">
-                <p className="mb-3">
-                    Sargood on Collaroy was established and is run by a not-for-profit organisation with support from the local community and icare. 
-                    It has been purpose-built as a resort specifically for <strong>people living with spinal cord injury (SCI)</strong>.
-                </p>
-                <p className="mb-3">
-                    The aim is to facilitate independence and skills for people living with SCI and the offering is tailored specifically for the unique needs of this group.
-                </p>
-                <p>
-                    You can read further about our eligibility criteria at:{' '}
-                    <a 
-                        href="https://sargoodoncollaroy.com/terms-and-conditions/" 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        className="text-[#00467F] underline hover:text-blue-800"
-                    >
-                        sargoodoncollaroy.com/terms-and-conditions
-                    </a>
-                </p>
-            </div>
-
-            <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Do you have any other questions or comments about your interest?
-                </label>
-                <textarea
-                    value={formData.comments}
-                    onChange={(e) => handleInputChange('comments', e.target.value)}
-                    rows={4}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#00467F] focus:border-transparent resize-none"
-                    placeholder="Enter any additional questions or comments..."
-                />
-            </div>
-
-            {/* Summary */}
-            <div className="border-t pt-6">
-                <h4 className="font-medium text-gray-900 mb-3">Summary of your submission</h4>
-                <div className="bg-white border rounded-lg p-4 space-y-2 text-sm">
-                    <p><span className="text-gray-500">Name:</span> {formData.guest_name}</p>
-                    <p><span className="text-gray-500">Email:</span> {formData.guest_email}</p>
-                    <p><span className="text-gray-500">Phone:</span> {formData.guest_phone}</p>
-                    <p><span className="text-gray-500">Funding:</span> {formData.funding_type?.label || '-'}</p>
-                    <p>
-                        <span className="text-gray-500">SCI Level:</span>{' '}
-                        {[
-                            ...formData.sci_level_cervical,
-                            ...formData.sci_level_thoracic,
-                            ...formData.sci_level_lumbar,
-                            ...formData.sci_level_sacral
-                        ].join(', ') || '-'}
+                <div className="bg-gray-50 rounded-lg p-4 text-sm text-gray-600">
+                    <p className="mb-3">
+                        Sargood on Collaroy was established and is run by a not-for-profit organisation with support from the local community and icare. 
+                        It has been purpose-built as a resort specifically for <strong>people living with spinal cord injury (SCI)</strong>.
+                    </p>
+                    <p className="mb-3">
+                        The aim is to facilitate independence and skills for people living with SCI and the offering is tailored specifically for the unique needs of this group.
                     </p>
                     <p>
-                        <span className="text-gray-500">Courses:</span>{' '}
-                        {formData.selected_courses.map(id => {
-                            const course = allCourses.find(c => c.id === id) || selectedCourse;
-                            return course?.title;
-                        }).filter(Boolean).join(', ') || '-'}
+                        You can read further about our eligibility criteria at:{' '}
+                        <a 
+                            href="https://sargoodoncollaroy.com/terms-and-conditions/" 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="text-[#00467F] underline hover:text-blue-800"
+                        >
+                            sargoodoncollaroy.com/terms-and-conditions
+                        </a>
                     </p>
                 </div>
+
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Do you have any other questions or comments about your interest?
+                    </label>
+                    <textarea
+                        value={formData.comments}
+                        onChange={(e) => handleInputChange('comments', e.target.value)}
+                        rows={4}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#00467F] focus:border-transparent resize-none"
+                        placeholder="Enter any additional questions or comments..."
+                    />
+                </div>
+
+                {/* Summary */}
+                <div className="border-t pt-6">
+                    <h4 className="font-medium text-gray-900 mb-3">Summary of your submission</h4>
+                    <div className="bg-white border rounded-lg p-4 space-y-2 text-sm">
+                        <p><span className="text-gray-500">Name:</span> {formData.guest_name}</p>
+                        <p><span className="text-gray-500">Email:</span> {formData.guest_email}</p>
+                        <p><span className="text-gray-500">Phone:</span> {formData.guest_phone}</p>
+                        <p><span className="text-gray-500">Funding:</span> {formData.funding_type?.label || '-'}</p>
+                        <p>
+                            <span className="text-gray-500">SCI Level:</span>{' '}
+                            {[
+                                ...formData.sci_level_cervical,
+                                ...formData.sci_level_thoracic,
+                                ...formData.sci_level_lumbar,
+                                ...formData.sci_level_sacral
+                            ].join(', ') || '-'}
+                        </p>
+                        <div>
+                            <span className="text-gray-500">Courses & Dates:</span>
+                            <div className="mt-1 space-y-1">
+                                {formData.selected_courses.map(id => {
+                                    const course = availableCourses.find(c => c.id === id);
+                                    const datePrefs = formData.course_date_preferences[id] || {};
+                                    if (!course) return null;
+                                    return (
+                                        <div key={id} className="text-sm pl-4">
+                                            <strong>{course.title}</strong>
+                                            {datePrefs.arrival_date && datePrefs.departure_date && (
+                                                <span className="text-gray-600">
+                                                    {' '}- {moment(datePrefs.arrival_date).format('DD MMM YYYY')} to {moment(datePrefs.departure_date).format('DD MMM YYYY')}
+                                                </span>
+                                            )}
+                                        </div>
+                                    );
+                                }).filter(Boolean)}
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
-        </div>
-    );
+        );
+    };
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999] p-4">

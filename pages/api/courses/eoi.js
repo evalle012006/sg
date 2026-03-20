@@ -71,6 +71,34 @@ async function getEOIs(req, res) {
     }
 }
 
+// ✅ UPDATED: Helper function to format course date preferences with new structure
+function formatPreferredDates(courseDatePreferences, courses, selectedCourses) {
+    if (!courseDatePreferences || Object.keys(courseDatePreferences).length === 0) {
+        return 'Not specified';
+    }
+
+    try {
+        const formattedDates = [];
+        
+        // Iterate in the same order as selected courses to maintain consistency
+        for (const courseId of selectedCourses) {
+            const preferences = courseDatePreferences[courseId];
+            
+            // ✅ Just show the dates without course name since it's already displayed separately
+            if (preferences && preferences.arrival_date && preferences.departure_date) {
+                const arrivalFormatted = moment(preferences.arrival_date).format('DD MMM YYYY');
+                const departureFormatted = moment(preferences.departure_date).format('DD MMM YYYY');
+                formattedDates.push(`${arrivalFormatted} - ${departureFormatted}`);
+            }
+        }
+        
+        return formattedDates.length > 0 ? formattedDates.join('\n') : 'Not specified';
+    } catch (error) {
+        console.error('Error formatting preferred dates:', error);
+        return 'Not specified';
+    }
+}
+
 // POST: Create a new EOI
 async function createEOI(req, res) {
     const {
@@ -111,6 +139,24 @@ async function createEOI(req, res) {
             });
         }
 
+        // ✅ NEW: Validate date preferences are provided for all selected courses
+        if (!course_date_preferences || Object.keys(course_date_preferences).length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'Please specify your preferred dates for each selected course'
+            });
+        }
+
+        for (const courseId of selected_courses) {
+            const datePrefs = course_date_preferences[courseId];
+            if (!datePrefs || !datePrefs.arrival_date || !datePrefs.departure_date) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Please specify arrival and departure dates for all selected courses'
+                });
+            }
+        }
+
         // Combine SCI levels into a single string
         const sciLevels = [
             ...sci_level_cervical,
@@ -124,10 +170,46 @@ async function createEOI(req, res) {
             where: {
                 id: selected_courses
             },
-            attributes: ['id', 'title', 'start_date', 'end_date']
+            attributes: ['id', 'title', 'start_date', 'end_date', 'min_start_date', 'min_end_date']
         });
 
         const courseNames = courses.map(c => c.title).join(', ');
+
+        // ✅ NEW: Validate dates are within the booking window
+        // Note: All dates are handled in local Australian timezone since this is an AU-only app
+        for (const courseId of selected_courses) {
+            const course = courses.find(c => c.id === courseId);
+            if (!course) continue;
+
+            const datePrefs = course_date_preferences[courseId];
+            
+            // Force local timezone interpretation by adding time component
+            const arrivalDate = new Date(datePrefs.arrival_date + 'T00:00:00');
+            const departureDate = new Date(datePrefs.departure_date + 'T00:00:00');
+            const minStartDate = new Date(moment(course.min_start_date).format('YYYY-MM-DD') + 'T00:00:00');
+            const minEndDate = new Date(moment(course.min_end_date).format('YYYY-MM-DD') + 'T00:00:00');
+
+            if (arrivalDate < minStartDate) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Arrival date for ${course.title} cannot be before ${moment(course.min_start_date).format('DD MMM YYYY')}`
+                });
+            }
+
+            if (departureDate > minEndDate) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Departure date for ${course.title} cannot be after ${moment(course.min_end_date).format('DD MMM YYYY')}`
+                });
+            }
+
+            if (departureDate <= arrivalDate) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Departure date must be after arrival date for ${course.title}`
+                });
+            }
+        }
 
         // Create the EOI record
         const eoiRecord = await CourseEOI.create({
@@ -157,32 +239,47 @@ async function createEOI(req, res) {
             courses: courseNames
         });
 
-        // ✅ UPDATED: Send admin notification using EmailService
+        // Send admin notification with ALL data properly formatted
         try {
             const eoiRecipients = await EmailRecipientsService.getRecipientsString('eoi');
             if (!eoiRecipients) {
                 console.warn('⚠️ No EOI recipients configured in settings');
             } else {
-                const baseUrl = process.env.APP_URL || 'https://booking.sargoodoncollaroy.com.au';
+                const baseUrl = process.env.APP_URL || 'https://bookings.sargoodoncollaroy.com.au';
+                
+                // Format preferred dates for email display
+                const formattedPreferredDates = formatPreferredDates(course_date_preferences, courses, selected_courses);
                 
                 await EmailService.sendWithTemplate(
                     eoiRecipients,
                     TEMPLATE_IDS.COURSE_EOI_ADMIN,
                     {
+                        // Guest details
                         guest_name: guest_name,
                         guest_email: guest_email,
                         guest_phone: guest_phone,
+                        
+                        // Course details
+                        course_name: courseNames,
+                        preferred_dates: formattedPreferredDates,
+                        comments: comments || 'None provided',
+                        
+                        // Funding and eligibility
                         funding_type: funding_type || 'Not specified',
                         has_sci: has_sci === 'yes' || has_sci === true ? 'Yes' : 'No',
                         sci_levels: sciLevels || 'Not specified',
-                        course_name: courseNames,
+                        
+                        // Completing for information
+                        completing_for: completing_for === 'myself' ? 'Self' : 'Someone else',
                         is_completing_for_other: completing_for === 'other',
-                        support_name: support_name,
-                        support_email: support_email,
-                        support_phone: support_phone,
-                        support_role: support_role,
-                        preferred_dates: course_date_preferences ? JSON.stringify(course_date_preferences) : 'Not specified',
-                        comments: comments || 'None provided',
+                        
+                        // Support person details (only if completing for other)
+                        support_name: support_name || '',
+                        support_email: support_email || '',
+                        support_phone: support_phone || '',
+                        support_role: support_role || '',
+                        
+                        // Admin link and metadata
                         admin_link: `${baseUrl}/courses?selectedTab=eoi&eoiId=${eoiRecord.id}`,
                         submitted_at: moment(submitted_at || Date.now()).format('dddd, D MMMM YYYY [at] h:mm A')
                     }
@@ -194,7 +291,7 @@ async function createEOI(req, res) {
             // Don't fail the request if email fails
         }
 
-        // ✅ UPDATED: Send guest confirmation using EmailService
+        // Send guest confirmation using EmailService
         try {
             await EmailService.sendWithTemplate(
                 guest_email,

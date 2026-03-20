@@ -39,7 +39,7 @@ export default async function handler(req, res) {
                 TEMPLATE_IDS.RESET_PASSWORD_LINK,
                 {
                     username: user.first_name,
-                    reset_link: resetLink
+                    reset_password_link: resetLink
                 }
             );
             return res.status(200).send({ 'status': 'success', 'message': 'Password reset link sent.' });

@@ -48,8 +48,9 @@ export default async function handler(req, res) {
             });
         }
 
-        // Parse selected courses
+        // Parse selected courses and date preferences
         const selectedCourses = JSON.parse(eoi.selected_courses || '[]');
+        const courseDatePreferences = JSON.parse(eoi.course_date_preferences || '{}');
 
         if (selectedCourses.length === 0) {
             return res.status(400).json({
@@ -58,12 +59,12 @@ export default async function handler(req, res) {
             });
         }
 
-        // Get course details
+        // Get course details including min dates for fallback
         const courses = await Course.findAll({
             where: {
                 id: selectedCourses
             },
-            attributes: ['id', 'title', 'start_date', 'end_date']
+            attributes: ['id', 'title', 'start_date', 'end_date', 'min_start_date', 'min_end_date']
         });
 
         if (courses.length === 0) {
@@ -107,17 +108,57 @@ export default async function handler(req, res) {
             contacted_at: new Date()
         });
 
-        // ✅ UPDATED: Send acceptance email using EmailService
+        // ✅ UPDATED: Send acceptance email with preferred dates from EOI or min dates as fallback
         try {
             const courseNames = courses.map(c => c.title).join(', ');
+            
+            // ✅ NEW: Use preferred dates from EOI, or fall back to min dates
+            const courseDates = selectedCourses.map(courseId => {
+                const course = courses.find(c => c.id === courseId);
+                if (!course) return '';
+                
+                const preferences = courseDatePreferences[courseId];
+                
+                if (preferences && preferences.arrival_date && preferences.departure_date) {
+                    // Use the user's preferred dates
+                    const startDate = moment(preferences.arrival_date).format('D MMMM YYYY');
+                    const endDate = moment(preferences.departure_date).format('D MMMM YYYY');
+                    return `${startDate} - ${endDate}`;
+                } else if (course.min_start_date && course.min_end_date) {
+                    // Fall back to min dates
+                    const startDate = moment(course.min_start_date).format('D MMMM YYYY');
+                    const endDate = moment(course.min_end_date).format('D MMMM YYYY');
+                    return `${startDate} - ${endDate}`;
+                } else {
+                    // Last resort: use course dates
+                    const startDate = moment(course.start_date).format('D MMMM YYYY');
+                    const endDate = moment(course.end_date).format('D MMMM YYYY');
+                    return `${startDate} - ${endDate}`;
+                }
+            }).filter(Boolean).join('\n'); // Use newline for multiple courses
+
+            // Extract first name from guest_name if not available from guest object
+            const firstName = eoi.guest?.first_name || eoi.guest_name.split(' ')[0];
+            
+            // Generate booking URL based on whether guest exists
+            let bookingUrl = '';
+            if (eoi.guest_id) {
+                // Guest has an account - direct them to guest portal
+                const baseUrl = process.env.APP_URL || 'https://bookings.sargoodoncollaroy.com.au';
+                bookingUrl = `${baseUrl}/bookings`;
+            }
             
             await EmailService.sendWithTemplate(
                 eoi.guest_email,
                 TEMPLATE_IDS.COURSE_EOI_ACCEPTED,
                 {
+                    first_name: firstName,
                     guest_name: eoi.guest_name,
                     course_names: courseNames,
-                    offers_count: createdOffers.length
+                    course_dates: courseDates,
+                    offers_count: createdOffers.length,
+                    booking_url: bookingUrl,
+                    has_booking_url: !!bookingUrl
                 }
             );
             console.log('✅ EOI acceptance email sent to:', eoi.guest_email);

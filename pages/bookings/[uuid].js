@@ -1283,15 +1283,19 @@ export default function BookingDetail() {
   const getPackageTypeDisplay = () => {
     // Check if we have a package ID and successfully fetched package details
     if (packageInfo?.packageId && packageDetails) {
+      // Determine if a course is selected
+      const hasCourse = courseInfo?.answer != null;
+      const code = packageDetails.package_code;
+      
       return {
         name: packageDetails.name,
-        code: packageDetails.package_code,
+        code: hasCourse ? `Course${code}` : code,  // ← ADD THIS
         funder: packageDetails.funder,
         price: packageDetails.price,
         ndisPackageType: packageDetails.ndis_package_type,
         ndisLineItems: packageDetails.ndis_line_items
       };
-    } 
+    }  
     
     // Only process answer if it's not a numeric ID (i.e., it's an actual package name)
     if (packageInfo?.answer && !/^\d+$/.test(packageInfo.answer)) {
@@ -1714,7 +1718,7 @@ export default function BookingDetail() {
     if (!booking || !status) return false;
     
     const funder = getFunder(booking.Sections)?.toLowerCase();
-    return status.name === 'booking_confirmed' && funder && funder !== 'icare';
+    return booking.complete && funder && (['ndis', 'ndia'].some(f => funder.includes(f)));
   }, [booking, status]);
 
   // Room setup calculation

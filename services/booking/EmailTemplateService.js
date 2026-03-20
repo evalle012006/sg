@@ -9,8 +9,18 @@ import moment from "moment";
 class EmailTemplateMappingService {
   
   /**
+   * Normalize tag name by converting hyphens to underscores
+   * This ensures consistency across all merge tags
+   */
+  static normalizeTagName(tagName) {
+    if (!tagName) return tagName;
+    return tagName.replace(/-/g, '_');
+  }
+  
+  /**
    * Static mapping of question keys to merge tag names
    * This provides a centralized mapping for all possible merge tags
+   * NOTE: All tag names use underscores, not hyphens
    */
   static MERGE_TAG_MAP = {
     // Guest Information
@@ -178,6 +188,7 @@ class EmailTemplateMappingService {
   /**
    * Get all available merge tags based on the default template
    * Returns merge tags grouped by category
+   * ✨ NOW CONVERTS ALL HYPHENS TO UNDERSCORES
    */
   async getAvailableMergeTags() {
     try {
@@ -251,15 +262,15 @@ class EmailTemplateMappingService {
           mergeTag = EmailTemplateMappingService.MERGE_TAG_MAP[question.question_key];
           category = this.getCategoryForMergeTag(mergeTag);
         } else {
-          // For questions without predefined mapping, use question_key as merge tag
-          mergeTag = question.question_key;
+          // ✨ CRITICAL FIX: Convert hyphens to underscores for questions without predefined mapping
+          mergeTag = EmailTemplateMappingService.normalizeTagName(question.question_key);
           
           // Check if this merge tag already exists (duplicate question_key in different section)
           if (usedMergeTags.has(mergeTag)) {
             // Make it unique by appending section_id
             const count = usedMergeTags.get(mergeTag);
             usedMergeTags.set(mergeTag, count + 1);
-            mergeTag = `${question.question_key}_s${question.section_id}`;
+            mergeTag = `${EmailTemplateMappingService.normalizeTagName(question.question_key)}_s${question.section_id}`;
           } else {
             usedMergeTags.set(mergeTag, 1);
           }
@@ -311,6 +322,7 @@ class EmailTemplateMappingService {
 
   /**
    * Resolve merge tags with actual booking data
+   * ✨ UPDATED: Now handles both hyphenated and underscored tag names for backward compatibility
    * @param {Object} bookingData - Full booking data with relations
    * @param {String} template - Email template string with merge tags
    */
@@ -372,27 +384,45 @@ class EmailTemplateMappingService {
       });
 
       // Then, handle all other questions using their question_key directly
-      // Also handle section-specific tags for duplicate question_keys
+      // ✨ CRITICAL FIX: Convert hyphenated question keys to underscored merge tags
       qaPairs.forEach(qaPair => {
         const questionKey = qaPair.Question?.question_key || qaPair.question_key;
         const sectionId = qaPair.section_id;
         
-        if (questionKey && !tagValues[questionKey]) {
-          // Only add if not already handled by predefined mappings
-          const answer = qaPair.answer;
-          if (answer) {
-            tagValues[questionKey] = this.formatAnswerForEmail(answer);
-            
-            // Also add section-specific version (for duplicate question_keys)
-            if (sectionId) {
-              tagValues[`${questionKey}_s${sectionId}`] = this.formatAnswerForEmail(answer);
+        if (questionKey) {
+          // ✨ Normalize the question key to underscore format
+          const normalizedKey = EmailTemplateMappingService.normalizeTagName(questionKey);
+          
+          if (!tagValues[normalizedKey]) {
+            // Only add if not already handled by predefined mappings
+            const answer = qaPair.answer;
+            if (answer) {
+              tagValues[normalizedKey] = this.formatAnswerForEmail(answer);
+              
+              // Also add section-specific version (for duplicate question_keys)
+              if (sectionId) {
+                tagValues[`${normalizedKey}_s${sectionId}`] = this.formatAnswerForEmail(answer);
+              }
+              
+              // ✨ BACKWARD COMPATIBILITY: Also add hyphenated version for old templates
+              if (questionKey.includes('-')) {
+                tagValues[questionKey] = this.formatAnswerForEmail(answer);
+                if (sectionId) {
+                  tagValues[`${questionKey}_s${sectionId}`] = this.formatAnswerForEmail(answer);
+                }
+              }
             }
-          }
-        } else if (questionKey && sectionId) {
-          // If the base key already exists, still add the section-specific version
-          const answer = qaPair.answer;
-          if (answer) {
-            tagValues[`${questionKey}_s${sectionId}`] = this.formatAnswerForEmail(answer);
+          } else if (sectionId) {
+            // If the base key already exists, still add the section-specific version
+            const answer = qaPair.answer;
+            if (answer) {
+              tagValues[`${normalizedKey}_s${sectionId}`] = this.formatAnswerForEmail(answer);
+              
+              // ✨ BACKWARD COMPATIBILITY: Also add hyphenated section-specific version
+              if (questionKey.includes('-')) {
+                tagValues[`${questionKey}_s${sectionId}`] = this.formatAnswerForEmail(answer);
+              }
+            }
           }
         }
       });
@@ -472,6 +502,7 @@ class EmailTemplateMappingService {
   /**
    * Validate template merge tags
    * Returns list of invalid/unrecognized tags
+   * ✨ UPDATED: Now accepts both hyphenated and underscored tags as valid
    */
   async validateTemplateTags(template) {
     try {
@@ -483,6 +514,12 @@ class EmailTemplateMappingService {
           // Extract tag name from {{tag_name}}
           const tagName = tag.value.replace(/[{}]/g, '');
           allValidTags.add(tagName);
+          
+          // ✨ Also accept hyphenated version for backward compatibility
+          const hyphenatedVersion = tagName.replace(/_/g, '-');
+          if (hyphenatedVersion !== tagName) {
+            allValidTags.add(hyphenatedVersion);
+          }
         });
       });
 

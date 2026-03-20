@@ -11,6 +11,7 @@ import { AbilityContext, Can } from "../../services/acl/can";
 import { guestActions } from "../../store/guestSlice";
 import HealthInformation from "../../components/guests/HealthInformation";
 import { Eye, Edit, Trash2, Download, Mail } from 'lucide-react';
+import { getFunder } from "../../utilities/common";
 
 const Table = dynamic(() => import('../../components/ui-v2/Table'));
 const StatusBadge = dynamic(() => import('../../components/ui-v2/StatusBadge'));
@@ -291,7 +292,8 @@ export default function GuestPage() {
       temp.sortDate = temp.check_in_date != undefined ? new Date(temp.check_in_date).getTime() : new Date(temp.preferred_arrival_date).getTime();
       temp.link = `/bookings/${booking.uuid}`;
 
-      temp.allowDownloadEmail = booking.status.name === 'booking_confirmed';
+      const funder = getFunder(booking.Sections)?.toLowerCase();
+      temp.allowDownloadEmail = booking.complete == true && funder && (['ndis', 'ndia'].some(f => funder.includes(f)));
       
       return temp;
     });
@@ -309,6 +311,8 @@ export default function GuestPage() {
       temp.check_out = moment(temp.preferred_departure_date).format('DD MMM, YYYY');
       temp.sortDate = temp.check_in_date != undefined ? new Date(temp.check_in_date).getTime() : new Date(temp.preferred_arrival_date).getTime();
       temp.link = `/bookings/${booking.uuid}`;
+      const funder = getFunder(booking.Sections)?.toLowerCase();
+      temp.allowDownloadEmail = booking.complete == true && funder && (['ndis', 'ndia'].some(f => funder.includes(f)));
       return temp;
     });
 

@@ -1,5 +1,7 @@
 import { Booking, Checklist, ChecklistAction } from '../../../../models';
 import AuditLogService from '../../../../services/AuditLogService';
+import { getServerSession } from 'next-auth/next';
+import { authOptions } from '../../auth/[...nextauth]';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -7,14 +9,14 @@ export default async function handler(req, res) {
   }
 
   try {
-    const checklist = req.body;
+    // Get session using NextAuth
+    const session = await getServerSession(req, res, authOptions);
     
-    // Get current user from session
-    const currentUser = req.session?.user || req.user;
-    
-    if (!currentUser) {
+    if (!session) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
+
+    const checklist = req.body;
 
     // Get booking for audit log
     const booking = await Booking.findOne({
@@ -59,6 +61,7 @@ export default async function handler(req, res) {
 
     // ⭐ AUDIT LOG - Server side
     try {
+      const currentUser = session.user;
       const isAdmin = currentUser.type === 'user';
       const description = oldChecklistName === 'None'
         ? `Added checklist: ${checklist.name}`

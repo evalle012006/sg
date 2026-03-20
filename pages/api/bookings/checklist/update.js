@@ -1,5 +1,7 @@
 import { ChecklistAction, Checklist, Booking } from '../../../../models';
 import AuditLogService from '../../../../services/AuditLogService';
+import { getServerSession } from 'next-auth/next';
+import { authOptions } from '../../auth/[...nextauth]';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -7,14 +9,14 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { id, status } = req.body;
-
-    // Get current user from session
-    const currentUser = req.session?.user || req.user;
+    // Get session using NextAuth
+    const session = await getServerSession(req, res, authOptions);
     
-    if (!currentUser) {
+    if (!session) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
+
+    const { id, status } = req.body;
 
     // Find the checklist action with its checklist and booking
     const checklistAction = await ChecklistAction.findByPk(id, {
@@ -43,6 +45,7 @@ export default async function handler(req, res) {
 
     // ⭐ AUDIT LOG - Server side
     try {
+      const currentUser = session.user;
       const isAdmin = currentUser.type === 'user';
       const booking = checklistAction.Checklist?.Booking;
       

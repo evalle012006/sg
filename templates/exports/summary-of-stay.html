@@ -30,6 +30,7 @@
             background: white;
             text-align: center;
             padding: 20px 30px;
+            z-index: 1000;
         }
         .footer {
             position: fixed;
@@ -46,6 +47,7 @@
             display: flex;
             flex-direction: column;
             justify-content: space-between;
+            z-index: 1000;
         }
         .logo {
             max-width: 100px;
@@ -65,13 +67,11 @@
             margin: 4px 0;
         }
         .page {
-            padding: 140px 30px 200px 30px;
+            padding: 150px 30px 210px 30px;
             page-break-after: always;
-            min-height: 100vh;
         }
         .last-page {
-            padding: 140px 30px 200px 30px;
-            min-height: 100vh;
+            padding: 150px 30px 210px 30px;
             page-break-after: avoid;
         }
         h1, h2 {
@@ -88,9 +88,11 @@
             grid-template-columns: 1fr 1fr;
             gap: 8px;
             margin-bottom: 10px;
+            page-break-inside: avoid;
         }
         .info-box {
             margin-bottom: 8px;
+            page-break-inside: avoid;
         }
         .info-label {
             font-weight: bold;
@@ -103,7 +105,6 @@
             border-radius: 4px;
         }
         
-        /* ✅ Custom Quote Required Box Styling */
         .custom-quote-box {
             margin-top: 10px;
             padding: 15px;
@@ -135,11 +136,6 @@
             width: 100%;
             border-collapse: collapse;
             margin: 10px 0;
-            /* ✅ Allow table to break across pages */
-        }
-        .pricing-table thead {
-            /* ✅ Repeat header on each page */
-            display: table-header-group;
         }
         .pricing-table th,
         .pricing-table td {
@@ -150,10 +146,6 @@
         .pricing-table th {
             background-color: #20485A;
             color: white;
-        }
-        .pricing-table tr {
-            /* ✅ Avoid breaking rows in the middle */
-            page-break-inside: avoid;
         }
         .pricing-table tr:nth-child(even) {
             background-color: #f8f9fa;
@@ -170,7 +162,6 @@
             padding: 8px;
             border-radius: 6px;
             margin-top: 8px;
-            page-break-inside: avoid;
         }
         .summary-row {
             display: flex;
@@ -196,6 +187,7 @@
             background: white;
             border: 1px solid #dee2e6;
             border-radius: 4px;
+            page-break-inside: avoid;
         }
         .ndis-question ul {
             list-style-position: inside;
@@ -205,18 +197,14 @@
         .ndis-question li {
             margin-bottom: 4px;
         }
-        .page-break-before {
-            page-break-before: always;
-        }
-        .page-break-after {
-            page-break-after: always;
-        }
-        .page-break-after-avoid {
-            page-break-after: avoid;
+        /* Prevent content overflow */
+        .section,
+        .summary-box,
+        .custom-quote-box {
+            page-break-inside: avoid;
         }
         .signature-page {
             padding: 140px 30px 200px 30px;
-            min-height: auto;
         }
         .signature-section {
             margin-top: 0;
@@ -240,26 +228,14 @@
             font-size: 14px;
             color: #666;
         }
-        .ndis-package-section {
-            margin-top: 8px;
-            margin-bottom: 0;
-            padding: 0;
-            /* ✅ Allow section to break if table is long */
-            page-break-after: auto;
-        }
         .package-header {
-            /* ✅ Keep header together, don't break it */
-            page-break-inside: avoid;
-            page-break-after: avoid;
             margin-bottom: 8px;
-        }
-        .ndis-package-table {
-            margin-bottom: 8px;
-            /* ✅ Allow table to span pages */
         }
         .table-footer-note {
-            /* ✅ Keep note with last row if possible */
-            page-break-before: avoid;
+            font-size: 12px;
+            font-style: italic;
+            color: #666;
+            margin-top: 8px;
         }
     </style>
 </head>
@@ -269,8 +245,8 @@
     </div>
 
     {{#if isNDISFunder}}
-        <!-- Guest Info Section - Always stays on first page -->
-        <div class="page" style="page-break-after: auto;">
+        <!-- Page 1: Guest Info and First Part of Package Table -->
+        <div class="page">
             <h1>Summary of Your Stay</h1>
             
             <div class="guest-info">
@@ -298,17 +274,15 @@
                 </div>
             </div>
 
-            <!-- Package Section - Can flow to next page if needed -->
-            <div class="ndis-package-section">
-                <!-- ✅ Package header in separate container -->
+            <!-- Package Section -->
+            <div class="section">
                 <div class="package-header">
                     <h2>Package - cost to be charged to your funder</h2>
                     <p class="info-label">Package Name: {{package_type}}</p>
                 </div>
                 
-                {{!-- ✅ UPDATED: Show Custom Quote Required box for ALL Holiday Support packages (both HOLIDAY_SUPPORT and HOLIDAY_SUPPORT_PLUS) --}}
                 {{#if is_hsp_package}}
-                    <!-- ✅ Show Custom Quote Required box for Holiday Support packages -->
+                    <!-- Show Custom Quote Required box for Holiday Support packages -->
                     <div class="custom-quote-box">
                         <svg class="custom-quote-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -319,8 +293,8 @@
                         </div>
                     </div>
                 {{else}}
-                    <!-- ✅ Show pricing table for other packages (can span pages) -->
-                    <table class="pricing-table ndis-package-table">
+                    <!-- Show first 5 rows of pricing table -->
+                    <table class="pricing-table">
                         <thead>
                             <tr>
                                 <th>{{ndis_package_type}}</th>
@@ -332,6 +306,7 @@
                         </thead>
                         <tbody>
                             {{#each ndis_package_details}}
+                            {{#if (lt @index 5)}}
                             <tr>
                                 <td>{{package}}</td>
                                 <td>{{lineItem}}</td>
@@ -339,23 +314,65 @@
                                 <td>{{nights}}</td>
                                 <td>{{subtotal}}</td>
                             </tr>
+                            {{/if}}
                             {{/each}}
                         </tbody>
                     </table>
-                    {{#if ../has_care_fees}}
-                    <p class="table-footer-note" style="font-size: 12px; font-style: italic; color: #666; margin-top: 8px;">
-                        * {{../care_note}}
-                    </p>
-                    {{/if}}
-                    <div class="total-right">Total Package Cost: AUD {{total_package_cost}}</div>
+                    
+                    <!-- If 5 or fewer rows, show total on this page -->
+                    {{#unless (gt ndis_package_details.length 5)}}
+                        {{#if has_care_fees}}
+                        <p class="table-footer-note">
+                            * {{care_note}}
+                        </p>
+                        {{/if}}
+                        <div class="total-right">Total Package Cost: AUD {{total_package_cost}}</div>
+                    {{/unless}}
                 {{/if}}
             </div>
         </div>
 
-        <!-- Page 2: Additional Room and Upgrade Costs, Cost Summary, and First Set of NDIS Questions -->
-        <div class="page" style="page-break-before: always;">
+        <!-- Page 2: Continuation of Package Table (ONLY if more than 5 rows) -->
+        {{#if (and (gt ndis_package_details.length 5) (not is_hsp_package))}}
+        <div class="page">
+            <h2>Package Details (continued)</h2>
+            <table class="pricing-table">
+                <thead>
+                    <tr>
+                        <th>{{ndis_package_type}}</th>
+                        <th>Line Item</th>
+                        <th>Rate</th>
+                        <th>Qty</th>
+                        <th>Total ($)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{#each ndis_package_details}}
+                    {{#if (gte @index 5)}}
+                    <tr>
+                        <td>{{package}}</td>
+                        <td>{{lineItem}}</td>
+                        <td>{{price}}</td>
+                        <td>{{nights}}</td>
+                        <td>{{subtotal}}</td>
+                    </tr>
+                    {{/if}}
+                    {{/each}}
+                </tbody>
+            </table>
+            {{#if ../has_care_fees}}
+            <p class="table-footer-note">
+                * {{../care_note}}
+            </p>
+            {{/if}}
+            <div class="total-right">Total Package Cost: AUD {{total_package_cost}}</div>
+        </div>
+        {{/if}}
+
+        <!-- Accommodation/Room Costs Page -->
+        <div class="page">
             {{#if is_hsp_package}}
-                <!-- ✅ HSP-specific accommodation section -->
+                <!-- HSP-specific accommodation section -->
                 <div class="section">
                     <h2>Accommodation (to be paid privately by you)</h2>
                     
@@ -389,8 +406,7 @@
                     <div class="total-right">Total Accommodation: AUD {{hsp_total_accommodation}}</div>
                 </div>
                 
-                {{#if is_hsp_package}}
-                <!-- ✅ Funding Assistance Available box for all HSP packages -->
+                <!-- Funding Assistance Available box for all HSP packages -->
                 <div class="custom-quote-box" style="margin-top: 12px;">
                     <svg class="custom-quote-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -400,9 +416,8 @@
                         <p>Funding assistance of AUD 319.00 per night for up to 5 nights may be available to you.</p>
                     </div>
                 </div>
-                {{/if}}
             {{else}}
-                <!-- ✅ Non-HSP accommodation section -->
+                <!-- Non-HSP accommodation section -->
                 <div class="section">
                     <h2>Additional Room and Upgrade Costs</h2>
                     <p class="info-label">To be paid by you privately without prior approval by your funder</p>
@@ -435,7 +450,6 @@
             <div class="summary-box">
                 <h2>Cost Summary</h2>
                 <div class="summary-row">
-                    {{!-- ✅ UPDATED: Use is_hsp_package for TBD display --}}
                     {{#if is_hsp_package}}
                     <span>Package Costs <span style="font-style: italic;">(Quote to be provided by bookings team)</span>:</span>
                     <span style="color: #F59E0B; font-weight: 500;">TBD</span>
@@ -454,7 +468,6 @@
                     {{/if}}
                 </div>
                 <div class="summary-row summary-total">
-                    {{!-- ✅ UPDATED: Use is_hsp_package for Grand Total label --}}
                     {{#if is_hsp_package}}
                     <span>Grand Total (excluding package costs):</span>
                     {{else}}
@@ -468,7 +481,7 @@
             <div class="ndis-section">
                 <h2>NDIS Questions</h2>
                 {{#each ndis_questions}}
-                    {{#if (lt @index 3)}}
+                    {{#if (lt @index 2)}}
                     <div class="ndis-question">
                         <div class="info-label">{{this.question}}</div>
                         {{#if this.answer}}
@@ -490,12 +503,12 @@
         </div>
 
         <!-- Remaining NDIS Questions Pages -->
-        {{#if (gt ndis_questions.length 3)}}
+        {{#if (gt ndis_questions.length 2)}}
         <div class="page">
             <div class="ndis-section">
                 <h2>NDIS Questions (continued)</h2>
                 {{#each ndis_questions}}
-                    {{#if (and (gte @index 3) (lt @index 6))}}
+                    {{#if (and (gte @index 2) (lt @index 5))}}
                     <div class="ndis-question">
                         <div class="info-label">{{this.question}}</div>
                         {{#if this.answer}}
@@ -516,8 +529,35 @@
         </div>
         {{/if}}
 
-        <!-- Page 5: Signature Page -->
-        <div class="signature-page page-break-after-avoid">
+        <!-- Additional NDIS Questions Page (if more than 5 questions) -->
+        {{#if (gt ndis_questions.length 5)}}
+        <div class="page">
+            <div class="ndis-section">
+                <h2>NDIS Questions (continued)</h2>
+                {{#each ndis_questions}}
+                    {{#if (gte @index 5)}}
+                    <div class="ndis-question">
+                        <div class="info-label">{{this.question}}</div>
+                        {{#if this.answer}}
+                            {{#if (isArray this.answer)}}
+                            <ul>
+                                {{#each this.answer}}
+                                <li>{{this}}</li>
+                                {{/each}}
+                            </ul>
+                            {{else}}
+                            <div>{{this.answer}}</div>
+                            {{/if}}
+                        {{/if}}
+                    </div>
+                    {{/if}}
+                {{/each}}
+            </div>
+        </div>
+        {{/if}}
+
+        <!-- Signature Page -->
+        <div class="last-page">
             <div class="signature-section">
                 <h2>Agreement Signature</h2>
                 <p>I have read, understood and agreed to Sargood on Collaroy's Terms and Conditions</p>
@@ -538,8 +578,8 @@
             </div>
         </div>
     {{else}}
-        <!-- Page 1: Guest Info and Package Details -->
-        <div class="page page-break-after">
+        <!-- Non-NDIS Funder Layout -->
+        <div class="page">
             <h1>Summary of Your Stay</h1>
             
             <div class="guest-info">
@@ -600,7 +640,7 @@
                 <div class="total-right">Total Out of Pocket: AUD {{total_room_costs.total}}</div>
             </div>
         </div>
-        <div class="page page-break-after-avoid">
+        <div class="last-page">
             <div class="summary-box info-box">
                 <h2>Cost Summary</h2>
                 <div class="summary-row">

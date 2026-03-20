@@ -1,5 +1,7 @@
 import { Booking } from "../../../../models";
 import AuditLogService from "../../../../services/AuditLogService";
+import { getServerSession } from 'next-auth/next';
+import { authOptions } from '../../auth/[...nextauth]';
 import _ from 'lodash';
 
 export default async function handler(req, res) {
@@ -8,15 +10,15 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { uuid } = req.query;
-    const { label } = req.body;
-
-    // Get current user from session
-    const currentUser = req.session?.user || req.user;
+    // Get session using NextAuth
+    const session = await getServerSession(req, res, authOptions);
     
-    if (!currentUser) {
+    if (!session) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
+
+    const { uuid } = req.query;
+    const { label } = req.body;
 
     // Find booking
     const booking = await Booking.findOne({ where: { uuid } });
@@ -42,12 +44,13 @@ export default async function handler(req, res) {
 
     // Update labels
     await Booking.update(
-      { label: JSON.stringify(newLabels) }, 
+      { label: newLabels }, 
       { where: { uuid: uuid } }
     );
 
     // ⭐ AUDIT LOG - Server side
     try {
+      const currentUser = session.user;
       const isAdmin = currentUser.type === 'user';
       const added = newLabels.filter(l => !oldLabels.includes(l));
       const removed = oldLabels.filter(l => !newLabels.includes(l));

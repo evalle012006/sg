@@ -44,6 +44,7 @@ const InputField = (props) => {
 
     // Use external dirty state if provided, otherwise use local
     const effectiveDirty = externalDirty !== null ? externalDirty : dirty;
+    const debounceTimerRef = useRef(null);
 
     // Determine actual field type based on props
     const getFieldType = () => {
@@ -381,6 +382,13 @@ const InputField = (props) => {
 
     const handleOnBlur = (e) => {
         const val = e.target.value;
+
+        // Flush any pending debounce immediately on blur
+        if (debounceTimerRef.current) {
+            clearTimeout(debounceTimerRef.current);
+            debounceTimerRef.current = null;
+        }
+
         setValue(val);
         setDirty(true);
         setIsFocused(false);
@@ -407,12 +415,27 @@ const InputField = (props) => {
             }
         }
         
+        notifyParent(val); // Immediate flush
+    };
+
+    const handleOnFocus = () => {
+        setIsFocused(true);
+        
+        // Check for autofill on focus (Edge behavior)
+        setTimeout(() => {
+            if (inputRef.current && inputRef.current.value && inputRef.current.value !== value && !dirty) {
+                processAutofillValue(inputRef.current.value, 'focus-delayed');
+            }
+        }, 50);
+    };
+
+    const notifyParent = useCallback((val) => {
         if (onChange) {
             if (type === 'phone-number') {
                 let errorMsg = null;
                 if (required && val && !validatePhoneNumber(val)) {
                     const digitCount = val.replace(/\D/g, '').length;
-                    errorMsg = digitCount < 10 
+                    errorMsg = digitCount < 10
                         ? 'Phone number must be at least 10 digits'
                         : 'Please enter a valid phone number';
                 }
@@ -427,41 +450,33 @@ const InputField = (props) => {
                 onChange(val);
             }
         }
-    };
-
-    const handleOnFocus = () => {
-        setIsFocused(true);
-        
-        // Check for autofill on focus (Edge behavior)
-        setTimeout(() => {
-            if (inputRef.current && inputRef.current.value && inputRef.current.value !== value && !dirty) {
-                processAutofillValue(inputRef.current.value, 'focus-delayed');
-            }
-        }, 50);
-    };
+    }, [onChange, type, required]);
 
     const handleOnChange = (e) => {
         const val = e.target.value;
-        
-        // Mark as user typing
+
         if (inputRef.current) {
             inputRef.current.dataset.userTyping = 'true';
             setTimeout(() => {
-                if (inputRef.current) {
-                    delete inputRef.current.dataset.userTyping;
-                }
+                if (inputRef.current) delete inputRef.current.dataset.userTyping;
             }, 100);
         }
-        
-        // ✅ Update internal state immediately (shows validation in real-time)
+
         setValue(val);
         setDirty(true);
         setIsAutofilled(false);
-        validateInput(val, true); // ✅ Validates and shows red/green borders
-        
-        // ✅ DO NOT call onChange during typing - prevents parent re-render and focus loss
-        // Parent will be notified onBlur instead for all field types
+        validateInput(val, true);
+
+        // Debounce parent notification — avoids re-render storm on every keystroke
+        if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = setTimeout(() => notifyParent(val), 300);
     };
+
+    useEffect(() => {
+        return () => {
+            if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+        };
+    }, []);
 
     const shouldShowError = propsError || (error && (effectiveDirty || forceShowErrors));
     const shouldShowValid = !shouldShowError && isValid && (effectiveDirty || forceShowErrors);

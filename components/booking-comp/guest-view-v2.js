@@ -705,7 +705,7 @@ export default function GuestBookingsV2() {
                                 </button>
                             );
                             
-                            if (booking.complete === true) {
+                            if (booking.complete === true && funder && (['ndis', 'ndia'].some(f => funder.includes(f)))) {
                                 customButtons.push(
                                     <button 
                                         key="download-pdf"
@@ -741,7 +741,7 @@ export default function GuestBookingsV2() {
                         }
                         
                         // Upcoming bookings tab - download PDF and cancel button
-                        if (activeTab === 0 && !isCancelled && booking.complete === true) {
+                        if (activeTab === 0 && !isCancelled && booking.complete === true && funder && (['ndis', 'ndia'].some(f => funder.includes(f)))) {
                             customButtons.push(
                                 <button 
                                     key="download-pdf"

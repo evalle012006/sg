@@ -450,7 +450,9 @@ export default async function handler(req, res) {
                                                 nightsReturned: nightsToReturn,
                                                 totalNightsApproved: fundingApproval.nights_approved,
                                                 totalNightsUsed: newNightsUsed,
-                                                remainingNights: fundingApproval.nights_approved - newNightsUsed
+                                                remainingNights: fundingApproval.nights_approved - newNightsUsed,
+                                                approvalFrom: fundingApproval.approval_from,
+                                                approvalTo: fundingApproval.approval_to
                                             });
                                         }
                                     }
@@ -570,7 +572,9 @@ export default async function handler(req, res) {
                                                 nightsLost: usageRecord.nights_consumed,
                                                 totalNightsApproved: usageRecord.approval.nights_approved,
                                                 totalNightsUsed: usageRecord.approval.nights_used,
-                                                remainingNights: usageRecord.approval.nights_approved - usageRecord.approval.nights_used
+                                                remainingNights: usageRecord.approval.nights_approved - usageRecord.approval.nights_used,
+                                                approvalFrom: usageRecord.approval.approval_from,
+                                                approvalTo: usageRecord.approval.approval_to
                                             });
                                         }
                                     }

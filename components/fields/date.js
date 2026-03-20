@@ -28,15 +28,15 @@ const DateField = (props) => {
 
     //  New prop to check if booking is confirmed/completed
     const isConfirmedBooking = props.isConfirmedBooking || false;
-
-    // Props with defaults
-    const allowPrevDate = props.hasOwnProperty('allowPrevDate') 
-        ? (props.allowPrevDate || isConfirmedBooking)
-        : true;
     
     // Determine if this is a booking field that needs cross-validation
     const isBookingField = props.name === 'checkinDate' || props.name === 'checkoutDate';
     const crossValidationValue = props.crossValidationValue || null;
+
+    // Props with defaults
+    const allowPrevDate = props.hasOwnProperty('allowPrevDate') 
+        ? props.allowPrevDate 
+        : !isBookingField;
 
     // Month names for dropdown
     const monthNames = [
@@ -139,6 +139,11 @@ const DateField = (props) => {
             return { isValid: false, error: 'Invalid date entered!' };
         }
 
+        // Explicitly check for past dates if NOT allowed
+        if (allowPrevDate === false && isDateInPast(selectedDate)) {
+            return { isValid: false, error: 'Past dates are not allowed!' };
+        }
+
         if (!allowPrevDate && !isConfirmedBooking && isDateInPast(selectedDate)) {
             return { isValid: false, error: 'Past dates are not allowed!' };
         }
@@ -198,17 +203,18 @@ const DateField = (props) => {
             const date = new Date(currentYear, currentMonth, dayNum);
             date.setHours(0, 0, 0, 0);
             
-            const isToday = date.getTime() === today.getTime();
             const isPastDate = date.getTime() < today.getTime();
-            const isSelected = dayNum.toString() === day && 
-                            (currentMonth + 1).toString() === month && 
-                            currentYear.toString() === year;
             
             let isDisabled = false;
             
-            if (!allowPrevDate && isPastDate) {
+            if (allowPrevDate === false && isPastDate) {
                 isDisabled = true;
             }
+
+            const isToday = date.getTime() === today.getTime();
+            const isSelected = dayNum.toString() === day && 
+                            (currentMonth + 1).toString() === month && 
+                            currentYear.toString() === year;
             
             if (crossValidationDate && isBookingField) {
                 if (props.name === 'checkoutDate') {
@@ -382,53 +388,37 @@ const DateField = (props) => {
     }, [props.error]);
 
     useEffect(() => {
-        // ✅ Don't notify parent if we're just updating from props
-        if (isUpdatingFromProps.current) {
-            console.log('⏭️ Skipping validation - updating from props');
-            return;
-        }
-        
+        if (isUpdatingFromProps.current) return;
+
         const isComplete = day !== '' && month !== '' && year !== '' && year.length === 4;
-        
+
         if (isComplete) {
-            const selectedDate = `${year}-${month}-${day}`;
+            const selectedDate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
             const validation = validateCurrentDate(selectedDate);
-            
+
             if (!validation.isValid) {
                 setError(true);
                 setErrorMessage(validation.error);
                 setIsValid(false);
-                // Only show toast on user interaction, not on re-renders
-                if (dirty) {
-                    toast.error(validation.error);
-                }
+                // Only toast if the user explicitly interacted/clicked
+                if (dirty) toast.error(validation.error);
                 notifyParent(day, month, year, validation.error);
             } else {
-                if (!props.error) {
-                    setError(false);
-                    setErrorMessage('');
-                }
+                setError(false);
+                setErrorMessage('');
                 setIsValid(true);
                 notifyParent(day, month, year, null);
             }
-            setDirty(true);
-        } else if (props.required && props.forceShowErrors && !isComplete) {
-            // ✅ FIX: Show error locally but DON'T notify parent while typing
-            const requiredError = 'This field is required';
-            setError(true);
-            setErrorMessage(requiredError);
+        } else {
+            // While typing, we reset the internal error so the UI doesn't scream Red 
+            // until they finish the 4th digit of the year.
             setIsValid(false);
-            // ❌ REMOVED: Don't call notifyParent for incomplete dates during typing
-            // notifyParent(day, month, year, requiredError);
-        } else if (!isComplete) {
             if (!props.error) {
                 setError(false);
                 setErrorMessage('');
             }
-            setIsValid(false);
-            // ✅ GOOD: Already not notifying for incomplete non-required fields
         }
-    }, [day, month, year, allowPrevDate, crossValidationValue, props.required, props.error, props.forceShowErrors]);
+    }, [day, month, year, allowPrevDate, crossValidationValue]);
 
     // Keyboard and click outside handlers
     const escFunction = useCallback((event) => {

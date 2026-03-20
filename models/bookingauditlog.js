@@ -128,6 +128,8 @@ module.exports = (sequelize, DataTypes) => {
         'amendment_submitted',
         'amendment_approved',
         'status_changed',
+        'email_sent', 
+        'email_failed',
         'other'
       ),
       allowNull: false

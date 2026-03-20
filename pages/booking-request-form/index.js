@@ -113,6 +113,7 @@ const BookingRequestForm = () => {
     const lastProcessingTimeRef = useRef(0);
     const processingTimeoutRef = useRef(null);
     const deletedCourseHandledRef = useRef(false);
+    const guestIdRef = useRef(null);
 
     useAutofillDetection();
 
@@ -1575,21 +1576,23 @@ const BookingRequestForm = () => {
                     Sections: page.Sections.map(section => ({
                         ...section,
                         Questions: section.Questions.map(question => {
-                            // Don't override answers that came from profile
-                            if (question.fromProfile && question.protected) {
-                                const originalQuestion = formData
-                                    .find(p => p.id === page.id)
-                                    ?.Sections.find(s => s.id === section.id)
-                                    ?.Questions.find(q => q.id === question.id || q.question_key === question.question_key);
-                                
-                                if (originalQuestion?.fromProfile) {
-                                    return {
-                                        ...question,
-                                        answer: originalQuestion.answer, // Preserve profile answer
-                                        fromProfile: true,
-                                        protected: true
-                                    };
-                                }
+                            // ✅ FIX: Check the INPUT formData for protected profile fields
+                            // (processFormDataForNdisPackages may not carry fromProfile/protected flags through)
+                            const originalQuestion = formData
+                                .find(p => p.id === page.id)
+                                ?.Sections.find(s => s.id === section.id)
+                                ?.Questions.find(q => 
+                                    q.question_key === question.question_key ||
+                                    q.id === question.id
+                                );
+
+                            if (originalQuestion?.fromProfile && originalQuestion?.protected) {
+                                return {
+                                    ...question,
+                                    answer: originalQuestion.answer,   // Always preserve profile answer
+                                    fromProfile: true,
+                                    protected: true
+                                };
                             }
                             return question;
                         })
@@ -2635,8 +2638,9 @@ const BookingRequestForm = () => {
         return [];
     };
 
-    const loadAndApplyProfileData = async (templatePages) => {
-        const guestId = getGuestId();
+    const loadAndApplyProfileData = async (templatePages, explicitGuestId = null) => {
+        // ✅ FIX: Use explicitly passed guest ID first (avoids stale state on first load)
+        const guestId = explicitGuestId || getGuestId();
 
         if (!guestId) {
             console.log('❌ No guest ID available for profile loading');
@@ -2644,8 +2648,7 @@ const BookingRequestForm = () => {
             return;
         }
 
-        // ADD: More robust guard - check if we're loading for the CORRECT guest
-        if (profileDataLoaded && guest?.id === guestId) {
+        if (profileDataLoaded && (guest?.id === guestId || explicitGuestId === guestId)) {
             console.log('⏸️ Profile already loaded for this guest');
             return;
         }
@@ -2699,6 +2702,17 @@ const BookingRequestForm = () => {
                 return page;
             });
 
+            // ✅ FIX: Cancel any in-flight NDIS processing that captured stale QaPairs data
+            // Without this, Timer A fires ~150ms after template load and overwrites profile answers
+            if (processingTimeoutRef.current) {
+                clearTimeout(processingTimeoutRef.current);
+                processingTimeoutRef.current = null;
+                console.log('🛡️ Cancelled pending NDIS processing to protect profile data');
+            }
+            // Reset cooldown so profile-triggered reprocessing can immediately proceed
+            lastProcessingTimeRef.current = 0;
+            prevFormDataRef.current = null;
+
             setProcessedFormData(finalPages);
             safeDispatchData(finalPages, 'Profile data applied after template load');
             setProfileDataLoaded(true);
@@ -2746,6 +2760,8 @@ const BookingRequestForm = () => {
                         case 'email':
                             if (profileData.email) {
                                 updatedQuestion.answer = profileData.email;
+                                updatedQuestion.disabled = true;
+                                updatedQuestion.readOnly = true;
                                 mapped = true;
                             }
                             break;
@@ -3044,6 +3060,7 @@ const BookingRequestForm = () => {
                         // - If user doesn't change anything: answer === profileAnswer, but we still want to save to sync
                         // - If user changes the value: answer !== oldAnswer, will be detected as dirty
                         updatedQuestion.oldAnswer = bookingAnswer;
+                        updatedQuestion.protected = true;
                         
                         // Mark as dirty if profile differs from what was in booking
                         // This ensures the booking QaPairs get updated to match profile
@@ -3053,7 +3070,7 @@ const BookingRequestForm = () => {
                         // Compare values (handle arrays and objects)
                         let valuesAreDifferent = false;
                         if (Array.isArray(profileValue) && Array.isArray(bookingValue)) {
-                            valuesAreDifferent = JSON.stringify(profileValue.sort()) !== JSON.stringify(bookingValue.sort());
+                            valuesAreDifferent = JSON.stringify([...profileValue].sort()) !== JSON.stringify([...bookingValue].sort());
                         } else if (typeof profileValue === 'object' && typeof bookingValue === 'object') {
                             valuesAreDifferent = JSON.stringify(profileValue) !== JSON.stringify(bookingValue);
                         } else {
@@ -3091,7 +3108,7 @@ const BookingRequestForm = () => {
 
         // List of all question keys that map to profile data
         const profileQuestionKeys = [
-            'first-name', 'last-name', 'mobile-no', 'phone-number',
+            'first-name', 'last-name', 'email', 'mobile-no', 'phone-number',
             'gender-person-with-sci', 'date-of-birth-person-with-sci',
             'street-address', 'street-address-line-1', 'street-address-line-2-optional', 'street-address-line-2',
             'city', 'state-province', 'post-code', 'country',
@@ -3337,16 +3354,22 @@ const BookingRequestForm = () => {
     }, 2000);
 
     const getGuestId = useCallback(() => {
-        // Priority: booking.Guest.id > booking.guest_id > currentUser.id
         const isGuestUser = currentUser.type === 'guest';
 
-        // For admin viewing a guest's booking, prioritize booking.Guest.id
         if (!isGuestUser) {
+            // ✅ FIX: Check ref first — set synchronously during template load,
+            // avoids race condition where guest/booking state hasn't propagated yet
+            if (guestIdRef.current) {
+                return guestIdRef.current;
+            }
             if (booking?.Guest?.id) {
                 return booking.Guest.id;
             }
             if (booking?.GuestId) {
                 return booking.GuestId;
+            }
+            if (guest?.id) {
+                return guest.id;
             }
         }
 
@@ -3354,7 +3377,7 @@ const BookingRequestForm = () => {
             return currentUser.id;
         }
         return null;
-    }, [currentUser?.id, currentUser?.type, booking?.Guest?.id, booking?.guest_id]);
+    }, [currentUser?.id, currentUser?.type, booking?.Guest?.id, booking?.guest_id, guest?.id]);
 
     const calculateNdisPageCompletion = useCallback((page) => {
         if (!page || !page.Sections || page.id !== 'ndis_packages_page') {
@@ -4363,7 +4386,7 @@ const BookingRequestForm = () => {
                 });
             } else {
                 // ✅ Check date update lock before refreshing dependencies
-                if (!dateUpdateLockRef.current) {
+                // if (!dateUpdateLockRef.current) {
                     console.log('🔄 Refreshing dependencies for returning guest...');
                     updatedPages = forceRefreshAllDependencies(updatedPages, bookingFormRoomSelected);
                     updatedPages = clearHiddenQuestionAnswers(updatedPages);
@@ -4375,9 +4398,9 @@ const BookingRequestForm = () => {
                     }
                     
                     updatedPages = forceRefreshAllDependencies(updatedPages, bookingFormRoomSelected);
-                } else {
-                    console.log('⏸️ Skipping dependency refresh - date update in progress');
-                }
+                // } else {
+                //     console.log('⏸️ Skipping dependency refresh - date update in progress');
+                // }
 
                 // Then use batch helper update for completion
                 updatedPages = batchUpdateReturningGuestCompletions(updatedPages, {
@@ -4395,14 +4418,14 @@ const BookingRequestForm = () => {
                 updatedPages = updatePageCompletionStatus(updatedPages, 'submit');
             } else {
                 // ✅ Check date update lock before refreshing dependencies
-                if (!dateUpdateLockRef.current) {
+                // if (!dateUpdateLockRef.current) {
                     console.log('🔄 Refreshing dependencies...');
                     updatedPages = forceRefreshAllDependencies(updatedPages, bookingFormRoomSelected);
                     updatedPages = clearHiddenQuestionAnswers(updatedPages);
                     updatedPages = forceRefreshAllDependencies(updatedPages, bookingFormRoomSelected);
-                } else {
-                    console.log('⏸️ Skipping dependency refresh - date update in progress');
-                }
+                // } else {
+                //     console.log('⏸️ Skipping dependency refresh - date update in progress');
+                // }
                 
                 updatedPages = updatePageCompletionStatus(updatedPages, 'after_dependencies');
             }
@@ -6112,6 +6135,10 @@ const BookingRequestForm = () => {
             if (data.booking) {
                 const guestData = data.booking.Guest;
                 setGuest(guestData);
+                if (guestData?.id) {
+                    guestIdRef.current = guestData.id;
+                    console.log('🔑 Guest ID stored in ref:', guestIdRef.current);
+                }
                 if (guestData) {
                     summaryOfStay.uuid = uuid;
                     summaryOfStay.guestName = guestData.first_name + ' ' + guestData.last_name;
@@ -6571,8 +6598,9 @@ const BookingRequestForm = () => {
             // Store the form data
             safeDispatchData(finalPages, 'template load with completion guard');
 
+            const guestIdForProfile = data.booking?.Guest?.id || data.booking?.GuestId || null;
             setTimeout(async () => {
-                await loadAndApplyProfileData(finalPages);
+                await loadAndApplyProfileData(finalPages, guestIdForProfile);
                 dispatch(globalActions.setLoading(false));
             }, 100);
         }
@@ -6863,7 +6891,7 @@ const BookingRequestForm = () => {
             dispatch(bookingRequestFormActions.clearEquipmentChanges());
             dispatch(bookingRequestFormActions.setRooms([]));
 
-             // ADD: Clear guest and booking state
+            guestIdRef.current = null;
             setGuest(null);
             setBooking(null);
             setBookingData(null);
@@ -6931,6 +6959,7 @@ const BookingRequestForm = () => {
             profilePreloadInProgressRef.current = false;
             profileSaveInProgressRef.current = false;
             lastDispatchedDataRef.current = null;
+            guestIdRef.current = null;
             
             // Clear timeouts
             if (processingTimeoutRef.current) clearTimeout(processingTimeoutRef.current);

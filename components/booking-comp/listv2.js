@@ -793,9 +793,9 @@ const fetchBookings = async (searchTerm = searchValue, invalidateCache = false) 
           
           // Only show these options for confirmed bookings with specific funders
           const showSummaryOptions = 
-            rowData.statusObj?.name === 'booking_confirmed' && 
+            rowData.complete && 
             funder && 
-            funder !== 'icare';
+            (['ndis', 'ndia'].some(f => funder.includes(f)));
           
           return (
             <ActionDropDown options={[

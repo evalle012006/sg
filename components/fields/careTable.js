@@ -423,6 +423,19 @@ const hasAnyDefaultValues = (defaultValues) => {
   return false;
 };
 
+// ============================================================
+// Guard: returns true if the data object represents the blank
+// initial state that should never be sent upstream via onChange.
+// Prevents overwriting real saved data with empty defaults.
+// ============================================================
+const isEmptyState = (data) => {
+  if (!data) return true;
+  const hasDefaultVals = hasAnyDefaultValues(data.defaultValues || {});
+  const hasCareData = Array.isArray(data.careData) && data.careData.length > 0;
+  const hasCareVaries = data.careVaries !== null;
+  return !hasDefaultVals && !hasCareData && !hasCareVaries;
+};
+
 const getActivePeriods = (date, dates) => {
   if (!date || !dates || dates.length === 0) {
     return ['morning', 'afternoon', 'evening'];
@@ -732,24 +745,14 @@ export default function CareTable({
         // Use parsedValue instead of value!
         const { tableData: existingData, extractedDefaults, extractedCareVaries } = convertValueToTableData(parsedValue);
         
-        // console.log('🔄 CareTable initialization:', {
-        //   hasExistingData: Object.keys(existingData).length > 0,
-        //   hasExtractedDefaults: !!extractedDefaults,
-        //   extractedCareVaries,
-        //   newDatesCount: Object.keys(initialData).length,
-        //   extractedDefaults // Log the actual defaults
-        // });
-        
         // Always set defaults if we have them (for prefill scenarios)
         if (extractedDefaults) {
-          // console.log('✅ Setting defaultValues from prefilled data:', extractedDefaults);
           setDefaultValues(extractedDefaults);
           savedDefaultsRef.current = JSON.parse(JSON.stringify(extractedDefaults));
         }
         
         // Always preserve careVaries setting from prefilled data
         if (extractedCareVaries !== null) {
-          // console.log('✅ Setting careVaries from prefilled data:', extractedCareVaries);
           setCareVaries(extractedCareVaries);
           savedCareVariesRef.current = extractedCareVaries;
           if (extractedCareVaries === true) {
@@ -761,8 +764,6 @@ export default function CareTable({
         const hasPrefilledDefaults = extractedDefaults && hasAnyDefaultValues(extractedDefaults);
         
         if (hasPrefilledDefaults) {
-          // console.log('🔄 PREFILL MODE: Applying defaultValues to all new dates');
-          
           Object.keys(initialData).forEach(dateKey => {
             ['morning', 'afternoon', 'evening'].forEach(period => {
               const defaultForPeriod = extractedDefaults[period];
@@ -775,8 +776,6 @@ export default function CareTable({
               }
             });
           });
-          
-          // console.log('✅ Prefilled care data for', Object.keys(initialData).length, 'dates');
         } else {
           // Legacy mode - match dates
           Object.keys(existingData).forEach(dateKey => {
@@ -1003,6 +1002,13 @@ export default function CareTable({
               console.log('🔄 CareTable: Skipping auto-save - data unchanged');
               return;
           }
+
+          // ✅ GUARD: Never send the blank initial state upstream.
+          // This prevents overwriting real saved data during mount/re-render cycles.
+          if (isEmptyState(transformedData)) {
+              console.log('🔄 CareTable: Skipping auto-save - empty initial state, nothing meaningful to save');
+              return;
+          }
           
           let hasErrors = false;
           if (required && careVaries !== null) {
@@ -1041,7 +1047,6 @@ export default function CareTable({
       const isPrefillMode = parsedValue?.defaultValues && hasAnyDefaultValues(parsedValue.defaultValues);
       
       if (isPrefillMode) {
-        // console.log('🔄 Skipping date mismatch detection - prefill mode with defaults');
         setDateMismatch(null);
         return;
       }
@@ -1052,13 +1057,13 @@ export default function CareTable({
       
       if (JSON.stringify(newMismatch) !== JSON.stringify(dateMismatch)) {
         setDateMismatch(newMismatch);
-        
-        if (newMismatch && onChange && !parsedValue?.defaultValues) {
-          onChange({ careData: [], defaultValues, careVaries: null }, true);
-        }
+        // ✅ REMOVED: inline onChange({ careData: [], defaultValues, careVaries: null }, true)
+        // The mismatch banner already instructs the user to re-enter their schedule.
+        // The debounced auto-save will notify the parent once the user fills in new data.
+        // Calling onChange here with empty state was overwriting real saved data.
       }
     }
-  }, [parsedValue, stayDates?.checkInDate, stayDates?.checkOutDate, dateMismatch, onChange, defaultValues, careVaries]);
+  }, [parsedValue, stayDates?.checkInDate, stayDates?.checkOutDate, dateMismatch]);
 
   useEffect(() => {
     if (value && stayDates?.checkInDate && stayDates?.checkOutDate && dateMismatch) {
@@ -1071,13 +1076,15 @@ export default function CareTable({
   }, [value, stayDates?.checkInDate, stayDates?.checkOutDate]);
 
   useEffect(() => {
-    if (dateMismatch && onChange && !notificationSentRef.current) {
-      onChange({ careData: [], defaultValues, careVaries: null }, true);
-      notificationSentRef.current = true;
-    } else if (!dateMismatch && notificationSentRef.current) {
+    // ✅ REMOVED: inline onChange({ careData: [], defaultValues, careVaries: null }, true)
+    // Previously this fired unconditionally whenever dateMismatch became truthy,
+    // wiping out any real saved data. The mismatch UI already tells the user to
+    // re-enter their schedule; the auto-save effect handles notifying the parent
+    // once they do. We only need to reset notificationSentRef here.
+    if (!dateMismatch && notificationSentRef.current) {
       notificationSentRef.current = false;
     }
-  }, [dateMismatch, onChange, defaultValues]);
+  }, [dateMismatch]);
 
   useEffect(() => {
     if (!dateInitializedRef.current && startDate && endDate) {
@@ -1207,14 +1214,6 @@ export default function CareTable({
     
     setCareVaries(varies);
     
-    // ✅ NEW: If there's a separate careVaries question, update it too
-    // This ensures validation passes for the checkbox question
-    if (onChange) {
-        // Force an immediate onChange call to update the parent form
-        const currentData = transformDataForSaving(tableData, defaultValues, varies, dates);
-        onChange(currentData, false); // false = no errors
-    }
-    
     if (varies === true) {
         // Apply defaults to all dates in the table
         setTableData(prev => {
@@ -1244,7 +1243,12 @@ export default function CareTable({
         });
         setShowDetailedTable(false);
     }
-  }, [defaultValues, tableData, onChange, dates]);
+    // ✅ REMOVED: immediate inline onChange call.
+    // Setting careVaries state here will trigger the debounced auto-save effect,
+    // which already has the isEmptyState guard and deduplication check.
+    // The old inline call was firing with stale closure values (tableData/defaultValues
+    // from before the setTableData above had settled), risking saving empty data.
+  }, [defaultValues]);
 
   const formatDate = (date) => {
     return new Intl.DateTimeFormat('en-AU', {

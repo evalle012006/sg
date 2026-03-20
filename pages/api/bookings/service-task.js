@@ -4,6 +4,7 @@ import moment from "moment";
 import EmailTriggerService from "../../../services/booking/emailTriggerService";
 import EmailService from '../../../services/booking/emailService';
 import { OAuth2Client } from 'google-auth-library';
+import BookingEmailDataService from "../../../services/booking/BookingEmailDataService";
 
 const authClient = new OAuth2Client();
 
@@ -198,7 +199,7 @@ export default async function handler(req, res) {
             console.log('   Template ID:', payload.templateId);
             
             try {
-                const { recipient, templateId, emailData } = payload || {};
+                const { recipient, templateId, emailData, booking_id, trigger_info } = payload || {};
 
                 if (!recipient || !templateId || !emailData) {
                     console.error('❌ Missing required fields:', { recipient, templateId, hasEmailData: !!emailData });
@@ -232,6 +233,28 @@ export default async function handler(req, res) {
                 );
                 
                 console.log('✅ Email sent successfully to', recipient);
+
+                if (booking_id) {
+                    try {
+                        const booking = await Booking.findByPk(booking_id);
+                        if (booking) {
+                            await BookingEmailDataService.logEmailSend(booking, {
+                                success: true,
+                                recipients: [recipient],
+                                templateId: templateId,
+                                templateName: emailData?.template_name || `Template ${templateId}`,
+                                triggerType: trigger_info?.type || 'unknown',
+                                triggerId: trigger_info?.id || null,
+                                triggerName: trigger_info?.name || null,
+                                reason: 'Email delivered successfully',
+                                emailData: emailData
+                            });
+                        }
+                    } catch (auditError) {
+                        console.error('⚠️ Failed to log email audit (non-critical):', auditError);
+                        // Don't fail the request if audit logging fails
+                    }
+                }
                 
                 return res.status(200).json({ 
                     success: true,
@@ -240,15 +263,29 @@ export default async function handler(req, res) {
                 
             } catch (error) {
                 console.error('❌ Error sending trigger email:', error);
-                console.error('   Error details:', {
-                    message: error.message,
-                    stack: error.stack
-                });
+                if (payload?.booking_id) {
+                    try {
+                        const booking = await Booking.findByPk(payload.booking_id);
+                        if (booking) {
+                            await BookingEmailDataService.logEmailSend(booking, {
+                                success: false,
+                                recipients: [payload.recipient],
+                                templateId: payload.templateId,
+                                templateName: payload.emailData?.template_name || `Template ${payload.templateId}`,
+                                triggerType: payload.trigger_info?.type || 'unknown',
+                                triggerId: payload.trigger_info?.id || null,
+                                triggerName: payload.trigger_info?.name || null,
+                                error: error.message,
+                                reason: 'Email delivery failed',
+                                emailData: payload.emailData
+                            });
+                        }
+                    } catch (auditError) {
+                        console.error('⚠️ Failed to log failure audit (non-critical):', auditError);
+                    }
+                }
                 
-                return res.status(500).json({ 
-                    success: false, 
-                    error: error.message 
-                });
+                return res.status(500).json({ success: false, error: error.message });
             }
         }
 

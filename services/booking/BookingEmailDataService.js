@@ -5,9 +5,11 @@
  * - Methods accept either booking ID or pre-fetched booking object
  * - Fallback from question_id to question text matching (old system compatibility)
  * - Extensive logging for debugging
+ * 
+ * 🔧 UPDATED: answersMatch() now properly handles service-cards object format
  */
 
-import { Booking, Setting, Template, Page, Section, Question, Room, RoomType, Guest, EmailTrigger, QaPair, Package } from "../../models";
+import { Booking, Setting, Template, Page, Section, Question, Room, RoomType, Guest, EmailTrigger, QaPair, Package, Course } from "../../models";
 import { dispatchHttpTaskHandler } from "../queues/dispatchHttpTask";
 import EmailService from "./emailService";
 import { QUESTION_KEYS, getAnswerByQuestionKey, findByQuestionKey, mapQuestionTextToKey } from "./question-helper";
@@ -177,6 +179,7 @@ class BookingEmailDataService {
       
       await this.addQuestionAnswers(emailData, bookingData, includeSectionSpecific);
       await this.enrichPackageData(emailData, qaPairs);
+      await this.enrichCourseData(emailData, qaPairs);
       this.addCalculatedFields(emailData, bookingData, formatDates);
       
       // ✅ Parse health info for email templates
@@ -240,12 +243,12 @@ class BookingEmailDataService {
       console.log(`   Trigger Type: ${trigger.type}`);
       
       const triggerQuestions = trigger.triggerQuestions || [];
-      const triggerConditions = trigger.trigger_conditions || null;  // ADD
+      const triggerConditions = trigger.trigger_conditions || null;
 
       console.log(`   Trigger Questions: ${triggerQuestions.length}`);
-      console.log(`   Trigger Conditions: ${JSON.stringify(triggerConditions)}`);  // ADD
+      console.log(`   Trigger Conditions: ${JSON.stringify(triggerConditions)}`);
 
-      // ADD: Check booking status condition FIRST (before the no-questions shortcut)
+      // Check booking status condition FIRST
       const bookingData = typeof bookingOrId === 'object' && bookingOrId !== null
         ? bookingOrId
         : await this.fetchBookingData(bookingOrId);
@@ -260,7 +263,7 @@ class BookingEmailDataService {
         };
       }
 
-      // ADD: Evaluate booking status condition
+      // Evaluate booking status condition
       if (triggerConditions?.booking_status?.length > 0) {
         let currentStatusName = null;
         try {
@@ -287,7 +290,7 @@ class BookingEmailDataService {
         console.log('   ✅ Booking status condition met');
       }
 
-      // EXISTING: If no trigger questions, pass (status already checked above)
+      // If no trigger questions, pass (status already checked above)
       if (triggerQuestions.length === 0) {
         console.log('   ⚠️ No question conditions specified - passing (status check already done)');
         return {
@@ -365,10 +368,10 @@ class BookingEmailDataService {
    */
   evaluateTriggerQuestion(triggerQuestion, qaPairs) {
     console.log('\n   🔎 Evaluating trigger question...');
-    
+
     const question = triggerQuestion.question;
     const expectedAnswer = triggerQuestion.answer;
-    
+
     if (!question) {
       console.log('   ❌ Question data missing from trigger');
       return {
@@ -384,14 +387,15 @@ class BookingEmailDataService {
     const triggerQuestionText = question.question;
     const triggerQuestionKey = question.question_key;
     const triggerQuestionId = question.id;
-    
+    const questionType = question.question_type || question.type || null; // ✨ capture type
+
     console.log('   📋 Trigger question details:');
     console.log(`      ID: ${triggerQuestionId || 'N/A'}`);
     console.log(`      Key: ${triggerQuestionKey || 'N/A'}`);
+    console.log(`      Type: ${questionType || 'N/A'}`);
     console.log(`      Text: "${triggerQuestionText?.substring(0, 60)}..."`);
     console.log(`      Expected Answer: "${expectedAnswer || 'any'}"`);
-    
-    // ✨ USE FALLBACK METHOD
+
     const relevantQaPair = this.findQaPairWithFallback(qaPairs, triggerQuestion);
 
     if (!relevantQaPair) {
@@ -407,9 +411,16 @@ class BookingEmailDataService {
     }
 
     const actualAnswer = relevantQaPair.answer;
-    console.log(`   📌 Actual Answer: "${actualAnswer?.toString().substring(0, 100)}"`);
+    // ✨ Prefer question type from the stored QaPair (most accurate), fall back to trigger question type
+    const resolvedQuestionType = relevantQaPair.Question?.question_type
+      || relevantQaPair.Question?.type
+      || relevantQaPair.question_type
+      || questionType;
 
-    if (!actualAnswer) {
+    console.log(`   📌 Actual Answer: "${actualAnswer?.toString().substring(0, 100)}"`);
+    console.log(`   📌 Resolved Question Type: ${resolvedQuestionType || 'unknown'}`);
+
+    if (!actualAnswer && actualAnswer !== 0 && actualAnswer !== '0') {
       console.log('   ❌ Question has no answer');
       return {
         matched: false,
@@ -421,7 +432,6 @@ class BookingEmailDataService {
       };
     }
 
-    // If no specific answer is expected, just check if question is answered
     if (!expectedAnswer || expectedAnswer === '' || expectedAnswer === null) {
       console.log('   ✅ No specific answer expected - question is answered');
       return {
@@ -434,18 +444,12 @@ class BookingEmailDataService {
       };
     }
 
-    // Compare answers
-    const matched = this.answersMatch(actualAnswer, expectedAnswer);
-
-    if (matched) {
-      console.log('   ✅ Answer matched!');
-    } else {
-      console.log('   ❌ Answer did not match');
-    }
+    // ✨ Pass resolvedQuestionType so answersMatch can apply the right comparison logic
+    const matched = this.answersMatch(actualAnswer, expectedAnswer, resolvedQuestionType);
 
     return {
       matched,
-      reason: matched 
+      reason: matched
         ? `Answer matches: "${actualAnswer}" == "${expectedAnswer}"`
         : `Answer mismatch: "${actualAnswer}" != "${expectedAnswer}"`,
       questionText: triggerQuestionText,
@@ -456,74 +460,174 @@ class BookingEmailDataService {
   }
 
   /**
-   * Compare answers (handles strings, arrays, booleans)
+   * 🔧 REWRITTEN: Compare answers with proper per-type handling.
+   *
+   * Answer formats from qa_pairs:
+   *
+   *  simple-checkbox   → "1" / "0"  — treat as boolean (1=true, 0=false)
+   *                       Expected in trigger: true/false/"true"/"false"/1/0
+   *
+   *  radio             → plain string: "Yes", "No", "I enjoyed my previous stay"
+   *  select            → plain string OR numeric string: "Male", "0", "1", "2"
+   *  horizontal-card   → plain string: "icare", "ndis"
+   *  package-selection → numeric string: "6"
+   *  year              → numeric string: "2013"
+   *  string/text/email/phone-number/date/file-upload → plain string, exact match
+   *
+   *  checkbox / checkbox-button → JSON array string: ["Manual Wheelchair","T5"]
+   *                               Match if ANY expected value exactly equals ANY item
+   *
+   *  service-cards     → JSON object: { "slug": { selected: bool, subOptions: [] } }
+   *                       Match if expected slug exists AND selected === true
+   *
+   * ⚠️  No partial/contains matching — causes false positives:
+   *     "No" would contain-match "None of the Above", "1" would match inside "10"
+   *
+   * @param {string|number} actualAnswer  - raw answer stored in QaPair
+   * @param {string|number} expectedAnswer - value configured on the trigger
+   * @param {string|null}   questionType  - question_type from the Question record
    */
-  answersMatch(actualAnswer, expectedAnswer) {
+  answersMatch(actualAnswer, expectedAnswer, questionType = null) {
     console.log('      🔍 Comparing answers...');
-    
-    const parseAnswer = (answer) => {
-      if (Array.isArray(answer)) {
-        return answer.map(a => String(a).trim().toLowerCase());
+    console.log(`         Type    : ${questionType || 'unknown'}`);
+    console.log(`         Actual  : ${String(actualAnswer).substring(0, 120)}`);
+    console.log(`         Expected: ${String(expectedAnswer).substring(0, 120)}`);
+
+    if (actualAnswer === null || actualAnswer === undefined ||
+        expectedAnswer === null || expectedAnswer === undefined) {
+      console.log('      ✗ null/undefined operand');
+      return false;
+    }
+
+    // ─── Helper: normalise expected into an array of trimmed strings ──────────
+    // Only splits on comma for non-JSON values, to support multi-value trigger
+    // conditions like "ndis,icare" while not splitting "B - Some sensation, no motor..."
+    const splitExpected = (value) => {
+      if (Array.isArray(value)) return value.map(v => String(v).trim());
+      const str = String(value).trim();
+      if (str.includes(',') && !str.startsWith('{') && !str.startsWith('[')) {
+        return str.split(',').map(s => s.trim()).filter(Boolean);
       }
-      
-      if (typeof answer === 'string') {
-        // Try to parse JSON arrays
-        if (answer.startsWith('[') && answer.endsWith(']')) {
-          try {
-            const parsed = JSON.parse(answer);
-            if (Array.isArray(parsed)) {
-              return parsed.map(a => String(a).trim().toLowerCase());
-            }
-          } catch (e) {
-            // Not valid JSON, treat as comma-separated string
-          }
-        }
-        
-        // Handle comma-separated values
-        if (answer.includes(',')) {
-          return answer.split(',').map(a => a.trim().toLowerCase()).filter(a => a);
-        }
-        
-        return [answer.trim().toLowerCase()];
-      }
-      
-      return [String(answer).trim().toLowerCase()];
+      return [str];
     };
 
-    const actualValues = parseAnswer(actualAnswer);
-    const expectedValues = parseAnswer(expectedAnswer);
+    // ─── Helper: normalise a value to boolean ────────────────────────────────
+    const toBoolean = (value) => {
+      const str = String(value).trim().toLowerCase();
+      if (str === '1' || str === 'true' || str === 'yes') return true;
+      if (str === '0' || str === 'false' || str === 'no') return false;
+      return null; // not a recognisable boolean
+    };
 
-    console.log(`      Actual values: [${actualValues.join(', ')}]`);
-    console.log(`      Expected values: [${expectedValues.join(', ')}]`);
+    // ─── STEP 1: simple-checkbox — boolean comparison ────────────────────────
+    // Stored as "1" (checked) or "0" (unchecked). Compare as boolean so a trigger
+    // configured as true/"true"/1 all work, and "0" is never confused with a
+    // select option that happens to be the string "0".
+    if (questionType === 'simple-checkbox') {
+      const actualBool = toBoolean(actualAnswer);
+      const expectedBool = toBoolean(expectedAnswer);
 
-    // Check for partial matches (contains)
-    const hasAnyMatch = expectedValues.some(expected => 
-      actualValues.some(actual => 
-        actual === expected || 
-        actual.includes(expected) || 
-        expected.includes(actual)
-      )
-    );
+      console.log('      ☑️  simple-checkbox format');
+      console.log(`         Actual bool  : ${actualBool}`);
+      console.log(`         Expected bool: ${expectedBool}`);
 
-    if (hasAnyMatch) {
-      const matchedValues = expectedValues.filter(exp => 
-        actualValues.some(act => act.includes(exp) || exp.includes(act))
-      );
-      console.log(`      ✓ Partial match found: ${matchedValues.join(', ')}`);
-      return true;
+      if (actualBool === null || expectedBool === null) {
+        console.log('      ✗ Could not parse as boolean');
+        return false;
+      }
+
+      const matched = actualBool === expectedBool;
+      console.log(`      ${matched ? '✓' : '✗'} Boolean match: ${matched}`);
+      return matched;
     }
 
-    // Check for exact match (all values match)
-    const normalizedActual = actualValues.sort().join(',');
-    const normalizedExpected = expectedValues.sort().join(',');
-    
-    if (normalizedActual === normalizedExpected) {
-      console.log('      ✓ Exact match');
-      return true;
+    // ─── STEP 2: Parse actualAnswer from JSON string if needed ───────────────
+    let parsedActual = actualAnswer;
+    if (typeof actualAnswer === 'string') {
+      const trimmed = actualAnswer.trim();
+      if ((trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+          (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+        try {
+          parsedActual = JSON.parse(trimmed);
+        } catch (e) {
+          // Not valid JSON — keep as plain string
+        }
+      }
     }
 
-    console.log('      ✗ No match found');
-    return false;
+    // ─── STEP 3: service-cards object ────────────────────────────────────────
+    // Format: { "service-slug": { selected: boolean, subOptions: [] } }
+    // Rule: expected is the service slug; only matches when selected === true.
+    //       A key that exists but has selected === false is a definitive non-match.
+    if (typeof parsedActual === 'object' && parsedActual !== null && !Array.isArray(parsedActual)) {
+      const entries = Object.entries(parsedActual);
+      const isServiceMap = entries.length > 0 &&
+        entries.some(([, v]) => typeof v === 'object' && v !== null && 'selected' in v);
+
+      if (isServiceMap) {
+        console.log('      📦 service-cards format detected');
+
+        const expectedKeys = splitExpected(expectedAnswer).map(k => k.toLowerCase());
+        console.log(`         Expected service keys: [${expectedKeys.join(', ')}]`);
+
+        for (const expectedKey of expectedKeys) {
+          for (const [serviceKey, serviceValue] of entries) {
+            if (serviceKey.toLowerCase().trim() === expectedKey) {
+              if (serviceValue.selected === true) {
+                console.log(`      ✓ Service "${serviceKey}" matched and is selected`);
+                return true;
+              } else {
+                // Key found but not selected — stop, don't check other keys
+                console.log(`      ✗ Service "${serviceKey}" matched but selected === false`);
+                return false;
+              }
+            }
+          }
+        }
+
+        console.log('      ✗ No matching service key found');
+        return false;
+      }
+
+      // Non-service-map plain object (e.g. rooms) — not useful for trigger matching
+      console.log('      ✗ Non-service-map object — unsupported for trigger matching');
+      return false;
+    }
+
+    // ─── STEP 4: Array answer (checkbox, checkbox-button) ────────────────────
+    // Format: ["Manual Wheelchair", "Power Wheelchair"] / ["T5"] / ["I understand"]
+    // Rule: match if ANY expected value exactly equals ANY actual item (case-insensitive).
+    if (Array.isArray(parsedActual)) {
+      console.log('      📋 Array format detected');
+
+      const actualItems = parsedActual.map(v => String(v).trim().toLowerCase());
+      const expectedItems = splitExpected(expectedAnswer).map(e => e.toLowerCase());
+
+      console.log(`         Actual items   : [${actualItems.join(', ')}]`);
+      console.log(`         Expected items : [${expectedItems.join(', ')}]`);
+
+      const matched = expectedItems.some(exp => actualItems.includes(exp));
+      console.log(`      ${matched ? '✓' : '✗'} Array match: ${matched}`);
+      return matched;
+    }
+
+    // ─── STEP 5: All remaining scalar types ──────────────────────────────────
+    // Covers: radio, select, horizontal-card, string, text, email, phone-number,
+    //         date, year, package-selection, file-upload
+    //
+    // select / multi-select may legitimately store "0" or "1" as option values
+    // (e.g. "Number of children: 0") — these are plain strings, NOT booleans.
+    // Exact case-insensitive match only. No partial/contains matching.
+    const actualStr = String(parsedActual).trim().toLowerCase();
+    const expectedItems = splitExpected(expectedAnswer).map(e => e.toLowerCase());
+
+    console.log(`      🔤 Scalar format (${questionType || 'unknown type'})`);
+    console.log(`         Actual  : "${actualStr}"`);
+    console.log(`         Expected: [${expectedItems.join(', ')}]`);
+
+    const matched = expectedItems.includes(actualStr);
+    console.log(`      ${matched ? '✓' : '✗'} Scalar match: ${matched}`);
+    return matched;
   }
 
   /**
@@ -608,7 +712,6 @@ class BookingEmailDataService {
       if (!bookingData) {
         console.log('   ❌ Booking not found');
         
-        // ⭐ AUDIT LOG: Booking not found (can't log to booking, but could log to system)
         return {
           sent: false,
           reason: 'Booking not found',
@@ -622,7 +725,6 @@ class BookingEmailDataService {
       if (!result.shouldSend) {
         console.log(`   ⊘ Will not send: ${result.evaluation.reason}`);
         
-        // ⭐ AUDIT LOG: Email not sent (trigger condition not met)
         await this.logEmailSend(bookingData, {
           success: false,
           recipients: [],
@@ -689,7 +791,6 @@ class BookingEmailDataService {
           } else {
             console.log('   ❌ No valid guest email found in emailData');
             
-            // ⭐ AUDIT LOG: No valid recipient found
             await this.logEmailSend(bookingData, {
               success: false,
               recipients: [],
@@ -727,7 +828,6 @@ class BookingEmailDataService {
       if (invalidRecipients.length > 0) {
         console.log(`   ❌ Invalid recipient email address(es): ${invalidRecipients.join(', ')}`);
         
-        // ⭐ AUDIT LOG: Invalid recipient
         await this.logEmailSend(bookingData, {
           success: false,
           recipients: invalidRecipients,
@@ -751,7 +851,6 @@ class BookingEmailDataService {
       if (recipients.length === 0) {
         console.log('   ❌ No recipient found');
         
-        // ⭐ AUDIT LOG: No recipient found
         await this.logEmailSend(bookingData, {
           success: false,
           recipients: [],
@@ -776,7 +875,6 @@ class BookingEmailDataService {
       if (!templateId) {
         console.log('   ❌ No email template configured');
         
-        // ⭐ AUDIT LOG: No template configured
         await this.logEmailSend(bookingData, {
           success: false,
           recipients: recipients,
@@ -821,8 +919,6 @@ class BookingEmailDataService {
         } catch (error) {
           console.error(`   ❌ Failed to queue email to ${recipient}:`, error);
           sentResults.push({ recipient, success: false, error: error.message });
-          
-          // Individual failure already logged in queueEmail
         }
       }
 
@@ -861,7 +957,6 @@ class BookingEmailDataService {
     } catch (error) {
       console.error('❌ Error in sendWithTriggerEvaluation:', error);
       
-      // ⭐ AUDIT LOG: Unexpected error
       try {
         const bookingData = typeof bookingOrId === 'object' && bookingOrId !== null
           ? bookingOrId
@@ -982,13 +1077,18 @@ class BookingEmailDataService {
         payload: {
           recipient,
           templateId,
-          emailData
+          emailData,
+          booking_id: bookingData?.id || null,
+          trigger_info: triggerInfo ? {
+            id: triggerInfo.id,
+            name: triggerInfo.name,
+            type: triggerInfo.type
+          } : null
         }
       });
       
       console.log('   ✅ Email task queued\n');
 
-      // ⭐ AUDIT LOG: Email queued successfully
       if (bookingData) {
         await this.logEmailSend(bookingData, {
           success: true,
@@ -1007,7 +1107,6 @@ class BookingEmailDataService {
     } catch (error) {
       console.error('   ❌ Failed to queue email:', error);
 
-      // ⭐ AUDIT LOG: Email queue failed
       if (bookingData) {
         await this.logEmailSend(bookingData, {
           success: false,
@@ -1472,6 +1571,85 @@ class BookingEmailDataService {
           }
         } catch (error) {
           console.error('⚠️ Error enriching package data:', error);
+        }
+      }
+    }
+  }
+
+  /**
+   * Enrich course data - resolve course IDs to course details
+   * Similar to enrichPackageData but for courses
+   */
+  async enrichCourseData(emailData, qaPairs) {
+    // Find all QA pairs that might contain course references
+    const courseQaPairs = qaPairs.filter(qa => {
+      const questionKey = qa.Question?.question_key || qa.question_key;
+      const questionText = qa.Question?.question || qa.question || '';
+      
+      // Look for course-related questions
+      return questionKey?.includes('course') || 
+            questionText.toLowerCase().includes('course') ||
+            questionText.toLowerCase().includes('which course');
+    });
+
+    for (const qaPair of courseQaPairs) {
+      const answer = qaPair.answer;
+      const questionKey = qaPair.Question?.question_key || qaPair.question_key;
+      
+      // Check if answer is a numeric course ID
+      if (answer && /^\d+$/.test(answer.toString().trim())) {
+        try {
+          const courseId = parseInt(answer);
+          const courseData = await Course.findByPk(courseId, {
+            attributes: [
+              'id', 
+              'title', 
+              'description', 
+              'start_date', 
+              'end_date',
+              'duration_hours',
+              'min_start_date',
+              'min_end_date'
+            ]
+          });
+          
+          if (courseData) {
+            // Store both the ID and the enriched data
+            if (questionKey) {
+              emailData[`${questionKey}`] = answer; // Keep original ID
+              emailData[`${questionKey}_name`] = courseData.title;
+              emailData[`${questionKey}_title`] = courseData.title;
+              emailData[`${questionKey}_id`] = courseData.id;
+              
+              // Also add underscore version
+              const underscoreKey = questionKey.replace(/-/g, '_');
+              emailData[`${underscoreKey}_name`] = courseData.title;
+              emailData[`${underscoreKey}_title`] = courseData.title;
+            }
+            
+            // Add to common aliases
+            emailData['course_id'] = courseData.id;
+            emailData['course_name'] = courseData.title;
+            emailData['course_title'] = courseData.title;
+            emailData['course_description'] = courseData.description;
+            
+            // Add dates if available
+            if (courseData.start_date) {
+              emailData['course_start_date'] = moment(courseData.start_date).format('DD-MM-YYYY');
+              emailData['course_start_date_raw'] = courseData.start_date;
+            }
+            
+            if (courseData.end_date) {
+              emailData['course_end_date'] = moment(courseData.end_date).format('DD-MM-YYYY');
+              emailData['course_end_date_raw'] = courseData.end_date;
+            }
+            
+            console.log(`✅ Enriched course ${courseId} → "${courseData.title}"`);
+          } else {
+            console.warn(`⚠️ Course ID ${courseId} not found in database`);
+          }
+        } catch (error) {
+          console.error('⚠️ Error enriching course data:', error);
         }
       }
     }
@@ -1959,7 +2137,6 @@ parseSpecificQuestionAnswer(qaPairs, questionKey, questionText) {
       if (!emailData) {
         console.error('❌ Failed to prepare email data');
         
-        // ⭐ AUDIT LOG: Failed to prepare data
         await this.logEmailSend(bookingData, {
           success: false,
           recipients: [recipient],
@@ -1980,7 +2157,6 @@ parseSpecificQuestionAnswer(qaPairs, questionKey, questionText) {
         
         console.log('   ✅ Email sent successfully');
 
-        // ⭐ AUDIT LOG: Email sent successfully
         await this.logEmailSend(bookingData, {
           success: true,
           recipients: [recipient],
@@ -1997,7 +2173,6 @@ parseSpecificQuestionAnswer(qaPairs, questionKey, questionText) {
       } catch (sendError) {
         console.error('❌ Failed to send email:', sendError);
 
-        // ⭐ AUDIT LOG: Email send failed
         await this.logEmailSend(bookingData, {
           success: false,
           recipients: [recipient],

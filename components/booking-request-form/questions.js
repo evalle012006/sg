@@ -1341,6 +1341,7 @@ const QuestionPage = ({
                                                                         forceShowErrors={validationAttempted}
                                                                         onBlur={(value, error) => handleEmailFieldChange(value, error, idx, index)}
                                                                         onChange={(value, error) => handleEmailFieldChange(value, error, idx, index)} 
+                                                                        disabled={q.disabled ? true : false}
                                                                     />
                                                                 </div>
                                                             </div>
