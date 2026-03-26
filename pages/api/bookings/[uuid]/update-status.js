@@ -1,31 +1,57 @@
 import { BOOKING_TYPES } from "../../../../components/constants";
 import { 
-    AccessToken, 
-    Booking, 
-    BookingApprovalUsage,
-    Guest, 
-    FundingApproval,
-    NotificationLibrary, 
-    Package,
-    QaPair, 
-    Room, 
-    RoomType, 
-    Section, 
-    Setting 
+    AccessToken, Booking, BookingApprovalUsage, Guest, FundingApproval,
+    NotificationLibrary, Package, QaPair, Room, RoomType, Section, Setting 
 } from "../../../../models";
 import { NotificationService } from "../../../../services/notification/notification";
 import { dispatchHttpTaskHandler } from "../../../../services/queues/dispatchHttpTask";
-import { 
-    QUESTION_KEYS, 
-    getAnswerByQuestionKey 
-} from "../../../../services/booking/question-helper";
+import { QUESTION_KEYS, getAnswerByQuestionKey } from "../../../../services/booking/question-helper";
 import { ApprovalTrackingService } from "../../../../services/approvalTracking";
+import EmailTriggerService from '../../../../services/booking/emailTriggerService';
 const jwt = require('jsonwebtoken');
 import moment from 'moment';
 import { Op } from "sequelize";
 import EmailService from '../../../../services/booking/emailService';
 import { TEMPLATE_IDS } from '../../../../services/booking/templateIds';
-import EmailRecipientsService from '../../../../services/email/EmailRecipientsService';
+import AuditLogService from "../../../../services/AuditLogService";
+
+// ─── Build formatted iCare context for trigger dispatch ───────────────────────
+// Computes approval period dates and aggregates summary fields so that
+// EmailTriggerService can pass them straight through as email merge tags.
+// booking_status is included so cross-context booking_status conditions work
+// (e.g. an iCare trigger scoped to only booking_confirmed bookings).
+const buildIcareContext = (allocationSummary, updateType, extraFields = {}) => {
+    let approvalFrom = '-', approvalTo = '-';
+
+    if (allocationSummary.length === 1) {
+        approvalFrom = allocationSummary[0].approvalFrom
+            ? moment(allocationSummary[0].approvalFrom).format('DD MMM YYYY') : '-';
+        approvalTo = allocationSummary[0].approvalTo
+            ? moment(allocationSummary[0].approvalTo).format('DD MMM YYYY') : '-';
+    } else if (allocationSummary.length > 1) {
+        const valid = allocationSummary.filter(a => a.approvalFrom && a.approvalTo);
+        if (valid.length > 0) {
+            const earliest = valid.reduce((e, c) =>
+                moment(c.approvalFrom).isBefore(moment(e.approvalFrom)) ? c : e);
+            const latest = valid.reduce((l, c) =>
+                moment(c.approvalTo).isAfter(moment(l.approvalTo)) ? c : l);
+            approvalFrom = moment(earliest.approvalFrom).format('DD MMM YYYY');
+            approvalTo = moment(latest.approvalTo).format('DD MMM YYYY');
+        }
+    }
+
+    return {
+        icare_funding_updated: true,
+        update_type:      updateType,
+        approval_number:  allocationSummary.map(a => a.approvalNumber).filter(Boolean).join(', ') || 'Multiple approvals',
+        approval_from:    approvalFrom,
+        approval_to:      approvalTo,
+        nights_approved:  allocationSummary.reduce((s, a) => s + (a.totalNightsApproved || 0), 0),
+        nights_used:      allocationSummary.reduce((s, a) => s + (a.totalNightsUsed || 0), 0),
+        nights_remaining: allocationSummary.reduce((s, a) => s + a.remainingNights, 0),
+        ...extraFields
+    };
+};
 
 export default async function handler(req, res) {
     try {
@@ -33,505 +59,378 @@ export default async function handler(req, res) {
         const { status, eligibility, isFullChargeCancellation } = req.body;
 
         if (!uuid) {
-            return res.status(400).json({ 
-                error: 'Booking UUID is required',
-                message: 'Booking UUID is required' 
-            });
+            return res.status(400).json({ error: 'Booking UUID is required', message: 'Booking UUID is required' });
         }
 
-        const booking = await Booking.findOne({ 
-            where: { uuid }, 
+        const booking = await Booking.findOne({
+            where: { uuid },
             include: [
-                { model: Section, include: [{ model: QaPair }] }, 
-                Guest, 
+                { model: Section, include: [{ model: QaPair }] },
+                Guest,
                 { model: Room, include: [RoomType] }
-            ] 
+            ]
         });
 
         if (!booking) {
-            return res.status(404).json({ 
-                error: 'Booking not found',
-                message: 'Booking not found' 
-            });
+            return res.status(404).json({ error: 'Booking not found', message: 'Booking not found' });
         }
 
         const token = jwt.sign({ email: booking.Guest.email, user_type: 'guest' }, process.env.SECRET);
-
-        const accessToken = await AccessToken.create({ token: token, tokenable_id: booking.Guest.id, tokenable_type: 'guest' });
+        const accessToken = await AccessToken.create({ token, tokenable_id: booking.Guest.id, tokenable_type: 'guest' });
 
         let statusLogs = booking.status_logs ? JSON.parse(booking.status_logs) : [];
         const currentStatus = booking.status ? JSON.parse(booking.status) : null;
-
-        // Get all Q&A pairs from all sections
-        const allQaPairs = booking.Sections.map(section => section.QaPairs).flat();
-        
-        // Check if funding source is icare
+        const allQaPairs = booking.Sections.map(s => s.QaPairs).flat();
         const fundingSource = getAnswerByQuestionKey(allQaPairs, QUESTION_KEYS.FUNDING_SOURCE);
         const cancellationType = isFullChargeCancellation ? 'full_charge' : 'no_charge';
 
+        // ════════════════════════════════════════════════════════════════════
+        // ELIGIBILITY BRANCH
+        // ════════════════════════════════════════════════════════════════════
         if (eligibility) {
             switch (eligibility.name) {
                 case 'pending_approval':
                     break;
+
                 case 'eligible':
                     if (booking.type == 'Enquiry' || BOOKING_TYPES.FIRST_TIME_GUEST) {
-                        await Booking.update({ status_logs: JSON.stringify(updateStatusLogs(statusLogs, 'eligible')), type: BOOKING_TYPES.FIRST_TIME_GUEST }, { where: { id: booking.id } });
-                        
-                        EmailService.sendWithTemplate(
-                            booking.Guest.email,
-                            TEMPLATE_IDS.BOOKING_APPROVED,
-                            {
-                                guest_name: booking.Guest.first_name,
-                                booking_id: booking.id,
-                                set_new_password_link: `${process.env.APP_URL}/auth/onboarding/set-new-password?token=${accessToken.token}`
-                            }
+                        await Booking.update(
+                            { status_logs: JSON.stringify(updateStatusLogs(statusLogs, 'eligible')), type: BOOKING_TYPES.FIRST_TIME_GUEST },
+                            { where: { id: booking.id } }
                         );
-
+                        // ✅ Keep direct — embeds one-time JWT access token
+                        EmailService.sendWithTemplate(booking.Guest.email, TEMPLATE_IDS.BOOKING_APPROVED, {
+                            guest_name: booking.Guest.first_name,
+                            booking_id: booking.id,
+                            set_new_password_link: `${process.env.APP_URL}/auth/onboarding/set-new-password?token=${accessToken.token}`
+                        });
                         if (!booking.Guest.active) {
                             await Guest.update({ active: true }, { where: { id: booking.Guest.id } });
                         }
                         generateNotifications(booking, 'eligible', true);
                     }
                     break;
-                case 'ineligible':
-                    EmailService.sendWithTemplate(
-                        booking.Guest.email,
-                        TEMPLATE_IDS.BOOKING_DECLINED,
-                        {
-                            guest_name: booking.Guest.first_name,
-                        }
-                    );
 
+                case 'ineligible':
+                    // ✅ Keep direct — declined/cancelled (no configurable trigger needed)
+                    EmailService.sendWithTemplate(booking.Guest.email, TEMPLATE_IDS.BOOKING_DECLINED, {
+                        guest_name: booking.Guest.first_name
+                    });
                     await Guest.update({ active: false }, { where: { id: booking.Guest.id } });
-                    
-                    const bookingCanceledStatus = await Setting.findOne({ 
-                        where: { attribute: 'booking_status', value: { [Op.like]: '%booking_cancelled%' } } 
+                    const bookingCanceledStatus = await Setting.findOne({
+                        where: { attribute: 'booking_status', value: { [Op.like]: '%booking_cancelled%' } }
                     });
-                    
-                    // Parse the JSON to get the actual status name
                     const cancelledStatusObj = JSON.parse(bookingCanceledStatus.value);
-                    
-                    await booking.update({ 
-                        status: bookingCanceledStatus.value, 
-                        status_name: cancelledStatusObj.name,  // ✅ Now using the correct value
-                        status_logs: JSON.stringify(updateStatusLogs(statusLogs, 'canceled')) 
+                    await booking.update({
+                        status: bookingCanceledStatus.value,
+                        status_name: cancelledStatusObj.name,
+                        status_logs: JSON.stringify(updateStatusLogs(statusLogs, 'canceled'))
                     });
-                    
                     generateNotifications(booking, 'ineligible', true);
                     break;
+
                 default:
                     break;
             }
 
-            await Booking.update({ eligibility: JSON.stringify(eligibility), eligibility_name: eligibility?.name }, { where: { uuid } });
+            await Booking.update(
+                { eligibility: JSON.stringify(eligibility), eligibility_name: eligibility?.name },
+                { where: { uuid } }
+            );
+
+            // ✅ Direct system trigger dispatch — no queue
+            try {
+                await EmailTriggerService.evaluateAllTriggers(booking.id, {
+                    booking_eligibility_changed: true,
+                    booking_eligibility: eligibility.name,
+                });
+            } catch (triggerErr) {
+                console.warn('⚠️ booking_eligibility_changed trigger dispatch failed (non-fatal):', triggerErr.message);
+            }
+
+        // ════════════════════════════════════════════════════════════════════
+        // STATUS BRANCH
+        // ════════════════════════════════════════════════════════════════════
         } else if (status) {
             switch (status.name) {
                 case 'enquiry':
                     break;
-                case 'booking_confirmed':
+
+                // ── Booking Confirmed ──────────────────────────────────────
+                case 'booking_confirmed': {
                     console.log('🃏 Booking confirmed - funding source:', fundingSource);
-                    
+
                     if (fundingSource && fundingSource.toLowerCase().includes('icare')) {
-                        // Get check-in and check-out dates
-                        let checkInDate = null;
-                        let checkOutDate = null;
-                        
-                        // Try combined date range first
+                        let checkInDate = null, checkOutDate = null;
+
                         const dateRange = getAnswerByQuestionKey(allQaPairs, QUESTION_KEYS.CHECK_IN_OUT_DATE);
                         if (dateRange) {
-                            // Handle various date range formats
                             if (dateRange.includes(' - ')) {
-                                const [start, end] = dateRange.split(' - ');
-                                checkInDate = moment(start, ['DD/MM/YYYY', 'YYYY-MM-DD']).toDate();
-                                checkOutDate = moment(end, ['DD/MM/YYYY', 'YYYY-MM-DD']).toDate();
+                                const [s, e] = dateRange.split(' - ');
+                                checkInDate = moment(s, ['DD/MM/YYYY', 'YYYY-MM-DD']).toDate();
+                                checkOutDate = moment(e, ['DD/MM/YYYY', 'YYYY-MM-DD']).toDate();
                             } else if (dateRange.includes(' to ')) {
-                                const [start, end] = dateRange.split(' to ');
-                                checkInDate = moment(start, ['DD/MM/YYYY', 'YYYY-MM-DD']).toDate();
-                                checkOutDate = moment(end, ['DD/MM/YYYY', 'YYYY-MM-DD']).toDate();
+                                const [s, e] = dateRange.split(' to ');
+                                checkInDate = moment(s, ['DD/MM/YYYY', 'YYYY-MM-DD']).toDate();
+                                checkOutDate = moment(e, ['DD/MM/YYYY', 'YYYY-MM-DD']).toDate();
                             }
                         }
-                        
-                        // Fallback to separate fields or booking preferred dates
-                        if (!checkInDate) {
-                            checkInDate = booking.preferred_arrival_date;
-                        }
-                        if (!checkOutDate) {
-                            checkOutDate = booking.preferred_departure_date;
-                        }
-                        
+                        if (!checkInDate) checkInDate = booking.preferred_arrival_date;
+                        if (!checkOutDate) checkOutDate = booking.preferred_departure_date;
+
                         if (checkInDate && checkOutDate) {
-                            // Calculate number of nights
                             const nightsRequested = moment(checkOutDate).diff(moment(checkInDate), 'days');
-                            
+
                             if (nightsRequested > 0) {
                                 try {
-                                    // Check if usage records already exist (this is a re-confirmation/amendment)
-                                    const existingUsageRecords = await BookingApprovalUsage.findAll({
-                                        where: {
-                                            booking_id: booking.id,
-                                            room_type: 'primary',
-                                            status: 'confirmed'
-                                        },
-                                        include: [{
-                                            model: FundingApproval,
-                                            as: 'approval'
-                                        }]
+                                    const existingUsage = await BookingApprovalUsage.findAll({
+                                        where: { booking_id: booking.id, room_type: 'primary', status: 'confirmed' },
+                                        include: [{ model: FundingApproval, as: 'approval' }]
                                     });
-                                    
-                                    let currentNightsConsumed = 0;
-                                    if (existingUsageRecords && existingUsageRecords.length > 0) {
-                                        currentNightsConsumed = existingUsageRecords.reduce((sum, record) => sum + record.nights_consumed, 0);
-                                    }
-                                    
-                                    // If nights changed, we need to adjust the allocations
+                                    const currentNightsConsumed = existingUsage.reduce((s, r) => s + r.nights_consumed, 0);
+
                                     if (currentNightsConsumed !== nightsRequested) {
-                                        // Step 1: Return old nights to approvals (if any)
-                                        if (existingUsageRecords && existingUsageRecords.length > 0) {
+                                        // Return old nights if re-confirming
+                                        if (existingUsage.length > 0) {
                                             console.log(`♻️ Returning ${currentNightsConsumed} nights from previous confirmation`);
-                                            
-                                            for (const usageRecord of existingUsageRecords) {
-                                                if (usageRecord.approval) {
-                                                    const fundingApprovalId = usageRecord.approval.id;
-                                                    const nightsToReturn = usageRecord.nights_consumed;
-                                                    
-                                                    // ✅ FIX: Fetch fresh approval and use its nights_used value (respects manual adjustments)
-                                                    const fundingApproval = await FundingApproval.findByPk(fundingApprovalId);
-                                                    const currentNightsUsed = fundingApproval.nights_used || 0;
-                                                    const newNightsUsed = Math.max(0, currentNightsUsed - nightsToReturn);
-                                                    
-                                                    // Update the approval - return nights
-                                                    await FundingApproval.update(
-                                                        { nights_used: newNightsUsed },
-                                                        { where: { id: fundingApprovalId } }
-                                                    );
-                                                    
-                                                    console.log(`✅ Returned ${nightsToReturn} nights to FundingApproval ${fundingApprovalId}. Nights used: ${currentNightsUsed} -> ${newNightsUsed}`);
+                                            for (const ur of existingUsage) {
+                                                if (ur.approval) {
+                                                    const fa = await FundingApproval.findByPk(ur.approval.id);
+                                                    const newUsed = Math.max(0, (fa.nights_used || 0) - ur.nights_consumed);
+                                                    await FundingApproval.update({ nights_used: newUsed }, { where: { id: fa.id } });
+                                                    console.log(`✅ Returned ${ur.nights_consumed} nights to FundingApproval ${fa.id}`);
                                                 }
-                                                
-                                                // Delete the old usage record
-                                                await usageRecord.destroy();
+                                                await ur.destroy();
                                             }
                                         }
-                                        
-                                        // Step 2: Get ALL active approvals and check consolidated total
+
                                         const approvalSummary = await ApprovalTrackingService.getAllActiveApprovals(booking.Guest.id);
-                                        
-                                        console.log(`🃏 Guest ${booking.Guest.id} has ${approvalSummary.count} active approval(s) with ${approvalSummary.totalRemainingNights} total nights remaining`);
-                                        
-                                        // Check if guest has ANY active approvals
+                                        console.log(`🃏 Guest ${booking.Guest.id}: ${approvalSummary.count} approval(s), ${approvalSummary.totalRemainingNights} nights remaining`);
+
                                         if (approvalSummary.count === 0) {
                                             return res.status(400).json({
                                                 error: 'No active iCare approval found',
-                                                message: `Cannot confirm booking: This guest does not have any active funding approvals. This booking requires ${nightsRequested} nights. Please add an funding approval for this guest before confirming.`
+                                                message: `Cannot confirm: guest has no active funding approvals. Requires ${nightsRequested} nights.`
                                             });
                                         }
-                                        
-                                        // Check if TOTAL nights across ALL approvals is sufficient
                                         if (approvalSummary.totalRemainingNights < nightsRequested) {
                                             return res.status(400).json({
                                                 error: 'Insufficient approved nights',
-                                                message: `Cannot confirm booking: This booking requires ${nightsRequested} nights, but the guest only has ${approvalSummary.totalRemainingNights} nights remaining across ${approvalSummary.count} approval(s). Please update the guest's funding approval(s) before confirming.`
+                                                message: `Cannot confirm: requires ${nightsRequested} nights but only ${approvalSummary.totalRemainingNights} remaining across ${approvalSummary.count} approval(s).`
                                             });
                                         }
-                                        
-                                        // Step 3: Allocate new nights across approvals (earliest approval_from date first)
-                                        const allocations = await ApprovalTrackingService.allocateNightsFromApprovals(
-                                            booking.Guest.id,
-                                            nightsRequested
-                                        );
-                                        
+
+                                        const allocations = await ApprovalTrackingService.allocateNightsFromApprovals(booking.Guest.id, nightsRequested);
                                         if (!allocations || allocations.length === 0) {
                                             return res.status(400).json({
                                                 error: 'Unable to allocate nights',
-                                                message: `Cannot confirm booking: Unable to allocate ${nightsRequested} nights from available approvals. Please contact support.`
+                                                message: `Cannot confirm: unable to allocate ${nightsRequested} nights from available approvals.`
                                             });
                                         }
-                                        
-                                        console.log(`🃏 Allocating ${nightsRequested} nights across ${allocations.length} approval(s)`);
-                                        
-                                        // Process each allocation
+
                                         const allocationSummary = [];
                                         for (const allocation of allocations) {
-                                            const fundingApprovalId = allocation.approval.id;
-                                            const nightsToUse = allocation.nightsToUse;
-                                            
-                                            // ✅ FIX: Fetch fresh approval and use its nights_used value (respects manual adjustments)
-                                            const fundingApproval = await FundingApproval.findByPk(fundingApprovalId, {
-                                                attributes: [
-                                                    'id', 
-                                                    'approval_number', 
-                                                    'approval_name', 
-                                                    'nights_approved', 
-                                                    'nights_used',
-                                                    'approval_from',
-                                                    'approval_to'
-                                                ]
+                                            const fa = await FundingApproval.findByPk(allocation.approval.id, {
+                                                attributes: ['id', 'approval_number', 'approval_name', 'nights_approved', 'nights_used', 'approval_from', 'approval_to']
                                             });
-                                            const currentNightsUsed = fundingApproval.nights_used || 0;
-                                            const newNightsUsed = currentNightsUsed + nightsToUse;
-                                            
-                                            console.log(`🃏 Using FundingApproval ${fundingApprovalId}: ${currentNightsUsed} + ${nightsToUse} = ${newNightsUsed} nights`);
-                                            
-                                            // Update the FundingApproval nights_used
-                                            await FundingApproval.update(
-                                                { nights_used: newNightsUsed },
-                                                { where: { id: fundingApprovalId } }
-                                            );
-                                            
-                                            // Create BookingApprovalUsage record
+                                            const newUsed = (fa.nights_used || 0) + allocation.nightsToUse;
+                                            await FundingApproval.update({ nights_used: newUsed }, { where: { id: fa.id } });
+
                                             try {
                                                 await BookingApprovalUsage.create({
                                                     booking_id: booking.id,
-                                                    funding_approval_id: fundingApprovalId,
+                                                    funding_approval_id: fa.id,
                                                     room_type: 'primary',
-                                                    nights_consumed: nightsToUse,
+                                                    nights_consumed: allocation.nightsToUse,
                                                     status: 'confirmed'
                                                 });
-                                                
-                                                console.log(`✅ Created BookingApprovalUsage: booking_id=${booking.id}, funding_approval_id=${fundingApprovalId}, nights=${nightsToUse}`);
+                                                console.log(`✅ BookingApprovalUsage created: booking=${booking.id}, approval=${fa.id}, nights=${allocation.nightsToUse}`);
                                             } catch (usageError) {
-                                                console.error('Error creating BookingApprovalUsage record:', usageError);
+                                                console.error('Error creating BookingApprovalUsage:', usageError);
                                             }
-                                            
-                                            // Track for email summary
+
                                             allocationSummary.push({
-                                                approvalNumber: fundingApproval.approval_number,
-                                                approvalName: fundingApproval.approval_name,
-                                                nightsUsedThisBooking: nightsToUse,  // Nights from this booking only
-                                                totalNightsApproved: fundingApproval.nights_approved,  // Total approved from DB
-                                                totalNightsUsed: newNightsUsed,  // Total used after this booking
-                                                remainingNights: fundingApproval.nights_approved - newNightsUsed,
-                                                approvalFrom: fundingApproval.approval_from,
-                                                approvalTo: fundingApproval.approval_to
+                                                approvalNumber:        fa.approval_number,
+                                                approvalName:          fa.approval_name,
+                                                nightsUsedThisBooking: allocation.nightsToUse,
+                                                totalNightsApproved:   fa.nights_approved,
+                                                totalNightsUsed:       newUsed,
+                                                remainingNights:       fa.nights_approved - newUsed,
+                                                approvalFrom:          fa.approval_from,
+                                                approvalTo:            fa.approval_to
                                             });
                                         }
-                                        
+
+                                        // ✅ Direct system trigger dispatch — no queue
                                         try {
-                                            await sendIcareNightsUpdateEmail(booking.Guest, allocationSummary, {
-                                                nightsRequested,
-                                                totalAllocations: allocations.length
-                                            });
-                                        } catch (emailError) {
-                                            console.error('Error sending funding nights update email:', emailError);
+                                            await EmailTriggerService.evaluateAllTriggers(booking.id, buildIcareContext(
+                                                allocationSummary,
+                                                'allocation',
+                                                {
+                                                    nights_requested:  nightsRequested,
+                                                    total_allocations: allocations.length,
+                                                    allocation_details: allocations.map(a =>
+                                                        `• ${a.approvalNumber || a.approvalName}: ${a.nightsUsedThisBooking} nights used this booking (${a.totalNightsUsed} total), ${a.remainingNights} remaining`
+                                                    ).join('\n'),
+                                                    guest_name:  `${booking.Guest.first_name} ${booking.Guest.last_name}`,
+                                                    guest_email: booking.Guest.email,
+                                                    // ✂️ booking_status intentionally removed — bottom dispatch handles booking_status_changed
+                                                }
+                                            ));
+                                        } catch (triggerErr) {
+                                            console.warn('⚠️ icare_funding_updated (allocation) trigger dispatch failed (non-fatal):', triggerErr.message);
                                         }
+
                                     } else {
                                         console.log(`✅ Nights unchanged (${nightsRequested}), no allocation adjustment needed`);
                                     }
-                                    
                                 } catch (fundingError) {
                                     console.error('Error updating nights_used:', fundingError);
                                     return res.status(500).json({
                                         error: 'Database error',
-                                        message: 'Unable to update funding funding information. Please try again or contact support.'
+                                        message: 'Unable to update funding information. Please try again or contact support.'
                                     });
                                 }
                             }
                         }
                     }
 
-                    // ALL VALIDATIONS PASSED - Now update the status logs
-                    await Booking.update({ status_logs: JSON.stringify(updateStatusLogs(statusLogs, 'confirmed')) }, { where: { id: booking.id } });
-
-                    let roomTypes = '';
-                    if (booking.Rooms.length > 0) {
-                        if (booking.Rooms.length == 1) {
-                            roomTypes = booking.Rooms[0].RoomType?.name;
-                        } else {
-                            const unique = new Set();
-                            booking.Rooms.map((room, index) => {
-                                unique.add(`${index + 1}. ${room.RoomType?.name}`);
-                            })
-                            roomTypes = [...unique].join(', ');
-                        }
-                    }
-
-                    // ✅ FIXED: Get package name from database instead of just ID
-                    const bookingPackage = await getBookingPackage(booking);
-
-                    // Generate PDF and upload to GCS
-                    const bookingPDFUrl = await dispatchHttpTaskHandler(`${process.env.APP_URL}/api/bookings/${booking.id}/generate-and-upload-pdf`, { booking_id: booking.id });
-
-                    // ✅ UPDATED: Send guest confirmation using EmailService
-                    await EmailService.sendWithTemplate(
-                        booking.Guest.email,
-                        TEMPLATE_IDS.BOOKING_CONFIRMED,
-                        {
-                            guest_name: booking.Guest.first_name,
-                            arrivalDate: booking.preferred_arrival_date ? moment(booking.preferred_arrival_date).format("DD-MM-YYYY") : '-',
-                            departureDate: booking.preferred_departure_date ? moment(booking.preferred_departure_date).format("DD-MM-YYYY") : '-',
-                            accommodation: roomTypes || '-',
-                            booking_package: bookingPackage || '-',
-                            booking_id: booking.reference_id
-                        }
+                    await Booking.update(
+                        { status_logs: JSON.stringify(updateStatusLogs(statusLogs, 'confirmed')) },
+                        { where: { id: booking.id } }
                     );
 
-                    try {
-                        const infoRecipients = await EmailRecipientsService.getRecipientsString('info');
-                        
-                        if (!infoRecipients) {
-                            console.warn('⚠️ No info recipients configured - skipping admin notification');
-                        } else {
-                            await EmailService.sendWithTemplate(
-                                infoRecipients,
-                                TEMPLATE_IDS.BOOKING_CONFIRMED_ADMIN,
-                                {
-                                    guest_name: booking.Guest.first_name + ' ' + booking.Guest.last_name,
-                                    arrivalDate: booking.preferred_arrival_date ? moment(booking.preferred_arrival_date).format("DD-MM-YYYY") : '-',
-                                    departureDate: booking.preferred_departure_date ? moment(booking.preferred_departure_date).format("DD-MM-YYYY") : '-',
-                                    accommodation: roomTypes || '-',
-                                    booking_package: bookingPackage || '-',
-                                    booking_id: booking.reference_id
-                                }
-                            );
-                            console.log('✅ Admin notification sent to info recipients:', infoRecipients);
-                        }
-                    } catch (emailError) {
-                        console.error('Failed to send admin confirmation email:', emailError);
-                        // Don't fail the request if email fails
-                    }
+                    await dispatchHttpTaskHandler(
+                        `${process.env.APP_URL}/api/bookings/${booking.id}/generate-and-upload-pdf`,
+                        { booking_id: booking.id }
+                    );
 
                     generateNotifications(booking, 'confirmed', true);
                     break;
-                case 'booking_cancelled':
-                    // ========================================================
-                    // Cancellation Night Logic (supports multiple approvals)
-                    // - Full Charge Cancellation: Guest is penalized, nights STAY subtracted (no refund)
-                    // - No Charge Cancellation: Guest is NOT penalized, nights are RETURNED to approval(s)
-                    // ========================================================
-                    
+                }
+
+                // ── Booking Cancelled ──────────────────────────────────────
+                case 'booking_cancelled': {
                     if (fundingSource && fundingSource.toLowerCase().includes('icare')) {
-                        // Only process night returns for NO CHARGE cancellations
-                        // Full Charge = penalty, nights stay subtracted
                         if (!isFullChargeCancellation) {
+                            // No Charge — return nights to approvals
                             let nightsReturned = false;
-                            
+
                             try {
-                                // Find ALL usage records for this booking (supports multiple approvals)
                                 const usageRecords = await BookingApprovalUsage.findAll({
-                                    where: {
-                                        booking_id: booking.id,
-                                        room_type: 'primary',
-                                        status: 'confirmed'
-                                    },
-                                    include: [{
-                                        model: FundingApproval,
-                                        as: 'approval'
-                                    }]
+                                    where: { booking_id: booking.id, room_type: 'primary', status: 'confirmed' },
+                                    include: [{ model: FundingApproval, as: 'approval' }]
                                 });
-                                
+
                                 if (usageRecords && usageRecords.length > 0) {
-                                    console.log(`🔄 Processing No Charge cancellation - returning nights to ${usageRecords.length} approval(s)`);
-                                    
+                                    console.log(`🔄 No Charge cancellation — returning nights to ${usageRecords.length} approval(s)`);
                                     const returnSummary = [];
-                                    for (const usageRecord of usageRecords) {
-                                        if (usageRecord.approval) {
-                                            const fundingApprovalId = usageRecord.approval.id;
-                                            const nightsToReturn = usageRecord.nights_consumed;
-                                            
-                                            // ✅ FIX: Fetch fresh approval and use its nights_used value (respects manual adjustments)
-                                            const fundingApproval = await FundingApproval.findByPk(fundingApprovalId);
-                                            const currentNightsUsed = fundingApproval.nights_used || 0;
-                                            const newNightsUsed = Math.max(0, currentNightsUsed - nightsToReturn);
-                                            
-                                            // Update the approval - return nights
-                                            await FundingApproval.update(
-                                                { nights_used: newNightsUsed },
-                                                { where: { id: fundingApprovalId } }
-                                            );
-                                            
-                                            // Update the usage record status
-                                            await usageRecord.update({ status: 'cancelled' });
-                                            
-                                            console.log(`✅ Returned ${nightsToReturn} nights to FundingApproval ${fundingApprovalId}. Nights used: ${currentNightsUsed} -> ${newNightsUsed}`);
-                                            
+
+                                    for (const ur of usageRecords) {
+                                        if (ur.approval) {
+                                            const fa = await FundingApproval.findByPk(ur.approval.id);
+                                            const newUsed = Math.max(0, (fa.nights_used || 0) - ur.nights_consumed);
+                                            await FundingApproval.update({ nights_used: newUsed }, { where: { id: fa.id } });
+                                            await ur.update({ status: 'cancelled' });
+
                                             returnSummary.push({
-                                                approvalNumber: fundingApproval.approval_number,
-                                                approvalName: fundingApproval.approval_name,
-                                                nightsReturned: nightsToReturn,
-                                                totalNightsApproved: fundingApproval.nights_approved,
-                                                totalNightsUsed: newNightsUsed,
-                                                remainingNights: fundingApproval.nights_approved - newNightsUsed,
-                                                approvalFrom: fundingApproval.approval_from,
-                                                approvalTo: fundingApproval.approval_to
+                                                approvalNumber:      fa.approval_number,
+                                                approvalName:        fa.approval_name,
+                                                nightsReturned:      ur.nights_consumed,
+                                                totalNightsApproved: fa.nights_approved,
+                                                totalNightsUsed:     newUsed,
+                                                remainingNights:     fa.nights_approved - newUsed,
+                                                approvalFrom:        fa.approval_from,
+                                                approvalTo:          fa.approval_to
                                             });
                                         }
                                     }
-                                    
-                                    // ✅ UPDATED: Send email notification using EmailService
+
+                                    const totalReturned = returnSummary.reduce((s, r) => s + r.nightsReturned, 0);
+
+                                    // ✅ Direct system trigger dispatch — no queue
                                     try {
-                                        await sendIcareCancellationEmail(booking.Guest, returnSummary, {
-                                            isNoCharge: true,
-                                            totalReturned: returnSummary.reduce((sum, r) => sum + r.nightsReturned, 0)
-                                        });
-                                    } catch (emailError) {
-                                        console.error('Error sending funding cancellation email:', emailError);
+                                        await EmailTriggerService.evaluateAllTriggers(booking.id, buildIcareContext(
+                                            returnSummary,
+                                            'no_charge_cancellation',
+                                            {
+                                                nights_returned:   totalReturned,
+                                                return_details:    returnSummary.map(r =>
+                                                    `• ${r.approvalNumber || r.approvalName}: ${r.nightsReturned} nights returned, ${r.remainingNights} now remaining`
+                                                ).join('\n'),
+                                                cancellation_type: 'No Charge',
+                                                guest_name:     `${booking.Guest.first_name} ${booking.Guest.last_name}`,
+                                                guest_email:    booking.Guest.email,
+                                                // booking_status: 'booking_cancelled',
+                                            }
+                                        ));
+                                    } catch (triggerErr) {
+                                        console.warn('⚠️ icare_funding_updated (no_charge_cancellation) trigger dispatch failed (non-fatal):', triggerErr.message);
                                     }
-                                    
+
                                     nightsReturned = true;
-                                } else {
-                                    console.log('No BookingApprovalUsage records found - trying fallback method');
                                 }
                             } catch (usageError) {
                                 console.error('Error looking up BookingApprovalUsage:', usageError);
                             }
-                            
-                            // Fallback: If no usage record found (for bookings confirmed before this system)
+
+                            // Fallback: for bookings confirmed before usage tracking existed
                             if (!nightsReturned) {
                                 let checkInDate = booking.preferred_arrival_date;
                                 let checkOutDate = booking.preferred_departure_date;
-                                
-                                // Try to get from Q&A if available
+
                                 const dateRange = getAnswerByQuestionKey(allQaPairs, QUESTION_KEYS.CHECK_IN_OUT_DATE);
                                 if (dateRange) {
                                     if (dateRange.includes(' - ')) {
-                                        const [start, end] = dateRange.split(' - ');
-                                        checkInDate = moment(start, ['DD/MM/YYYY', 'YYYY-MM-DD']).toDate();
-                                        checkOutDate = moment(end, ['DD/MM/YYYY', 'YYYY-MM-DD']).toDate();
+                                        const [s, e] = dateRange.split(' - ');
+                                        checkInDate = moment(s, ['DD/MM/YYYY', 'YYYY-MM-DD']).toDate();
+                                        checkOutDate = moment(e, ['DD/MM/YYYY', 'YYYY-MM-DD']).toDate();
                                     } else if (dateRange.includes(' to ')) {
-                                        const [start, end] = dateRange.split(' to ');
-                                        checkInDate = moment(start, ['DD/MM/YYYY', 'YYYY-MM-DD']).toDate();
-                                        checkOutDate = moment(end, ['DD/MM/YYYY', 'YYYY-MM-DD']).toDate();
+                                        const [s, e] = dateRange.split(' to ');
+                                        checkInDate = moment(s, ['DD/MM/YYYY', 'YYYY-MM-DD']).toDate();
+                                        checkOutDate = moment(e, ['DD/MM/YYYY', 'YYYY-MM-DD']).toDate();
                                     }
                                 }
-                                
+
                                 if (checkInDate && checkOutDate) {
                                     const nightsToReturn = moment(checkOutDate).diff(moment(checkInDate), 'days');
-                                    
                                     if (nightsToReturn > 0) {
                                         try {
-                                            // Find the most recent active FundingApproval for this guest
-                                            const fundingApproval = await FundingApproval.findOne({
-                                                where: {
-                                                    guest_id: booking.Guest.id,
-                                                    status: 'active'
-                                                },
+                                            const fa = await FundingApproval.findOne({
+                                                where: { guest_id: booking.Guest.id, status: 'active' },
                                                 order: [['approval_from', 'DESC']]
                                             });
-                                            
-                                            if (fundingApproval) {
-                                                const currentNightsUsed = fundingApproval.nights_used || 0;
-                                                const newNightsUsed = Math.max(0, currentNightsUsed - nightsToReturn);
-                                                
-                                                await FundingApproval.update(
-                                                    { nights_used: newNightsUsed },
-                                                    { where: { id: fundingApproval.id } }
-                                                );
-                                                
-                                                console.log(`Fallback method (No Charge): Returned ${nightsToReturn} nights to FundingApproval ${fundingApproval.id}. Nights used: ${currentNightsUsed} -> ${newNightsUsed}`);
-                                                
-                                                // ✅ UPDATED: Send email using EmailService
+                                            if (fa) {
+                                                const newUsed = Math.max(0, (fa.nights_used || 0) - nightsToReturn);
+                                                await FundingApproval.update({ nights_used: newUsed }, { where: { id: fa.id } });
+                                                console.log(`Fallback (No Charge): returned ${nightsToReturn} nights to FundingApproval ${fa.id}`);
+
+                                                const fallbackSummary = [{
+                                                    approvalNumber:      fa.approval_number,
+                                                    approvalName:        fa.approval_name,
+                                                    nightsReturned:      nightsToReturn,
+                                                    totalNightsApproved: fa.nights_approved,
+                                                    totalNightsUsed:     newUsed,
+                                                    remainingNights:     fa.nights_approved - newUsed,
+                                                    approvalFrom:        fa.approval_from,
+                                                    approvalTo:          fa.approval_to
+                                                }];
+
+                                                // ✅ Direct system trigger dispatch — no queue
                                                 try {
-                                                    await sendIcareCancellationEmail(booking.Guest, [{
-                                                        approvalNumber: fundingApproval.approval_number,
-                                                        approvalName: fundingApproval.approval_name,
-                                                        nightsReturned: nightsToReturn,
-                                                        remainingNights: fundingApproval.nights_approved - newNightsUsed
-                                                    }], {
-                                                        isNoCharge: true,
-                                                        totalReturned: nightsToReturn
-                                                    });
-                                                } catch (emailError) {
-                                                    console.error('Error sending funding cancellation email:', emailError);
+                                                    await EmailTriggerService.evaluateAllTriggers(booking.id, buildIcareContext(
+                                                        fallbackSummary,
+                                                        'no_charge_cancellation',
+                                                        {
+                                                            nights_returned:   nightsToReturn,
+                                                            cancellation_type: 'No Charge',
+                                                            guest_name:     `${booking.Guest.first_name} ${booking.Guest.last_name}`,
+                                                            guest_email:    booking.Guest.email,
+                                                            // booking_status: 'booking_cancelled',
+                                                        }
+                                                    ));
+                                                } catch (triggerErr) {
+                                                    console.warn('⚠️ icare_funding_updated (no_charge_cancellation fallback) trigger dispatch failed (non-fatal):', triggerErr.message);
                                                 }
                                             }
                                         } catch (fundingError) {
@@ -540,246 +439,197 @@ export default async function handler(req, res) {
                                     }
                                 }
                             }
+
                         } else {
-                            // Full Charge Cancellation - nights stay subtracted as penalty
+                            // Full Charge — nights stay subtracted as penalty
                             try {
                                 const usageRecords = await BookingApprovalUsage.findAll({
-                                    where: {
-                                        booking_id: booking.id,
-                                        room_type: 'primary',
-                                        status: 'confirmed'
-                                    },
-                                    include: [{
-                                        model: FundingApproval,
-                                        as: 'approval'
-                                    }]
+                                    where: { booking_id: booking.id, room_type: 'primary', status: 'confirmed' },
+                                    include: [{ model: FundingApproval, as: 'approval' }]
                                 });
-                                
+
                                 if (usageRecords && usageRecords.length > 0) {
-                                    console.log(`💰 Processing Full Charge cancellation - nights remain subtracted from ${usageRecords.length} approval(s)`);
-                                    
+                                    console.log(`💰 Full Charge cancellation — nights stay subtracted from ${usageRecords.length} approval(s)`);
                                     let totalNightsLost = 0;
                                     const penaltySummary = [];
-                                    
-                                    for (const usageRecord of usageRecords) {
-                                        await usageRecord.update({ status: 'charged' });
-                                        totalNightsLost += usageRecord.nights_consumed;
-                                        
-                                        if (usageRecord.approval) {
+
+                                    for (const ur of usageRecords) {
+                                        await ur.update({ status: 'charged' });
+                                        totalNightsLost += ur.nights_consumed;
+
+                                        if (ur.approval) {
                                             penaltySummary.push({
-                                                approvalNumber: usageRecord.approval.approval_number,
-                                                approvalName: usageRecord.approval.approval_name,
-                                                nightsLost: usageRecord.nights_consumed,
-                                                totalNightsApproved: usageRecord.approval.nights_approved,
-                                                totalNightsUsed: usageRecord.approval.nights_used,
-                                                remainingNights: usageRecord.approval.nights_approved - usageRecord.approval.nights_used,
-                                                approvalFrom: usageRecord.approval.approval_from,
-                                                approvalTo: usageRecord.approval.approval_to
+                                                approvalNumber:      ur.approval.approval_number,
+                                                approvalName:        ur.approval.approval_name,
+                                                nightsLost:          ur.nights_consumed,
+                                                totalNightsApproved: ur.approval.nights_approved,
+                                                totalNightsUsed:     ur.approval.nights_used,
+                                                remainingNights:     ur.approval.nights_approved - ur.approval.nights_used,
+                                                approvalFrom:        ur.approval.approval_from,
+                                                approvalTo:          ur.approval.approval_to
                                             });
                                         }
                                     }
-                                    
-                                    console.log(`Full Charge Cancellation: Guest loses ${totalNightsLost} nights as penalty.`);
-                                    
-                                    // ✅ UPDATED: Send email notification using EmailService
+
+                                    console.log(`Full Charge: guest loses ${totalNightsLost} nights as penalty`);
+
+                                    // ✅ Direct system trigger dispatch — no queue
                                     try {
-                                        await sendIcareFullChargeCancellationEmail(booking.Guest, penaltySummary, {
-                                            totalNightsLost
-                                        });
-                                    } catch (emailError) {
-                                        console.error('Error sending funding full charge cancellation email:', emailError);
+                                        await EmailTriggerService.evaluateAllTriggers(booking.id, buildIcareContext(
+                                            penaltySummary,
+                                            'full_charge_cancellation',
+                                            {
+                                                nights_lost:     totalNightsLost,
+                                                penalty_details: penaltySummary.map(p =>
+                                                    `• ${p.approvalNumber || p.approvalName}: ${p.nightsLost} nights lost as penalty, ${p.remainingNights} remaining`
+                                                ).join('\n'),
+                                                cancellation_type: 'Full Charge (Penalty Applied)',
+                                                guest_name:     `${booking.Guest.first_name} ${booking.Guest.last_name}`,
+                                                guest_email:    booking.Guest.email,
+                                                // booking_status: 'booking_cancelled',
+                                            }
+                                        ));
+                                    } catch (triggerErr) {
+                                        console.warn('⚠️ icare_funding_updated (full_charge_cancellation) trigger dispatch failed (non-fatal):', triggerErr.message);
                                     }
                                 } else {
-                                    console.log('⚠️ No usage records found for Full Charge cancellation - booking was never confirmed');
+                                    console.log('⚠️ No usage records found for Full Charge cancellation');
                                 }
                             } catch (usageError) {
                                 console.error('Error updating usage records for full charge cancellation:', usageError);
                             }
                         }
                     }
-                    // ========================================================
-                    
+
                     if (currentStatus && (currentStatus.name === 'booking_cancelled' || status.name === 'booking_cancelled')) {
-                        // Update status logs
-                        await Booking.update({ 
+                        await Booking.update({
                             status_logs: JSON.stringify(updateStatusLogs(statusLogs, 'canceled')),
                             cancellation_type: cancellationType
                         }, { where: { id: booking.id } });
-                        
-                        // ✅ UPDATED: Send cancellation emails using EmailService
-                        await EmailService.sendWithTemplate(
-                            booking.Guest.email,
-                            TEMPLATE_IDS.BOOKING_CANCELLED,
-                            {
-                                guest_name: booking.Guest.first_name,
-                                arrivalDate: booking.preferred_arrival_date ? moment(booking.preferred_arrival_date).format("DD-MM-YYYY") : '-',
-                                departureDate: booking.preferred_departure_date ? moment(booking.preferred_departure_date).format("DD-MM-YYYY") : '-'
-                            }
-                        );
-                        
-                        await EmailService.sendWithTemplate(
-                            "info@sargoodoncollaroy.com.au",
-                            TEMPLATE_IDS.BOOKING_CANCELLED_ADMIN,
-                            {
-                                guest_name: booking.Guest.first_name + ' ' + booking.Guest.last_name,
-                                arrivalDate: booking.preferred_arrival_date ? moment(booking.preferred_arrival_date).format("DD-MM-YYYY") : '-',
-                                departureDate: booking.preferred_departure_date ? moment(booking.preferred_departure_date).format("DD-MM-YYYY") : '-'
-                            }
-                        );
                     }
-                    
+
                     generateNotifications(booking, 'booking_cancelled', true);
                     break;
+                }
+
+                // ── Guest Cancelled ────────────────────────────────────────
                 case 'guest_cancelled':
-                    // Update status logs
-                    await Booking.update({ 
-                        status_logs: JSON.stringify(updateStatusLogs(statusLogs, 'guest_canceled'))
-                    }, { where: { id: booking.id } });
-                    
-                    // ✅ Send guest-initiated cancellation emails using new template IDs
-                    await EmailService.sendWithTemplate(
-                        booking.Guest.email,
-                        TEMPLATE_IDS.BOOKING_GUEST_CANCELLATION_REQUEST, // ID: 35
-                        {
-                            guest_name: booking.Guest.first_name,
-                            arrivalDate: booking.preferred_arrival_date ? moment(booking.preferred_arrival_date).format("DD-MM-YYYY") : '-',
-                            departureDate: booking.preferred_departure_date ? moment(booking.preferred_departure_date).format("DD-MM-YYYY") : '-'
-                        }
+                    await Booking.update(
+                        { status_logs: JSON.stringify(updateStatusLogs(statusLogs, 'guest_canceled')) },
+                        { where: { id: booking.id } }
                     );
-                    
-                    await EmailService.sendWithTemplate(
-                        "info@sargoodoncollaroy.com.au",
-                        TEMPLATE_IDS.BOOKING_GUEST_CANCELLATION_REQUEST_ADMIN, // ID: 36
-                        {
-                            guest_name: booking.Guest.first_name + ' ' + booking.Guest.last_name,
-                            arrivalDate: booking.preferred_arrival_date ? moment(booking.preferred_arrival_date).format("DD-MM-YYYY") : '-',
-                            departureDate: booking.preferred_departure_date ? moment(booking.preferred_departure_date).format("DD-MM-YYYY") : '-'
-                        }
-                    );
-                    
                     generateNotifications(booking, 'guest_cancelled', true);
                     break;
-                case 'on_hold':
-                    await Booking.update({ status_logs: JSON.stringify(updateStatusLogs(statusLogs, 'on_hold')) }, { where: { id: booking.id } });
 
+                // ── On Hold ────────────────────────────────────────────────
+                case 'on_hold':
+                    await Booking.update(
+                        { status_logs: JSON.stringify(updateStatusLogs(statusLogs, 'on_hold')) },
+                        { where: { id: booking.id } }
+                    );
                     generateNotifications(booking, 'on hold');
                     break;
+
+                // ── In Progress ────────────────────────────────────────────
                 case 'in_progress':
                     generateNotifications(booking, 'in progress');
                     break;
+
+                // ── Ready to Process ───────────────────────────────────────
                 case 'ready_to_process':
                     generateNotifications(booking, 'ready to process');
                     break;
+
+                // ── Pending Approval ───────────────────────────────────────
+                case 'pending_approval':
+                    await Booking.update(
+                        { status_logs: JSON.stringify(updateStatusLogs(statusLogs, 'pending_approval')) },
+                        { where: { id: booking.id } }
+                    );
+                    break;
+
+                // ── Booking Amended ────────────────────────────────────────
+                case 'booking_amended':
+                    await Booking.update(
+                        { status_logs: JSON.stringify(updateStatusLogs(statusLogs, 'booking_amended')) },
+                        { where: { id: booking.id } }
+                    );
+                    generateNotifications(booking, 'booking_amended');
+                    break;
+
                 default:
                     break;
             }
 
-            await Booking.update({ status: JSON.stringify(status), status_name: status?.name }, { where: { uuid } });
+            await Booking.update(
+                { status: JSON.stringify(status), status_name: status?.name },
+                { where: { uuid } }
+            );
+
+            // ── Audit log the status change ───────────────────────────────────────────
+            try {
+                await AuditLogService.logStatusChange({
+                    bookingId:  booking.id,
+                    userId:     null,
+                    guestId:    booking.Guest?.id || null,
+                    userType:   'system',
+                    oldStatus:  currentStatus?.name || 'unknown',
+                    newStatus:  status.name,
+                });
+            } catch (auditErr) {
+                console.warn('⚠️ Status change audit log failed (non-fatal):', auditErr.message);
+            }
+
+            // ✅ Direct system trigger dispatch — no queue.
+            // Evaluates ALL booking_status_changed triggers inline.
+            // status_to / status_from / is_first_time_guest / cancelled_by are
+            // used by _contextMatchesTrigger to guard per-trigger conditions.
+            try {
+                await EmailTriggerService.evaluateAllTriggers(booking.id, {
+                    booking_status:      status.name,
+                    status_to:           status.name,
+                    status_from:         currentStatus?.name || null,
+                    is_first_time_guest: booking.type === BOOKING_TYPES.FIRST_TIME_GUEST,
+                    // Event flags for context-specific handlers
+                    ...(status.name === 'booking_confirmed' && { booking_confirmed: true }),
+                    ...(status.name === 'booking_cancelled' && { booking_cancelled: true, cancelled_by: 'admin' }),
+                    ...(status.name === 'guest_cancelled'   && { booking_cancelled: true, cancelled_by: 'guest' }),
+                });
+            } catch (triggerErr) {
+                console.warn('⚠️ booking_status_changed trigger dispatch failed (non-fatal):', triggerErr.message);
+            }
         }
 
-        return res.status(200).json({ 
-            success: true, 
-            message: 'Booking status updated successfully' 
-        });
-    
+        return res.status(200).json({ success: true, message: 'Booking status updated successfully' });
+
     } catch (error) {
         console.error('Error updating booking status:', error);
-        
-        // Handle Sequelize validation errors
-        if (error.name === 'SequelizeValidationError') {
-            return res.status(400).json({
-                error: 'Validation error',
-                message: error.errors.map(e => e.message).join(', ')
-            });
-        }
 
-        // Handle Sequelize database errors
-        if (error.name === 'SequelizeDatabaseError') {
-            return res.status(500).json({
-                error: 'Database error',
-                message: 'Database operation failed. Please try again.'
-            });
+        if (error.name === 'SequelizeValidationError') {
+            return res.status(400).json({ error: 'Validation error', message: error.errors.map(e => e.message).join(', ') });
         }
-        
-        // Handle general errors
-        return res.status(500).json({
-            error: 'Internal server error',
-            message: 'An unexpected error occurred. Please try again or contact support.'
-        });
+        if (error.name === 'SequelizeDatabaseError') {
+            return res.status(500).json({ error: 'Database error', message: 'Database operation failed. Please try again.' });
+        }
+        return res.status(500).json({ error: 'Internal server error', message: 'An unexpected error occurred.' });
     }
 }
 
-/**
- * ✅ FIXED: Get booking package NAME from database instead of just returning the ID
- * This function now queries the Package table to return the actual package name
- */
-const getBookingPackage = async (booking) => {
-    const allQaPairs = booking.Sections.map(section => section.QaPairs).flat();
-    
-    // First check for course packages
-    const coursePackageAnswer = getAnswerByQuestionKey(allQaPairs, QUESTION_KEYS.ACCOMMODATION_PACKAGE_COURSES);
-    if (coursePackageAnswer) {
-        // If it's a numeric ID, fetch the package name from database
-        if (!isNaN(coursePackageAnswer)) {
-            try {
-                const packageRecord = await Package.findByPk(coursePackageAnswer);
-                if (packageRecord) {
-                    return packageRecord.name;
-                }
-            } catch (error) {
-                console.error('Error fetching package by ID:', error);
-            }
-        }
-        // Otherwise return the answer as-is (might be a text value)
-        return coursePackageAnswer;
-    }
-    
-    // Then check for full packages
-    const fullPackageAnswer = getAnswerByQuestionKey(allQaPairs, QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL);
-    if (fullPackageAnswer) {
-        // If it's a numeric ID, fetch the package name from database
-        if (!isNaN(fullPackageAnswer)) {
-            try {
-                const packageRecord = await Package.findByPk(fullPackageAnswer);
-                if (packageRecord) {
-                    return packageRecord.name;
-                }
-            } catch (error) {
-                console.error('Error fetching package by ID:', error);
-            }
-        }
-        // Otherwise return the answer as-is (might be a text value)
-        return fullPackageAnswer;
-    }
-    
-    return '';
-};
-
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 const generateNotifications = async (booking, status, adminOnly = false) => {
     const notificationLibs = await NotificationLibrary.findAll({ where: { enabled: true, name: "Booking Status Change" } });
     const notificationService = new NotificationService();
     const notificationLink = process.env.APP_URL + '/bookings/' + booking.uuid;
 
-    for (let index = 0; index < notificationLibs.length; index++) {
-        const lib = notificationLibs[index];
+    for (const lib of notificationLibs) {
         let message = lib.notification;
-
-        if (lib.alert_type == 'guest' && adminOnly) {
-            continue;
-        }
-
-        if (lib.alert_type == 'admin') {
-            message = message.replace('[guest_name]', `${booking.Guest.first_name} ${booking.Guest.last_name}`);
-        }
+        if (lib.alert_type == 'guest' && adminOnly) continue;
+        if (lib.alert_type == 'admin') message = message.replace('[guest_name]', `${booking.Guest.first_name} ${booking.Guest.last_name}`);
 
         if (status == 'on hold') {
             message = message.replace('[has been]', 'is currently');
         } else if (status == 'in progress') {
-            if (lib.alert_type == 'admin') {
-                message = message.replace('[has been]', 'is currently being processed');
-            } else {
-                message = message.replace('[has been]', 'is currently being processed by our team');
-            }
+            message = message.replace('[has been]', lib.alert_type == 'admin' ? 'is currently being processed' : 'is currently being processed by our team');
         } else if (status == 'ready to process') {
             message = message.replace('[has been]', 'has been received and is awaiting processing');
         } else {
@@ -787,155 +637,25 @@ const generateNotifications = async (booking, status, adminOnly = false) => {
         }
 
         message = message.replace('[booking_id]', booking.reference_id);
+        message = message.replace('[status]', ['in progress', 'ready to process'].includes(status) ? '' : status);
 
-        if (status != 'in progress' && status != 'ready to process') {
-            message = message.replace('[status]', status);
-        } else {
-            message = message.replace('[status]', '');
-        }
-
-        const dispatch_date = moment().add(lib.date_factor, 'days').toDate();
         await notificationService.notificationHandler({
             notification_to: lib.alert_type == 'admin' ? lib.notification_to : booking.Guest.email,
-            message: message,
+            message,
             link: lib.alert_type == 'admin' ? notificationLink : null,
-            dispatch_date: dispatch_date
+            dispatch_date: moment().add(lib.date_factor, 'days').toDate()
         });
     }
-}
+};
 
 const updateStatusLogs = (statusLogs, newStatus) => {
     const currentLogs = Array.isArray(statusLogs) ? statusLogs : [];
-    let updatedStatusLogs = [...currentLogs];
-    let lastStatusLog = currentLogs.length > 0 ? currentLogs[currentLogs.length - 1] : null;
-    if (lastStatusLog && lastStatusLog.status === newStatus) {
-        updatedStatusLogs[currentLogs.length - 1] = {
-            ...lastStatusLog,
-            updated_at: new Date()
-        };
+    const updated = [...currentLogs];
+    const last = currentLogs[currentLogs.length - 1];
+    if (last && last.status === newStatus) {
+        updated[currentLogs.length - 1] = { ...last, updated_at: new Date() };
     } else {
-        updatedStatusLogs.push({
-            status: newStatus,
-            created_at: new Date()
-        });
+        updated.push({ status: newStatus, created_at: new Date() });
     }
-    
-    return updatedStatusLogs;
-}
-
-/**
- * Send iCare nights update email using EmailService
- */
-const sendIcareNightsUpdateEmail = async (guest, allocationSummary, bookingDetails) => {
-    const { nightsRequested, totalAllocations } = bookingDetails;
-    
-    // Build allocation details for email
-    const allocationDetails = allocationSummary.map(a => 
-        `• ${a.approvalNumber || a.approvalName || 'Approval'}: ${a.nightsUsedThisBooking} nights from this booking (${a.totalNightsUsed} total used), ${a.remainingNights} remaining`
-    ).join('\n');
-    
-    // ✅ Determine approval period to display
-    let approvalFrom = '-';
-    let approvalTo = '-';
-    
-    if (allocationSummary.length === 1) {
-        // Single approval - use its dates
-        approvalFrom = allocationSummary[0].approvalFrom 
-            ? moment(allocationSummary[0].approvalFrom).format('DD MMM YYYY') 
-            : '-';
-        approvalTo = allocationSummary[0].approvalTo 
-            ? moment(allocationSummary[0].approvalTo).format('DD MMM YYYY') 
-            : '-';
-    } else if (allocationSummary.length > 1) {
-        // Multiple approvals - show range from earliest to latest
-        const validDates = allocationSummary.filter(a => a.approvalFrom && a.approvalTo);
-        if (validDates.length > 0) {
-            const earliestFrom = validDates.reduce((earliest, curr) => 
-                moment(curr.approvalFrom).isBefore(moment(earliest.approvalFrom)) ? curr : earliest
-            );
-            const latestTo = validDates.reduce((latest, curr) => 
-                moment(curr.approvalTo).isAfter(moment(latest.approvalTo)) ? curr : latest
-            );
-            approvalFrom = moment(earliestFrom.approvalFrom).format('DD MMM YYYY');
-            approvalTo = moment(latestTo.approvalTo).format('DD MMM YYYY');
-        }
-    }
-    
-    const templateData = {
-        guest_name: `${guest.first_name} ${guest.last_name}`,
-        nights_requested: nightsRequested,
-        total_allocations: totalAllocations,
-        allocation_details: allocationDetails,
-        // For backwards compatibility with existing template
-        approval_number: allocationSummary[0]?.approvalNumber || 'Multiple approvals',
-        approval_from: approvalFrom,
-        approval_to: approvalTo,
-        nights_approved: allocationSummary.reduce((sum, a) => sum + (a.totalNightsApproved || 0), 0),
-        nights_used: allocationSummary.reduce((sum, a) => sum + (a.totalNightsUsed || 0), 0),
-        nights_remaining: allocationSummary.reduce((sum, a) => sum + a.remainingNights, 0)
-    };
-    
-    await EmailService.sendWithTemplate(
-        guest.email,
-        TEMPLATE_IDS.ICARE_NIGHTS_UPDATE,
-        templateData
-    );
-};
-
-/**
- * Send iCare cancellation email using EmailService
- */
-const sendIcareCancellationEmail = async (guest, returnSummary, cancellationDetails) => {
-    const { isNoCharge, totalReturned } = cancellationDetails;
-    
-    const returnDetails = returnSummary.map(r => 
-        `• ${r.approvalNumber || r.approvalName || 'Approval'}: ${r.nightsReturned} nights returned, ${r.remainingNights} now remaining`
-    ).join('\n');
-    
-    const templateData = {
-        guest_name: `${guest.first_name} ${guest.last_name}`,
-        nights_returned: totalReturned,
-        return_details: returnDetails,
-        cancellation_type: isNoCharge ? 'No Charge' : 'Full Charge',
-        // For backwards compatibility
-        approval_number: returnSummary[0]?.approvalNumber || 'Multiple approvals',
-        nights_approved: returnSummary.reduce((sum, r) => sum + (r.totalNightsApproved || 0), 0),
-        nights_used: returnSummary.reduce((sum, r) => sum + (r.totalNightsUsed || 0), 0),
-        nights_remaining: returnSummary.reduce((sum, r) => sum + r.remainingNights, 0)
-    };
-    
-    await EmailService.sendWithTemplate(
-        guest.email,
-        TEMPLATE_IDS.ICARE_NIGHTS_UPDATE,
-        templateData
-    );
-};
-
-/**
- * Send iCare full charge cancellation email using EmailService
- */
-const sendIcareFullChargeCancellationEmail = async (guest, penaltySummary, penaltyDetails) => {
-    const { totalNightsLost } = penaltyDetails;
-    
-    const penaltyDetailsText = penaltySummary.map(p => 
-        `• ${p.approvalNumber || p.approvalName || 'Approval'}: ${p.nightsLost} nights lost, ${p.remainingNights} remaining`
-    ).join('\n');
-    
-    const templateData = {
-        guest_name: `${guest.first_name} ${guest.last_name}`,
-        nights_lost: totalNightsLost,
-        penalty_details: penaltyDetailsText,
-        cancellation_type: 'Full Charge (Penalty Applied)',
-        // For backwards compatibility
-        approval_number: penaltySummary[0]?.approvalNumber || 'Multiple approvals',
-        nights_approved: penaltySummary.reduce((sum, p) => sum + (p.totalNightsApproved || 0), 0),
-        nights_used: penaltySummary.reduce((sum, p) => sum + (p.totalNightsUsed || 0), 0),
-        nights_remaining: penaltySummary.reduce((sum, p) => sum + p.remainingNights, 0)
-    };
-    
-    await EmailService.sendWithTemplate(
-        guest.email,
-        TEMPLATE_IDS.ICARE_NIGHTS_UPDATE,
-        templateData
-    );
+    return updated;
 };

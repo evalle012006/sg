@@ -1,4 +1,5 @@
 import EmailService from "../../../services/booking/emailService";
+import EmailTriggerService from "../../../services/booking/emailTriggerService";
 import { TEMPLATE_IDS } from '../../../services/booking/templateIds';
 const jwt = require('jsonwebtoken');
 const { User, Guest, AccessToken } = require('./../../../models');
@@ -34,14 +35,7 @@ export default async function handler(req, res) {
         
         // Send reset link to user using EmailService
         try {
-            await EmailService.sendWithTemplate(
-                user.email,
-                TEMPLATE_IDS.RESET_PASSWORD_LINK,
-                {
-                    username: user.first_name,
-                    reset_password_link: resetLink
-                }
-            );
+            await forgotPasswordEmailBlock(user, resetLink);
             return res.status(200).send({ 'status': 'success', 'message': 'Password reset link sent.' });
         } catch (emailError) {
             console.error('Error sending password reset email:', emailError);
@@ -50,4 +44,25 @@ export default async function handler(req, res) {
     } else {
         return res.status(404).end()
     }
+}
+
+async function forgotPasswordEmailBlock(user, resetLink) {
+  // ✅ Guaranteed transactional send
+//   await EmailService.sendWithTemplate(
+//     user.email,
+//     TEMPLATE_IDS.RESET_PASSWORD_LINK,
+//     { username: user.first_name, reset_link: resetLink }
+//   );
+
+  // 🔔 Fire any configured system triggers for password_reset_requested
+  try {
+    await EmailTriggerService.evaluateAndSendTriggers(null, {
+      password_reset_requested: true,
+      guest_email: user.email,
+      username:    user.first_name,
+      reset_password_link:  resetLink,
+    });
+  } catch (triggerErr) {
+    console.warn('⚠️ password_reset_requested trigger failed (non-fatal):', triggerErr.message);
+  }
 }

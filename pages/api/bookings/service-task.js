@@ -1,4 +1,4 @@
-import { Booking, Guest } from "../../../models";
+import { Booking, EmailTemplate, EmailTrigger, Guest } from "../../../models";
 import { BookingService } from "../../../services/booking/booking";
 import moment from "moment";
 import EmailTriggerService from "../../../services/booking/emailTriggerService";
@@ -9,16 +9,15 @@ import BookingEmailDataService from "../../../services/booking/BookingEmailDataS
 const authClient = new OAuth2Client();
 
 export default async function handler(req, res) {
-    // ✅ Allow local development tasks (bypass auth)
-    const isLocalTask = req.headers['x-local-task'] === 'true';
+    // ── Auth ──────────────────────────────────────────────────────────────────
+    const isLocalTask   = req.headers['x-local-task'] === 'true';
     const isDevelopment = process.env.NODE_ENV === 'development';
-    
+
     if (isDevelopment || isLocalTask) {
         console.log('🏠 Processing local development task (auth bypassed)');
     } else {
-        // ✅ Verify OIDC token from Cloud Tasks in production
         const authHeader = req.headers.authorization;
-        
+
         if (!authHeader?.startsWith('Bearer ')) {
             console.error('❌ Missing or invalid Authorization header');
             console.error('   Headers:', JSON.stringify(req.headers, null, 2));
@@ -26,28 +25,18 @@ export default async function handler(req, res) {
         }
 
         try {
-            const token = authHeader.split('Bearer ')[1];
+            const token    = authHeader.split('Bearer ')[1];
             const audience = `${process.env.APP_URL}/api/bookings/service-task`;
-            
+
             console.log('🔐 Verifying OIDC token...');
             console.log('   Audience:', audience);
-            
-            // Verify the token
-            const ticket = await authClient.verifyIdToken({
-                idToken: token,
-                audience: audience,
-            });
-            
+
+            const ticket  = await authClient.verifyIdToken({ idToken: token, audience });
             const payload = ticket.getPayload();
             console.log('✅ Authenticated request from:', payload.email);
-            
         } catch (error) {
             console.error('❌ Token verification failed:', error.message);
-            console.error('   Error details:', error);
-            return res.status(401).json({ 
-                message: 'Unauthorized - Invalid token',
-                error: error.message 
-            });
+            return res.status(401).json({ message: 'Unauthorized - Invalid token', error: error.message });
         }
     }
 
@@ -56,26 +45,24 @@ export default async function handler(req, res) {
     }
 
     const { type, payload } = req.body;
-    
+
     switch (type) {
+        // ── Existing tasks (unchanged) ────────────────────────────────────────
+
         case 'desseminateChanges': {
             console.log('running background task: desseminateChanges');
             const bookingService = new BookingService();
             const booking = await Booking.findOne({ where: { id: payload.booking_id } });
-            if (!booking) {
-                return res.status(404).json({ message: 'Booking not found' });
-            }
+            if (!booking) return res.status(404).json({ message: 'Booking not found' });
             bookingService.disseminateChanges(booking, payload.data);
             break;
         }
-            
+
         case 'triggerEmails': {
             console.log('running background task: triggerEmails');
             const booking = await Booking.findOne({ where: { id: payload.booking_id } });
-            if (!booking) {
-                return res.status(404).json({ message: 'Booking not found' });
-            }
-            
+            if (!booking) return res.status(404).json({ message: 'Booking not found' });
+
             let bookingMetainfo = JSON.parse(booking.metainfo);
             if (bookingMetainfo.triggered_emails) {
                 return res.status(200).json({ success: false, message: 'Emails already triggered' });
@@ -86,7 +73,7 @@ export default async function handler(req, res) {
 
             if (emailsTriggered) {
                 bookingMetainfo.triggered_emails = true;
-                booking.metainfo = JSON.stringify(bookingMetainfo);
+                booking.metainfo   = JSON.stringify(bookingMetainfo);
                 booking.updated_at = new Date();
                 await booking.save();
                 console.log('emailsTriggered', booking);
@@ -96,14 +83,12 @@ export default async function handler(req, res) {
             }
             break;
         }
-            
+
         case 'triggerEmailsOnSubmit': {
             console.log('running background task: triggerEmailsOnSubmit');
             const booking = await Booking.findOne({ where: { id: payload.booking_id } });
-            if (!booking) {
-                return res.status(404).json({ message: 'Booking not found' });
-            }
-            
+            if (!booking) return res.status(404).json({ message: 'Booking not found' });
+
             let bookingMetainfo = JSON.parse(booking.metainfo);
             if (bookingMetainfo.triggered_emails.on_submit) {
                 return res.status(200).json({ success: false, message: 'Emails already triggered' });
@@ -114,24 +99,22 @@ export default async function handler(req, res) {
 
             if (emailsTriggeredOnSubmit) {
                 bookingMetainfo.triggered_emails.on_submit = true;
-                booking.metainfo = JSON.stringify(bookingMetainfo);
+                booking.metainfo   = JSON.stringify(bookingMetainfo);
                 booking.updated_at = new Date();
                 await booking.save();
                 console.log('emailsTriggeredOnSubmit', booking);
             } else {
-                console.log('emailsTriggeredOnSubmit ERROR', emailsTriggeredOnSubmit, payload);
+                console.log('triggerEmailsOnSubmit ERROR', emailsTriggeredOnSubmit, payload);
                 return res.status(400).json({ success: false, message: 'Error triggering emails' });
             }
             break;
         }
-            
+
         case 'triggerEmailsOnBookingConfirmed': {
             console.log('running background task: triggerEmailsOnBookingConfirmed');
             const booking = await Booking.findOne({ where: { id: payload.booking_id } });
-            if (!booking) {
-                return res.status(404).json({ message: 'Booking not found' });
-            }
-            
+            if (!booking) return res.status(404).json({ message: 'Booking not found' });
+
             let bookingMetainfo = JSON.parse(booking.metainfo);
             if (bookingMetainfo.triggered_emails.on_booking_confirmed) {
                 return res.status(200).json({ success: false, message: 'Emails already triggered' });
@@ -142,24 +125,22 @@ export default async function handler(req, res) {
 
             if (emailsTriggeredOnBookingConfirmed) {
                 bookingMetainfo.triggered_emails.on_booking_confirmed = true;
-                booking.metainfo = JSON.stringify(bookingMetainfo);
+                booking.metainfo   = JSON.stringify(bookingMetainfo);
                 booking.updated_at = new Date();
                 await booking.save();
-                console.log('emailsTriggeredOnBookingConfirmed', booking);
+                console.log('triggerEmailsOnBookingConfirmed', booking);
             } else {
-                console.log('emailsTriggeredOnBookingConfirmed ERROR', emailsTriggeredOnBookingConfirmed, payload);
+                console.log('triggerEmailsOnBookingConfirmed ERROR', emailsTriggeredOnBookingConfirmed, payload);
                 return res.status(400).json({ success: false, message: 'Error triggering emails' });
             }
             break;
         }
-            
+
         case 'generatePDFExport': {
             console.log('running background task: generatePDFExport');
             const booking = await Booking.findOne({ where: { id: payload.booking_id } });
-            if (!booking) {
-                return res.status(404).json({ message: 'Booking not found' });
-            }
-            
+            if (!booking) return res.status(404).json({ message: 'Booking not found' });
+
             let bookingMetainfo = JSON.parse(booking.metainfo);
             if (bookingMetainfo.pdf_export && moment().utc().isSameOrBefore(moment(booking.updatedAt).utc().add(30, 'seconds'))) {
                 return res.status(200).json({ success: false, message: 'PDF already exported, try again after 30 seconds' });
@@ -167,198 +148,217 @@ export default async function handler(req, res) {
 
             const bookingService = new BookingService();
             await bookingService.generatePDFExport(booking);
-            
+
             bookingMetainfo.pdf_export = true;
             booking.metainfo = JSON.stringify(bookingMetainfo);
             await booking.save();
             break;
         }
-            
-        case 'evaluateEmailTriggers': {
-            console.log('📧 Evaluating email triggers for booking...');
-            
-            const result = await EmailTriggerService.evaluateAndSendTriggers(
-                payload.booking_id,
-                {
-                    enabled: true,
-                    context: payload.context || 'default'
-                }
-            );
-            
-            console.log(`✅ Email trigger evaluation complete: ${result.queued} queued, ${result.skipped} skipped`);
-            
-            return res.status(200).json({ 
-                success: true, 
-                result 
-            });
-        }
-        
-        case 'sendTriggerEmail': {
-            console.log('📧 Sending trigger email...');
-            console.log('   Recipient:', payload.recipient);
-            console.log('   Template ID:', payload.templateId);
-            
-            try {
-                const { recipient, templateId, emailData, booking_id, trigger_info } = payload || {};
-
-                if (!recipient || !templateId || !emailData) {
-                    console.error('❌ Missing required fields:', { recipient, templateId, hasEmailData: !!emailData });
-                    return res.status(400).json({ 
-                        success: false, 
-                        error: 'Missing required fields (recipient, templateId, or emailData)' 
-                    });
-                }
-                
-                // ✅ ADD EMAIL VALIDATION
-                const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-                if (!emailRegex.test(recipient)) {
-                    console.error('❌ Invalid email address:', recipient);
-                    return res.status(400).json({ 
-                        success: false, 
-                        error: `Invalid email address: ${recipient}. Check trigger recipient_field configuration.` 
-                    });
-                }
-                
-                if (!EmailService) {
-                    throw new Error('EmailService not found - check import path');
-                }
-                
-                console.log('   Sending email with EmailService.sendWithTemplate...');
-                
-                await EmailService.sendWithTemplate(
-                    recipient,
-                    templateId,
-                    emailData,
-                    { useFallback: true }
-                );
-                
-                console.log('✅ Email sent successfully to', recipient);
-
-                if (booking_id) {
-                    try {
-                        const booking = await Booking.findByPk(booking_id);
-                        if (booking) {
-                            await BookingEmailDataService.logEmailSend(booking, {
-                                success: true,
-                                recipients: [recipient],
-                                templateId: templateId,
-                                templateName: emailData?.template_name || `Template ${templateId}`,
-                                triggerType: trigger_info?.type || 'unknown',
-                                triggerId: trigger_info?.id || null,
-                                triggerName: trigger_info?.name || null,
-                                reason: 'Email delivered successfully',
-                                emailData: emailData
-                            });
-                        }
-                    } catch (auditError) {
-                        console.error('⚠️ Failed to log email audit (non-critical):', auditError);
-                        // Don't fail the request if audit logging fails
-                    }
-                }
-                
-                return res.status(200).json({ 
-                    success: true,
-                    message: `Email sent to ${recipient}`
-                });
-                
-            } catch (error) {
-                console.error('❌ Error sending trigger email:', error);
-                if (payload?.booking_id) {
-                    try {
-                        const booking = await Booking.findByPk(payload.booking_id);
-                        if (booking) {
-                            await BookingEmailDataService.logEmailSend(booking, {
-                                success: false,
-                                recipients: [payload.recipient],
-                                templateId: payload.templateId,
-                                templateName: payload.emailData?.template_name || `Template ${payload.templateId}`,
-                                triggerType: payload.trigger_info?.type || 'unknown',
-                                triggerId: payload.trigger_info?.id || null,
-                                triggerName: payload.trigger_info?.name || null,
-                                error: error.message,
-                                reason: 'Email delivery failed',
-                                emailData: payload.emailData
-                            });
-                        }
-                    } catch (auditError) {
-                        console.error('⚠️ Failed to log failure audit (non-critical):', auditError);
-                    }
-                }
-                
-                return res.status(500).json({ success: false, error: error.message });
-            }
-        }
 
         case 'sendDatesOfStayEmail': {
             console.log('running background task: sendDatesOfStayEmail');
-            
-            // Fetch booking with guest data only (no need for sections/questions with new email service)
-            const booking = await Booking.findOne({ 
+            const booking = await Booking.findOne({
                 where: { id: payload.booking_id },
                 include: [Guest]
             });
-            
-            if (!booking) {
-                return res.status(404).json({ message: 'Booking not found' });
-            }
-            
+            if (!booking) return res.status(404).json({ message: 'Booking not found' });
+
             let bookingMetainfo = JSON.parse(booking.metainfo || '{}');
-            
-            // Check if already sent
+
             if (bookingMetainfo?.sendDatesOfStayEmail?.sent) {
                 console.log('Dates of Stay Email already sent', bookingMetainfo?.sendDatesOfStayEmail);
                 return res.status(200).json({ success: false, message: 'Dates of Stay Email already sent' });
             }
-            
-            // Check if booking is complete
+
             if (booking.complete) {
                 console.log('Booking is complete, not sending Dates of Stay Email');
                 return res.status(200).json({ success: false, message: 'Booking is complete, not sending Dates of Stay Email' });
             }
-            
-            // Initialize sendDatesOfStayEmail if not exists
+
             if (!bookingMetainfo.hasOwnProperty('sendDatesOfStayEmail')) {
                 bookingMetainfo.sendDatesOfStayEmail = { sent: false };
             }
-            
+
             const guest = booking.Guest;
             if (!guest?.email) {
                 console.error('❌ No guest email found for booking', booking.id);
                 return res.status(400).json({ success: false, message: 'No guest email found for booking' });
             }
-            
-            // Format date range from booking arrival/departure dates
-            const arrivalDate = moment(booking.arrival_date).format('D MMMM YYYY');
+
+            const arrivalDate   = moment(booking.arrival_date).format('D MMMM YYYY');
             const departureDate = moment(booking.departure_date).format('D MMMM YYYY');
-            const dateOfStay = `${arrivalDate} – ${departureDate}`;
-            
-            const guestName = `${guest.first_name} ${guest.last_name}`.trim();
-            
+            const dateOfStay    = `${arrivalDate} – ${departureDate}`;
+            const guestName     = `${guest.first_name} ${guest.last_name}`.trim();
+
             try {
                 await EmailService.sendWithTemplate(
                     guest.email,
                     22, // TEMPLATE_IDS.BOOKING_NOTIFY_DATE_OF_STAY
-                    {
-                        guest_name: guestName,
-                        dateOfStay,
-                    },
+                    { guest_name: guestName, dateOfStay },
                     { useFallback: true }
                 );
-                
+
                 bookingMetainfo.sendDatesOfStayEmail.sent = true;
-                booking.metainfo = JSON.stringify(bookingMetainfo);
+                booking.metainfo   = JSON.stringify(bookingMetainfo);
                 booking.updated_at = new Date();
                 await booking.save();
                 console.log('✅ sendDatesOfStayEmail sent successfully', booking.id);
-                
             } catch (error) {
                 console.error('❌ sendDatesOfStayEmail ERROR', error.message, payload);
                 return res.status(500).json({ success: false, message: 'Error sending sendDatesOfStayEmail', error: error.message });
             }
-            
             break;
         }
-            
+
+        // ── New trigger system tasks ───────────────────────────────────────────
+
+        /**
+         * evaluateEmailTriggers
+         *
+         * Dispatched by update-status.js after every status/eligibility/iCare change.
+         * payload: { booking_id, context }
+         *   context examples:
+         *     { booking_status: 'booking_confirmed' }
+         *     { booking_eligibility: 'eligible' }
+         *     { icare_funding_updated: true, update_type: 'allocation', ... }
+         *
+         * FIX: previously wrapped context in { enabled: true, context: ... }
+         * which caused all system trigger context matching to fail silently.
+         */
+        case 'evaluateEmailTriggers': {
+            // ⚠️  This task is dispatched EXCLUSIVELY from save-qa-pair.
+            // It evaluates BOOKING FORM triggers (internal + external) only.
+            // System triggers are fired directly from their own API routes.
+            console.log('📋 Evaluating booking form triggers for booking', payload.booking_id, '(context:', payload.context || 'default', ')');
+
+            const result = await EmailTriggerService.evaluateBookingFormTriggers(
+                payload.booking_id,
+                payload.context || 'default'
+            );
+
+            console.log(`✅ Booking form trigger evaluation complete: ${result.queued} queued, ${result.skipped} skipped, ${result.errored} errors`);
+
+            return res.status(200).json({ success: true, result });
+        }
+
+        /**
+         * sendTriggerEmail
+         *
+         * Dispatched by EmailTriggerService._evaluateSystemTrigger after a trigger matches.
+         * payload: { trigger_id, booking_id, recipient, email_data }
+         *
+         * FIX 1: was expecting camelCase templateId/emailData — now reads snake_case
+         *         email_data from EmailTriggerService and looks up template via trigger_id.
+         * FIX 2: was missing trigger_id lookup — now fetches trigger + template from DB.
+         */
+        case 'sendTriggerEmail': {
+            console.log('📧 Running background task: sendTriggerEmail');
+
+            try {
+                const { trigger_id, booking_id, recipient, email_data } = payload || {};
+
+                // ── Validate required fields ───────────────────────────────
+                if (!recipient) {
+                    console.error('❌ sendTriggerEmail: no recipient in payload');
+                    return res.status(400).json({ success: false, error: 'Missing recipient' });
+                }
+                if (!trigger_id) {
+                    console.error('❌ sendTriggerEmail: no trigger_id in payload');
+                    return res.status(400).json({ success: false, error: 'Missing trigger_id' });
+                }
+                if (!email_data) {
+                    console.error('❌ sendTriggerEmail: no email_data in payload');
+                    return res.status(400).json({ success: false, error: 'Missing email_data' });
+                }
+
+                const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                if (!emailRegex.test(recipient)) {
+                    console.error('❌ sendTriggerEmail: invalid email address:', recipient);
+                    return res.status(400).json({ success: false, error: `Invalid email address: ${recipient}` });
+                }
+
+                // ── Load trigger + template ────────────────────────────────
+                const trigger = await EmailTrigger.findByPk(trigger_id, {
+                    include: [{ model: EmailTemplate, as: 'template' }]
+                });
+
+                if (!trigger) {
+                    console.error(`❌ sendTriggerEmail: trigger ${trigger_id} not found`);
+                    return res.status(404).json({ success: false, error: `Trigger ${trigger_id} not found` });
+                }
+                if (!trigger.email_template_id) {
+                    console.error(`❌ sendTriggerEmail: trigger ${trigger_id} has no email_template_id`);
+                    return res.status(400).json({ success: false, error: `Trigger ${trigger_id} has no template configured` });
+                }
+
+                console.log(`   Trigger:   #${trigger.id} (${trigger.description || trigger.type})`);
+                console.log(`   Template:  #${trigger.email_template_id} (${trigger.template?.name || 'unknown'})`);
+                console.log(`   Recipient: ${recipient}`);
+
+                // ── Send ───────────────────────────────────────────────────
+                await EmailService.sendWithTemplate(
+                    recipient,
+                    trigger.email_template_id,
+                    email_data,
+                    { useFallback: true }
+                );
+
+                console.log(`✅ sendTriggerEmail: sent to ${recipient}`);
+
+                // ── Audit log (non-critical) ───────────────────────────────
+                if (booking_id) {
+                    try {
+                        const booking = await Booking.findByPk(booking_id);
+                        if (booking) {
+                            await BookingEmailDataService.logEmailSend(booking, {
+                                success:      true,
+                                recipients:   [recipient],
+                                templateId:   trigger.email_template_id,
+                                templateName: trigger.template?.name || `Template ${trigger.email_template_id}`,
+                                triggerType:  trigger.type || 'system',
+                                triggerId:    trigger.id,
+                                triggerName:  trigger.description || null,
+                                reason:       'Email delivered successfully',
+                                emailData:    email_data,
+                            });
+                        }
+                    } catch (auditError) {
+                        console.error('⚠️ Audit log failed (non-critical):', auditError.message);
+                    }
+                }
+
+                return res.status(200).json({ success: true, message: `Email sent to ${recipient}` });
+
+            } catch (error) {
+                console.error('❌ sendTriggerEmail error:', error);
+
+                // ── Audit failure (non-critical) ───────────────────────────
+                if (payload?.booking_id) {
+                    try {
+                        const booking = await Booking.findByPk(payload.booking_id);
+                        if (booking) {
+                            await BookingEmailDataService.logEmailSend(booking, {
+                                success:      false,
+                                recipients:   [payload.recipient],
+                                templateId:   null,
+                                templateName: `Trigger #${payload.trigger_id}`,
+                                triggerType:  'system',
+                                triggerId:    payload.trigger_id || null,
+                                triggerName:  null,
+                                error:        error.message,
+                                reason:       'Email delivery failed',
+                                emailData:    payload.email_data,
+                            });
+                        }
+                    } catch (auditError) {
+                        console.error('⚠️ Failure audit log failed (non-critical):', auditError.message);
+                    }
+                }
+
+                return res.status(500).json({ success: false, error: error.message });
+            }
+        }
+
         default:
             return res.status(400).json({ message: 'Unknown task type' });
     }

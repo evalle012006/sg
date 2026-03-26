@@ -3,6 +3,7 @@ const { Sequelize, sequelize } = require("./../../../models");
 import { getPasswordHash } from "../../../utilities/authentication";
 import EmailService from "../../../services/booking/emailService";
 import { TEMPLATE_IDS } from '../../../services/booking/templateIds';
+import EmailTriggerService from "../../../services/booking/emailTriggerService";
 
 const Guest = require("../../../models/guest");
 const AccessToken = require("./../../../models/accesstoken");
@@ -41,14 +42,16 @@ async function handler(req, res) {
     // Send email confirmation using EmailService
     let emailSent = false;
     try {
-      await EmailService.sendWithTemplate(
-        guest.email,
-        TEMPLATE_IDS.EMAIL_CONFIRMATION_LINK,
-        {
-          username: guest.first_name,
-          confirmation_link: confirmLink
-        }
-      );
+      // Fire signup triggers
+      await signupTriggerDispatch(guest, confirmLink);
+      // await EmailService.sendWithTemplate(
+      //   guest.email,
+      //   TEMPLATE_IDS.EMAIL_CONFIRMATION_LINK,
+      //   {
+      //     username: guest.first_name,
+      //     confirmation_link: confirmLink
+      //   }
+      // );
       emailSent = true;
     } catch (emailError) {
       console.error('Error sending email confirmation:', emailError);
@@ -60,6 +63,21 @@ async function handler(req, res) {
 
   } else {
     return res.status(405).json({ message: "Method Not Allowed" });
+  }
+}
+
+async function signupTriggerDispatch(guest, confirmLink) {
+  // 🔔 Fire any configured system triggers for email_verification_requested
+  try {
+    await EmailTriggerService.evaluateAndSendTriggers(null, {
+      email_verification_requested: true,
+      account_created:    true,   // signup also creates the account
+      guest_email:        guest.email,
+      username:           guest.first_name,
+      confirmation_link:  confirmLink,
+    });
+  } catch (triggerErr) {
+    console.warn('⚠️ signup trigger dispatch failed (non-fatal):', triggerErr.message);
   }
 }
 

@@ -1,19 +1,34 @@
-/**
- * Create Email Trigger API
- * POST /api/email-triggers/create
- * 
- * Creates a new email trigger with question ID references
- */
-
 import { EmailTrigger, EmailTemplate, Question, EmailTriggerQuestion } from '../../../models';
+import { sequelize } from '../../../models';
+
+// ─── Sentinel values that are valid recipients but not email addresses ─────────
+// 'guest_email'  → resolved at send time to booking.Guest.email
+// 'user_email'   → resolved at send time to context.user_email (user_account_created)
+const RECIPIENT_SENTINELS = ['guest_email', 'user_email'];
+
+const isValidRecipientValue = (value) => {
+  if (!value || !value.trim()) return false;
+  if (value.startsWith('recipient_type:')) return true;
+  if (RECIPIENT_SENTINELS.includes(value.trim())) return true;
+  // Otherwise must be a valid email or comma-separated emails
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return value.split(',').map(e => e.trim()).every(e => emailRegex.test(e));
+};
+
+const getInvalidEmails = (value) => {
+  if (!value) return [];
+  if (value.startsWith('recipient_type:')) return [];
+  if (RECIPIENT_SENTINELS.includes(value.trim())) return [];
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return value.split(',').map(e => e.trim()).filter(e => e && !emailRegex.test(e));
+};
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    return res.status(405).json({ 
-      success: false, 
-      message: 'Method not allowed' 
-    });
+    return res.status(405).json({ success: false, message: 'Method not allowed' });
   }
+
+  const transaction = await sequelize.transaction();
 
   try {
     const {
@@ -22,215 +37,180 @@ export default async function handler(req, res) {
       type = 'highlights',
       enabled = true,
       trigger_questions = [],
-      trigger_conditions = null 
+      trigger_conditions = null,
+      trigger_context = null,
+      context_conditions = null,
+      data_mapping = null,
+      priority = 5,
+      description = null
     } = req.body;
 
-    // Validation
     const errors = [];
+    const isSystemTrigger = type === 'system';
 
-    // Validate recipient email if not external type
-    if (type !== 'external') {
-      if (!recipient || !recipient.trim()) {
-        errors.push('Recipient email is required');
-      } else {
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        const emails = recipient.split(',').map(e => e.trim());
-        const invalidEmails = emails.filter(email => !emailRegex.test(email));
-        
-        if (invalidEmails.length > 0) {
-          errors.push(`Invalid email format for recipient: ${invalidEmails.join(', ')}`);
-        }
-      }
-    }
-
-    // Validate email template
-    if (!email_template_id) {
-      errors.push('Email template ID is required');
-    } else {
-      const template = await EmailTemplate.findOne({ 
-        where: { id: email_template_id } 
-      });
-      
-      if (!template) {
-        errors.push('Email template not found');
-      }
-    }
-
-    // Validate type
-    const validTypes = ['highlights', 'external', 'internal'];
+    // ── Type validation ────────────────────────────────────────────────────
+    const validTypes = ['highlights', 'external', 'internal', 'system'];
     if (!validTypes.includes(type)) {
       errors.push(`Type must be one of: ${validTypes.join(', ')}`);
     }
 
-    // Only require trigger_questions if no status conditions are set
-    if (!Array.isArray(trigger_questions) || trigger_questions.length === 0) {
-      if (!trigger_conditions?.booking_status?.length) {
-        errors.push('At least one trigger question or booking status condition is required');
+    // ── Recipient validation ───────────────────────────────────────────────
+    if (isSystemTrigger) {
+      // System triggers: null/'' = no recipient (trigger will skip at runtime, which is valid to save)
+      // 'guest_email', 'user_email', 'recipient_type:*', or literal email(s) are all valid
+      if (recipient && recipient.trim()) {
+        const invalidEmails = getInvalidEmails(recipient);
+        if (invalidEmails.length > 0) {
+          errors.push(`Invalid recipient value(s): ${invalidEmails.join(', ')}`);
+        }
       }
-    }
-
-    // Validate each trigger question and check if questions exist
-    const questionIds = [];
-    for (let i = 0; i < trigger_questions.length; i++) {
-      const tq = trigger_questions[i];
-      
-      if (!tq.question_id) {
-        errors.push(`Trigger question ${i + 1} is missing question_id`);
-        continue;
-      }
-
-      questionIds.push(tq.question_id);
-
-      // Verify question exists
-      const question = await Question.findByPk(tq.question_id);
-      if (!question) {
-        errors.push(`Question with ID ${tq.question_id} not found`);
-        continue;
-      }
-
-      // For select and radio types, answer should not be empty
-      if ((question.question_type === 'select' || question.question_type === 'radio') && !tq.answer) {
-        errors.push(`Question "${question.question}" (ID: ${tq.question_id}) requires an answer to be selected`);
-      }
-
-      // Validate answer is one of the valid options for select/radio
-      if ((question.question_type === 'select' || question.question_type === 'radio') && tq.answer) {
-        const options = question.options || [];
-        const validValues = options.map(opt => opt.value);
-        if (!validValues.includes(tq.answer)) {
-          errors.push(`Invalid answer "${tq.answer}" for question "${question.question}". Valid options: ${validValues.join(', ')}`);
+    } else if (type !== 'external') {
+      // Internal/highlights: recipient required
+      if (!recipient || !recipient.trim()) {
+        errors.push('Recipient is required');
+      } else {
+        const invalidEmails = getInvalidEmails(recipient);
+        if (invalidEmails.length > 0) {
+          errors.push(`Invalid recipient value(s): ${invalidEmails.join(', ')}`);
         }
       }
     }
+    // External triggers: recipient is the guest by default, no validation needed
 
-    // Check for duplicate question IDs
-    const uniqueQuestionIds = new Set(questionIds);
-    if (uniqueQuestionIds.size !== questionIds.length) {
-      errors.push('Duplicate question IDs are not allowed');
+    // ── Email template validation ──────────────────────────────────────────
+    if (!email_template_id) {
+      errors.push('Email template ID is required');
+    } else {
+      const template = await EmailTemplate.findOne({ where: { id: email_template_id }, transaction });
+      if (!template) errors.push('Email template not found');
     }
 
-    // Return validation errors if any
+    // ── Trigger configuration validation ──────────────────────────────────
+    if (isSystemTrigger) {
+      if (!trigger_context) {
+        errors.push('System triggers require a trigger_context');
+      }
+    } else {
+      if (!Array.isArray(trigger_questions) || trigger_questions.length === 0) {
+        if (!trigger_conditions?.booking_status?.length) {
+          errors.push('At least one trigger question or booking status condition is required');
+        }
+      }
+
+      const questionIds = [];
+      for (let i = 0; i < trigger_questions.length; i++) {
+        const tq = trigger_questions[i];
+
+        if (!tq.question_id) {
+          errors.push(`Trigger question ${i + 1} is missing question_id`);
+          continue;
+        }
+
+        questionIds.push(tq.question_id);
+
+        const question = await Question.findByPk(tq.question_id, { transaction });
+        if (!question) {
+          errors.push(`Question with ID ${tq.question_id} not found`);
+          continue;
+        }
+
+        const questionType = question.question_type || question.type;
+
+        if (['select', 'radio'].includes(questionType) && !tq.answer) {
+          errors.push(`Question "${question.question}" (ID: ${tq.question_id}) requires an answer`);
+        }
+
+        if (['select', 'radio'].includes(questionType) && tq.answer) {
+          const validValues = (question.options || []).flatMap(opt => [opt.value, opt.label].filter(v => v !== null && v !== undefined).map(v => String(v).trim()));
+          if (!validValues.includes(String(tq.answer))) {
+            errors.push(`Invalid answer "${tq.answer}" for question "${question.question}". Valid: ${validValues.join(', ')}`);
+          }
+        }
+
+        if (['checkbox', 'service-cards', 'multi-select'].includes(questionType) && tq.answer) {
+          const validValues = (question.options || []).flatMap(opt => [opt.value, opt.label].filter(v => v !== null && v !== undefined).map(v => String(v).trim()));
+          const selectedValues = tq.answer.split(',').map(v => v.trim()).filter(Boolean);
+          const invalidValues = selectedValues.filter(val => !validValues.includes(String(val)));
+          if (invalidValues.length > 0) {
+            errors.push(`Invalid answer(s) for "${question.question}": ${invalidValues.join(', ')}. Valid: ${validValues.join(', ')}`);
+          }
+        }
+      }
+
+      const uniqueIds = new Set(questionIds);
+      if (uniqueIds.size !== questionIds.length) {
+        errors.push('Duplicate question IDs are not allowed');
+      }
+    }
+
     if (errors.length > 0) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Validation failed',
-        errors: errors 
-      });
+      await transaction.rollback();
+      return res.status(400).json({ success: false, message: 'Validation failed', errors });
     }
 
-    // Create the email trigger
-    const emailTrigger = await EmailTrigger.create({
-      recipient: recipient.trim(),
-      email_template_id: email_template_id,
-      type: type,
-      enabled: enabled,
-      trigger_count: 0,
-      trigger_conditions: trigger_conditions || null 
-    });
+    // ── Build trigger data ─────────────────────────────────────────────────
+    const triggerData = {
+      recipient: recipient?.trim() || null,
+      email_template_id,
+      type,
+      enabled,
+      priority: priority || 5,
+      description: description || null
+    };
 
-    // Create the trigger question associations
-    const triggerQuestionRecords = trigger_questions.map(tq => ({
-      email_trigger_id: emailTrigger.id,
-      question_id: tq.question_id,
-      answer: tq.answer || null
-    }));
+    if (isSystemTrigger) {
+      triggerData.trigger_context = trigger_context;
+      triggerData.context_conditions = context_conditions || null;
+      triggerData.data_mapping = data_mapping || null;
+      triggerData.trigger_conditions = null;
+      triggerData.trigger_questions = null;
+    } else {
+      triggerData.trigger_conditions = trigger_conditions || null;
+      triggerData.trigger_questions = null;
+      triggerData.trigger_context = null;
+      triggerData.context_conditions = null;
+      triggerData.data_mapping = null;
+    }
 
-    await EmailTriggerQuestion.bulkCreate(triggerQuestionRecords);
+    const emailTrigger = await EmailTrigger.create(triggerData, { transaction });
 
-    // Fetch the complete trigger with all associations
-    const completeTrigger = await EmailTrigger.findByPk(emailTrigger.id, {
+    if (!isSystemTrigger && trigger_questions.length > 0) {
+      await EmailTriggerQuestion.bulkCreate(
+        trigger_questions.map(tq => ({
+          email_trigger_id: emailTrigger.id,
+          question_id: tq.question_id,
+          answer: tq.answer || null
+        })),
+        { transaction }
+      );
+    }
+
+    await transaction.commit();
+
+    const createdTrigger = await EmailTrigger.findByPk(emailTrigger.id, {
       include: [
-        {
-          model: EmailTemplate,
-          as: 'template',
-          attributes: ['id', 'name', 'subject']
-        },
-        {
-          model: EmailTriggerQuestion,
-          as: 'triggerQuestions',
-          include: [
-            {
-              model: Question,
-              as: 'question'
-            }
-          ]
-        }
+        { model: EmailTemplate, as: 'template', attributes: ['id', 'name', 'subject'] },
+        { model: EmailTriggerQuestion, as: 'triggerQuestions', include: [{ model: Question, as: 'question' }] }
       ]
     });
 
-    // Log the creation for audit purposes
     console.log('Email trigger created:', {
-      id: completeTrigger.id,
-      recipient: completeTrigger.recipient,
+      id: createdTrigger.id,
+      type: createdTrigger.type,
+      recipient: createdTrigger.recipient,
+      trigger_context: createdTrigger.trigger_context,
       questions_count: trigger_questions.length
     });
 
-    return res.status(201).json({ 
+    return res.status(201).json({
       success: true,
       message: 'Email trigger created successfully',
-      data: completeTrigger
+      data: createdTrigger
     });
 
   } catch (error) {
+    await transaction.rollback();
     console.error('Error creating email trigger:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: 'Internal server error',
-      error: error.message 
-    });
+    return res.status(500).json({ success: false, message: 'Internal server error', error: error.message });
   }
 }
-
-/**
- * Example Request Body:
- * 
- * {
- *   "recipient": "events@company.com",
- *   "email_template_id": 1,
- *   "type": "highlights",
- *   "enabled": true,
- *   "trigger_questions": [
- *     {
- *       "question_id": 5,
- *       "answer": "11-25"
- *     },
- *     {
- *       "question_id": 8,
- *       "answer": "yes"
- *     }
- *   ]
- * }
- * 
- * Response includes full question details:
- * {
- *   "success": true,
- *   "message": "Email trigger created successfully",
- *   "data": {
- *     "id": 1,
- *     "recipient": "events@company.com",
- *     "email_template_id": 1,
- *     "type": "highlights",
- *     "enabled": true,
- *     "template": {
- *       "id": 1,
- *       "name": "Event Inquiry",
- *       "subject": "New Event Request"
- *     },
- *     "triggerQuestions": [
- *       {
- *         "id": 1,
- *         "email_trigger_id": 1,
- *         "question_id": 5,
- *         "answer": "11-25",
- *         "question": {
- *           "id": 5,
- *           "question": "How many guests are you expecting?",
- *           "question_key": "guest_count",
- *           "question_type": "select",
- *           "options": [...]
- *         }
- *       }
- *     ]
- *   }
- * }
- */

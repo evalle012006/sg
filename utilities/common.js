@@ -249,8 +249,8 @@ export const ensureArrayAnswer = (answer, questionType) => {
         'multi-select', 
         'checkbox', 
         'checkbox-button',
-        'service-cards',
-        'service-cards-multi'
+        // 'service-cards',
+        // 'service-cards-multi'
     ];
     
     if (!arrayTypes.includes(questionType)) {

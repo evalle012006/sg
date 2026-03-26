@@ -5150,6 +5150,7 @@ const BookingRequestForm = () => {
                 
                 // FIXED: Handle deletion of hidden questions with existing QaPair records
                 questions.filter(q => {
+                    if (q.type === 'url') return false;
                     // Hidden questions with existing QaPair records should be deleted
                     if (q.hidden === true && q.fromQa === true) {
                         return true;
@@ -5170,13 +5171,54 @@ const BookingRequestForm = () => {
                         guestId: guest?.id
                     });
                 });
+
+                // Sweep the section's raw QaPairs for any linked to a hidden question ──
+                // This handles the case where fromQa=false because the data was stored under
+                // a sibling question's row (e.g. goal-table data saved into a url-type row).
+                const hiddenQuestionIds = new Set(
+                    questions
+                        .filter(q => q.hidden === true)
+                        .flatMap(q => [q.question_id, q.id].filter(Boolean))
+                );
+
+                if (hiddenQuestionIds.size > 0) {
+                    qaPairs.forEach(qp => {
+                        if (qp.question_type === 'url') return;
+                        if (!hiddenQuestionIds.has(qp.question_id)) return;
+                        // Skip if already queued for deletion
+                        const alreadyQueued = qa_pairs.some(p => p.id === qp.id && p.delete === true);
+                        if (!alreadyQueued) {
+                            console.log(`🗑️ Sweeping stale QaPair id=${qp.id} question_id=${qp.question_id} (hidden question, fromQa missed)`);
+                            qa_pairs.push({
+                                id: qp.id,
+                                question_id: qp.question_id,
+                                question: qp.question || '',
+                                question_type: qp.question_type,
+                                section_id: section.id,
+                                delete: true,
+                                guestId: guest?.id
+                            });
+                        }
+                    });
+                }
                 
                 questions = questions.filter(q => !q.excludeFromSave);
 
                 // UPDATED: Use question key to filter package questions
                 const updatedQuestions = questions.filter(q => {
+                    // url questions are display-only — never save them
+                    if (q.type === 'url') {
+                        return false;
+                    }
+
                     // Skip hidden questions unless they're package questions
                     if (q.hidden && !questionHasKey(q, QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL)) {
+                        return false;
+                    }
+
+                    // ✅ Skip existing QaPairs that haven't changed
+                    // fromQa=true means it has a DB row — only resave if actually dirty
+                    if (q.fromQa && !q.dirty) {
                         return false;
                     }
                     
@@ -5964,7 +6006,7 @@ const BookingRequestForm = () => {
                         const main = new Set();
                         q.QuestionDependencies.map(qd => {
                             page.Sections.map(section => {
-                                let temp = section.Questions.find(qt => qt.question_id === qd.dependence_id);
+                                let temp = section.Questions.find(qt => qt.question_id === qd.dependence_id || qt.id === qd.dependence_id);
                                 if (temp && (temp.answer == qd.answer)) {
                                     temp.showDependence = true;
                                     main.add(temp);

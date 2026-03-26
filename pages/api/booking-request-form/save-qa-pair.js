@@ -47,13 +47,21 @@ export default async function handler(req, res) {
                 }
 
                 if (record.hasOwnProperty('delete') && record.delete === true) {
-                    const qaPairToDelete = await QaPair.findOne({
-                        where: {
-                            question: record.question,
-                            section_id: record.section_id
-                        },
-                        transaction
-                    });
+                    let qaPairToDelete;
+                    if (record.id) {
+                        qaPairToDelete = await QaPair.findByPk(record.id, { transaction });
+                    } else if (record.question_id) {
+                        qaPairToDelete = await QaPair.findOne({
+                            where: { question_id: record.question_id, section_id: record.section_id },
+                            transaction
+                        });
+                    } else {
+                        // Legacy fallback only — no question_id present
+                        qaPairToDelete = await QaPair.findOne({
+                            where: { question: record.question, section_id: record.section_id },
+                            transaction
+                        });
+                    }
 
                     if (qaPairToDelete) {
                         await qaPairToDelete.destroy({ transaction });
@@ -106,11 +114,12 @@ export default async function handler(req, res) {
                         const defaults = { ...record };
                         delete defaults.id; // Ensure no ID is passed to defaults
                         
+                        const findOrCreateWhere = record.question_id
+                            ? { question_id: record.question_id, section_id: record.section_id }
+                            : { question: record.question, section_id: record.section_id };
+
                         const [instance, created] = await QaPair.findOrCreate({
-                            where: {
-                                question: record.question,
-                                section_id: record.section_id
-                            },
+                            where: findOrCreateWhere,
                             defaults: defaults,
                             transaction,
                         });
@@ -372,10 +381,37 @@ const updateBooking = async (booking, qa_pairs = [], flags, bookingService) => {
         const currentBookingStatus = booking.status ? JSON.parse(booking.status) : null;
         bookingService.disseminateChanges(booking, qa_pairs);
 
-        const isBookingComplete = await bookingService.isBookingComplete(booking.uuid);
+        const incompleteQuestions = [];
+        const isBookingComplete = await bookingService.isBookingComplete(booking.uuid, incompleteQuestions);
         console.log('isBookingComplete', isBookingComplete);
         const validResponses = qa_pairs.filter(item => 'submit' in item);
         const allSubmitted = validResponses.every(qa => qa.submit);
+
+        // Audit-log any incomplete required questions at the point of submission
+        if (allSubmitted && incompleteQuestions.length > 0) {
+            try {
+                await AuditLogService.createAuditEntry({
+                    bookingId: booking.id,
+                    userId: null,
+                    guestId: flags?.currentUserId || booking.guest_id,
+                    actionType: 'booking_submitted',
+                    userType: 'guest',
+                    description: `Booking submitted with ${incompleteQuestions.length} incomplete required question(s)`,
+                    oldValue: null,
+                    newValue: { incomplete_questions: incompleteQuestions },
+                    category: 'Validation',
+                    metadata: {
+                        submitted_at: new Date(),
+                        is_complete: isBookingComplete,
+                        incomplete_count: incompleteQuestions.length,
+                        incomplete_questions: incompleteQuestions
+                    }
+                });
+                console.log(`⚠️ Logged ${incompleteQuestions.length} incomplete questions to audit trail`);
+            } catch (auditError) {
+                console.error('⚠️ Failed to log incomplete questions audit:', auditError);
+            }
+        }
         
         if (isBookingComplete && (booking.complete || allSubmitted)) {
             console.log('Booking is complete');

@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import moment from 'moment';
 import EmailService from '../../../../../services/booking/emailService';
 import { TEMPLATE_IDS } from '../../../../../services/booking/templateIds';
+import EmailTriggerService from '../../../../../services/booking/emailTriggerService';
 
 export default async function handler(req, res) {
     if (req.method !== 'POST') {
@@ -148,19 +149,20 @@ export default async function handler(req, res) {
                 bookingUrl = `${baseUrl}/bookings`;
             }
             
-            await EmailService.sendWithTemplate(
-                eoi.guest_email,
-                TEMPLATE_IDS.COURSE_EOI_ACCEPTED,
-                {
-                    first_name: firstName,
-                    guest_name: eoi.guest_name,
-                    course_names: courseNames,
-                    course_dates: courseDates,
-                    offers_count: createdOffers.length,
-                    booking_url: bookingUrl,
-                    has_booking_url: !!bookingUrl
-                }
-            );
+            // await EmailService.sendWithTemplate(
+            //     eoi.guest_email,
+            //     TEMPLATE_IDS.COURSE_EOI_ACCEPTED,
+            //     {
+            //         first_name: firstName,
+            //         guest_name: eoi.guest_name,
+            //         course_names: courseNames,
+            //         course_dates: courseDates,
+            //         offers_count: createdOffers.length,
+            //         booking_url: bookingUrl,
+            //         has_booking_url: !!bookingUrl
+            //     }
+            // );
+            await eoiAcceptedTriggerDispatch(eoi, courses, createdOffers);
             console.log('✅ EOI acceptance email sent to:', eoi.guest_email);
         } catch (emailError) {
             console.error('Failed to send EOI acceptance email:', emailError);
@@ -184,4 +186,22 @@ export default async function handler(req, res) {
             error: error.message
         });
     }
+}
+
+async function eoiAcceptedTriggerDispatch(eoi, courses, createdOffers) {
+  const courseNames = courses.map(c => c.title).join(', ');
+
+  // 🔔 Fire any configured system triggers for course_eoi_accepted
+  try {
+    await EmailTriggerService.evaluateAndSendTriggers(null, {
+      course_eoi_accepted: true,
+      guest_email:         eoi.guest_email,
+      guest_name:          eoi.guest_name,
+      course_name:         courseNames,
+      offers_count:        createdOffers.length,
+      eoi_id:              eoi.id,
+    });
+  } catch (triggerErr) {
+    console.warn('⚠️ course_eoi_accepted trigger dispatch failed (non-fatal):', triggerErr.message);
+  }
 }

@@ -5,6 +5,7 @@ import { NotificationService } from "../../../services/notification/notification
 import EmailService from "../../../services/booking/emailService";
 import { TEMPLATE_IDS } from '../../../services/booking/templateIds';
 import moment from "moment";
+import EmailTriggerService from "../../../services/booking/emailTriggerService";
 
 const User = require("../../../models/user");
 const AccessToken = require("../../../models/accesstoken");
@@ -65,14 +66,15 @@ async function handler(req, res) {
     // Send team email confirmation using EmailService
     let emailSent = false;
     try {
-      await EmailService.sendWithTemplate(
-        user.email,
-        TEMPLATE_IDS.TEAM_EMAIL_CONFIRMATION_LINK,
-        {
-          username: user.first_name,
-          confirmation_link: confirmLink
-        }
-      );
+      // await EmailService.sendWithTemplate(
+      //   user.email,
+      //   TEMPLATE_IDS.TEAM_EMAIL_CONFIRMATION_LINK,
+      //   {
+      //     username: user.first_name,
+      //     confirmation_link: confirmLink
+      //   }
+      // );
+      await userAccountCreatedTriggerDispatch(user, accessToken);
       emailSent = true;
     } catch (emailError) {
       console.error('Error sending team email confirmation:', emailError);
@@ -100,5 +102,25 @@ async function handler(req, res) {
     return res.status(405).json({ message: "Method Not Allowed" });
   }
 }
+
+async function userAccountCreatedTriggerDispatch(user, accessToken) {
+  const confirmLink = `${process.env.APP_URL}/settings/users/${accessToken.token}`;
+
+  // 🔔 Fire any configured system triggers for user_account_created
+  // Recipient is resolved from context.user_email (not guest_email).
+  // Template 34 merge tags: {{username}}, {{confirmation_link}}
+  try {
+    await EmailTriggerService.evaluateAndSendTriggers(null, {
+      user_account_created: true,
+      user_email:           user.email,
+      username:             user.first_name,
+      confirmation_link:    confirmLink,
+      role:                 user.role || null,  // optional — matched against trigger's role condition
+    });
+  } catch (triggerErr) {
+    console.warn('⚠️ user_account_created trigger dispatch failed (non-fatal):', triggerErr.message);
+  }
+}
+
 
 export default handler;

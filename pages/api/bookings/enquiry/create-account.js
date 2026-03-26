@@ -4,6 +4,7 @@ import moment from 'moment';
 import { NotificationService } from "../../../../services/notification/notification";
 import EmailService from "../../../../services/booking/emailService";
 import { TEMPLATE_IDS } from '../../../../services/booking/templateIds';
+import EmailTriggerService from "../../../../services/booking/emailTriggerService";
 const jwt = require('jsonwebtoken');
 
 export default async function handler(request, response) {
@@ -41,14 +42,15 @@ export default async function handler(request, response) {
 
         // Send account creation email using EmailService
         try {
-            await EmailService.sendWithTemplate(
-                data.email,
-                TEMPLATE_IDS.CREATE_ACCOUNT,
-                {
-                    username: data.first_name,
-                    create_password_link: `${process.env.APP_URL}/auth/onboarding/set-new-password?token=${accessToken.token}`
-                }
-            );
+            // await EmailService.sendWithTemplate(
+            //     data.email,
+            //     TEMPLATE_IDS.CREATE_ACCOUNT,
+            //     {
+            //         username: data.first_name,
+            //         create_password_link: `${process.env.APP_URL}/auth/onboarding/set-new-password?token=${accessToken.token}`
+            //     }
+            // );
+            await createAccountTriggerDispatch(guest, accessToken);
         } catch (emailError) {
             console.error('Error sending account creation email:', emailError);
             // Don't fail the request if email fails
@@ -62,4 +64,18 @@ export default async function handler(request, response) {
     }
 
     response.status(200).end();
+}
+
+async function createAccountTriggerDispatch(guest, accessToken) {
+  // 🔔 Fire any configured system triggers for account_created
+  try {
+    await EmailTriggerService.evaluateAndSendTriggers(null, {
+      account_created:      true,
+      guest_email:          guest.email,
+      username:             guest.first_name,
+      create_password_link: `${process.env.APP_URL}/auth/onboarding/set-new-password?token=${accessToken.token}`,
+    });
+  } catch (triggerErr) {
+    console.warn('⚠️ account_created trigger dispatch failed (non-fatal):', triggerErr.message);
+  }
 }

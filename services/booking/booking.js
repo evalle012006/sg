@@ -359,7 +359,7 @@ export class BookingService extends EntityBuilder {
         return template;
     }
 
-    isBookingComplete = async (uuid) => {
+    isBookingComplete = async (uuid, incompleteQuestions = null) => {
         const booking = await this.entityModel.findOne({ 
             where: { uuid }, 
             include: [
@@ -451,10 +451,16 @@ export class BookingService extends EntityBuilder {
                 if (qaPair.answer) {
                     return true;
                 } else {
-                    console.log('this required questions is not answered: ', requiredQuestion)
+                    console.log('this required questions is not answered: ', requiredQuestion);
+                    if (incompleteQuestions) {
+                        incompleteQuestions.push({ type: 'not_answered', question: requiredQuestion.question, question_id: requiredQuestion.id });
+                    }
                 }
             } else {
-                console.log('this required question is missing: ', requiredQuestion.question)
+                console.log('this required question is missing: ', requiredQuestion.question);
+                if (incompleteQuestions) {
+                    incompleteQuestions.push({ type: 'missing', question: requiredQuestion.question, question_id: requiredQuestion.id });
+                }
             }
         })
 

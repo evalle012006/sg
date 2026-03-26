@@ -1,4 +1,4 @@
-import { EmailTemplate } from '../../models/index.js';
+import { EmailTemplate } from '../../models';
 import handlebars from 'handlebars';
 import sendMailWithHtml from '../../utilities/mailServiceHtml.js';
 import SendEmail from '../../utilities/mail.js';

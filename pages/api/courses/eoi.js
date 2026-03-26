@@ -3,6 +3,7 @@ import moment from 'moment';
 import EmailService from '../../../services/booking/emailService';
 import EmailRecipientsService from '../../../services/email/EmailRecipientsService';
 import { TEMPLATE_IDS } from '../../../services/booking/templateIds';
+import EmailTriggerService from '../../../services/booking/emailTriggerService';
 
 export default async function handler(req, res) {
     const { method } = req;
@@ -240,72 +241,75 @@ async function createEOI(req, res) {
         });
 
         // Send admin notification with ALL data properly formatted
-        try {
-            const eoiRecipients = await EmailRecipientsService.getRecipientsString('eoi');
-            if (!eoiRecipients) {
-                console.warn('⚠️ No EOI recipients configured in settings');
-            } else {
-                const baseUrl = process.env.APP_URL || 'https://bookings.sargoodoncollaroy.com.au';
+        // try {
+        //     const eoiRecipients = await EmailRecipientsService.getRecipientsString('eoi');
+        //     if (!eoiRecipients) {
+        //         console.warn('⚠️ No EOI recipients configured in settings');
+        //     } else {
+        //         const baseUrl = process.env.APP_URL || 'https://bookings.sargoodoncollaroy.com.au';
                 
-                // Format preferred dates for email display
-                const formattedPreferredDates = formatPreferredDates(course_date_preferences, courses, selected_courses);
+        //         // Format preferred dates for email display
+        //         const formattedPreferredDates = formatPreferredDates(course_date_preferences, courses, selected_courses);
                 
-                await EmailService.sendWithTemplate(
-                    eoiRecipients,
-                    TEMPLATE_IDS.COURSE_EOI_ADMIN,
-                    {
-                        // Guest details
-                        guest_name: guest_name,
-                        guest_email: guest_email,
-                        guest_phone: guest_phone,
+        //         await EmailService.sendWithTemplate(
+        //             eoiRecipients,
+        //             TEMPLATE_IDS.COURSE_EOI_ADMIN,
+        //             {
+        //                 // Guest details
+        //                 guest_name: guest_name,
+        //                 guest_email: guest_email,
+        //                 guest_phone: guest_phone,
                         
-                        // Course details
-                        course_name: courseNames,
-                        preferred_dates: formattedPreferredDates,
-                        comments: comments || 'None provided',
+        //                 // Course details
+        //                 course_name: courseNames,
+        //                 preferred_dates: formattedPreferredDates,
+        //                 comments: comments || 'None provided',
                         
-                        // Funding and eligibility
-                        funding_type: funding_type || 'Not specified',
-                        has_sci: has_sci === 'yes' || has_sci === true ? 'Yes' : 'No',
-                        sci_levels: sciLevels || 'Not specified',
+        //                 // Funding and eligibility
+        //                 funding_type: funding_type || 'Not specified',
+        //                 has_sci: has_sci === 'yes' || has_sci === true ? 'Yes' : 'No',
+        //                 sci_levels: sciLevels || 'Not specified',
                         
-                        // Completing for information
-                        completing_for: completing_for === 'myself' ? 'Self' : 'Someone else',
-                        is_completing_for_other: completing_for === 'other',
+        //                 // Completing for information
+        //                 completing_for: completing_for === 'myself' ? 'Self' : 'Someone else',
+        //                 is_completing_for_other: completing_for === 'other',
                         
-                        // Support person details (only if completing for other)
-                        support_name: support_name || '',
-                        support_email: support_email || '',
-                        support_phone: support_phone || '',
-                        support_role: support_role || '',
+        //                 // Support person details (only if completing for other)
+        //                 support_name: support_name || '',
+        //                 support_email: support_email || '',
+        //                 support_phone: support_phone || '',
+        //                 support_role: support_role || '',
                         
-                        // Admin link and metadata
-                        admin_link: `${baseUrl}/courses?selectedTab=eoi&eoiId=${eoiRecord.id}`,
-                        submitted_at: moment(submitted_at || Date.now()).format('dddd, D MMMM YYYY [at] h:mm A')
-                    }
-                );
-                console.log('✅ Admin notification email sent to EOI recipients:', eoiRecipients);
-            }
-        } catch (emailError) {
-            console.error('Failed to send EOI notification email:', emailError);
-            // Don't fail the request if email fails
-        }
+        //                 // Admin link and metadata
+        //                 admin_link: `${baseUrl}/courses?selectedTab=eoi&eoiId=${eoiRecord.id}`,
+        //                 submitted_at: moment(submitted_at || Date.now()).format('dddd, D MMMM YYYY [at] h:mm A')
+        //             }
+        //         );
+        //         console.log('✅ Admin notification email sent to EOI recipients:', eoiRecipients);
+        //     }
+        // } catch (emailError) {
+        //     console.error('Failed to send EOI notification email:', emailError);
+        //     // Don't fail the request if email fails
+        // }
 
         // Send guest confirmation using EmailService
-        try {
-            await EmailService.sendWithTemplate(
-                guest_email,
-                TEMPLATE_IDS.COURSE_EOI_CONFIRMATION,
-                {
-                    guest_name: guest_name,
-                    course_name: courseNames
-                }
-            );
-            console.log('✅ Guest confirmation email sent');
-        } catch (emailError) {
-            console.error('Failed to send EOI confirmation email:', emailError);
-            // Don't fail the request if email fails
-        }
+        // try {
+        //     await EmailService.sendWithTemplate(
+        //         guest_email,
+        //         TEMPLATE_IDS.COURSE_EOI_CONFIRMATION,
+        //         {
+        //             guest_name: guest_name,
+        //             course_name: courseNames
+        //         }
+        //     );
+        //     console.log('✅ Guest confirmation email sent');
+        // } catch (emailError) {
+        //     console.error('Failed to send EOI confirmation email:', emailError);
+        //     // Don't fail the request if email fails
+        // }
+
+        // 🔔 Fire any configured system triggers for course_eoi_submitted
+        await eoiSubmittedTriggerDispatch(eoiRecord, courseNames, courses);
 
         return res.status(200).json({
             success: true,
@@ -365,4 +369,20 @@ async function updateEOI(req, res) {
             message: 'Failed to update EOI'
         });
     }
+}
+
+async function eoiSubmittedTriggerDispatch(eoiRecord, courseNames, courses) {
+  // 🔔 Fire any configured system triggers for course_eoi_submitted
+  try {
+    await EmailTriggerService.evaluateAndSendTriggers(null, {
+      course_eoi_submitted: true,
+      guest_email:          eoiRecord.guest_email,
+      guest_name:           eoiRecord.guest_name,
+      course_name:          courseNames,
+      course_id:            courses[0]?.id,
+      eoi_id:               eoiRecord.id,
+    });
+  } catch (triggerErr) {
+    console.warn('⚠️ course_eoi_submitted trigger dispatch failed (non-fatal):', triggerErr.message);
+  }
 }

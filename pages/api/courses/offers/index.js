@@ -5,6 +5,7 @@ import StorageService from '../../../../services/storage/storage';
 import EmailService from '../../../../services/booking/emailService';
 import { TEMPLATE_IDS } from '../../../../services/booking/templateIds';
 import moment from 'moment';
+import EmailTriggerService from '../../../../services/booking/emailTriggerService';
 
 const MAX_BULK_CREATE_SIZE = 100; // Limit bulk operations to prevent memory issues
 const MAX_GUEST_SELECTION = 50; // Limit guest selection to prevent abuse
@@ -328,22 +329,24 @@ async function sendCourseOfferEmails(createdOffers, course, guests) {
 
     try {
       // Format dates consistently
-      const startDate = moment(course.min_start_date);
-      const endDate = moment(course.min_end_date);
+      // const startDate = moment(course.min_start_date);
+      // const endDate = moment(course.min_end_date);
       
-      await EmailService.sendWithTemplate(
-        guest.email,
-        TEMPLATE_IDS.COURSE_OFFER_NOTIFICATION,
-        {
-          guest_name: guest.first_name,
-          course_name: course.title,
-          course_dates: `${startDate.format('D MMMM YYYY')} - ${endDate.format('D MMMM YYYY')}`,
-          course_location: 'Sargood on Collaroy',
-          course_description: course.description || '',
-          response_deadline: endDate.format('D MMMM YYYY'),
-          booking_url: `${baseUrl}/auth/login?redirect=/bookings`
-        }
-      );
+      // await EmailService.sendWithTemplate(
+      //   guest.email,
+      //   TEMPLATE_IDS.COURSE_OFFER_NOTIFICATION,
+      //   {
+      //     guest_name: guest.first_name,
+      //     course_name: course.title,
+      //     course_dates: `${startDate.format('D MMMM YYYY')} - ${endDate.format('D MMMM YYYY')}`,
+      //     course_location: 'Sargood on Collaroy',
+      //     course_description: course.description || '',
+      //     response_deadline: endDate.format('D MMMM YYYY'),
+      //     booking_url: `${baseUrl}/auth/login?redirect=/bookings`
+      //   }
+      // );
+
+      await courseOfferSentTriggerDispatch(offer, guest, course);
 
       emailResults.sent++;
       console.log(`✅ Course offer email sent to ${guest.email} for course ${course.title}`);
@@ -531,5 +534,21 @@ async function getCourseOffers(req, res) {
   } catch (error) {
     console.error('Error fetching course offers:', error);
     throw error;
+  }
+}
+
+async function courseOfferSentTriggerDispatch(offer, guest, course) {
+  // 🔔 Fire any configured system triggers for course_offer_sent
+  try {
+    await EmailTriggerService.evaluateAndSendTriggers(null, {
+      course_offer_sent: true,
+      guest_email:       guest.email,
+      guest_name:        guest.first_name,
+      course_name:       course.title,
+      course_id:         course.id,
+      offer_id:          offer.id,
+    });
+  } catch (triggerErr) {
+    console.warn(`⚠️ course_offer_sent trigger dispatch failed for offer ${offer.id} (non-fatal):`, triggerErr.message);
   }
 }
