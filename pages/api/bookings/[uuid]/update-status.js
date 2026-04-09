@@ -1,13 +1,14 @@
 import { BOOKING_TYPES } from "../../../../components/constants";
 import { 
     AccessToken, Booking, BookingApprovalUsage, Guest, FundingApproval,
-    NotificationLibrary, Package, QaPair, Room, RoomType, Section, Setting 
+    NotificationLibrary, Package, QaPair, Question, Room, RoomType, Section, Setting 
 } from "../../../../models";
 import { NotificationService } from "../../../../services/notification/notification";
 import { dispatchHttpTaskHandler } from "../../../../services/queues/dispatchHttpTask";
 import { QUESTION_KEYS, getAnswerByQuestionKey } from "../../../../services/booking/question-helper";
 import { ApprovalTrackingService } from "../../../../services/approvalTracking";
 import EmailTriggerService from '../../../../services/booking/emailTriggerService';
+const { syncFundingProfileFromBooking } = require('../../../../services/booking/guest-funding-profile-service');
 const jwt = require('jsonwebtoken');
 import moment from 'moment';
 import { Op } from "sequelize";
@@ -16,10 +17,6 @@ import { TEMPLATE_IDS } from '../../../../services/booking/templateIds';
 import AuditLogService from "../../../../services/AuditLogService";
 
 // ─── Build formatted iCare context for trigger dispatch ───────────────────────
-// Computes approval period dates and aggregates summary fields so that
-// EmailTriggerService can pass them straight through as email merge tags.
-// booking_status is included so cross-context booking_status conditions work
-// (e.g. an iCare trigger scoped to only booking_confirmed bookings).
 const buildIcareContext = (allocationSummary, updateType, extraFields = {}) => {
     let approvalFrom = '-', approvalTo = '-';
 
@@ -65,7 +62,7 @@ export default async function handler(req, res) {
         const booking = await Booking.findOne({
             where: { uuid },
             include: [
-                { model: Section, include: [{ model: QaPair }] },
+                { model: Section, include: [{ model: QaPair, include: [Question] }] },
                 Guest,
                 { model: Room, include: [RoomType] }
             ]
@@ -274,7 +271,6 @@ export default async function handler(req, res) {
                                                     ).join('\n'),
                                                     guest_name:  `${booking.Guest.first_name} ${booking.Guest.last_name}`,
                                                     guest_email: booking.Guest.email,
-                                                    // ✂️ booking_status intentionally removed — bottom dispatch handles booking_status_changed
                                                 }
                                             ));
                                         } catch (triggerErr) {
@@ -294,6 +290,22 @@ export default async function handler(req, res) {
                             }
                         }
                     }
+
+                    // ── NEW: Sync iCare/NDIS funding data to guest_funding_profiles ──
+                    // Runs for both iCare and NDIS confirmed bookings (not Promotional Stay etc.)
+                    // Non-fatal — booking confirmation is not rolled back if this fails.
+                    if (fundingSource) {
+                        try {
+                            await syncFundingProfileFromBooking(
+                                booking,
+                                fundingSource,
+                                allQaPairs  // pass flat array — QaPairs are nested under Sections in this handler
+                            );
+                        } catch (profileSyncError) {
+                            console.error('❌ [update-status] GuestFundingProfile sync failed (non-fatal):', profileSyncError.message);
+                        }
+                    }
+                    // ────────────────────────────────────────────────────────
 
                     await Booking.update(
                         { status_logs: JSON.stringify(updateStatusLogs(statusLogs, 'confirmed')) },
@@ -348,7 +360,6 @@ export default async function handler(req, res) {
 
                                     const totalReturned = returnSummary.reduce((s, r) => s + r.nightsReturned, 0);
 
-                                    // ✅ Direct system trigger dispatch — no queue
                                     try {
                                         await EmailTriggerService.evaluateAllTriggers(booking.id, buildIcareContext(
                                             returnSummary,
@@ -361,7 +372,6 @@ export default async function handler(req, res) {
                                                 cancellation_type: 'No Charge',
                                                 guest_name:     `${booking.Guest.first_name} ${booking.Guest.last_name}`,
                                                 guest_email:    booking.Guest.email,
-                                                // booking_status: 'booking_cancelled',
                                             }
                                         ));
                                     } catch (triggerErr) {
@@ -416,7 +426,6 @@ export default async function handler(req, res) {
                                                     approvalTo:          fa.approval_to
                                                 }];
 
-                                                // ✅ Direct system trigger dispatch — no queue
                                                 try {
                                                     await EmailTriggerService.evaluateAllTriggers(booking.id, buildIcareContext(
                                                         fallbackSummary,
@@ -426,7 +435,6 @@ export default async function handler(req, res) {
                                                             cancellation_type: 'No Charge',
                                                             guest_name:     `${booking.Guest.first_name} ${booking.Guest.last_name}`,
                                                             guest_email:    booking.Guest.email,
-                                                            // booking_status: 'booking_cancelled',
                                                         }
                                                     ));
                                                 } catch (triggerErr) {
@@ -473,7 +481,6 @@ export default async function handler(req, res) {
 
                                     console.log(`Full Charge: guest loses ${totalNightsLost} nights as penalty`);
 
-                                    // ✅ Direct system trigger dispatch — no queue
                                     try {
                                         await EmailTriggerService.evaluateAllTriggers(booking.id, buildIcareContext(
                                             penaltySummary,
@@ -486,7 +493,6 @@ export default async function handler(req, res) {
                                                 cancellation_type: 'Full Charge (Penalty Applied)',
                                                 guest_name:     `${booking.Guest.first_name} ${booking.Guest.last_name}`,
                                                 guest_email:    booking.Guest.email,
-                                                // booking_status: 'booking_cancelled',
                                             }
                                         ));
                                     } catch (triggerErr) {
@@ -580,17 +586,12 @@ export default async function handler(req, res) {
                 console.warn('⚠️ Status change audit log failed (non-fatal):', auditErr.message);
             }
 
-            // ✅ Direct system trigger dispatch — no queue.
-            // Evaluates ALL booking_status_changed triggers inline.
-            // status_to / status_from / is_first_time_guest / cancelled_by are
-            // used by _contextMatchesTrigger to guard per-trigger conditions.
             try {
                 await EmailTriggerService.evaluateAllTriggers(booking.id, {
                     booking_status:      status.name,
                     status_to:           status.name,
                     status_from:         currentStatus?.name || null,
                     is_first_time_guest: booking.type === BOOKING_TYPES.FIRST_TIME_GUEST,
-                    // Event flags for context-specific handlers
                     ...(status.name === 'booking_confirmed' && { booking_confirmed: true }),
                     ...(status.name === 'booking_cancelled' && { booking_cancelled: true, cancelled_by: 'admin' }),
                     ...(status.name === 'guest_cancelled'   && { booking_cancelled: true, cancelled_by: 'guest' }),

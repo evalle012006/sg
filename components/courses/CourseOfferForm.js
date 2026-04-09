@@ -21,6 +21,8 @@ import {
 } from 'lucide-react';
 import moment from 'moment';
 import TimingTextInput from '../ui-v2/TimingTextInput';
+// ✅ ADD: import capacity badge
+import CourseOfferCapacityBadge from './CourseOfferCapacityBadge';
 
 const Button = dynamic(() => import('../ui-v2/Button'));
 const TextField = dynamic(() => import('../ui-v2/TextField'));
@@ -36,33 +38,30 @@ const SEARCH_DEBOUNCE_MS = 300;
 
 export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, onCancel, onSuccess }) {
     const router = useRouter();
-    const user = useSelector(state => state.user.user); // Add current user from Redux
+    const user = useSelector(state => state.user.user);
     const [isLoading, setIsLoading] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     
-    // Form data (status is read-only, managed by automated triggers)
     const [offer, setOffer] = useState({
         course_id: '',
-        guest_id: '', // Keep for edit/view modes
-        guest_ids: [], // New for add mode - multiple guests
+        guest_id: '',
+        guest_ids: [],
         notes: '',
         offered_at: '',
         offered_by: '',
-        offeredByUser: null, // Store the user object
-        status: 'offered', // Read-only, managed by triggers
+        offeredByUser: null,
+        status: 'offered',
         timing_text: '',
         isValid: false,
         bookingWindowOpen: false,
         courseStarted: false
     });
 
-    // Data for dropdowns
     const [courses, setCourses] = useState([]);
     const [selectedCourse, setSelectedCourse] = useState(null);
-    const [selectedGuest, setSelectedGuest] = useState(null); // For edit/view modes
-    const [selectedGuests, setSelectedGuests] = useState([]); // For add mode
+    const [selectedGuest, setSelectedGuest] = useState(null);
+    const [selectedGuests, setSelectedGuests] = useState([]);
     
-    // Paginated guest loading
     const [guests, setGuests] = useState([]);
     const [guestsLoading, setGuestsLoading] = useState(false);
     const [guestsPagination, setGuestsPagination] = useState({
@@ -72,20 +71,63 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
         hasMore: false
     });
     
-    // UI state
     const [guestSearchTerm, setGuestSearchTerm] = useState('');
     const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
     
-    // Validation
     const [fieldErrors, setFieldErrors] = useState({});
     const [validationAttempted, setValidationAttempted] = useState(false);
+
+    // ✅ ADD: course capacity state
+    const [courseCapacity, setCourseCapacity] = useState({
+        max_offers: null,
+        offer_count: 0,
+        offers_remaining: null,
+        at_capacity: false,
+    });
 
     const isViewMode = mode === 'view';
     const isEditMode = mode === 'edit';
     const isAddMode = mode === 'add';
 
-    // Required fields - same for all modes (status removed)
     const requiredFields = isAddMode ? ['course_id', 'guest_ids'] : ['course_id', 'guest_id'];
+
+    // ✅ ADD: fetch capacity for a given course
+    const fetchCourseCapacity = useCallback(async (courseId) => {
+        if (!courseId) {
+            setCourseCapacity({ max_offers: null, offer_count: 0, offers_remaining: null, at_capacity: false });
+            return;
+        }
+        try {
+            // GET offers for this course — the API now returns capacity metadata on each record
+            const res = await fetch(`/api/courses/offers?course_id=${courseId}&include_invalid=true`);
+            const json = await res.json();
+
+            if (json.success) {
+                if (json.data.length > 0) {
+                    const first = json.data[0];
+                    setCourseCapacity({
+                        max_offers: first.max_offers,
+                        offer_count: first.offer_count,
+                        offers_remaining: first.offers_remaining,
+                        at_capacity: first.at_capacity,
+                    });
+                } else {
+                    // No offers yet — fetch the course directly for max_offers
+                    const courseRes = await fetch(`/api/courses/${courseId}`);
+                    const courseJson = await courseRes.json();
+                    const maxOffers = courseJson?.data?.max_offers ?? null;
+                    setCourseCapacity({
+                        max_offers: maxOffers,
+                        offer_count: 0,
+                        offers_remaining: maxOffers,
+                        at_capacity: false,
+                    });
+                }
+            }
+        } catch (err) {
+            console.error('Failed to fetch course capacity:', err);
+        }
+    }, []);
 
     const calculateTimingText = useCallback((course) => {
         if (!course || !course.min_end_date) return '';
@@ -95,22 +137,18 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
         const courseStart = moment(course.start_date);
         const courseEnd = moment(course.end_date);
 
-        // Course has ended
         if (courseEnd.isValid() && now.isAfter(courseEnd)) {
             return 'Course ended';
         }
         
-        // Course in progress
         if (courseStart.isValid() && now.isAfter(courseStart) && now.isBefore(courseEnd)) {
             return 'Course in progress';
         }
         
-        // Booking closed
         if (now.isAfter(bookingDeadline)) {
             return 'Booking closed';
         }
         
-        // Days to book
         const daysLeft = bookingDeadline.diff(now, 'days');
         if (daysLeft === 0) {
             return 'Last day to book!';
@@ -123,11 +161,8 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
 
     useEffect(() => {
         if (selectedCourse) {
-            // Calculate timing text from course dates
             const calculatedTiming = calculateTimingText(selectedCourse);
             
-            // Only auto-update if timing_text is empty (new offer or course changed)
-            // This allows manual edits to persist
             if (!offer.timing_text || isAddMode) {
                 setOffer(prev => ({
                     ...prev,
@@ -137,18 +172,16 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
         }
     }, [selectedCourse, calculateTimingText, isAddMode]);
 
-    // Initialize offered_by with current user ID when component mounts
     useEffect(() => {
         if (user && isAddMode && !offer.offered_by) {
             setOffer(prev => ({
                 ...prev,
-                offered_by: user.id, // Store user ID, not name
-                offeredByUser: user // Keep user object for display
+                offered_by: user.id,
+                offeredByUser: user
             }));
         }
     }, [user, isAddMode, offer.offered_by]);
 
-    // Debounce search term
     useEffect(() => {
         const timer = setTimeout(() => {
             setDebouncedSearchTerm(guestSearchTerm);
@@ -157,11 +190,10 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
         return () => clearTimeout(timer);
     }, [guestSearchTerm]);
 
-    // Reset pagination when search changes
     useEffect(() => {
         setGuestsPagination(prev => ({ ...prev, page: 1 }));
         if (isAddMode) {
-            loadGuests(1, debouncedSearchTerm, true); // Reset guests list
+            loadGuests(1, debouncedSearchTerm, true);
         }
     }, [debouncedSearchTerm, isAddMode]);
 
@@ -171,14 +203,15 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
         if ((isEditMode || isViewMode) && offerId) {
             loadOffer();
         } else if (isAddMode) {
-            loadGuests(1, '', true); // Initial load for add mode
+            loadGuests(1, '', true);
             if (preSelectedCourseId) {
                 setOffer(prev => ({ ...prev, course_id: preSelectedCourseId }));
+                // ✅ ADD: fetch capacity for pre-selected course
+                fetchCourseCapacity(preSelectedCourseId);
             }
         }
     }, [offerId, mode, preSelectedCourseId]);
 
-    // Update selected course when courses are loaded and we have a pre-selected or current course ID
     useEffect(() => {
         if (courses.length > 0) {
             const courseId = offer.course_id || preSelectedCourseId;
@@ -212,18 +245,16 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
             const params = new URLSearchParams({
                 limit: GUESTS_PER_PAGE.toString(),
                 offset: ((page - 1) * GUESTS_PER_PAGE).toString(),
-                active: 'true' // Changed from active_only to active
+                active: 'true'
             });
 
             if (search.trim()) {
                 params.append('search', search.trim());
             }
 
-            // Try multiple endpoint variations to ensure compatibility
             let response;
             let result;
             
-            // First try the newer endpoint with proper search support
             try {
                 response = await fetch(`/api/guests/search?${params}`);
                 if (response.ok) {
@@ -233,7 +264,6 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
                 console.warn('Primary guest endpoint failed, trying alternative...');
             }
 
-            // If that fails, try the listv2 endpoint
             if (!response || !response.ok) {
                 try {
                     response = await fetch(`/api/guests/listv2?${params}`);
@@ -245,7 +275,6 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
                 }
             }
 
-            // Final fallback to basic endpoint with manual search filtering
             if (!response || !response.ok) {
                 const basicParams = new URLSearchParams({
                     limit: GUESTS_PER_PAGE.toString(),
@@ -255,7 +284,6 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
                 response = await fetch(`/api/guests/search?${basicParams}`);
                 result = await response.json();
                 
-                // Manual search filtering if backend doesn't support it
                 if (search.trim() && result) {
                     const searchLower = search.toLowerCase();
                     const guestsData = result.data || result.users || result || [];
@@ -269,7 +297,6 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
             }
 
             if (result) {
-                // Handle different response formats
                 const guestsData = result.data || result.users || result || [];
                 
                 setGuests(prev => reset ? guestsData : [...prev, ...guestsData]);
@@ -282,7 +309,6 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
                         hasMore: result.pagination.hasMore || (page * GUESTS_PER_PAGE < (result.pagination.total || guestsData.length))
                     });
                 } else {
-                    // Fallback pagination calculation
                     const total = result.total || guestsData.length;
                     setGuestsPagination({
                         page,
@@ -323,21 +349,22 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
                 ...offerData,
                 course_id: offerData.course_id || '',
                 guest_id: offerData.guest_id || '',
-                guest_ids: [], // Not used in edit/view modes
+                guest_ids: [],
                 notes: offerData.notes || '',
                 offered_at: offerData.offered_at || '',
                 offered_by: offerData.offered_by || '',
-                offeredByUser: offerData.offeredBy || null, // Store the user object
-                status: offerData.status || 'offered', // Default to 'offered' if not present
+                offeredByUser: offerData.offeredBy || null,
+                status: offerData.status || 'offered',
                 timing_text: offerData.timing_text || '',
                 isValid: offerData.isValid || false,
                 bookingWindowOpen: offerData.bookingWindowOpen || false,
                 courseStarted: offerData.courseStarted || false
             });
 
-            // Set selected course and guest
             if (offerData.course) {
                 setSelectedCourse(offerData.course);
+                // ✅ ADD: fetch capacity when loading an existing offer
+                fetchCourseCapacity(offerData.course_id);
             }
             if (offerData.guest) {
                 setSelectedGuest(offerData.guest);
@@ -352,7 +379,6 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
     const validateForm = useCallback(() => {
         const errors = {};
 
-        // Validate required fields (status validation removed)
         if (isAddMode) {
             if (!offer.course_id || offer.course_id.toString().trim() === '') {
                 errors.course_id = 'This field is required';
@@ -364,7 +390,6 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
                 errors.guest_ids = `Cannot select more than ${MAX_GUEST_SELECTION} guests`;
             }
         } else {
-            // Edit/View mode validation
             requiredFields.forEach(field => {
                 if (!offer[field] || offer[field].toString().trim() === '') {
                     errors[field] = 'This field is required';
@@ -395,10 +420,11 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
                 ...prev,
                 course_id: course.id
             }));
+            // ✅ ADD: fetch capacity whenever a new course is selected
+            fetchCourseCapacity(course.id);
         }
     };
 
-    // Single guest selection for edit/view modes
     const handleGuestSelect = (guest) => {
         setSelectedGuest(guest);
         setOffer(prev => ({
@@ -408,7 +434,6 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
         setGuestSearchTerm('');
     };
 
-    // Multiple guest selection for add mode
     const handleMultipleGuestSelect = (guest) => {
         if (selectedGuests.length >= MAX_GUEST_SELECTION) {
             toast.warning(`Cannot select more than ${MAX_GUEST_SELECTION} guests`);
@@ -418,7 +443,6 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
         const isAlreadySelected = selectedGuests.some(g => g.id === guest.id);
         
         if (isAlreadySelected) {
-            // Remove guest
             const updatedGuests = selectedGuests.filter(g => g.id !== guest.id);
             setSelectedGuests(updatedGuests);
             setOffer(prev => ({
@@ -426,7 +450,6 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
                 guest_ids: updatedGuests.map(g => g.id)
             }));
         } else {
-            // Add guest
             const updatedGuests = [...selectedGuests, guest];
             setSelectedGuests(updatedGuests);
             setOffer(prev => ({
@@ -460,6 +483,22 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
         if (!isValid) {
             toast.error('Please fix all validation errors');
             setFieldErrors(errors);
+            return;
+        }
+
+        // ✅ ADD: client-side capacity guard
+        if (courseCapacity.at_capacity) {
+            toast.error(`This course has reached its maximum number of offers (${courseCapacity.max_offers}). No further offers can be created.`);
+            return;
+        }
+        if (
+            isAddMode &&
+            courseCapacity.offers_remaining !== null &&
+            selectedGuests.length > courseCapacity.offers_remaining
+        ) {
+            toast.error(
+                `Only ${courseCapacity.offers_remaining} offer slot${courseCapacity.offers_remaining === 1 ? '' : 's'} remaining. You selected ${selectedGuests.length} guests.`
+            );
             return;
         }
 
@@ -498,7 +537,6 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
                     });
                 }
             } else {
-                // Edit mode
                 const method = isEditMode ? 'PUT' : 'POST';
                 const url = isEditMode ? `/api/courses/offers/${offerId}` : '/api/courses/offers';
                 
@@ -507,7 +545,7 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
                     guest_id: offer.guest_id,
                     notes: offer.notes || null,
                     offered_by: getOfferedByUserId(),
-                    timing_text: offer.timing_text || null  // ← ADD THIS
+                    timing_text: offer.timing_text || null
                 };
 
                 if (isEditMode) {
@@ -588,7 +626,6 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
         return statusConfig[offer.status] || { type: 'warning', label: 'Offered' };
     };
 
-    // Prepare course cards for HorizontalCardSelection
     const getCourseCards = () => {
         return courses
             .filter(course => course.status === 'active')
@@ -621,36 +658,29 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
             });
     };
 
-    // Filter out already selected guests from display
     const availableGuests = useMemo(() => {
         if (!isAddMode) return guests;
         const selectedIds = selectedGuests.map(g => g.id);
         return guests.filter(guest => !selectedIds.includes(guest.id));
     }, [guests, selectedGuests, isAddMode]);
 
-    // Get the display name for offered by (for UI display)
     const getOfferedByDisplayName = () => {
         if (offer.offeredByUser) {
             return `${offer.offeredByUser.first_name} ${offer.offeredByUser.last_name}`;
         }
-        // Fallback - if we only have the ID, show that
         return offer.offered_by || '';
     };
 
-    // Get the user ID for offered by (for saving to database)
     const getOfferedByUserId = () => {
         if (offer.offeredByUser && offer.offeredByUser.id) {
             return offer.offeredByUser.id;
         }
-        // If offer.offered_by is already a number (user ID), return it
         if (typeof offer.offered_by === 'number') {
             return offer.offered_by;
         }
-        // If it's a string that looks like a number, parse it
         if (typeof offer.offered_by === 'string' && !isNaN(offer.offered_by)) {
             return parseInt(offer.offered_by);
         }
-        // Fallback to current user ID if available
         if (user && user.id) {
             return user.id;
         }
@@ -665,14 +695,13 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
         );
     }
 
-    // View Mode (keeping original view mode code)
+    // View Mode
     if (isViewMode) {
         const bookingStatus = getBookingStatus();
         const offerStatus = getOfferStatus();
 
         return (
             <div className="min-h-screen bg-gray-50">
-                {/* Header */}
                 <div className="bg-white border-b px-6 py-4">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-2 text-sm text-gray-600">
@@ -703,11 +732,9 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
                     </div>
                 </div>
 
-                {/* Main Content - keeping the same view mode layout */}
                 <div className="p-6">
                     <div className="max-w-7xl mx-auto">
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                            {/* Left Column - Course Information */}
                             <div className="space-y-6">
                                 <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
                                     <div className="flex items-center space-x-3 mb-4">
@@ -758,6 +785,17 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
                                                 </div>
                                             </div>
 
+                                            {/* ✅ ADD: capacity badge in view mode */}
+                                            <div className="pt-4 border-t border-gray-200">
+                                                <span className="text-sm font-medium text-gray-500 block mb-2">Offer Capacity</span>
+                                                <CourseOfferCapacityBadge
+                                                    maxOffers={courseCapacity.max_offers}
+                                                    offerCount={courseCapacity.offer_count}
+                                                    offersRemaining={courseCapacity.offers_remaining}
+                                                    atCapacity={courseCapacity.at_capacity}
+                                                />
+                                            </div>
+
                                             {bookingStatus && (
                                                 <div className={`flex items-center space-x-2 pt-4 border-t border-gray-200 ${bookingStatus.color}`}>
                                                     <Info className="w-4 h-4" />
@@ -776,9 +814,7 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
                                 </div>
                             </div>
 
-                            {/* Right Column - Guest & Offer Information */}
                             <div className="space-y-6">
-                                {/* Guest Information */}
                                 <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
                                     <div className="flex items-center space-x-3 mb-4">
                                         <div className="p-2 bg-green-100 rounded-lg">
@@ -811,7 +847,6 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
                                     )}
                                 </div>
 
-                                {/* Offer Details */}
                                 <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
                                     <h2 className="text-xl font-semibold text-gray-900 mb-4">Offer Details</h2>
                                     
@@ -846,7 +881,6 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
                                             </p>
                                         </div>
 
-                                        {/* Status Information */}
                                         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mt-4">
                                             <div className="flex items-start space-x-2">
                                                 <Info className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
@@ -866,10 +900,9 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
         );
     }
 
-    // Edit/Add Mode with status as read-only
+    // Edit/Add Mode
     return (
         <div className="min-h-screen bg-gray-50">
-            {/* Header */}
             <div className="bg-white border-b px-6 py-4">
                 <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-2 text-sm text-gray-600">
@@ -905,7 +938,8 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
                                 'SAVE OFFER'
                             }
                             onClick={handleSave}
-                            disabled={isSaving || (isAddMode && selectedGuests.length === 0)}
+                            // ✅ ADD: also disable when at capacity
+                            disabled={isSaving || (isAddMode && selectedGuests.length === 0) || courseCapacity.at_capacity}
                         />
                     </div>
                 </div>
@@ -924,6 +958,18 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
                                 You have selected {selectedGuests.length} guests. Creating offers for many guests may take longer than usual.
                             </p>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ✅ ADD: At-capacity banner */}
+            {courseCapacity.at_capacity && (
+                <div className="bg-red-50 border-l-4 border-red-400 p-4 mx-6 mt-4">
+                    <div className="flex items-center">
+                        <AlertTriangle className="w-5 h-5 text-red-500 mr-3 flex-shrink-0" />
+                        <p className="text-sm font-medium text-red-800">
+                            This course has reached its maximum of {courseCapacity.max_offers} offer{courseCapacity.max_offers === 1 ? '' : 's'}. No further offers can be created.
+                        </p>
                     </div>
                 </div>
             )}
@@ -950,7 +996,6 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
                 </div>
             )}
 
-            {/* Form Content */}
             <div className="p-6">
                 <div className="max-w-7xl mx-auto">
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -959,7 +1004,6 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
                             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
                                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Select Course</h3>
                                 
-                                {/* Course selection is enabled for both add and edit modes */}
                                 <div>
                                     <HorizontalCardSelection 
                                         items={getCourseCards()} 
@@ -972,12 +1016,23 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
                                         <p className="text-red-600 text-sm mt-2">{fieldErrors.course_id}</p>
                                     )}
                                 </div>
+
+                                {/* ✅ ADD: capacity badge below course selector */}
+                                {offer.course_id && (
+                                    <div className="mt-4 pt-4 border-t border-gray-100">
+                                        <CourseOfferCapacityBadge
+                                            maxOffers={courseCapacity.max_offers}
+                                            offerCount={courseCapacity.offer_count}
+                                            offersRemaining={courseCapacity.offers_remaining}
+                                            atCapacity={courseCapacity.at_capacity}
+                                        />
+                                    </div>
+                                )}
                             </div>
                         </div>
 
                         {/* Right Column - Guest Selection & Details */}
                         <div className="space-y-6">
-                            {/* Guest Selection */}
                             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
                                 <div className="flex items-center justify-between mb-4">
                                     <h3 className="text-lg font-semibold text-gray-900">
@@ -1032,7 +1087,6 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
                                             )}
                                         </div>
 
-                                        {/* Selected Guests Display for Add Mode */}
                                         {isAddMode && selectedGuests.length > 0 && (
                                             <div className="mb-4">
                                                 <p className="text-sm font-medium text-gray-700 mb-2">Selected Guests:</p>
@@ -1060,7 +1114,6 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
                                             </div>
                                         )}
 
-                                        {/* Guest List with Pagination */}
                                         <div className="border border-gray-200 rounded-lg">
                                             <div className="max-h-80 overflow-y-auto">
                                                 {availableGuests.length === 0 && !guestsLoading ? (
@@ -1104,7 +1157,6 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
                                                             );
                                                         })}
                                                         
-                                                        {/* Load More Button */}
                                                         {guestsPagination.hasMore && (
                                                             <div className="p-4 border-t border-gray-200">
                                                                 <Button
@@ -1129,7 +1181,6 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
                                             </div>
                                         </div>
 
-                                        {/* Pagination Info */}
                                         <div className="text-sm text-gray-500 mt-2 text-center">
                                             Showing {availableGuests.length} of {guestsPagination.total} guests
                                             {guestSearchTerm && ` matching "${guestSearchTerm}"`}
@@ -1150,7 +1201,6 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
                                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Offer Details</h3>
                                 
                                 <div className="space-y-4">
-                                    {/* Notes field */}
                                     <div>
                                         <TextField
                                             label="Notes (Optional)"
@@ -1169,7 +1219,6 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
                                         </p>
                                     </div>
 
-                                    {/* Timing Text Field */}
                                     <div>
                                         <TimingTextInput
                                             label="Timing Display Text"
@@ -1180,7 +1229,6 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
                                         />
                                     </div>
 
-                                    {/* Status display in edit/view mode (read-only) */}
                                     {(isEditMode || isViewMode) && (
                                         <div>
                                             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -1202,7 +1250,6 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
                                         </div>
                                     )}
 
-                                    {/* Offered By field - read-only display with hidden ID storage */}
                                     <div>
                                         <TextField
                                             label="Offered By"
@@ -1225,7 +1272,6 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
                                     </div>
                                 </div>
 
-                                {/* Info Section */}
                                 {selectedCourse && (
                                     <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
                                         <div className="flex items-start space-x-2">

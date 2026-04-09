@@ -8,6 +8,14 @@ import moment from "moment";
 import { getFunder } from "../../../utilities/common";
 import AuditLogService from "../../../services/AuditLogService";
 
+// ── ADDED: safely convert any value to a display string for audit descriptions ──
+// Prevents "[object Object]" when answers are objects (e.g. care-table, service-cards)
+const toDisplay = (val) => {
+  if (val === null || val === undefined) return 'N/A';
+  if (typeof val === 'object') return JSON.stringify(val);
+  return String(val);
+};
+
 export default async function handler(req, res) {
     if (req.method !== "POST") {
         return res.status(405).json({ success: false, error: "Method not allowed" });
@@ -154,7 +162,7 @@ export default async function handler(req, res) {
                                 guestId: null,
                                 actionType: 'admin_note_added',
                                 userType: 'admin',
-                                description: `${record.question}: ~~${record.oldAnswer || 'N/A'}~~ → ${record.answer}`,
+                                description: `${record.question}: ~~${toDisplay(record.oldAnswer)}~~ → ${toDisplay(record.answer)}`,
                                 oldValue: { 
                                     question: record.question,
                                     answer: record.oldAnswer,
@@ -553,7 +561,8 @@ const updateBooking = async (booking, qa_pairs = [], flags, bookingService) => {
                                     guestId: isAdminOrigin ? null : flags.currentUserId,
                                     actionType: isAdminOrigin ? 'admin_note_added' : 'amendment_submitted',
                                     userType: userType,
-                                    description: `${qaPair.question}: ~~${qaPair.oldAnswer || 'N/A'}~~ → ${qaPair.answer}`,
+                                    // ── CHANGED: use toDisplay() to prevent [object Object] ──
+                                    description: `${qaPair.question}: ~~${toDisplay(qaPair.oldAnswer)}~~ → ${toDisplay(qaPair.answer)}`,
                                     oldValue: { 
                                         question: qaPair.question,
                                         answer: qaPair.oldAnswer,

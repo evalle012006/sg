@@ -25,6 +25,7 @@ export default async function handler(req, res) {
       duration_hours,
       image_filename,
       status,
+      max_offers, 
       recalculate_prices = true // Option to skip price recalculation
     } = req.body;
 
@@ -52,6 +53,17 @@ export default async function handler(req, res) {
         error: 'Validation error',
         message: 'All date fields must be valid dates in YYYY-MM-DD format'
       });
+    }
+
+    // ✅ ADD: validate max_offers if provided
+    if (max_offers !== undefined && max_offers !== null) {
+      const parsed = Number(max_offers);
+      if (!Number.isInteger(parsed) || parsed < 1) {
+        return res.status(400).json({
+          error: 'Validation error',
+          message: 'max_offers must be a whole number greater than 0'
+        });
+      }
     }
 
     // Use moment for date comparisons
@@ -103,7 +115,11 @@ export default async function handler(req, res) {
       min_end_date: min_end_date,
       duration_hours: duration_hours?.trim() || null,
       image_filename: image_filename?.trim() || null,
-      status: status || 'pending'
+      status: status || 'pending',
+      // ✅ ADD: persist max_offers — coerce to int or null
+      max_offers: (max_offers !== undefined && max_offers !== null && max_offers !== '')
+        ? parseInt(max_offers, 10)
+        : null,
     };
 
     // Calculate pricing if requested, otherwise use prices from request body

@@ -14,8 +14,23 @@ export default async function handler(req, res) {
 
     try {
         if (req.method === 'GET') {
-            // GET logic - exclude soft-deleted courses
-            const course = await Course.findByPk(id);
+            const course = await Course.findOne({
+                where: { id },
+                include: [
+                    {
+                        model: CourseOffer,
+                        as: 'offers',
+                        required: false,
+                        include: [
+                            {
+                                model: Guest,
+                                as: 'guest',
+                                attributes: ['id', 'uuid', 'first_name', 'last_name', 'email']
+                            }
+                        ]
+                    }
+                ]
+            });
             
             if (!course || course.deleted_at) {
                 return res.status(404).json({
@@ -24,7 +39,7 @@ export default async function handler(req, res) {
                 });
             }
 
-            let courseData = { ...course.dataValues };
+            let courseData = { ...course.toJSON() };
             
             if (course.image_filename) {
                 try {
@@ -42,10 +57,9 @@ export default async function handler(req, res) {
         }
 
         if (req.method === 'DELETE') {
-            // ✅ SIMPLIFIED SOFT DELETE - Only check course offers
             const course = await Course.findOne({
                 where: { id },
-                paranoid: false, // Include soft-deleted records
+                paranoid: false,
                 include: [{
                     model: CourseOffer,
                     as: 'offers',
@@ -70,19 +84,16 @@ export default async function handler(req, res) {
                 });
             }
 
-            // ✅ CHECK: Active course offers
             const activeOffers = course.offers?.filter(offer => 
                 ['offered', 'accepted'].includes(offer.status) &&
                 !offer.deleted_at
             ) || [];
 
-            // ✅ CHECK: Course offers linked to bookings
             const linkedOffers = course.offers?.filter(offer => 
                 offer.booking_id !== null &&
                 !offer.deleted_at
             ) || [];
 
-            // If there are active or linked offers, warn about deletion
             if (activeOffers.length > 0 || linkedOffers.length > 0) {
                 const affectedGuests = new Map();
                 
@@ -109,7 +120,6 @@ export default async function handler(req, res) {
                 });
             }
 
-            // ✅ PERFORM SOFT DELETE
             await course.update({ 
                 deleted_at: new Date(),
                 status: 'deleted'

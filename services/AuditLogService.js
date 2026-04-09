@@ -71,15 +71,15 @@ class AuditLogService {
       } = options;
 
       const where = { booking_id: bookingId };
-      
+
       if (actionType) {
         where.action_type = actionType;
       }
-      
+
       if (category) {
         where.category = category;
       }
-      
+
       if (!includeInternal) {
         where.is_internal_note = false;
       }
@@ -92,11 +92,11 @@ class AuditLogService {
         where,
         include: [
           {
-            association: 'user',  // ✅ FIXED: lowercase 'user'
+            association: 'user',
             attributes: ['id', 'first_name', 'last_name', 'email']
           },
           {
-            association: 'guest',  // ✅ FIXED: lowercase 'guest'
+            association: 'guest',
             attributes: ['id', 'first_name', 'last_name', 'email']
           }
         ],
@@ -105,7 +105,34 @@ class AuditLogService {
         offset
       });
 
-      return logs;
+      // Build actor from the correct source:
+      // - If user (admin) is present, use that — admin actions were being
+      //   labelled as "guest" because guest data was used regardless.
+      // - Fall back to guest, then system.
+      return logs.map(log => {
+        const plain = log.toJSON();
+
+        if (plain.user) {
+          plain.actor = {
+            name: `${plain.user.first_name} ${plain.user.last_name}`,
+            email: plain.user.email,
+            type: 'admin'
+          };
+          plain.user_type = 'admin';
+        } else if (plain.guest) {
+          plain.actor = {
+            name: `${plain.guest.first_name} ${plain.guest.last_name}`,
+            email: plain.guest.email,
+            type: 'guest'
+          };
+          plain.user_type = 'guest';
+        } else {
+          plain.actor = { name: 'System', type: 'system' };
+          plain.user_type = 'system';
+        }
+
+        return plain;
+      });
     } catch (error) {
       console.error('Error fetching audit logs:', error);
       throw error;

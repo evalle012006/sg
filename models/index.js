@@ -45,6 +45,7 @@ const emailTriggerQuestionModel = require('./emailtriggerquestion');
 const bookingApprovalUsageModel = require('./bookingapprovalusage');
 const fundingApprovalModel = require('./fundingapproval');
 const courseEOIModel = require('./courseeoi');
+const guestFundingProfileModel = require('./guestfundingprofile');
 
 const env = process.env.NODE_ENV || 'development';
 const config = require(__dirname + '/../config/config.js')[env];
@@ -100,6 +101,7 @@ const EmailTriggerQuestion = emailTriggerQuestionModel(sequelize, Sequelize.Data
 const BookingApprovalUsage = bookingApprovalUsageModel(sequelize, Sequelize.DataTypes);
 const FundingApproval = fundingApprovalModel(sequelize, Sequelize.DataTypes);
 const CourseEOI = courseEOIModel(sequelize, Sequelize.DataTypes);
+const GuestFundingProfile = guestFundingProfileModel(sequelize, Sequelize.DataTypes);
 
 //ASSOCIATIONS
 
@@ -436,6 +438,26 @@ BookingAuditLog.belongsTo(Guest, {
   as: 'guest'
 });
 
+Guest.hasMany(GuestFundingProfile, {
+  foreignKey: 'guest_id',
+  as: 'fundingProfiles'
+});
+
+Booking.hasOne(GuestFundingProfile, {
+  foreignKey: 'source_booking_id',
+  as: 'fundingProfile'
+});
+
+GuestFundingProfile.belongsTo(Guest, { 
+  foreignKey: 'guest_id', 
+  as: 'guest' 
+});
+
+GuestFundingProfile.belongsTo(Booking, { 
+  foreignKey: 'source_booking_id', 
+  as: 'sourceBooking' 
+});
+
 module.exports = {
   sequelize,
   Sequelize,
@@ -483,4 +505,5 @@ module.exports = {
   BookingApprovalUsage,
   FundingApproval,
   CourseEOI,
+  GuestFundingProfile,
 };

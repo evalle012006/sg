@@ -77,7 +77,9 @@ export function calculateCareHours(careData) {
     
     // Convert duration to hours
     const hours = parseDurationToHours(durationToUse);
-    dailyCare[date][care] = hours;
+    // ── FIX: use += to correctly accumulate multiple entries per period+date
+    // (e.g. two morning sessions on the same day from additional care lines)
+    dailyCare[date][care] = (dailyCare[date][care] || 0) + hours;
     dailyCare[date].total += hours;
   });
 

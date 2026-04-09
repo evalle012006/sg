@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState, useRef } from "react";
+import React, { useCallback, useEffect, useState, useRef, useMemo } from "react";
 
 const TIME_OPTIONS = {
   morning: ['6:30 am', '7:30 am', '8:30 am', '9:30 am', '10:30 am', '11:30 am'],
@@ -28,6 +28,20 @@ const DURATION_OPTIONS = [
   '5.5 hours',
   '6 hours'
 ];
+
+// ── NEW: constants for additional lines ──────────────────────────────────────
+const PERIOD_OPTIONS = [
+  { value: 'morning', label: 'Morning' },
+  { value: 'afternoon', label: 'Afternoon' },
+  { value: 'evening', label: 'Evening' },
+];
+
+const ADDITIONAL_LINE_TIME_OPTIONS = {
+  morning: TIME_OPTIONS.morning,
+  afternoon: TIME_OPTIONS.afternoon,
+  evening: TIME_OPTIONS.evening,
+};
+// ────────────────────────────────────────────────────────────────────────────
 
 /**
  * Format a Date object to YYYY-MM-DD string WITHOUT timezone conversion
@@ -178,7 +192,13 @@ const generateDateRange = (startDate, endDate) => {
   return dates;
 };
 
-const transformDataForSaving = (tableData, defaultValues = null, careVaries = false, dates = []) => {
+// ── NEW: stable ID generator for additional lines ────────────────────────────
+const generateAdditionalLineId = () => {
+  return `al_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+};
+// ────────────────────────────────────────────────────────────────────────────
+
+const transformDataForSaving = (tableData, defaultValues = null, careVaries = false, dates = [], additionalLines = []) => {
   const result = {
     careData: [],
     defaultValues: defaultValues || {
@@ -230,6 +250,22 @@ const transformDataForSaving = (tableData, defaultValues = null, careVaries = fa
         }
       });
     });
+
+    // ── NEW: append additional lines even in fallback path ───────────────────
+    if (additionalLines && additionalLines.length > 0) {
+      additionalLines.forEach(line => {
+        if (!line.date || !line.period || !line.carers) return;
+        result.careData.push({
+          care: line.period,
+          date: line.date,
+          values: { carers: line.carers, time: line.time || '', duration: line.duration || '' },
+          isAdditional: true,
+          additionalId: line.id,
+        });
+      });
+    }
+    // ────────────────────────────────────────────────────────────────────────
+
     return result;
   }
   
@@ -312,6 +348,21 @@ const transformDataForSaving = (tableData, defaultValues = null, careVaries = fa
       }
     });
   });
+
+  // ── NEW: append additional lines ─────────────────────────────────────────
+  if (additionalLines && additionalLines.length > 0) {
+    additionalLines.forEach(line => {
+      if (!line.date || !line.period || !line.carers) return; // skip incomplete rows
+      result.careData.push({
+        care: line.period,
+        date: line.date,
+        values: { carers: line.carers, time: line.time || '', duration: line.duration || '' },
+        isAdditional: true,
+        additionalId: line.id,
+      });
+    });
+  }
+  // ────────────────────────────────────────────────────────────────────────
   
   console.log('💾 Saving care data structure:', {
     careDataLength: result.careData.length,
@@ -321,7 +372,8 @@ const transformDataForSaving = (tableData, defaultValues = null, careVaries = fa
     lastEntry: result.careData[result.careData.length - 1] || null,
     checkInDate: firstDateStr,
     checkOutDate: lastDateStr,
-    isSameDayStay: isSameDayCheckInOut
+    isSameDayStay: isSameDayCheckInOut,
+    additionalLinesCount: additionalLines?.length || 0,
   });
   
   return result;
@@ -331,6 +383,9 @@ const convertValueToTableData = (value = []) => {
   const tableData = {};
   let extractedDefaults = null;
   let extractedCareVaries = null;
+  // ── NEW ──────────────────────────────────────────────────────────────────
+  let extractedAdditionalLines = [];
+  // ────────────────────────────────────────────────────────────────────────
   
   // ========== FIX: Parse JSON string if needed ==========
   let parsedValue = value;
@@ -359,10 +414,24 @@ const convertValueToTableData = (value = []) => {
   }
   
   if (!Array.isArray(dataArray) || dataArray.length === 0) {
-    return { tableData, extractedDefaults, extractedCareVaries };
+    return { tableData, extractedDefaults, extractedCareVaries, additionalLines: extractedAdditionalLines };
   }
+
+  // ── NEW: separate standard entries from additional lines ─────────────────
+  const standardEntries = dataArray.filter(entry => !entry.isAdditional);
+  extractedAdditionalLines = dataArray
+    .filter(entry => entry.isAdditional)
+    .map(entry => ({
+      id: entry.additionalId || generateAdditionalLineId(),
+      date: entry.date,           // stored as DD/MM/YYYY
+      period: entry.care,
+      carers: entry.values?.carers || '',
+      time: entry.values?.time || '',
+      duration: entry.values?.duration || '',
+    }));
+  // ────────────────────────────────────────────────────────────────────────
   
-  dataArray.forEach(item => {
+  standardEntries.forEach(item => {
     if (!item.date || !item.care || !item.values) return;
     
     let dateString;
@@ -397,7 +466,7 @@ const convertValueToTableData = (value = []) => {
     };
   });
   
-  return { tableData, extractedDefaults, extractedCareVaries };
+  return { tableData, extractedDefaults, extractedCareVaries, additionalLines: extractedAdditionalLines };
 };
 
 const hasAnyValues = (tableData) => {
@@ -650,6 +719,78 @@ const detectDateMismatch = (existingData = [], currentStartDate, currentEndDate)
   return { hasMismatch: false, details: null };
 };
 
+// ── NEW: AdditionalLineRow sub-component ─────────────────────────────────────
+function AdditionalLineRow({ line, dateOptions, onChange, onRemove }) {
+  const timeOptions = ADDITIONAL_LINE_TIME_OPTIONS[line.period] || [];
+  const selectClass = 'w-full border rounded p-1.5 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-blue-400';
+
+  return (
+    <tr>
+      {/* Date */}
+      <td className="border p-1.5">
+        <select value={line.date} onChange={e => onChange(line.id, 'date', e.target.value)} className={selectClass}>
+          <option value="">Select date</option>
+          {dateOptions.map(opt => (
+            <option key={opt.value} value={opt.value}>{opt.label}</option>
+          ))}
+        </select>
+      </td>
+
+      {/* Period */}
+      <td className="border p-1.5">
+        <select value={line.period} onChange={e => onChange(line.id, 'period', e.target.value)} className={selectClass}>
+          {PERIOD_OPTIONS.map(opt => (
+            <option key={opt.value} value={opt.value}>{opt.label}</option>
+          ))}
+        </select>
+      </td>
+
+      {/* Carers */}
+      <td className="border p-1.5">
+        <select value={line.carers} onChange={e => onChange(line.id, 'carers', e.target.value)} className={selectClass}>
+          <option value="">Select</option>
+          {CARER_OPTIONS.map(opt => (
+            <option key={opt} value={opt}>{opt}</option>
+          ))}
+        </select>
+      </td>
+
+      {/* Time */}
+      <td className="border p-1.5">
+        <select value={line.time} onChange={e => onChange(line.id, 'time', e.target.value)} className={selectClass}>
+          <option value="">Select time</option>
+          {timeOptions.map(opt => (
+            <option key={opt} value={opt}>{opt}</option>
+          ))}
+        </select>
+      </td>
+
+      {/* Duration */}
+      <td className="border p-1.5">
+        <select value={line.duration} onChange={e => onChange(line.id, 'duration', e.target.value)} className={selectClass}>
+          <option value="">Select</option>
+          {DURATION_OPTIONS.map(opt => (
+            <option key={opt} value={opt}>{opt}</option>
+          ))}
+        </select>
+      </td>
+
+      {/* Remove */}
+      <td className="border p-1.5 text-center">
+        <button
+          type="button"
+          onClick={() => onRemove(line.id)}
+          className="text-red-400 hover:text-red-600 font-bold text-base leading-none transition-colors"
+          title="Remove this line"
+        >
+          ✕
+        </button>
+      </td>
+    </tr>
+  );
+}
+// ────────────────────────────────────────────────────────────────────────────
+
 export default function CareTable({ 
   value = [], 
   onChange, 
@@ -682,6 +823,9 @@ export default function CareTable({
   const [validationErrors, setValidationErrors] = useState(null);
   const [hasValues, setHasValues] = useState(false);
   const [debug, setDebug] = useState({ attempted: false, error: null });
+  // ── NEW ──────────────────────────────────────────────────────────────────
+  const [additionalLines, setAdditionalLines] = useState([]);
+  // ────────────────────────────────────────────────────────────────────────
   
   const isInitialMount = useRef(true);
   const valueRef = useRef(value);
@@ -697,6 +841,18 @@ export default function CareTable({
   
   const [dateMismatch, setDateMismatch] = useState(null);
   const notificationSentRef = useRef(false);
+
+  // ── NEW: formatted date options for additional line date picker ──────────
+  const additionalLineDateOptions = useMemo(() => {
+    return dates.map(date => {
+      const formatted = formatDateLocal(date); // YYYY-MM-DD
+      if (!formatted) return null;
+      const [year, month, day] = formatted.split('-');
+      const ddmmyyyy = `${day}/${month}/${year}`;
+      return { value: ddmmyyyy, label: ddmmyyyy };
+    }).filter(Boolean);
+  }, [dates]);
+  // ────────────────────────────────────────────────────────────────────────
   
   useEffect(() => {
     if (startDate && endDate && !dateInitializedRef.current) {
@@ -743,7 +899,7 @@ export default function CareTable({
       
       if (isInitialMount.current) {
         // Use parsedValue instead of value!
-        const { tableData: existingData, extractedDefaults, extractedCareVaries } = convertValueToTableData(parsedValue);
+        const { tableData: existingData, extractedDefaults, extractedCareVaries, additionalLines: loadedAdditionalLines } = convertValueToTableData(parsedValue);
         
         // Always set defaults if we have them (for prefill scenarios)
         if (extractedDefaults) {
@@ -759,6 +915,12 @@ export default function CareTable({
             setShowDetailedTable(true);
           }
         }
+
+        // ── NEW: restore additional lines ──────────────────────────────────
+        if (loadedAdditionalLines && loadedAdditionalLines.length > 0) {
+          setAdditionalLines(loadedAdditionalLines);
+        }
+        // ──────────────────────────────────────────────────────────────────
         
         // ========== PREFILL FIX ==========
         const hasPrefilledDefaults = extractedDefaults && hasAnyDefaultValues(extractedDefaults);
@@ -802,7 +964,8 @@ export default function CareTable({
             evening: { carers: '', time: '', duration: '' }
           }, 
           extractedCareVaries,
-          dates
+          dates,
+          loadedAdditionalLines || []
         );
         lastSentDataRef.current = JSON.stringify(initialTransformed);
       }
@@ -822,7 +985,7 @@ export default function CareTable({
     valueRef.current = value;
     
     if (dates.length > 0 && value) {
-      const { tableData: existingData, extractedDefaults, extractedCareVaries } = convertValueToTableData(value);
+      const { tableData: existingData, extractedDefaults, extractedCareVaries, additionalLines: loadedAdditionalLines } = convertValueToTableData(value);
       
       if (extractedDefaults && JSON.stringify(extractedDefaults) !== JSON.stringify(savedDefaultsRef.current)) {
         setDefaultValues(extractedDefaults);
@@ -836,6 +999,12 @@ export default function CareTable({
           setShowDetailedTable(true);
         }
       }
+
+      // ── NEW: sync additional lines if they changed ──────────────────────
+      if (loadedAdditionalLines && JSON.stringify(loadedAdditionalLines) !== JSON.stringify(additionalLines)) {
+        setAdditionalLines(loadedAdditionalLines);
+      }
+      // ────────────────────────────────────────────────────────────────────
       
       if (Array.isArray(existingData.careData) ? existingData.careData.length > 0 : Object.keys(existingData).length > 0) {
         setTableData(prev => {
@@ -881,7 +1050,8 @@ export default function CareTable({
           existingData,
           extractedDefaults || defaultValues,
           extractedCareVaries ?? careVaries,
-          dates
+          dates,
+          loadedAdditionalLines || additionalLines
         );
         lastSentDataRef.current = JSON.stringify(incomingTransformed);
       }
@@ -912,7 +1082,7 @@ export default function CareTable({
           userHasInteractedRef.current = true;
           
           // Extract and set the data
-          const { tableData: existingData, extractedDefaults, extractedCareVaries } = 
+          const { tableData: existingData, extractedDefaults, extractedCareVaries, additionalLines: loadedAdditionalLines } = 
               convertValueToTableData(newParsedValue);
           
           if (extractedDefaults) {
@@ -929,6 +1099,12 @@ export default function CareTable({
                   setShowDetailedTable(true);
               }
           }
+
+          // ── NEW: restore additional lines from prefilled data ────────────
+          if (loadedAdditionalLines && loadedAdditionalLines.length > 0) {
+              setAdditionalLines(loadedAdditionalLines);
+          }
+          // ──────────────────────────────────────────────────────────────────
           
           // Merge prefilled data into tableData
           if (Object.keys(existingData).length > 0) {
@@ -995,7 +1171,7 @@ export default function CareTable({
       }
       
       autoSaveTimeoutRef.current = setTimeout(() => {
-          const transformedData = transformDataForSaving(tableData, defaultValues, careVaries, dates);
+          const transformedData = transformDataForSaving(tableData, defaultValues, careVaries, dates, additionalLines);
           const transformedString = JSON.stringify(transformedData);
           
           if (transformedString === lastSentDataRef.current) {
@@ -1022,7 +1198,8 @@ export default function CareTable({
           console.log('🔄 CareTable: Auto-saving changes', { 
               hasErrors,
               hasPrefilledData,
-              userInteracted: userHasInteractedRef.current 
+              userInteracted: userHasInteractedRef.current,
+              additionalLinesCount: additionalLines.length,
           });
           
           onChange(transformedData, hasErrors);
@@ -1039,7 +1216,7 @@ export default function CareTable({
               clearTimeout(autoSaveTimeoutRef.current);
           }
       };
-  }, [tableData, defaultValues, careVaries, onChange, required, dates]);
+  }, [tableData, defaultValues, careVaries, additionalLines, onChange, required, dates]);
 
   useEffect(() => {
     if (parsedValue && stayDates?.checkInDate && stayDates?.checkOutDate) {
@@ -1057,10 +1234,6 @@ export default function CareTable({
       
       if (JSON.stringify(newMismatch) !== JSON.stringify(dateMismatch)) {
         setDateMismatch(newMismatch);
-        // ✅ REMOVED: inline onChange({ careData: [], defaultValues, careVaries: null }, true)
-        // The mismatch banner already instructs the user to re-enter their schedule.
-        // The debounced auto-save will notify the parent once the user fills in new data.
-        // Calling onChange here with empty state was overwriting real saved data.
       }
     }
   }, [parsedValue, stayDates?.checkInDate, stayDates?.checkOutDate, dateMismatch]);
@@ -1076,11 +1249,6 @@ export default function CareTable({
   }, [value, stayDates?.checkInDate, stayDates?.checkOutDate]);
 
   useEffect(() => {
-    // ✅ REMOVED: inline onChange({ careData: [], defaultValues, careVaries: null }, true)
-    // Previously this fired unconditionally whenever dateMismatch became truthy,
-    // wiping out any real saved data. The mismatch UI already tells the user to
-    // re-enter their schedule; the auto-save effect handles notifying the parent
-    // once they do. We only need to reset notificationSentRef here.
     if (!dateMismatch && notificationSentRef.current) {
       notificationSentRef.current = false;
     }
@@ -1243,12 +1411,36 @@ export default function CareTable({
         });
         setShowDetailedTable(false);
     }
-    // ✅ REMOVED: immediate inline onChange call.
-    // Setting careVaries state here will trigger the debounced auto-save effect,
-    // which already has the isEmptyState guard and deduplication check.
-    // The old inline call was firing with stale closure values (tableData/defaultValues
-    // from before the setTableData above had settled), risking saving empty data.
   }, [defaultValues]);
+
+  // ── NEW: additional lines handlers ───────────────────────────────────────
+  const handleAddAdditionalLine = useCallback(() => {
+    userHasInteractedRef.current = true;
+    const firstDate = additionalLineDateOptions.length > 0 ? additionalLineDateOptions[0].value : '';
+    setAdditionalLines(prev => [
+      ...prev,
+      { id: generateAdditionalLineId(), date: firstDate, period: 'morning', carers: '', time: '', duration: '' },
+    ]);
+  }, [additionalLineDateOptions]);
+
+  const handleAdditionalLineChange = useCallback((id, field, value) => {
+    userHasInteractedRef.current = true;
+    setAdditionalLines(prev =>
+      prev.map(line => {
+        if (line.id !== id) return line;
+        const updated = { ...line, [field]: value };
+        // Reset time when period changes (time options are period-specific)
+        if (field === 'period') updated.time = '';
+        return updated;
+      })
+    );
+  }, []);
+
+  const handleRemoveAdditionalLine = useCallback((id) => {
+    userHasInteractedRef.current = true;
+    setAdditionalLines(prev => prev.filter(line => line.id !== id));
+  }, []);
+  // ────────────────────────────────────────────────────────────────────────
 
   const formatDate = (date) => {
     return new Intl.DateTimeFormat('en-AU', {
@@ -1529,6 +1721,59 @@ export default function CareTable({
         </table>
       </div>
 
+      {/* ── NEW: Additional Care Lines section ─────────────────────────────── */}
+      {dates && dates.length > 0 && (
+        <div className="flex flex-col border rounded-lg p-4 bg-white">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h3 className="text-base font-semibold">Additional Care</h3>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Add extra care sessions not covered by the schedule above — e.g. a second morning session at a different time.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleAddAdditionalLine}
+              className="flex items-center gap-1.5 text-sm bg-blue-500 hover:bg-blue-600 text-white py-1.5 px-3 rounded font-medium transition-colors"
+            >
+              <span>+</span>
+              <span>Add line</span>
+            </button>
+          </div>
+
+          {additionalLines.length === 0 ? (
+            <p className="text-sm text-gray-400 italic">No additional care lines added.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-sm">
+                <thead>
+                  <tr className="bg-gray-50">
+                    <th className="border p-2 text-left font-medium text-gray-700">Date</th>
+                    <th className="border p-2 text-left font-medium text-gray-700">Period</th>
+                    <th className="border p-2 text-left font-medium text-gray-700">Carers</th>
+                    <th className="border p-2 text-left font-medium text-gray-700">Time</th>
+                    <th className="border p-2 text-left font-medium text-gray-700">Duration</th>
+                    <th className="border p-2 w-8"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {additionalLines.map(line => (
+                    <AdditionalLineRow
+                      key={line.id}
+                      line={line}
+                      dateOptions={additionalLineDateOptions}
+                      onChange={handleAdditionalLineChange}
+                      onRemove={handleRemoveAdditionalLine}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+      {/* ─────────────────────────────────────────────────────────────────── */}
+
       {/* Question: Does your care vary from day to day? */}
       {hasAnyDefaultValues(defaultValues) && (
         <div className="flex flex-col border rounded-lg p-4 bg-white">
@@ -1567,8 +1812,8 @@ export default function CareTable({
             </p>
           </div>
           
-          <div className="w-full overflow-x-auto">
-            <table className="w-full border-collapse min-w-max">
+          <div className="overflow-x-auto max-w-[calc(100vw-3rem)]">
+            <table className="w-full border-collapse min-w-[600px]">
               <thead>
                 <tr>
                   <th className="border p-1 text-left text-sm sticky left-0 bg-white">Care</th>

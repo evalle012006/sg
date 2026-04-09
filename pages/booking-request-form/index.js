@@ -3354,7 +3354,7 @@ const BookingRequestForm = () => {
     }, 2000);
 
     const getGuestId = useCallback(() => {
-        const isGuestUser = currentUser.type === 'guest';
+        const isGuestUser = currentUser?.type === 'guest';
 
         if (!isGuestUser) {
             // ✅ FIX: Check ref first — set synchronously during template load,

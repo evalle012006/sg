@@ -353,13 +353,14 @@ const ServiceCards = ({
         return (
           <div key={service.value || serviceIndex} className="space-y-4">
             {/* Service Card */}
+            {/* CHANGE 1: removed onClick from card div (buttons are explicit), reduced padding on mobile */}
             <div
-              className={`border-2 rounded-lg p-6 transition-all ${
-                builderMode ? 'cursor-default' : 'cursor-pointer'
+              className={`border-2 rounded-lg p-4 sm:p-6 transition-all ${
+                builderMode ? 'cursor-default' : ''
               } ${getServiceCardClasses(service.value)}`}
-              onClick={() => !builderMode && handleServiceToggle(service.value, !isSelected)}
             >
-              <div className="flex items-start gap-6">
+              {/* CHANGE 2: flex-col on mobile, flex-row on sm+ */}
+              <div className="flex flex-col sm:flex-row items-start gap-4 sm:gap-6">
                 <div className="flex-shrink-0">
                   {builderMode ? (
                     <div className="w-24 h-24">
@@ -421,11 +422,12 @@ const ServiceCards = ({
                       </div>
                     </div>
                   ) : (
-                    <div className="w-24 h-24">
+                    /* CHANGE 3: slightly smaller image on mobile (w-20 h-20), full size on sm+ */
+                    <div className="w-20 h-20 sm:w-24 sm:h-24">
                       <img
                         src={isBroken ? getDefaultImage('service') : currentImageUrl}
                         alt={service.label || 'Service'}
-                        className={`w-24 h-24 object-cover rounded-lg ${
+                        className={`w-full h-full object-cover rounded-lg ${
                           !hasCustomImage || isBroken ? 'opacity-60' : ''
                         }`}
                         onError={(e) => {
@@ -439,8 +441,9 @@ const ServiceCards = ({
                 </div>
                 
                 {/* Content Section */}
-                <div className="flex-1">
-                  <div className="flex items-start justify-between">
+                <div className="flex-1 w-full">
+                  {/* CHANGE 4: on mobile, stack content above buttons; on sm+ keep side-by-side */}
+                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                     <div className="flex-1">
                       {builderMode ? (
                         <>
@@ -495,7 +498,7 @@ const ServiceCards = ({
                     </div>
                     
                     {/* Control Buttons */}
-                    <div className="flex gap-3 ml-4">
+                    <div className="flex gap-2 sm:gap-3 sm:ml-4 flex-shrink-0">
                       {builderMode ? (
                         <button
                           type="button"
@@ -509,9 +512,10 @@ const ServiceCards = ({
                         </button>
                       ) : (
                         <>
+                          {/* flex-1 on mobile so both buttons share equal width; auto on sm+ */}
                           <button
                             type="button"
-                            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${getYesButtonClasses(isSelected, service.value)}`}
+                            className={`flex-1 sm:flex-none px-4 py-2 rounded-md text-sm font-medium transition-colors ${getYesButtonClasses(isSelected, service.value)}`}
                             onClick={(e) => {
                               e.stopPropagation();
                               handleServiceToggle(service.value, true);
@@ -521,7 +525,7 @@ const ServiceCards = ({
                           </button>
                           <button
                             type="button"
-                            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${getNoButtonClasses(isSelected, service.value)}`}
+                            className={`flex-1 sm:flex-none px-4 py-2 rounded-md text-sm font-medium transition-colors ${getNoButtonClasses(isSelected, service.value)}`}
                             onClick={(e) => {
                               e.stopPropagation();
                               handleServiceToggle(service.value, false);
@@ -539,7 +543,8 @@ const ServiceCards = ({
 
             {/* Sub-Options Section */}
             {((isSelected && !builderMode) || builderMode) && service.subOptions && service.subOptions.length > 0 && (
-              <div className={`ml-6 border-l-2 ${builderMode ? 'border-gray-300' : 'border-emerald-300'} pl-6 py-4 ${builderMode ? 'bg-gray-50' : 'bg-emerald-50/50'} rounded-r-lg`}>
+              /* CHANGE 5: tighter left indent on mobile */
+              <div className={`ml-3 sm:ml-6 border-l-2 ${builderMode ? 'border-gray-300' : 'border-emerald-300'} pl-3 sm:pl-6 py-4 ${builderMode ? 'bg-gray-50' : 'bg-emerald-50/50'} rounded-r-lg`}>
                 {builderMode ? (
                   <>
                     <input
@@ -705,7 +710,7 @@ const ServiceCards = ({
   );
 };
 
-// ServiceCardsField Wrapper Component
+// ServiceCardsField Wrapper Component — unchanged
 const ServiceCardsField = ({
   label,
   required,

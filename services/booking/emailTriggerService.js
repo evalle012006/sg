@@ -560,7 +560,7 @@ class EmailTriggerService {
     }
 
     const systemExtras = {
-      logo_base64:   logoBase64,
+      // logo_base64:   logoBase64,
       template_name: trigger.template?.name || '',
       booking_url:   bookingUrl,
       booking_link:  bookingUrl,

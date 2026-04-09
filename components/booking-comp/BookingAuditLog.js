@@ -111,8 +111,20 @@ const BookingAuditLog = ({ bookingUuid, userRole, compact = false, maxEntries = 
     return badges[userType] || badges.system;
   };
 
+  // ── ADDED: truncate long descriptions in compact (sidebar) mode only ──
+  const formatDescription = (description) => {
+    if (!description) return '';
+    if (compact && description.length > 120) {
+      return `${description.substring(0, 120)}…`;
+    }
+    return description;
+  };
+
+  const EMAIL_ACTION_TYPES = ['email_failed', 'email_sent', 'email_queued', 'email_error'];
+  const displayLogs = compact ? logs.filter(log => !EMAIL_ACTION_TYPES.includes(log.action_type)) : logs;
+
   // Group logs by date
-  const groupedLogs = logs.reduce((groups, log) => {
+  const groupedLogs = displayLogs.reduce((groups, log) => {
     const date = moment(log.created_at).format('YYYY-MM-DD');
     if (!groups[date]) {
       groups[date] = [];
@@ -142,7 +154,7 @@ const BookingAuditLog = ({ bookingUuid, userRole, compact = false, maxEntries = 
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 overflow-x-hidden">
       {/* Add Note Button (Admin Only) */}
       {userRole === 'admin' && !showNoteForm && (
         <button
@@ -237,8 +249,9 @@ const BookingAuditLog = ({ bookingUuid, userRole, compact = false, maxEntries = 
                   {/* Content */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-2 mb-1">
-                      <p className="text-sm text-gray-900 leading-tight">
-                        {log.description}
+                      {/* ── CHANGED: use formatDescription() instead of raw log.description ── */}
+                      <p className="text-sm text-gray-900 leading-tight break-words min-w-0">
+                        {formatDescription(log.description)}
                       </p>
                       <span className="flex-shrink-0 text-xs text-gray-500">
                         {moment(log.created_at).format('HH:mm')}
@@ -247,7 +260,7 @@ const BookingAuditLog = ({ bookingUuid, userRole, compact = false, maxEntries = 
                     
                     {/* User Type Badge and Actor */}
                     <div className="flex items-center gap-2 mt-1">
-                      {getUserTypeBadge(log.user_type)}
+                      {getUserTypeBadge(log.actor?.type || log.user_type)}
                       {log.actor && (
                         <span className="text-xs text-gray-600">
                           {log.actor.name}

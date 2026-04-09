@@ -50,24 +50,50 @@ export const calculateDaysBreakdown = async (startDateStr, numberOfNights, inclu
   const startDate = startDateStr.split(' - ')[0].split('/').reverse().join('-');
   const dates = startDateStr.split(' - ');
   const holidays = await getNSWHolidaysV2(dates[0], dates[1]);
-  
-  let breakdown = {
-    weekdays: 0,
-    saturdays: 0,
-    sundays: 0,
-    publicHolidays: holidays.length || 0
-  };
+
+  // ✅ Build a Set of holiday dates, then synthesize NSW substitute weekdays
+  // nager.at returns the actual calendar date of the holiday (e.g. Sat 25 Apr),
+  // but does NOT include NSW's substitute weekday — we derive it ourselves.
+  const holidayDateSet = new Set(holidays.map(h => h.date));
+
+  holidays.forEach(h => {
+    const d = new Date(h.date);
+    const dow = d.getDay();
+    if (dow === 6) {
+      // Saturday PH → substitute is the following Monday
+      const substitute = new Date(d);
+      substitute.setDate(d.getDate() + 2);
+      holidayDateSet.add(toLocalDateStr(substitute));
+    } else if (dow === 0) {
+      // Sunday PH → substitute is the following Monday
+      const substitute = new Date(d);
+      substitute.setDate(d.getDate() + 1);
+      // If Monday is already a PH, push to Tuesday
+      if (holidayDateSet.has(toLocalDateStr(substitute))) {
+        substitute.setDate(substitute.getDate() + 1);
+      }
+      holidayDateSet.add(toLocalDateStr(substitute));
+    }
+  });
+
+  // ✅ All counts start at 0 — nothing pre-set from holidays.length
+  const breakdown = { weekdays: 0, saturdays: 0, sundays: 0, publicHolidays: 0 };
 
   const daysToCount = includeAllDays ? numberOfNights + 1 : numberOfNights;
 
   for (let i = 0; i < daysToCount; i++) {
     const currentDate = new Date(startDate);
     currentDate.setDate(currentDate.getDate() + i);
-    
-    const day = currentDate.getDay();
-    if (day === 6) {
+
+    const dow = currentDate.getDay();
+    const dateStr = toLocalDateStr(currentDate);
+
+    if (holidayDateSet.has(dateStr) && dow !== 0 && dow !== 6) {
+      // Weekday that is a public holiday (real or substitute) → PH rate
+      breakdown.publicHolidays++;
+    } else if (dow === 6) {
       breakdown.saturdays++;
-    } else if (day === 0) {
+    } else if (dow === 0) {
       breakdown.sundays++;
     } else {
       breakdown.weekdays++;
@@ -75,6 +101,14 @@ export const calculateDaysBreakdown = async (startDateStr, numberOfNights, inclu
   }
 
   return breakdown;
+};
+
+// Timezone-safe local date string — avoids UTC shift from toISOString()
+const toLocalDateStr = (date) => {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 };
 
 const parseDurationToHours = (durationStr) => {
@@ -172,13 +206,16 @@ const extractCareAnalysisData = (qaPairs, datesOfStay = null, nights = 0) => {
         careByDateAndPeriod[date] = { morning: 0, afternoon: 0, evening: 0 };
       }
       
+      // ── FIX: use += so multiple entries for the same period+date are summed
+      // (e.g. two morning sessions from additional care lines on the same day)
       if (period === 'morning') {
-        careByDateAndPeriod[date].morning = duration;
+        careByDateAndPeriod[date].morning = (careByDateAndPeriod[date].morning || 0) + duration;
       } else if (period === 'afternoon') {
-        careByDateAndPeriod[date].afternoon = duration;
+        careByDateAndPeriod[date].afternoon = (careByDateAndPeriod[date].afternoon || 0) + duration;
       } else if (period === 'evening') {
-        careByDateAndPeriod[date].evening = duration;
+        careByDateAndPeriod[date].evening = (careByDateAndPeriod[date].evening || 0) + duration;
       }
+      // ── END FIX ─────────────────────────────────────────────────────────
     });
     
     const defaultValues = careData.defaultValues || {};

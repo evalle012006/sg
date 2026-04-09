@@ -40,6 +40,9 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
     const [datesChangedSinceCalculation, setDatesChangedSinceCalculation] = useState(false);
 
     const [immediateErrors, setImmediateErrors] = useState({});
+
+    // Course offers (guests offered this course)
+    const [courseOffers, setCourseOffers] = useState([]);
     
     const [course, setCourse] = useState({
         title: '',
@@ -54,7 +57,9 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
         status: 'pending',
         holiday_price: null,
         sta_price: null,
-        price_calculated_at: null
+        price_calculated_at: null,
+        // ✅ ADD: max_offers field
+        max_offers: '',
     });
 
     const isViewMode = mode === 'view';
@@ -92,7 +97,6 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
     const validateDatesImmediately = useCallback(() => {
         const errors = {};
         
-        // Validate main course dates
         if (course.start_date && course.end_date) {
             const startDate = new Date(course.start_date + 'T00:00:00');
             const endDate = new Date(course.end_date + 'T00:00:00');
@@ -105,7 +109,6 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
                     errors.start_date = 'Start date cannot be after end date';
                     errors.end_date = 'End date cannot be before start date';
                 } else {
-                    // Check for Sundays only if date range is valid
                     if (dateRangeContainsSunday(startDate, endDate)) {
                         errors.start_date = 'Course date range cannot include any Sundays';
                         errors.end_date = 'Course date range cannot include any Sundays';
@@ -114,7 +117,6 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
             }
         }
         
-        // Validate minimum booking dates
         if (course.min_start_date && course.min_end_date) {
             const minStartDate = new Date(course.min_start_date + 'T00:00:00');
             const minEndDate = new Date(course.min_end_date + 'T00:00:00');
@@ -134,30 +136,26 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
         return errors;
     }, [course.start_date, course.end_date, course.min_start_date, course.min_end_date]);
 
-    // Track when course dates change to require recalculation
     useEffect(() => {
-        // Don't set flag on initial load or when loading existing course data
         if (course.start_date && course.end_date && costSummary.isCalculated) {
             setDatesChangedSinceCalculation(true);
         }
     }, [course.start_date, course.end_date, course.duration_hours]); 
 
-    // Load course rates
     useEffect(() => {
         loadCourseRates();
     }, []);
 
-    // Update cost summary when course data loads (for stored prices)
     useEffect(() => {
         if (course.holiday_price !== null && course.sta_price !== null) {
             setCostSummary({
                 holidayCosts: { 
                     totalCost: parseFloat(course.holiday_price || 0),
-                    costDetails: [] // Details not available from stored data
+                    costDetails: []
                 },
                 staCosts: { 
                     totalCost: parseFloat(course.sta_price || 0),
-                    costDetails: [] // Details not available from stored data
+                    costDetails: []
                 },
                 isCalculated: true,
                 calculatedAt: course.price_calculated_at
@@ -171,7 +169,6 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
         }
     }, [course.holiday_price, course.sta_price, course.price_calculated_at]);
 
-    // Load course rates function
     const loadCourseRates = async () => {
         try {
             const response = await fetch('/api/courses/rates');
@@ -184,7 +181,6 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
         }
     };
 
-    // Calculate course costs function (manual trigger)
     const calculateCourseCosts = async () => {
         if (!course.start_date || !course.end_date) {
             toast.error('Please set course start and end dates first');
@@ -196,14 +192,12 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
             const summary = await getCourseCostSummary(course, courseRates);
             setCostSummary(summary);
             
-            // Update course state with calculated prices (but don't save yet)
             setCourse(prev => ({
                 ...prev,
                 holiday_price: summary.holidayCosts.totalCost,
                 sta_price: summary.staCosts.totalCost
             }));
             
-            // Clear the flag since we just recalculated
             setDatesChangedSinceCalculation(false);
             
             toast.success('Prices recalculated successfully. Save the course to store the new prices.');
@@ -220,27 +214,20 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
         setIsRecalculating(false);
     };
 
-    // Helper function to check if a date range contains any Sundays
     const dateRangeContainsSunday = (startDate, endDate) => {
         const start = new Date(startDate);
         const end = new Date(endDate);
-        
-        // Iterate through each day in the range
         const currentDate = new Date(start);
         while (currentDate <= end) {
-            if (currentDate.getDay() === 0) { // Sunday is 0
-                return true;
-            }
+            if (currentDate.getDay() === 0) return true;
             currentDate.setDate(currentDate.getDate() + 1);
         }
         return false;
     };
 
-    // Comprehensive validation function (removed NDIS pricing validation)
     const validateAllFields = useCallback(() => {
         const errors = {};
 
-        // Validate required fields
         requiredFields.forEach(field => {
             const value = course[field];
             if (!value || value.toString().trim() === '') {
@@ -248,7 +235,6 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
             }
         });
 
-        // Validate dates
         const validateDate = (dateString, fieldName) => {
             if (dateString && isNaN(new Date(dateString).getTime())) {
                 errors[fieldName] = 'Please enter a valid date';
@@ -260,7 +246,14 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
         validateDate(course.min_start_date, 'min_start_date');
         validateDate(course.min_end_date, 'min_end_date');
 
-        // Cross-field date validation
+        // ✅ ADD: validate max_offers is a positive integer if provided
+        if (course.max_offers !== '' && course.max_offers !== null && course.max_offers !== undefined) {
+            const parsed = Number(course.max_offers);
+            if (!Number.isInteger(parsed) || parsed < 1) {
+                errors.max_offers = 'Max offers must be a whole number greater than 0';
+            }
+        }
+
         if (course.start_date && course.end_date && !immediateErrors.start_date && !immediateErrors.end_date) {
             const startDate = new Date(course.start_date + 'T00:00:00');
             const endDate = new Date(course.end_date + 'T00:00:00');
@@ -296,7 +289,6 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
             }
         }
 
-        // Minimum booking dates must span course dates validation
         if (course.start_date && course.end_date && course.min_start_date && course.min_end_date) {
             const startDate = new Date(course.start_date + 'T00:00:00');
             const endDate = new Date(course.end_date + 'T00:00:00');
@@ -310,12 +302,9 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
             const allDatesValid = [startDate, endDate, minStartDate, minEndDate].every(date => !isNaN(date.getTime()));
 
             if (allDatesValid) {
-                // Minimum booking start date must be before or on course start date
                 if (minStartDate > startDate) {
                     errors.min_start_date = 'Minimum start date must be before or on the course start date';
                 }
-                
-                // Minimum booking end date must be after or on course end date
                 if (minEndDate < endDate) {
                     errors.min_end_date = 'Minimum end date must be after or on the course end date (guests must stay at least as long as the course duration)';
                 }
@@ -325,7 +314,6 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
         return { errors, isValid: Object.keys(errors).length === 0 };
     }, [course]);
 
-    // Check form validity whenever course data changes
     useEffect(() => {
         const { errors, isValid } = validateAllFields();
         console.log('Validation errors:', errors);
@@ -344,7 +332,6 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
         setIsFormValid(isValid);
     }, [validateAllFields]);
 
-    // Load course data for edit/view mode
     useEffect(() => {
         if ((isEditMode || isViewMode) && courseId) {
             loadCourse();
@@ -376,8 +363,16 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
                 status: courseData.status || 'pending',
                 holiday_price: courseData.holiday_price,
                 sta_price: courseData.sta_price,
-                price_calculated_at: courseData.price_calculated_at
+                price_calculated_at: courseData.price_calculated_at,
+                // ✅ ADD: load max_offers — use '' so the input shows placeholder when null
+                max_offers: courseData.max_offers ?? '',
             });
+
+            const offers = (courseData.offers || [])
+                .slice()
+                .sort((a, b) => new Date(b.offered_at) - new Date(a.offered_at));
+            setCourseOffers(offers);
+
         } catch (error) {
             console.error('Error loading course:', error);
             toast.error('Failed to load course data');
@@ -401,7 +396,6 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
     };
 
     const handleSave = async (isDraft = false) => {
-        // Run validation for both draft and publish
         setValidationAttempted(true);
         
         const { isValid } = validateAllFields();
@@ -409,7 +403,6 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
             const action = isDraft ? 'saving as draft' : 'publishing';
             toast.error(`Please fix all validation errors before ${action}`);
             
-            // Scroll to first error
             const firstErrorField = Object.keys(fieldErrors)[0];
             if (firstErrorField) {
                 const element = document.querySelector(`[name="${firstErrorField}"]`);
@@ -421,13 +414,11 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
             return;
         }
 
-        // Check if dates have changed since last calculation and require recalculation
         if (datesChangedSinceCalculation && course.start_date && course.end_date) {
             toast.error('Course dates have changed since last price calculation. Please click "Recalculate" to update pricing before saving.');
             return;
         }
 
-        // Additional check for minimum required fields (title is essential)
         if (!course.title || course.title.trim() === '') {
             toast.error('Please provide at least a course title to save');
             return;
@@ -463,7 +454,9 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
                 duration_hours: course.duration_hours,
                 image_filename: imageFilename,
                 status: isDraft ? 'pending' : 'active',
-                recalculate_prices: !costSummary.isCalculated
+                recalculate_prices: !costSummary.isCalculated,
+                // ✅ ADD: include max_offers in save payload (null when blank)
+                max_offers: course.max_offers !== '' ? parseInt(course.max_offers, 10) : null,
             };
 
             if (isEditMode) {
@@ -590,10 +583,8 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
                 body: formData
             });
 
-            // Handle non-JSON responses (like 413 HTML error pages from proxy)
             const contentType = response.headers.get('content-type');
             if (!contentType || !contentType.includes('application/json')) {
-                // Server returned HTML or non-JSON - likely a proxy error
                 if (response.status === 413) {
                     throw new Error('File is too large. Please upload an image under 1MB.');
                 }
@@ -617,7 +608,6 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
         const file = e.target.files[0];
         if (!file) return;
 
-        // Use utility function with 10MB limit (10 * 1024 * 1024 = 10485760)
         const fileSizeError = checkFileSize(file.size, 10485760);
         if (fileSizeError) {
             toast.error(fileSizeError);
@@ -658,8 +648,16 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
         });
     };
 
+    const getOfferStatusBadgeClass = (status) => {
+        switch (status) {
+            case 'accepted':  return 'bg-green-100 text-green-700';
+            case 'offered':   return 'bg-yellow-100 text-yellow-700';
+            case 'completed': return 'bg-blue-100 text-blue-700';
+            default:          return 'bg-gray-100 text-gray-600';
+        }
+    };
+
     useEffect(() => {
-        // Auto-calculate minimum dates when course dates change
         if (course.start_date || course.end_date) {
             setCourse(prev => {
                 const updates = { ...prev };
@@ -699,7 +697,6 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
     }, [validateDatesImmediately]);
 
     const getFieldError = (fieldName) => {
-        // Show immediate errors first (for dates), then validation errors if form was attempted
         return immediateErrors[fieldName] || (validationAttempted ? fieldErrors[fieldName] : '');
     };
 
@@ -767,12 +764,10 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
                         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                             {/* Left Column - Main Content */}
                             <div className="lg:col-span-2">
-                                {/* Course Title */}
                                 <h1 className="text-4xl font-bold text-gray-900 mb-6">
                                     {course.title || 'Course Title'}
                                 </h1>
 
-                                {/* Hero Image */}
                                 <div className="mb-6">
                                     {course.imageUrl && !imageLoadError ? (
                                         <div className="w-full h-80 overflow-hidden rounded-lg">
@@ -795,10 +790,78 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
                                     )}
                                 </div>
 
-                                {/* Course Description */}
                                 <div className="prose max-w-none">
                                     <div className="text-gray-700 leading-relaxed whitespace-pre-wrap">
                                         {course.description || 'No description provided for this course.'}
+                                    </div>
+                                </div>
+
+                                {/* Guests Offered Section */}
+                                <div className="mt-8 rounded-lg border border-gray-200 overflow-hidden" style={{ background: '#F1F3F6' }}>
+                                    <div className="p-6">
+                                        <div className="flex items-center justify-between mb-4">
+                                            <h3 className="text-lg font-semibold text-gray-900">
+                                                Guests Offered
+                                                {courseOffers.length > 0 && (
+                                                    <span className="ml-2 text-sm font-normal text-gray-500">
+                                                        ({courseOffers.length}{course.max_offers ? ` / ${course.max_offers} max` : ''})
+                                                    </span>
+                                                )}
+                                            </h3>
+                                            {/* ✅ ADD: capacity badge in view mode */}
+                                            {course.max_offers && (
+                                                <span className={`text-xs font-medium px-2 py-1 rounded-full ${
+                                                    courseOffers.length >= course.max_offers
+                                                        ? 'bg-red-100 text-red-700'
+                                                        : courseOffers.length / course.max_offers >= 0.8
+                                                        ? 'bg-amber-100 text-amber-700'
+                                                        : 'bg-green-100 text-green-700'
+                                                }`}>
+                                                    {courseOffers.length >= course.max_offers
+                                                        ? 'At capacity'
+                                                        : `${course.max_offers - courseOffers.length} slot${course.max_offers - courseOffers.length === 1 ? '' : 's'} remaining`
+                                                    }
+                                                </span>
+                                            )}
+                                        </div>
+                                        {courseOffers.length > 0 ? (
+                                            <div className="overflow-x-auto">
+                                                <table className="w-full text-sm">
+                                                    <thead>
+                                                        <tr className="border-b border-gray-200">
+                                                            <th className="text-left py-2 pr-4 font-medium text-gray-600">Guest</th>
+                                                            <th className="text-left py-2 pr-4 font-medium text-gray-600">Email</th>
+                                                            <th className="text-left py-2 pr-4 font-medium text-gray-600">Status</th>
+                                                            <th className="text-left py-2 font-medium text-gray-600">Offered</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {courseOffers.map((offer) => (
+                                                            <tr key={offer.uuid} className="border-b border-gray-100 last:border-0">
+                                                                <td className="py-3 pr-4 font-medium text-gray-900">
+                                                                    {offer.guest?.first_name} {offer.guest?.last_name}
+                                                                </td>
+                                                                <td className="py-3 pr-4 text-gray-500">
+                                                                    {offer.guest?.email}
+                                                                </td>
+                                                                <td className="py-3 pr-4">
+                                                                    <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium capitalize ${getOfferStatusBadgeClass(offer.status)}`}>
+                                                                        {offer.status}
+                                                                    </span>
+                                                                </td>
+                                                                <td className="py-3 text-gray-500">
+                                                                    {moment(offer.offered_at).format('D MMM YYYY')}
+                                                                </td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        ) : (
+                                            <p className="text-sm text-gray-500">
+                                                No guests have been offered this course yet.
+                                            </p>
+                                        )}
                                     </div>
                                 </div>
                             </div>
@@ -806,7 +869,6 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
                             {/* Right Column - Course Details Sidebar */}
                             <div className="lg:col-span-1">
                                 <div className="rounded-lg border border-gray-200 overflow-hidden" style={{ background: '#F1F3F6' }}>
-                                    {/* Date Section */}
                                     <div className="p-6 border-b border-gray-200">
                                         <h3 className="text-lg font-semibold text-gray-900 mb-3">Date</h3>
                                         <div className="text-gray-700">
@@ -818,7 +880,6 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
                                         </div>
                                     </div>
 
-                                    {/* Hours Section */}
                                     <div className="p-6 border-b border-gray-200">
                                         <h3 className="text-lg font-semibold text-gray-900 mb-3">Hours</h3>
                                         <div className="text-gray-700">
@@ -838,7 +899,6 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
                                         </div>
                                     </div>
 
-                                    {/* Calculated Pricing Section */}
                                     <div className="p-6 border-b border-gray-200">
                                         <h3 className="text-lg font-semibold text-gray-900 mb-3">Pricing</h3>
                                         {costSummary.isCalculated ? (
@@ -876,8 +936,7 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
                                         )}
                                     </div>
 
-                                    {/* Minimum Dates of Stay Section */}
-                                    <div className="p-6">
+                                    <div className="p-6 border-b border-gray-200">
                                         <h3 className="text-lg font-semibold text-gray-900 mb-3">Minimum Dates of Stay</h3>
                                         <div className="text-gray-700">
                                             {course.min_start_date && course.min_end_date ? (
@@ -887,9 +946,16 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
                                             )}
                                         </div>
                                     </div>
+
+                                    {/* ✅ ADD: Max Offers in sidebar for view mode */}
+                                    <div className="p-6">
+                                        <h3 className="text-lg font-semibold text-gray-900 mb-3">Max Offers</h3>
+                                        <div className="text-gray-700">
+                                            {course.max_offers ? course.max_offers : 'Unlimited'}
+                                        </div>
+                                    </div>
                                 </div>
 
-                                {/* Course Status */}
                                 {course.status && (
                                     <div className="mt-4 rounded-lg border border-gray-200 p-4" style={{ background: '#F1F3F6' }}>
                                         <h3 className="text-sm font-medium text-gray-900 mb-2">Course Status</h3>
@@ -925,7 +991,6 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
                         </span>
                     </div>
                     <div className="flex items-center space-x-3">
-                        {/* Archive button - only show in edit mode and if course is not already archived */}
                         {isEditMode && course.status !== 'archived' && (
                             <Button
                                 type="button"
@@ -1071,6 +1136,36 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
                                 </div>
                             )}
 
+                            {/* ✅ ADD: Max Offers field */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    Max Offers
+                                    <span className="ml-1 text-gray-400 font-normal text-xs">(optional — leave blank for unlimited)</span>
+                                </label>
+                                <input
+                                    type="number"
+                                    min="1"
+                                    step="1"
+                                    className={`w-full px-3 py-3 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                                        validationAttempted && fieldErrors.max_offers
+                                            ? 'border-red-400'
+                                            : 'border-gray-300'
+                                    }`}
+                                    placeholder="Unlimited"
+                                    value={course.max_offers ?? ''}
+                                    onChange={(e) => {
+                                        const val = e.target.value;
+                                        handleInputChange('max_offers')(val === '' ? '' : val);
+                                    }}
+                                />
+                                {validationAttempted && fieldErrors.max_offers && (
+                                    <p className="mt-1 text-sm text-red-600">{fieldErrors.max_offers}</p>
+                                )}
+                                <p className="mt-1 text-xs text-gray-500">
+                                    Once this number of offers have been sent, no further offers can be created for this course.
+                                </p>
+                            </div>
+
                             {/* Calculated Pricing Display */}
                             <div>
                                 <div className="flex items-center justify-between mb-4">
@@ -1153,9 +1248,7 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
                                                 className="h-full"
                                             />
                                         </div>
-                                        <div className="h-5 mt-1.5">
-                                            {/* Empty space for consistent alignment */}
-                                        </div>
+                                        <div className="h-5 mt-1.5" />
                                     </div>
                                     <div className="lg:col-span-1">
                                         <DateComponent

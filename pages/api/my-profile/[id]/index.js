@@ -1,6 +1,7 @@
 import { Guest, FundingApproval, HealthInfo } from '../../../../models'; 
 import StorageService from '../../../../services/storage/storage';
 import { omitAttribute } from '../../../../utilities/common';
+const { getFundingProfilesForGuest } = require('../../../../services/booking/guest-funding-profile-service');
 
 export default async function handler(req, res) {
     try {
@@ -19,9 +20,8 @@ export default async function handler(req, res) {
                     required: false
                 },
                 {
-                    // Changed from GuestApproval to FundingApproval
                     model: FundingApproval,
-                    as: 'fundingApprovals',  // Changed from 'approvals'
+                    as: 'fundingApprovals',
                     required: false
                 }
             ]
@@ -31,7 +31,6 @@ export default async function handler(req, res) {
             return res.status(404).json({ message: 'Guest information not found' });
         }
 
-        // Initialize storage service to get profile image URL
         const storage = new StorageService({ bucketType: 'restricted' });
         
         let profileUrl = null;
@@ -40,15 +39,21 @@ export default async function handler(req, res) {
                 profileUrl = await storage.getSignedUrl('profile-photo' + '/' + guest.profile_filename);
             } catch (error) {
                 console.error('Error generating signed URL for profile image:', error);
-                // Don't fail the entire request if image URL generation fails
                 profileUrl = null;
             }
         }
 
-        // Return guest data with profile URL
+        let fundingProfiles = { icare: null, ndis: null };
+        try {
+            fundingProfiles = await getFundingProfilesForGuest(guest.id);
+        } catch (fpError) {
+            console.error('Error fetching funding profiles:', fpError);
+        }
+
         const responseData = {
             ...omitAttribute(guest.dataValues, "password", "createdAt", "updatedAt"), 
-            profileUrl
+            profileUrl,
+            fundingProfiles,
         };
 
         return res.status(200).json(responseData);

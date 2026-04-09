@@ -118,22 +118,24 @@ const QuestionDisplay = ({ question, answer, questionType, options, optionType, 
         return <div className="text-sm bg-gray-50 p-3 rounded">{String(answer)}</div>;
       }
       
+      // ── UPDATED: group into arrays per period so additional lines (isAdditional)
+      // are shown alongside standard entries for the same period+date.
       const dateGroups = {};
       data.forEach(item => {
         if (!item.date) return;
         
         if (!dateGroups[item.date]) {
-          dateGroups[item.date] = {
-            morning: null,
-            afternoon: null,
-            evening: null
-          };
+          dateGroups[item.date] = { morning: [], afternoon: [], evening: [] };
         }
         
-        if (item.care && dateGroups[item.date].hasOwnProperty(item.care)) {
-          dateGroups[item.date][item.care] = item.values;
+        if (item.care && dateGroups[item.date][item.care] !== undefined) {
+          dateGroups[item.date][item.care].push({
+            ...(item.values || {}),
+            isAdditional: item.isAdditional || false,
+          });
         }
       });
+      // ── END UPDATE ──────────────────────────────────────────────────────
       
       return (
         <div className="care-table bg-gray-50 p-3 rounded-md">
@@ -141,26 +143,55 @@ const QuestionDisplay = ({ question, answer, questionType, options, optionType, 
             <div key={dateIndex} className="mb-4">
               <div className="font-bold border-b pb-1 mb-2">{date}</div>
               
-              {periods.morning && (
-                <div className="ml-4 flex items-center mb-1">
-                  <span className="text-yellow-500 mr-2">☀️</span>
-                  <span>Morning: {periods.morning.time} ({periods.morning.duration}) - {periods.morning.carers} carer(s)</span>
+              {/* ── UPDATED: render all entries per period (array), not just one ── */}
+              {periods.morning.length > 0 && (
+                <div className="ml-4 mb-1">
+                  <div className="flex items-start gap-2">
+                    <span className="text-yellow-500 mt-0.5">☀️</span>
+                    <div className="flex flex-col gap-0.5">
+                      {periods.morning.map((entry, idx) => (
+                        <span key={idx} className={entry.isAdditional ? 'text-blue-700 text-xs border-l-2 border-blue-300 pl-1' : 'text-sm'}>
+                          Morning: {entry.time} ({entry.duration}) - {entry.carers} carer(s)
+                          {entry.isAdditional && <span className="ml-1 text-blue-400 italic">(extra)</span>}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               )}
               
-              {periods.afternoon && (
-                <div className="ml-4 flex items-center mb-1">
-                  <span className="text-orange-500 mr-2">🌤️</span>
-                  <span>Afternoon: {periods.afternoon.time} ({periods.afternoon.duration}) - {periods.afternoon.carers} carer(s)</span>
+              {periods.afternoon.length > 0 && (
+                <div className="ml-4 mb-1">
+                  <div className="flex items-start gap-2">
+                    <span className="text-orange-500 mt-0.5">🌤️</span>
+                    <div className="flex flex-col gap-0.5">
+                      {periods.afternoon.map((entry, idx) => (
+                        <span key={idx} className={entry.isAdditional ? 'text-blue-700 text-xs border-l-2 border-blue-300 pl-1' : 'text-sm'}>
+                          Afternoon: {entry.time} ({entry.duration}) - {entry.carers} carer(s)
+                          {entry.isAdditional && <span className="ml-1 text-blue-400 italic">(extra)</span>}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               )}
               
-              {periods.evening && (
-                <div className="ml-4 flex items-center mb-1">
-                  <span className="text-blue-900 mr-2">🌙</span>
-                  <span>Evening: {periods.evening.time} ({periods.evening.duration}) - {periods.evening.carers} carer(s)</span>
+              {periods.evening.length > 0 && (
+                <div className="ml-4 mb-1">
+                  <div className="flex items-start gap-2">
+                    <span className="text-blue-900 mt-0.5">🌙</span>
+                    <div className="flex flex-col gap-0.5">
+                      {periods.evening.map((entry, idx) => (
+                        <span key={idx} className={entry.isAdditional ? 'text-blue-700 text-xs border-l-2 border-blue-300 pl-1' : 'text-sm'}>
+                          Evening: {entry.time} ({entry.duration}) - {entry.carers} carer(s)
+                          {entry.isAdditional && <span className="ml-1 text-blue-400 italic">(extra)</span>}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               )}
+              {/* ── END UPDATE ───────────────────────────────────────────────── */}
             </div>
           ))}
         </div>

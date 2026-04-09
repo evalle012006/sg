@@ -262,7 +262,8 @@ const AmendmentDisplay = ({ amendment, onApprove, onDecline, currentUser, bookin
     }
   };
 
-  // UPDATED: Format care table data - extract only careData from new structure
+  // UPDATED: Format care table data — build dateGroups with arrays per period
+  // to correctly handle multiple entries for the same period+date (additional lines).
   const formatCareTableData = (answer) => {
     let data = answer;
     
@@ -283,31 +284,32 @@ const AmendmentDisplay = ({ amendment, onApprove, onDecline, currentUser, bookin
         return "Invalid care data format";
       }
       
+      // ── NEW: group into arrays per period so additional lines aren't lost ─
       const dateGroups = {};
       data.forEach(item => {
         if (!item.date) return;
         
         if (!dateGroups[item.date]) {
-          dateGroups[item.date] = {
-            morning: null,
-            afternoon: null,
-            evening: null
-          };
+          dateGroups[item.date] = { morning: [], afternoon: [], evening: [] };
         }
         
-        if (item.care && dateGroups[item.date].hasOwnProperty(item.care)) {
-          dateGroups[item.date][item.care] = item.values;
+        if (item.care && dateGroups[item.date][item.care] !== undefined) {
+          dateGroups[item.date][item.care].push({
+            ...(item.values || {}),
+            isAdditional: item.isAdditional || false,
+          });
         }
       });
+      // ────────────────────────────────────────────────────────────────────
       
       return {
         formatted: true,
         dates: Object.entries(dateGroups).map(([date, periods]) => ({
           date,
           periods: {
-            morning: periods.morning,
-            afternoon: periods.afternoon,
-            evening: periods.evening
+            morning: periods.morning,     // array
+            afternoon: periods.afternoon, // array
+            evening: periods.evening      // array
           }
         }))
       };
@@ -341,7 +343,8 @@ const AmendmentDisplay = ({ amendment, onApprove, onDecline, currentUser, bookin
     }
   };
 
-  // UPDATED: Parse care diff logic - extract careData from both old and new data
+  // UPDATED: Parse care diff logic — uses additionalId in key so additional lines
+  // are diffed independently of standard entries for the same period+date.
   const parseCareDiff = (oldData, newData) => {
     if (!oldData || !newData) return { oldFormatted: '', newFormatted: '', detailedChanges: [] };
     
@@ -377,7 +380,14 @@ const AmendmentDisplay = ({ amendment, onApprove, onDecline, currentUser, bookin
       const changesMap = {};
       const detailedChanges = [];
       
-      const createKey = (item) => `${item.date}-${item.care}`;
+      // ── UPDATED: include additionalId in key so additional lines for the
+      // same period+date are tracked separately from standard entries.
+      const createKey = (item) => {
+        if (item.isAdditional && item.additionalId) {
+          return `${item.date}-${item.care}-${item.additionalId}`;
+        }
+        return `${item.date}-${item.care}`;
+      };
       
       const compareValues = (oldValues, newValues) => {
         if (!oldValues || !newValues) return true;
@@ -408,6 +418,7 @@ const AmendmentDisplay = ({ amendment, onApprove, onDecline, currentUser, bookin
             type: 'ADDED',
             date: item.date,
             period: item.care,
+            isAdditional: item.isAdditional || false,
             newValue: item.values,
             oldValue: null
           });
@@ -419,6 +430,7 @@ const AmendmentDisplay = ({ amendment, onApprove, onDecline, currentUser, bookin
             type: 'CHANGED',
             date: item.date,
             period: item.care,
+            isAdditional: item.isAdditional || false,
             newValue: item.values,
             oldValue: oldItem.values
           });
@@ -431,7 +443,6 @@ const AmendmentDisplay = ({ amendment, onApprove, onDecline, currentUser, bookin
       
       Object.values(oldItemsMap).forEach(item => {
         if (!item.processed) {
-          const key = createKey(item);
           if (!changesMap[item.date]) changesMap[item.date] = {};
           changesMap[item.date][item.care] = 'REMOVED';
           
@@ -439,6 +450,7 @@ const AmendmentDisplay = ({ amendment, onApprove, onDecline, currentUser, bookin
             type: 'REMOVED',
             date: item.date,
             period: item.care,
+            isAdditional: item.isAdditional || false,
             newValue: null,
             oldValue: item.values
           });

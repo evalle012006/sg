@@ -184,7 +184,7 @@ class BookingEmailDataService {
 
     // ── 4. Build email data ──────────────────────────────────────────────────
     const emailData = EmailDataParsingService.parseAllData(bookingData);
-    emailData.logo_base64    = getLogoBase64();
+    // emailData.logo_base64    = getLogoBase64();
     emailData.status_name    = context.booking_status || bookingData.status_name || null;
     emailData.booking_status = context.booking_status || bookingData.status || null;
 

@@ -271,10 +271,19 @@ export default async function handler(req, res) {
                     return res.status(400).json({ success: false, error: 'Missing email_data' });
                 }
 
+                // ── Validate recipient (supports comma-separated list) ──────────────────
                 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-                if (!emailRegex.test(recipient)) {
-                    console.error('❌ sendTriggerEmail: invalid email address:', recipient);
-                    return res.status(400).json({ success: false, error: `Invalid email address: ${recipient}` });
+                const recipientList = recipient.split(',').map(r => r.trim()).filter(Boolean);
+
+                if (recipientList.length === 0) {
+                    console.error('❌ sendTriggerEmail: empty recipient');
+                    return res.status(400).json({ success: false, error: 'Empty recipient' });
+                }
+
+                const invalidEmails = recipientList.filter(r => !emailRegex.test(r));
+                if (invalidEmails.length > 0) {
+                    console.error('❌ sendTriggerEmail: invalid email address(es):', invalidEmails);
+                    return res.status(400).json({ success: false, error: `Invalid email address(es): ${invalidEmails.join(', ')}` });
                 }
 
                 // ── Load trigger + template ────────────────────────────────

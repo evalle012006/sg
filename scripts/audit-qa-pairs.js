@@ -159,15 +159,15 @@ async function main() {
             });
         } else if (STRUCTURED_TYPES.has(storedType) && !inferredType) {
             // Stored as a structured type but answer doesn't parse correctly
-            orphaned.push({
-                id:          qp.id,
-                section_id:  qp.section_id,
-                question_id: qp.question_id,
-                storedType,
-                answerSnippet: (qp.answer || '').substring(0, 100),
-                createdAt:   qp.created_at,
-                updatedAt:   qp.updated_at,
-            });
+            // orphaned.push({
+            //     id:          qp.id,
+            //     section_id:  qp.section_id,
+            //     question_id: qp.question_id,
+            //     storedType,
+            //     answerSnippet: (qp.answer || '').substring(0, 100),
+            //     createdAt:   qp.created_at,
+            //     updatedAt:   qp.updated_at,
+            // });
         }
     }
 
@@ -221,22 +221,22 @@ async function main() {
     }
 
     // ── Section B report ──────────────────────────────────────────────────────
-    console.log(bold('══════════════════════════════════════════════════════════'));
-    console.log(bold('  SECTION B — Structured type stored but answer malformed'));
-    console.log(bold('══════════════════════════════════════════════════════════'));
+    // console.log(bold('══════════════════════════════════════════════════════════'));
+    // console.log(bold('  SECTION B — Structured type stored but answer malformed'));
+    // console.log(bold('══════════════════════════════════════════════════════════'));
 
-    if (orphaned.length === 0) {
-        console.log(green('  ✓ No malformed structured rows found.\n'));
-    } else {
-        for (const row of orphaned) {
-            console.log(yellow(
-                `  id=${row.id}  section_id=${row.section_id}  question_id=${row.question_id ?? 'NULL'}  ` +
-                `stored_type=${row.storedType}`
-            ));
-            console.log(`    answer: ${row.answerSnippet}`);
-        }
-        console.log(`\n  Total: ${yellow(String(orphaned.length))} malformed row(s)\n`);
-    }
+    // if (orphaned.length === 0) {
+    //     console.log(green('  ✓ No malformed structured rows found.\n'));
+    // } else {
+    //     for (const row of orphaned) {
+    //         console.log(yellow(
+    //             `  id=${row.id}  section_id=${row.section_id}  question_id=${row.question_id ?? 'NULL'}  ` +
+    //             `stored_type=${row.storedType}`
+    //         ));
+    //         console.log(`    answer: ${row.answerSnippet}`);
+    //     }
+    //     console.log(`\n  Total: ${yellow(String(orphaned.length))} malformed row(s)\n`);
+    // }
 
     // ── Nothing to do ─────────────────────────────────────────────────────────
     if (corrupted.length === 0 && orphaned.length === 0) {

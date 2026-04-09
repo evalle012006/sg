@@ -2708,8 +2708,8 @@ export default function BookingDetail() {
   }
 
   return (
-    <Layout title={`Booking - ${booking.Guest?.first_name} ${booking.Guest?.last_name}`} noScroll={false}>
-      <div className="flex flex-col bg-gray-50 px-6 py-4" style={{ minHeight: '100vh' }}>
+    <Layout title={`Booking - ${booking.Guest?.first_name} ${booking.Guest?.last_name}`} noScroll={true}>
+      <div className="flex flex-col bg-gray-50 px-6 py-4 h-full overflow-hidden">
         {/* Full Width Header with Breadcrumbs and Edit Button */}
         <div className='mb-4 flex-shrink-0'>
           <div className="flex items-center justify-between">
@@ -2773,9 +2773,9 @@ export default function BookingDetail() {
         </div>
 
         {/* Main Content Area */}
-        <div className="flex border border-gray-100 shadow" style={{ minHeight: '800px' }}>
+        <div className="flex flex-1 overflow-hidden border border-gray-100 shadow">
           {/* Left Content - Accordion */}
-          <div className="flex-1 bg-white">
+          <div className="flex-1 overflow-y-auto h-full bg-white">
             {/* Accordion Content - Remove all height constraints that prevent scrolling */}
             <div className="bg-white" style={{ border: '1px solid #E6E6E6' }}>
               <div className="bg-white">
@@ -2798,7 +2798,7 @@ export default function BookingDetail() {
 
           {/* Right Sidebar */}
           {isUser ? (
-            <div className="w-96 flex-shrink-0">
+            <div className="w-96 flex-shrink-0 h-full overflow-y-auto">
               <DetailSidebar 
                 booking={booking} 
                 guest={booking.Guest}

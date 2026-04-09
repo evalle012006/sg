@@ -20,6 +20,7 @@ import {
     findByQuestionKeyWithFallback
 } from "../../../services/booking/question-helper";
 import { BookingService } from "../../../services/booking/booking";
+const { getFundingProfilesForGuest } = require('../../../services/booking/guest-funding-profile-service');
 
 export default async function handler(req, res) {
     const dateRangeRegEx = /^20\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])\s-\s20\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
@@ -121,14 +122,11 @@ export default async function handler(req, res) {
         let ndisNumber = null;
         let icareNumber = null;
 
-        // Collect all QA pairs from all sections for this booking
         let allQaPairs = [];
         for (let j = 0; j < currentBooking.Sections.length; j++) {
             allQaPairs = [...allQaPairs, ...currentBooking.Sections[j].QaPairs];
         }
 
-        // Extract dates using question keys with fallback to old question text
-        // First, try combined check-in/check-out date question
         const checkInOutDateQA = findByQuestionKeyWithFallback(
             allQaPairs,
             QUESTION_KEYS.CHECK_IN_OUT_DATE,
@@ -144,32 +142,26 @@ export default async function handler(req, res) {
             }
         }
 
-        // If not found in combined question, try individual check-in and check-out questions
         if (!check_in_date || !check_out_date) {
-            // Try individual check-in date
             const checkInDateQA = findByQuestionKeyWithFallback(
                 allQaPairs,
                 QUESTION_KEYS.CHECK_IN_DATE,
                 ['Check In Date']
             );
-            
             if (checkInDateQA && checkInDateQA.answer) {
                 check_in_date = checkInDateQA.answer;
             }
 
-            // Try individual check-out date
             const checkOutDateQA = findByQuestionKeyWithFallback(
                 allQaPairs,
                 QUESTION_KEYS.CHECK_OUT_DATE,
                 ['Check Out Date']
             );
-            
             if (checkOutDateQA && checkOutDateQA.answer) {
                 check_out_date = checkOutDateQA.answer;
             }
         }
 
-        // Extract NDIS number
         const ndisQA = findByQuestionKeyWithFallback(
             allQaPairs,
             QUESTION_KEYS.NDIS_NUMBER,
@@ -179,7 +171,6 @@ export default async function handler(req, res) {
             ndisNumber = ndisQA.answer;
         }
 
-        // Extract iCare number
         const icareQA = findByQuestionKeyWithFallback(
             allQaPairs,
             QUESTION_KEYS.ICARE_NUMBER,
@@ -189,7 +180,6 @@ export default async function handler(req, res) {
             icareNumber = icareQA.answer;
         }
 
-        // Process room images
         let roomsWithImages = [];
         if (currentBooking.Rooms && currentBooking.Rooms.length > 0) {
             for (const room of currentBooking.Rooms) {
@@ -231,7 +221,6 @@ export default async function handler(req, res) {
         });
     }
 
-    // Handle guest profile image
     let profileUrl;
     if (guest.profile_filename) {
         profileUrl = await storage.getSignedUrl('profile-photo' + '/' + guest.profile_filename);
@@ -239,11 +228,19 @@ export default async function handler(req, res) {
 
     const healthInfo = await HealthInfo.findOne({ where: { guest_id: guest.id } });
 
+    let fundingProfiles = { icare: null, ndis: null };
+    try {
+        fundingProfiles = await getFundingProfilesForGuest(guest.id);
+    } catch (fpError) {
+        console.error('Error fetching funding profiles for admin guest page:', fpError);
+    }
+
     const responseData = { 
         ...omitAttribute(guest.dataValues, "password", "createdAt"), 
         Bookings: bookings, 
         profileUrl, 
         HealthInfo: healthInfo, 
+        fundingProfiles,
         error, 
         errorMessage 
     };

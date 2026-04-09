@@ -858,8 +858,8 @@ const fetchBookings = async (searchTerm = searchValue, invalidateCache = false) 
 
   return (
     <>
-      <div className="rounded-md">
-        <div className="">
+    <div className="rounded-md flex flex-col h-full">
+      <div className="flex flex-col flex-1 min-h-0">
         <div className="flex flex-row justify-between mb-2">
           <div className="flex items-center">
             <label className="relative block w-96">
@@ -960,21 +960,23 @@ const fetchBookings = async (searchTerm = searchValue, invalidateCache = false) 
           
           <statusContext.Provider value={statuses}>
             <eligibilityContext.Provider value={eligibilities}>
-            <PaginatedTable
-                columns={columns}
-                data={data}
-                hiddenColumns={hiddenColumns}
-                currentPage={currentPage}
-                pageSize={pageSize}
-                totalItems={totalItems}
-                totalPages={totalPages}
-                loading={loading}
-                onPageChange={handlePageChange}
-                onPageSizeChange={handlePageSizeChange}
-                selection={ability.can("Delete", "Booking")} // Only enable selection if user can delete
-                selectedRows={selectedRows}
-                setSelectedRows={setSelectedRows}
-              />
+              <div className="flex flex-col flex-1 min-h-0">
+                <PaginatedTable
+                    columns={columns}
+                    data={data}
+                    hiddenColumns={hiddenColumns}
+                    currentPage={currentPage}
+                    pageSize={pageSize}
+                    totalItems={totalItems}
+                    totalPages={totalPages}
+                    loading={loading}
+                    onPageChange={handlePageChange}
+                    onPageSizeChange={handlePageSizeChange}
+                    selection={ability.can("Delete", "Booking")} // Only enable selection if user can delete
+                    selectedRows={selectedRows}
+                    setSelectedRows={setSelectedRows}
+                  />
+                </div>
             </eligibilityContext.Provider>
           </statusContext.Provider>
         </div>

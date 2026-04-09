@@ -51,6 +51,9 @@ const QuestionPage = ({
     const [questionInteractions, setQuestionInteractions] = useState({});
     const updateTimeoutRef = useRef({});
     const mountedRef = useRef(true);
+    // ✅ FIX: Ref always holds the latest page data so concurrent autofill calls
+    // (Edge fills multiple fields at once) don't race against stale useState reads.
+    const updatedCurrentPageRef = useRef(null);
 
     const isHtmlContent = (text) => {
         if (!text) return false;
@@ -98,6 +101,7 @@ const QuestionPage = ({
             console.log('📄 Page changed from', lastPageIdRef.current, 'to', currentPage.id, '- resetting interactions');
             setQuestionInteractions({});
             questionInteractionsRef.current = {};
+            updatedCurrentPageRef.current = null;
             lastPageIdRef.current = currentPage.id;
         } else if (currentPage?.id && Object.keys(questionInteractionsRef.current).length > 0 && Object.keys(questionInteractions).length === 0) {
             // Restore interactions if they were lost due to remount but page is the same
@@ -386,7 +390,11 @@ const QuestionPage = ({
     };
 
     const updateSections = async (value, field, secIdx, qIdx, equipments = [], error = false) => {
-        const pageToUpdate = updatedCurrentPage || currentPage;
+        // ✅ FIX: Use ref instead of state to get latest page data.
+        // Edge autofills multiple fields simultaneously — if two onChange calls fire
+        // before React flushes the first setUpdatedCurrentPage, the second call reads
+        // stale state (null) and falls back to currentPage, clobbering the first answer.
+        const pageToUpdate = updatedCurrentPageRef.current || currentPage;
     
         const currentValue = pageToUpdate.Sections[secIdx]?.Questions[qIdx]?.[field];
         const currentError = pageToUpdate.Sections[secIdx]?.Questions[qIdx]?.error;
@@ -667,6 +675,7 @@ const QuestionPage = ({
         }
 
         setUpdatedCurrentPage(updatedPageData);
+        updatedCurrentPageRef.current = updatedPageData; 
         
         // If this is a care-related question, notify parent component
         if (isCareQuestion || isPersonalCareNoAnswer) {
@@ -852,7 +861,7 @@ const QuestionPage = ({
         <React.Fragment>
             <div className="w-full flex flex-col">
                 <div className="flex flex-col w-full">
-                    <div className="mt-2 px-8 py-2">
+                    <div className="mt-2 px-2 sm:px-4 md:px-8 py-2">
                         {currentPage && guest && currentPage.Sections.map((section, idx) => {
                             let s = { ...section };
                             const label = s.label;
@@ -1923,7 +1932,7 @@ const QuestionPage = ({
                                                     )}
                                                     {(q.type === 'care-table' && !q.hidden) && (
                                                         <React.Fragment>
-                                                            <div className="flex flex-col max-w-screen-xl-1 flex-1">
+                                                            <div className="flex flex-col w-full overflow-x-hidden flex-1">
                                                                 {q.label && <span className="font-bold text-sargood-blue text-xl mb-2">{q.label}</span>}
                                                                 <div className="text-xs flex flex-row">
                                                                     <span className="font-bold text-sm">{q.question}</span>

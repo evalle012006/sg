@@ -136,6 +136,44 @@ async function createCourseOffer(req, res) {
       }
     }
 
+    // ── MAX OFFERS ENFORCEMENT ────────────────────────────────────────────────
+    if (course.max_offers !== null && course.max_offers !== undefined) {
+      const existingOfferCount = await CourseOffer.count({
+        where: { course_id },
+        transaction,
+      });
+
+      const slotsAvailable = course.max_offers - existingOfferCount;
+
+      if (slotsAvailable <= 0) {
+        await transaction.rollback();
+        return res.status(400).json({
+          error: 'Course at capacity',
+          message: `This course has reached its maximum number of offers (${course.max_offers}). No further offers can be created.`,
+          data: {
+            max_offers: course.max_offers,
+            current_offer_count: existingOfferCount,
+            offers_remaining: 0,
+          },
+        });
+      }
+
+      const requestedCount = targetGuestIds.length;
+      if (requestedCount > slotsAvailable) {
+        await transaction.rollback();
+        return res.status(400).json({
+          error: 'Insufficient capacity',
+          message: `Only ${slotsAvailable} offer slot${slotsAvailable === 1 ? '' : 's'} remaining for this course. You selected ${requestedCount} guest${requestedCount === 1 ? '' : 's'}.`,
+          data: {
+            max_offers: course.max_offers,
+            current_offer_count: existingOfferCount,
+            offers_remaining: slotsAvailable,
+          },
+        });
+      }
+    }
+    // ── END MAX OFFERS ENFORCEMENT ────────────────────────────────────────────
+
     // Validate all guests exist and are active
     const guests = await Guest.findAll({
       where: {
@@ -176,7 +214,6 @@ async function createCourseOffer(req, res) {
 
     if (existingOffers.length > 0) {
       await transaction.rollback();
-      const existingGuestIds = existingOffers.map(offer => offer.guest_id);
       const existingGuests = existingOffers.map(offer => 
         `${offer.guest.first_name} ${offer.guest.last_name} (${offer.status})`
       );
@@ -243,7 +280,7 @@ async function createCourseOffer(req, res) {
           {
             model: Course,
             as: 'course',
-            attributes: ['id', 'title', 'start_date', 'end_date', 'min_start_date', 'min_end_date', 'image_filename']
+            attributes: ['id', 'title', 'start_date', 'end_date', 'min_start_date', 'min_end_date', 'image_filename', 'max_offers']
           },
           {
             model: Guest,
@@ -328,24 +365,6 @@ async function sendCourseOfferEmails(createdOffers, course, guests) {
     }
 
     try {
-      // Format dates consistently
-      // const startDate = moment(course.min_start_date);
-      // const endDate = moment(course.min_end_date);
-      
-      // await EmailService.sendWithTemplate(
-      //   guest.email,
-      //   TEMPLATE_IDS.COURSE_OFFER_NOTIFICATION,
-      //   {
-      //     guest_name: guest.first_name,
-      //     course_name: course.title,
-      //     course_dates: `${startDate.format('D MMMM YYYY')} - ${endDate.format('D MMMM YYYY')}`,
-      //     course_location: 'Sargood on Collaroy',
-      //     course_description: course.description || '',
-      //     response_deadline: endDate.format('D MMMM YYYY'),
-      //     booking_url: `${baseUrl}/auth/login?redirect=/bookings`
-      //   }
-      // );
-
       await courseOfferSentTriggerDispatch(offer, guest, course);
 
       emailResults.sent++;
@@ -382,7 +401,7 @@ async function getCourseOffers(req, res) {
       {
         model: Course,
         as: 'course',
-        attributes: ['id', 'title', 'start_date', 'end_date', 'min_start_date', 'min_end_date', 'status', 'image_filename', 'duration_hours', 'description']
+        attributes: ['id', 'title', 'start_date', 'end_date', 'min_start_date', 'min_end_date', 'status', 'image_filename', 'duration_hours', 'description', 'max_offers']
       },
       {
         model: Guest,
@@ -492,12 +511,27 @@ async function getCourseOffers(req, res) {
       });
     }
 
+    // ── Compute per-course offer counts for capacity display ──────────────────
+    // Collect unique course IDs from filtered results
+    const uniqueCourseIds = [...new Set(filteredOffers.map(o => o.course_id))];
+    const offerCountMap = {};
+    await Promise.all(
+      uniqueCourseIds.map(async (cid) => {
+        offerCountMap[cid] = await CourseOffer.count({ where: { course_id: cid } });
+      })
+    );
+
     // Add computed fields for display
     const processedOffers = filteredOffers.map(offer => {
       const now = new Date();
       const minEndDate = new Date(offer.course.min_end_date);
       const courseStartDate = new Date(offer.course.start_date);
       const courseEndDate = new Date(offer.course.end_date);
+
+      const maxOffers = offer.course.max_offers ?? null;
+      const offerCount = offerCountMap[offer.course_id] ?? 0;
+      const offersRemaining = maxOffers !== null ? Math.max(0, maxOffers - offerCount) : null;
+      const atCapacity = maxOffers !== null && offerCount >= maxOffers;
       
       return {
         ...offer.toJSON(),
@@ -507,9 +541,13 @@ async function getCourseOffers(req, res) {
         courseEnded: now >= courseEndDate,
         canBeAccepted: offer.status === 'offered' && now <= minEndDate && now < courseStartDate,
         canBeCompleted: offer.status === 'accepted' && now >= courseEndDate,
-        
         isLinkedToBooking: offer.booking_id !== null,
-        canBookNow: offer.status === 'offered' && offer.booking_id === null && now <= minEndDate && now < courseStartDate && offer.course.status === 'active'
+        canBookNow: offer.status === 'offered' && offer.booking_id === null && now <= minEndDate && now < courseStartDate && offer.course.status === 'active',
+        // ── capacity metadata ──
+        max_offers: maxOffers,
+        offer_count: offerCount,
+        offers_remaining: offersRemaining,
+        at_capacity: atCapacity,
       };
     });
 

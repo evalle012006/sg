@@ -159,6 +159,7 @@ export default async function handler(req, res) {
     handlebars.registerHelper('gte', function(a, b) { return a >= b; });
     handlebars.registerHelper('isArray', function(value) { return Array.isArray(value); });
     handlebars.registerHelper('and', function() { return Array.prototype.slice.call(arguments, 0, -1).every(Boolean); });
+    handlebars.registerHelper('not', function(value) { return !value; }); 
 
     // Read and compile the HTML template using path utility
     const templatePath = getTemplatePath('exports/summary-of-stay.html');

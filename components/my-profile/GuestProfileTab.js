@@ -7,6 +7,9 @@ import ProfileImage from "./ProfileImage";
 import _ from 'lodash';
 import { AbilityContext, Can } from "../../services/acl/can";
 import { checkFileSize } from "../../utilities/common";
+// ── NEW ──────────────────────────────────────────────────────────────────────
+import FundingProfileSection from "./FundingProfileSection";
+// ─────────────────────────────────────────────────────────────────────────────
 
 const Spinner = dynamic(() => import('../ui/spinner'));
 const RadioButton = dynamic(() => import('../ui-v2/RadioButton'));
@@ -19,29 +22,22 @@ const Select = dynamic(() => import('../ui-v2/Select'));
 const validateAndCleanHealthInfo = (healthData) => {
     const cleanedData = { ...healthData };
     
-    // Ensure boolean fields are not null
     if (cleanedData.identify_aboriginal_torres === null || cleanedData.identify_aboriginal_torres === undefined) {
         cleanedData.identify_aboriginal_torres = false;
     }
-    
     if (cleanedData.sci_inpatient === null || cleanedData.sci_inpatient === undefined) {
         cleanedData.sci_inpatient = false;
     }
-    
     if (cleanedData.require_interpreter === null || cleanedData.require_interpreter === undefined) {
         cleanedData.require_interpreter = false;
     }
-    
-    // Ensure string fields for yes/no questions are not null
     if (cleanedData.language === null || cleanedData.language === undefined) {
         cleanedData.language = '';
     }
-    
     if (cleanedData.cultural_beliefs === null || cleanedData.cultural_beliefs === undefined) {
         cleanedData.cultural_beliefs = '';
     }
     
-    // Clean up other optional fields
     const optionalStringFields = [
         'emergency_name',
         'emergency_mobile_number',
@@ -64,7 +60,6 @@ const validateAndCleanHealthInfo = (healthData) => {
         }
     });
     
-    // Ensure sci_type_level is an array
     if (!cleanedData.sci_type_level) {
         cleanedData.sci_type_level = [];
     }
@@ -90,6 +85,10 @@ export default function GuestProfileTab({ isGuestUser = false }) {
     const [selectedFlags, setSelectedFlags] = useState([]);
     const [localFlags, setLocalFlags] = useState([]);
 
+    // ── NEW: funding profile state ────────────────────────────────────────
+    const [fundingProfiles, setFundingProfiles] = useState(null);
+    // ─────────────────────────────────────────────────────────────────────
+
     const genderOptions = [
         { label: 'Male', value: 'male' },
         { label: 'Female', value: 'female' },
@@ -97,7 +96,6 @@ export default function GuestProfileTab({ isGuestUser = false }) {
         { label: 'Prefer not to say', value: 'prefer not to say' }
     ];
     
-    // Guest basic information state
     const [guestInfo, setGuestInfo] = useState({
         first_name: '',
         last_name: '',
@@ -113,7 +111,6 @@ export default function GuestProfileTab({ isGuestUser = false }) {
         country: ''
     });
     
-    // Health information state - matching AdminGuestProfile structure
     const [healthInfo, setHealthInfo] = useState({
         identify_aboriginal_torres: false,
         language: '',
@@ -136,15 +133,12 @@ export default function GuestProfileTab({ isGuestUser = false }) {
         sci_other_details: ''
     });
 
-    // Download PDF handler
     const handleDownloadGuestPDF = async () => {
         toast.info('Generating PDF. Please wait...');
         try {
             const response = await fetch(`/api/guests/${user.uuid}/download-profile-pdf`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
                     origin: currentUser.type,
                     guestData: guestInfo,
@@ -211,17 +205,14 @@ export default function GuestProfileTab({ isGuestUser = false }) {
                 });
                 
                 if (data.HealthInfo) {
-                    // Ensure sci_type_level is an array
                     const healthInfoData = { ...data.HealthInfo };
                     if (healthInfoData.sci_type_level && typeof healthInfoData.sci_type_level === 'string') {
                         try {
-                            // Try to parse as JSON first (handles escaped quotes)
                             const parsed = JSON.parse(healthInfoData.sci_type_level);
                             healthInfoData.sci_type_level = Array.isArray(parsed) ? parsed : [parsed];
                         } catch {
-                            // Fallback: clean quotes manually and split
                             let cleanedValue = healthInfoData.sci_type_level
-                                .replace(/^["']|["']$/g, '')  // Remove surrounding quotes
+                                .replace(/^["']|["']$/g, '')
                                 .trim();
                             healthInfoData.sci_type_level = cleanedValue
                                 .split(',')
@@ -229,11 +220,15 @@ export default function GuestProfileTab({ isGuestUser = false }) {
                                 .filter(v => v);
                         }
                     }
-                    
-                    // Use the validation helper to clean all null values
                     const cleanedHealthInfo = validateAndCleanHealthInfo(healthInfoData);
                     setHealthInfo(cleanedHealthInfo);
                 }
+
+                // ── NEW: load funding profiles ────────────────────────────
+                if (data.fundingProfiles) {
+                    setFundingProfiles(data.fundingProfiles);
+                }
+                // ─────────────────────────────────────────────────────────
             } else if (response.status === 404) {
                 toast.error('Profile not found');
             } else {
@@ -247,14 +242,12 @@ export default function GuestProfileTab({ isGuestUser = false }) {
         }
     };
 
-    // Load Profile Data
     useEffect(() => {
         if (user) {
             loadProfileInfo();
         }
     }, [user]);
 
-    // Fetch settings flags list - only for admins
     useEffect(() => {
         if (!isGuestUser) {
             const fetchSettingsFlagsList = async () => {
@@ -266,7 +259,6 @@ export default function GuestProfileTab({ isGuestUser = false }) {
         }
     }, [isGuestUser]);
 
-    // Update guest flags
     const updateGuestFlags = () => {
         const guestFlagOptions = settingsFlagsList.map(flag => ({
             label: _.startCase(flag),
@@ -348,10 +340,8 @@ export default function GuestProfileTab({ isGuestUser = false }) {
                 const data = await response.json();
                 console.log('Upload response:', data);
                 
-                // Clear the previous URL to trigger a fresh load
                 setProfileImageUrl('');
                 
-                // Reload profile info after a short delay
                 setTimeout(async () => {
                     try {
                         await loadProfileInfo();
@@ -366,7 +356,7 @@ export default function GuestProfileTab({ isGuestUser = false }) {
                         setImageUploading(false);
                         dispatch(globalActions.setLoading(false));
                     }
-                }, 1500); // Increased delay to ensure server processing is complete
+                }, 1500);
             } else {
                 const errorData = await response.json();
                 toast.error(errorData.message || 'Failed to upload profile picture');
@@ -380,7 +370,6 @@ export default function GuestProfileTab({ isGuestUser = false }) {
             dispatch(globalActions.setLoading(false));
         }
 
-        // Clear the file input
         e.target.value = null;
     };
 
@@ -391,13 +380,11 @@ export default function GuestProfileTab({ isGuestUser = false }) {
         dispatch(globalActions.setLoading(true));
         
         try {
-            // Clean health info before submission
             const cleanedHealthInfo = validateAndCleanHealthInfo(healthInfo);
             
             const payload = {
                 guest_id: guestId,
                 ...guestInfo,
-                // Only include flags for non-guest users
                 ...(isGuestUser ? {} : { flags: localFlags }),
                 health_info: cleanedHealthInfo
             };
@@ -443,7 +430,6 @@ export default function GuestProfileTab({ isGuestUser = false }) {
             : "no";
     };
 
-    // Add this helper function (around line 300, near the other helper functions)
     const getSciTypeLevelDisplayValue = () => {
         if (!healthInfo.sci_type_level) return '';
         if (Array.isArray(healthInfo.sci_type_level)) {
@@ -453,7 +439,6 @@ export default function GuestProfileTab({ isGuestUser = false }) {
     };
 
     const handleSciTypeLevelChange = (value) => {
-        // Convert comma-separated string back to array
         const levels = value.split(',').map(v => v.trim()).filter(v => v);
         handleHealthInfoChange('sci_type_level', levels);
     };
@@ -469,7 +454,7 @@ export default function GuestProfileTab({ isGuestUser = false }) {
     return (
         <div className="main-content">
             <div className="bg-white rounded-lg p-4 sm:p-6 shadow-sm">
-                {/* Header - matches AdminGuestProfile layout */}
+                {/* Header */}
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 sm:mb-8 space-y-4 sm:space-y-0">
                     <h1 className="text-xl sm:text-2xl font-semibold text-gray-800">
                         {guestInfo.first_name && guestInfo.last_name 
@@ -477,7 +462,6 @@ export default function GuestProfileTab({ isGuestUser = false }) {
                             : 'My Profile'}
                     </h1>
                     <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
-                        {/* Download PDF - available for guests */}
                         <button 
                             onClick={handleDownloadGuestPDF}
                             disabled={!user || !guestInfo.first_name}
@@ -485,7 +469,6 @@ export default function GuestProfileTab({ isGuestUser = false }) {
                         >
                             DOWNLOAD AS PDF
                         </button>
-                        {/* Update button - available for guests */}
                         <button 
                             onClick={handleSubmit}
                             disabled={saving}
@@ -496,11 +479,9 @@ export default function GuestProfileTab({ isGuestUser = false }) {
                     </div>
                 </div>
                 
-                {/* Form - matches AdminGuestProfile 5-column grid layout */}
                 <form onSubmit={handleSubmit} className="grid grid-cols-1 xl:grid-cols-5 gap-6 sm:gap-8">
-                    {/* Left Column - Profile Image (Flags hidden for guests) */}
+                    {/* Left Column - Profile Image */}
                     <div className="xl:col-span-1 space-y-4">
-                        {/* Profile Image - guests can upload */}
                         <ProfileImage 
                             profileImageUrl={profileImageUrl}
                             imageUploading={imageUploading}
@@ -509,7 +490,7 @@ export default function GuestProfileTab({ isGuestUser = false }) {
                             origin={isGuestUser ? "guest" : "admin"}
                         />
                         
-                        {/* Flags Section - HIDDEN for guests */}
+                        {/* Flags - HIDDEN for guests */}
                         {!isGuestUser && (
                             <div className="mt-4">
                                 <Can I="Create/Edit" a="Guest">
@@ -535,7 +516,6 @@ export default function GuestProfileTab({ isGuestUser = false }) {
                                     <div className="flex flex-wrap gap-1">
                                         {selectedFlags.map((flag, index) => {
                                             let bgColor = 'bg-gray-500';
-                                            
                                             if (flag === 'Complex Care') bgColor = 'bg-amber-500';
                                             else if (flag === 'Banned') bgColor = 'bg-red-500';
                                             else if (flag === 'Outstanding Invoices') bgColor = 'bg-fuchsia-500';
@@ -543,7 +523,6 @@ export default function GuestProfileTab({ isGuestUser = false }) {
                                             else if (flag === 'Account Credit') bgColor = 'bg-green-500';
                                             else if (flag === 'Deceased') bgColor = 'bg-slate-700';
                                             else if (flag === 'Not Eligible') bgColor = 'bg-gray-500';
-                                            
                                             return (
                                                 <p key={index} className={`${bgColor} w-fit px-2 p-1 text-xs text-white rounded-full`}>
                                                     {_.startCase(flag)}
@@ -556,9 +535,9 @@ export default function GuestProfileTab({ isGuestUser = false }) {
                         )}
                     </div>
                     
-                    {/* Right Column - All Form Fields (4 columns) */}
+                    {/* Right Column */}
                     <div className="xl:col-span-4 space-y-6">
-                        {/* Basic Information Fields */}
+                        {/* Basic Information */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                             <TextField
                                 label="First Name"
@@ -575,7 +554,6 @@ export default function GuestProfileTab({ isGuestUser = false }) {
                                 size="medium"
                             />
                             <div>
-                                {/* Email - ALWAYS DISABLED for guests */}
                                 <TextField
                                     label="Email"
                                     type="email"
@@ -612,7 +590,7 @@ export default function GuestProfileTab({ isGuestUser = false }) {
                             />
                         </div>
 
-                        {/* Address Section */}
+                        {/* Address */}
                         <div className="border-t border-gray-200 pt-6">
                             <h2 className="text-base sm:text-lg font-semibold mb-4 text-gray-700 uppercase">Address</h2>
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -665,7 +643,7 @@ export default function GuestProfileTab({ isGuestUser = false }) {
                             </div>
                         </div>
 
-                        {/* Cultural Background Section */}
+                        {/* Cultural Background */}
                         <div className="border-t border-gray-200 pt-6">
                             <h2 className="text-base sm:text-lg font-semibold mb-4 text-gray-700 uppercase">Cultural Background</h2>
                             <div className="space-y-4">
@@ -793,7 +771,7 @@ export default function GuestProfileTab({ isGuestUser = false }) {
                             </div>
                         </div>
 
-                        {/* Emergency Contact Section */}
+                        {/* Emergency Contact */}
                         <div className="border-t border-gray-200 pt-6">
                             <h2 className="text-base sm:text-lg font-semibold mb-4 text-gray-700 uppercase">Emergency Contact</h2>
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -830,7 +808,7 @@ export default function GuestProfileTab({ isGuestUser = false }) {
                             </div>
                         </div>
 
-                        {/* GP/Specialist Information Section */}
+                        {/* GP/Specialist */}
                         <div className="border-t border-gray-200 pt-6">
                             <h2 className="text-base sm:text-lg font-semibold mb-4 text-gray-700 uppercase">GP OR SPECIALIST INFORMATION</h2>
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -859,7 +837,7 @@ export default function GuestProfileTab({ isGuestUser = false }) {
                             </div>
                         </div>
 
-                        {/* Spinal Cord Injury Section */}
+                        {/* SCI Information */}
                         <div className="border-t border-gray-200 pt-6">
                             <h2 className="text-base sm:text-lg font-semibold mb-4 text-gray-700 uppercase">Spinal Cord Injury Information</h2>
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
@@ -934,6 +912,8 @@ export default function GuestProfileTab({ isGuestUser = false }) {
                                 </div>
                             </div>
                         </div>
+
+                        <FundingProfileSection fundingProfiles={fundingProfiles} />
                     </div>
                 </form>
             </div>

@@ -54,6 +54,9 @@ export default async function handler(req, res) {
         'and': function() {
           return Array.prototype.slice.call(arguments, 0, -1).every(Boolean);
         },
+        'not': function(value) { 
+          return !value; 
+        },
     });
 
     // Fetch complete booking data

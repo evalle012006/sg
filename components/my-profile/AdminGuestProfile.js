@@ -6,6 +6,7 @@ import { toast } from "react-toastify";
 import ProfileImage from "./ProfileImage";
 import _ from 'lodash';
 import { AbilityContext, Can } from "../../services/acl/can";
+import FundingProfileSection from "./FundingProfileSection";
 
 const Spinner = dynamic(() => import('../ui/spinner'));
 const RadioButton = dynamic(() => import('../ui-v2/RadioButton'));
@@ -33,6 +34,8 @@ export default function AdminGuestProfile() {
     const [selectedFlags, setSelectedFlags] = useState([]);
     const [localFlags, setLocalFlags] = useState([]); // Local state for pending flag changes
     const [showDeactivateDialog, setShowDeactivateDialog] = useState(false);
+
+    const [fundingProfiles, setFundingProfiles] = useState(null);
 
     const handleDownloadGuestPDF = async () => {
         toast.info('Generating PDF. Please wait...');
@@ -555,6 +558,10 @@ export default function AdminGuestProfile() {
                     
                     setHealthInfo(healthInfoData);
                 }
+
+                if (data.fundingProfiles) {
+                    setFundingProfiles(data.fundingProfiles);
+                }
             } else if (response.status === 404) {
                 toast.error('Profile not found');
             } else {
@@ -972,7 +979,6 @@ export default function AdminGuestProfile() {
 
                             {/* Aboriginal/Torres Strait Islander Section */}
                             <div className="border-t border-gray-200 pt-6">
-                                {/* <h2 className="text-base sm:text-lg font-semibold mb-4 text-gray-700 uppercase">IDENTIFIED AS ABORIGINAL OR TORRES STRAIT ISLANDER</h2> */}
                                 <div className="space-y-6">
                                     <div>
                                         <p className="text-sm font-medium mb-3 text-gray-700">Do you identify as Aboriginal or Torres Strait Islander? (Person with SCI)</p>
@@ -1353,6 +1359,8 @@ export default function AdminGuestProfile() {
                                     </div>
                                 </div>
                             </div>
+
+                            <FundingProfileSection fundingProfiles={fundingProfiles} />
                         </div>
                     </form>
                     

@@ -23,27 +23,20 @@ export default function ManageCourses() {
     const router = useRouter();
     const { mode, id, selectedTab: urlSelectedTab, courseId } = router.query;
     
-    // Determine current view mode - include offer modes
     const isFormMode = mode === 'add' || mode === 'edit' || mode === 'view' || 
                        mode === 'offer-add' || mode === 'offer-edit' || mode === 'offer-view';
     
-    // Tab state management - initialize from URL or default to courses
     const [selectedTab, setSelectedTab] = useState(urlSelectedTab || "courses");
-    
-    // View mode state - table or calendar
     const [viewMode, setViewMode] = useState('table');
     
-    // Courses state
     const [courses, setCourses] = useState([]);
     const [isListLoading, setIsListLoading] = useState(false);
     const [showDeleteDialog, setShowDeleteDialog] = useState(false);
     const [selectedCourse, setSelectedCourse] = useState(null);
     const [deleteWarning, setDeleteWarning] = useState(null);
 
-    // Course rates state
     const [courseRates, setCourseRates] = useState([]);
 
-    // Tab configuration
     const mainTabs = [
         { label: "COURSES", size: "medium", fullLabel: "COURSES" },
         { label: "OFFERS", size: "medium", fullLabel: "COURSE OFFERS" },
@@ -51,17 +44,14 @@ export default function ManageCourses() {
         { label: "EOI", size: "medium", fullLabel: "COURSE EOI" }
     ];
 
-    // Update selectedTab when URL changes
     useEffect(() => {
         if (urlSelectedTab && urlSelectedTab !== selectedTab) {
             setSelectedTab(urlSelectedTab);
         } else if (!urlSelectedTab && selectedTab !== "courses") {
-            // If no selectedTab in URL, default to courses
             setSelectedTab("courses");
         }
     }, [urlSelectedTab, selectedTab]);
 
-    // Load course rates
     useEffect(() => {
         loadCourseRates();
     }, []);
@@ -72,7 +62,6 @@ export default function ManageCourses() {
         }
     }, [isFormMode, selectedTab]);
 
-    // Load course rates function
     const loadCourseRates = async () => {
         try {
             const response = await fetch('/api/courses/rates');
@@ -85,14 +74,12 @@ export default function ManageCourses() {
         }
     };
 
-    // Helper function to format dates in Australian format
     const formatAustralianDate = (dateString) => {
         if (!dateString) return null;
         const date = moment(dateString);
         return date.isValid() ? date.format('DD/MM/YYYY') : null;
     };
 
-    // Helper function to format date ranges
     const formatDateRange = (startDate, endDate) => {
         const formattedStart = formatAustralianDate(startDate);
         const formattedEnd = formatAustralianDate(endDate);
@@ -103,7 +90,6 @@ export default function ManageCourses() {
         return 'TBD';
     };
 
-    // Helper function to check if course can be offered to guests
     const canOfferCourse = (course) => {
         if (course.status !== 'active') return false;
         
@@ -112,7 +98,6 @@ export default function ManageCourses() {
         return courseStartDate.isAfter(now);
     };
 
-    // Load courses list with stored pricing
     const loadCourses = async () => {
         setIsListLoading(true);
         try {
@@ -126,29 +111,35 @@ export default function ManageCourses() {
             const responseData = result.courses || result;
             
             if (Array.isArray(responseData)) {
-                // Process courses - use stored prices instead of calculating
                 responseData.forEach(course => {
                     let temp = { ...course };
                     
-                    // Format date range using Australian format
                     temp.dateRange = formatDateRange(temp.start_date, temp.end_date);
                     temp.minDateRange = formatDateRange(temp.min_start_date, temp.min_end_date);
                     
-                    // Use stored pricing
                     if (course.holiday_price !== null && course.sta_price !== null) {
                         temp.formattedHolidayPrice = formatAUD(parseFloat(course.holiday_price));
                         temp.formattedSTAPrice = formatAUD(parseFloat(course.sta_price));
                         temp.pricingCalculated = true;
                         temp.priceCalculatedAt = course.price_calculated_at;
                     } else {
-                        // No stored pricing available
                         temp.formattedHolidayPrice = course.start_date && course.end_date ? 'Not calculated' : 'Set dates first';
                         temp.formattedSTAPrice = course.start_date && course.end_date ? 'Not calculated' : 'Set dates first';
                         temp.pricingCalculated = false;
                     }
                     
-                    // Check if course can be offered
                     temp.canOffer = canOfferCourse(temp);
+
+                    // ✅ ADD: compute capacity metadata from what the API returns
+                    // The GET /api/courses/ response should include offer_count (see note below).
+                    // If offer_count is not yet on the API response it will default to 0 and
+                    // atCapacity will be false — safe fallback, enforcement still happens server-side.
+                    const maxOffers = course.max_offers ?? null;
+                    const offerCount = course.offer_count ?? 0;
+                    temp.max_offers = maxOffers;
+                    temp.offer_count = offerCount;
+                    temp.at_capacity = maxOffers !== null && offerCount >= maxOffers;
+                    temp.offers_remaining = maxOffers !== null ? Math.max(0, maxOffers - offerCount) : null;
                     
                     courseList.push(temp);
                 });
@@ -162,7 +153,6 @@ export default function ManageCourses() {
         setIsListLoading(false);
     };
 
-    // Navigation functions
     const showList = () => {
         router.push('/courses', undefined, { shallow: true });
     };
@@ -179,7 +169,6 @@ export default function ManageCourses() {
         router.push(`/courses?mode=view&id=${course.id}`, undefined, { shallow: true });
     };
 
-    // New navigation functions for offer forms
     const showOfferForm = (course) => {
         router.push(`/courses?mode=offer-add&courseId=${course.id}`, undefined, { shallow: true });
     };
@@ -215,7 +204,6 @@ export default function ManageCourses() {
                 const data = await response.json();
 
                 if (response.status === 400) {
-                    // Cannot delete due to active offers - show detailed warning
                     if (data.error === 'Cannot delete course' && data.details) {
                         setDeleteWarning({
                             message: data.message,
@@ -223,7 +211,7 @@ export default function ManageCourses() {
                             details: data.details
                         });
                         setIsListLoading(false);
-                        return; // Keep dialog open to show warning
+                        return;
                     } else {
                         toast.error(data.message || 'Cannot delete this course.');
                     }
@@ -236,7 +224,6 @@ export default function ManageCourses() {
                 } else if (!response.ok) {
                     toast.error(data.message || 'Something went wrong. Please try again later.');
                 } else {
-                    // Success
                     toast.success('Course was successfully deleted.');
                     setShowDeleteDialog(false);
                     setSelectedCourse(null);
@@ -259,51 +246,41 @@ export default function ManageCourses() {
         setDeleteWarning(null);
     };
 
-    // Form callbacks
     const handleFormCancel = () => {
         showList();
     };
 
     const handleFormSuccess = (result) => {
         if (result && result.action === 'edit' && result.id) {
-            // Switch to edit mode for the same course
             showEditForm({ id: result.id });
         } else {
-            // Return to list and refresh
             showList();
         }
     };
 
-    // Offer form callbacks
     const handleOfferFormCancel = () => {
-        // Always return to offers tab when canceling from any offer form
         router.push('/courses?selectedTab=offers', undefined, { shallow: true });
     };
 
     const handleOfferFormSuccess = (result) => {
         if (result && result.action === 'edit' && result.id) {
-            // Switch to edit mode for the same offer
             showEditOfferForm(result.id);
         } else {
-            // Return to offers tab
             router.push('/courses?selectedTab=offers', undefined, { shallow: true });
         }
     };
 
-    // Handle tab changes
     const handleTabChange = (index) => {
         const tabNames = ["courses", "offers", "rates", "eoi"];
         const selectedTabName = tabNames[index];
         setSelectedTab(selectedTabName);
         
-        // Update URL to reflect tab change
         const query = { ...router.query };
         if (selectedTabName === "courses") {
             delete query.selectedTab;
         } else {
             query.selectedTab = selectedTabName;
         }
-        // Remove form mode parameters when switching tabs
         delete query.mode;
         delete query.id;
         delete query.courseId;
@@ -314,12 +291,10 @@ export default function ManageCourses() {
         }, undefined, { shallow: true });
     };
 
-    // Handle view mode toggle
     const toggleViewMode = () => {
         setViewMode(prevMode => prevMode === 'table' ? 'calendar' : 'table');
     };
 
-    // Configure columns for the table with updated pricing
     const columns = useMemo(() => [
         {
             key: 'title',
@@ -447,20 +422,49 @@ export default function ManageCourses() {
                     >
                         <Edit className="w-4 h-4" />
                     </button>
-                    {/* Offer to Guest button - only show for active courses with future dates */}
+
+                    {/* ✅ UPDATED: Offer to Guest button — disabled + tooltip when at capacity */}
                     {row.canOffer && (
                         <button 
-                            className="p-2 rounded transition-colors duration-150 hover:opacity-80"
-                            style={{ backgroundColor: '#10B9811A', color: '#10B981' }}
+                            className={`p-2 rounded transition-colors duration-150 relative group ${
+                                row.at_capacity
+                                    ? 'opacity-40 cursor-not-allowed'
+                                    : 'hover:opacity-80'
+                            }`}
+                            style={{
+                                backgroundColor: row.at_capacity ? '#6B72801A' : '#10B9811A',
+                                color: row.at_capacity ? '#6B7280' : '#10B981',
+                            }}
                             onClick={(e) => {
                                 e.stopPropagation();
-                                handleOfferCourse(row);
+                                if (!row.at_capacity) {
+                                    handleOfferCourse(row);
+                                }
                             }}
-                            title="Offer to Guest"
+                            title={
+                                row.at_capacity
+                                    ? `At capacity — ${row.offer_count} / ${row.max_offers} offers sent`
+                                    : row.max_offers
+                                    ? `Offer to Guest (${row.offers_remaining} slot${row.offers_remaining === 1 ? '' : 's'} remaining)`
+                                    : 'Offer to Guest'
+                            }
+                            disabled={row.at_capacity}
                         >
                             <Users className="w-4 h-4" />
+                            {/* ✅ ADD: tiny capacity indicator dot when a limit is set */}
+                            {row.max_offers && !row.at_capacity && (
+                                <span className="absolute -top-1 -right-1 bg-green-500 text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center leading-none">
+                                    {row.offers_remaining > 9 ? '9+' : row.offers_remaining}
+                                </span>
+                            )}
+                            {row.at_capacity && (
+                                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center leading-none">
+                                    !
+                                </span>
+                            )}
                         </button>
                     )}
+
                     <button 
                         className="p-2 rounded transition-colors duration-150 hover:opacity-80"
                         style={{ backgroundColor: '#00467F1A', color: '#00467F' }}
@@ -477,7 +481,6 @@ export default function ManageCourses() {
         }
     ], [courseRates]);
 
-    // Show loading spinner for initial load
     if (!isFormMode && selectedTab === "courses" && isListLoading && courses.length === 0) {
         return (
             <Layout title="Course Management">
@@ -491,10 +494,8 @@ export default function ManageCourses() {
     return (
         <Layout title="Course Management">
             <div className="p-6">
-                {/* TABS AND CONTENT (when not in form mode) */}
                 {!isFormMode && (
                     <>
-                        {/* Main Navigation Tabs */}
                         <div className="mb-6">
                             <TabButton
                                 tabs={mainTabs}
@@ -504,11 +505,9 @@ export default function ManageCourses() {
                             />
                         </div>
 
-                        {/* COURSES TAB */}
                         {selectedTab === "courses" && (
                             <>
                                 <div className="flex justify-between items-center mb-6">
-                                    {/* View Toggle Buttons */}
                                     <div className="flex items-center space-x-2">
                                         <button
                                             onClick={toggleViewMode}
@@ -534,7 +533,6 @@ export default function ManageCourses() {
                                         </button>
                                     </div>
 
-                                    {/* Add Course Button */}
                                     <Button
                                         color="primary"
                                         size="medium"
@@ -544,7 +542,6 @@ export default function ManageCourses() {
                                     />
                                 </div>
 
-                                {/* Table or Calendar View */}
                                 {viewMode === 'table' ? (
                                     <Table 
                                         data={courses} 
@@ -556,12 +553,10 @@ export default function ManageCourses() {
                                     <CalendarView courses={courses} />
                                 )}
 
-                                {/* Delete Confirmation Dialog */}
                                 {showDeleteDialog && (
                                     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
                                         <div className="bg-white rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
                                             {!deleteWarning ? (
-                                                // Initial delete confirmation
                                                 <>
                                                     <h3 className="text-lg font-semibold text-gray-900 mb-2">
                                                         Delete Course
@@ -586,7 +581,6 @@ export default function ManageCourses() {
                                                     </div>
                                                 </>
                                             ) : (
-                                                // Warning about active offers
                                                 <>
                                                     <div className="flex items-start space-x-3 mb-4">
                                                         <div className="flex-shrink-0">
@@ -604,7 +598,6 @@ export default function ManageCourses() {
                                                         </div>
                                                     </div>
 
-                                                    {/* Active Offers Summary */}
                                                     {deleteWarning.details && (
                                                         <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4">
                                                             <div className="flex items-center space-x-6 text-sm">
@@ -624,7 +617,6 @@ export default function ManageCourses() {
                                                         </div>
                                                     )}
 
-                                                    {/* Affected Guests List */}
                                                     {deleteWarning.details?.affectedGuests && deleteWarning.details.affectedGuests.length > 0 && (
                                                         <div className="mb-4">
                                                             <h4 className="text-sm font-semibold text-gray-900 mb-3">
@@ -656,7 +648,6 @@ export default function ManageCourses() {
                                                         </div>
                                                     )}
 
-                                                    {/* Recommendation */}
                                                     {deleteWarning.recommendation && (
                                                         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
                                                             <div className="flex items-start space-x-2">
@@ -670,7 +661,6 @@ export default function ManageCourses() {
                                                         </div>
                                                     )}
 
-                                                    {/* Action Buttons */}
                                                     <div className="flex justify-end space-x-3">
                                                         <Button
                                                             color="outline"
@@ -678,14 +668,6 @@ export default function ManageCourses() {
                                                             label="Cancel"
                                                             onClick={closeDeleteDialog}
                                                         />
-                                                        {/* Future: Add "Force Delete" button if needed
-                                                        <Button
-                                                            color="secondary"
-                                                            size="medium"
-                                                            label="Force Delete Anyway"
-                                                            onClick={handleForceDelete}
-                                                        />
-                                                        */}
                                                     </div>
                                                 </>
                                             )}
@@ -695,7 +677,6 @@ export default function ManageCourses() {
                             </>
                         )}
 
-                        {/* COURSE OFFERS TAB */}
                         {selectedTab === "offers" && (
                             <CourseOffers 
                                 onEditOffer={showEditOfferForm}
@@ -703,19 +684,16 @@ export default function ManageCourses() {
                             />
                         )}
 
-                        {/* COURSE RATES TAB */}
                         {selectedTab === "rates" && (
                             <CourseRates />
                         )}
 
-                        {/* COURSE EOI TAB */}
                         {selectedTab === "eoi" && (
                             <CourseEOIs />
                         )}
                     </>
                 )}
 
-                {/* COURSE FORM VIEW (when in add/edit/view mode) */}
                 {isFormMode && selectedTab === "courses" && (mode === 'add' || mode === 'edit' || mode === 'view') && (
                     <CourseForm
                         mode={mode}
@@ -725,7 +703,6 @@ export default function ManageCourses() {
                     />
                 )}
 
-                {/* OFFER FORM VIEW (when in offer add/edit/view mode) */}
                 {isFormMode && (mode === 'offer-add' || mode === 'offer-edit' || mode === 'offer-view') && (
                     <CourseOfferForm
                         mode={mode.replace('offer-', '')}

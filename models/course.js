@@ -52,7 +52,12 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.JSON,
       allowNull: true,
     },
-    // ✅ ADD THIS FIELD FOR SOFT DELETE
+    max_offers: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      defaultValue: null,
+      comment: 'Maximum number of guests that can be offered this course. NULL = unlimited.',
+    },
     deleted_at: {
       type: DataTypes.DATE,
       allowNull: true,

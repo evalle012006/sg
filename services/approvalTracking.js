@@ -126,19 +126,22 @@ export class ApprovalTrackingService {
   }
 
   /**
-   * Get all active funding approvals for a guest with their remaining nights
-   * Ordered by approval_from date (earliest first)
+   * Get all active funding approvals for a guest with their remaining nights.
+   * IMPORTANT: Only returns PRIMARY approvals (additional_room_type_id IS NULL).
+   * Additional room approvals are manually managed and must never be auto-updated.
+   * Ordered by approval_from date (earliest first).
    * @param {number} guestId - The guest ID
    * @returns {Object} - Object containing approvals array and total remaining nights
    */
   static async getAllActiveApprovals(guestId) {
     const now = moment();
     
-    // Query FundingApproval table - ordered by approval_from (earliest first)
+    // Query FundingApproval table - EXCLUDE additional room approvals
     const approvals = await FundingApproval.findAll({
       where: {
         guest_id: guestId,
-        status: 'active'
+        status: 'active',
+        additional_room_type_id: null  // ← Only primary approvals; additional room approvals are manually managed
       },
       order: [['approval_from', 'ASC']]  // Earliest approval date first
     });
@@ -172,7 +175,7 @@ export class ApprovalTrackingService {
       });
     }
 
-    console.log(`🔍 Found ${approvalsWithRemaining.length} active (non-expired) FundingApproval(s) for guest ${guestId} with ${totalRemainingNights} total nights remaining`);
+    console.log(`🔍 Found ${approvalsWithRemaining.length} active primary (non-expired) FundingApproval(s) for guest ${guestId} with ${totalRemainingNights} total nights remaining`);
     
     // Log the order for debugging
     if (approvalsWithRemaining.length > 0) {
@@ -190,7 +193,9 @@ export class ApprovalTrackingService {
   }
 
   /**
-   * Allocate nights from multiple approvals in order of earliest approval_from date
+   * Allocate nights from multiple approvals in order of earliest approval_from date.
+   * Only allocates from PRIMARY approvals (additional room approvals are excluded automatically
+   * via getAllActiveApprovals).
    * @param {number} guestId - The guest ID
    * @param {number} nightsNeeded - Number of nights needed
    * @returns {Array|null} - Array of allocations [{approval, nightsToUse}] or null if insufficient
@@ -259,7 +264,8 @@ export class ApprovalTrackingService {
   }
 
   /**
-   * Get consolidated approval summary for a guest
+   * Get consolidated approval summary for a guest.
+   * Only includes PRIMARY approvals (additional room approvals excluded).
    * @param {number} guestId - The guest ID
    * @returns {Object} - Summary of all approvals
    */
