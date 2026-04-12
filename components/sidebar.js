@@ -582,31 +582,33 @@ export default function Sidebar({ isCollapsed }) {
 
                     {/* Reports */}
                     {user && user.type == 'user' && (
-                        <li>
-                            <Link href="/reports">
-                                <a 
-                                    className={getMenuItemClasses("/reports")}
-                                    title={isCollapsed ? "Reports" : ""}
-                                >
-                                    {isMenuItemActive("/reports") && (
-                                        <div className="absolute inset-0 bg-[#FFCE00]"></div>
-                                    )}
-                                    <div className="relative flex items-center w-full px-4">
-                                        <div className="w-6 h-6 flex-shrink-0">
-                                            <svg width="23" height="28" viewBox="0 0 23 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                                <g opacity={isMenuItemActive("/reports") ? "1" : "0.5"}>
-                                                    <path d="M12.9744 26.7395H3.02756C2.48982 26.7395 1.97409 26.5259 1.59385 26.1456C1.21361 25.7654 1 25.2497 1 24.712V3.02756C1 2.48982 1.21361 1.97409 1.59385 1.59385C1.97409 1.21361 2.48982 1 3.02756 1H19.6217C20.1595 1 20.6754 1.21358 21.0557 1.5938C21.4361 1.97402 21.6499 2.48974 21.6501 3.02756V19.534L13.1268 26.7379V18.7145H20.7076" stroke={getIconColor("/reports")} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                                                    <path d="M5.32031 6.32227H16.9308" stroke={getIconColor("/reports")} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                                                    <path d="M5.32031 11.5298H16.9308" stroke={getIconColor("/reports")} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                                                    <path d="M5.32031 16.7368H9.41805" stroke={getIconColor("/reports")} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                                                </g>
-                                            </svg>
+                        <Can I="Read" a="Report">
+                            <li>
+                                <Link href="/reports">
+                                    <a 
+                                        className={getMenuItemClasses("/reports")}
+                                        title={isCollapsed ? "Reports" : ""}
+                                    >
+                                        {isMenuItemActive("/reports") && (
+                                            <div className="absolute inset-0 bg-[#FFCE00]"></div>
+                                        )}
+                                        <div className="relative flex items-center w-full px-4">
+                                            <div className="w-6 h-6 flex-shrink-0">
+                                                <svg width="23" height="28" viewBox="0 0 23 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                                    <g opacity={isMenuItemActive("/reports") ? "1" : "0.5"}>
+                                                        <path d="M12.9744 26.7395H3.02756C2.48982 26.7395 1.97409 26.5259 1.59385 26.1456C1.21361 25.7654 1 25.2497 1 24.712V3.02756C1 2.48982 1.21361 1.97409 1.59385 1.59385C1.97409 1.21361 2.48982 1 3.02756 1H19.6217C20.1595 1 20.6754 1.21358 21.0557 1.5938C21.4361 1.97402 21.6499 2.48974 21.6501 3.02756V19.534L13.1268 26.7379V18.7145H20.7076" stroke={getIconColor("/reports")} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                                        <path d="M5.32031 6.32227H16.9308" stroke={getIconColor("/reports")} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                                        <path d="M5.32031 11.5298H16.9308" stroke={getIconColor("/reports")} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                                        <path d="M5.32031 16.7368H9.41805" stroke={getIconColor("/reports")} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                                    </g>
+                                                </svg>
+                                            </div>
+                                            {!isCollapsed && <span className="ml-3 font-medium">Reports</span>}
                                         </div>
-                                        {!isCollapsed && <span className="ml-3 font-medium">Reports</span>}
-                                    </div>
-                                </a>
-                            </Link>
-                        </li>
+                                    </a>
+                                </Link>
+                            </li>
+                        </Can>
                     )}
                 </ul>
             </nav>

@@ -5,6 +5,8 @@ import { Eye, Edit, Trash2, Users, Calendar, List } from 'lucide-react';
 import { toast } from 'react-toastify';
 import moment from 'moment';
 import { formatAUD } from '../../utilities/priceUtil';
+import { useContext } from 'react';
+import { AbilityContext } from '../../services/acl/can';
 
 const Layout = dynamic(() => import('../../components/layout'));
 const Table = dynamic(() => import('../../components/ui-v2/Table'));
@@ -20,6 +22,7 @@ const CourseRates = dynamic(() => import('../../components/courses/CourseRates')
 const CourseEOIs = dynamic(() => import('../../components/courses/CourseEOIs'));
 
 export default function ManageCourses() {
+    const ability = useContext(AbilityContext);
     const router = useRouter();
     const { mode, id, selectedTab: urlSelectedTab, courseId } = router.query;
     
@@ -411,20 +414,22 @@ export default function ManageCourses() {
                     >
                         <Eye className="w-4 h-4" />
                     </button>
-                    <button 
-                        className="p-2 rounded transition-colors duration-150 hover:opacity-80"
-                        style={{ backgroundColor: '#00467F1A', color: '#00467F' }}
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            showEditForm(row);
-                        }}
-                        title="Edit Course"
-                    >
-                        <Edit className="w-4 h-4" />
-                    </button>
+                    {ability.can('Create/Edit', 'Course') && (
+                        <button 
+                            className="p-2 rounded transition-colors duration-150 hover:opacity-80"
+                            style={{ backgroundColor: '#00467F1A', color: '#00467F' }}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                showEditForm(row);
+                            }}
+                            title="Edit Course"
+                        >
+                            <Edit className="w-4 h-4" />
+                        </button>
+                    )}
 
                     {/* ✅ UPDATED: Offer to Guest button — disabled + tooltip when at capacity */}
-                    {row.canOffer && (
+                    {(row.canOffer && ability.can('Create/Edit', 'Course')) && (
                         <button 
                             className={`p-2 rounded transition-colors duration-150 relative group ${
                                 row.at_capacity
@@ -465,21 +470,23 @@ export default function ManageCourses() {
                         </button>
                     )}
 
-                    <button 
-                        className="p-2 rounded transition-colors duration-150 hover:opacity-80"
-                        style={{ backgroundColor: '#00467F1A', color: '#00467F' }}
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteCourse(row);
-                        }}
-                        title="Delete Course"
-                    >
-                        <Trash2 className="w-4 h-4" />
-                    </button>
+                    {ability.can('Create/Edit', 'Course') && (
+                        <button 
+                            className="p-2 rounded transition-colors duration-150 hover:opacity-80"
+                            style={{ backgroundColor: '#00467F1A', color: '#00467F' }}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteCourse(row);
+                            }}
+                            title="Delete Course"
+                        >
+                            <Trash2 className="w-4 h-4" />
+                        </button>
+                    )}
                 </div>
             )
         }
-    ], [courseRates]);
+    ], [courseRates, ability]);
 
     if (!isFormMode && selectedTab === "courses" && isListLoading && courses.length === 0) {
         return (
@@ -533,13 +540,15 @@ export default function ManageCourses() {
                                         </button>
                                     </div>
 
-                                    <Button
-                                        color="primary"
-                                        size="medium"
-                                        label="+ ADD COURSE"
-                                        onClick={showAddForm}
-                                        className="font-semibold"
-                                    />
+                                    {ability.can('Create/Edit', 'Course') && (
+                                        <Button
+                                            color="primary"
+                                            size="medium"
+                                            label="+ ADD COURSE"
+                                            onClick={showAddForm}
+                                            className="font-semibold"
+                                        />
+                                    )}
                                 </div>
 
                                 {viewMode === 'table' ? (

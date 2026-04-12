@@ -803,7 +803,7 @@ export default function AdminGuestProfile() {
                             
                             {/* Add Flag Section */}
                             <div className="mt-4">
-                                <Can I="Create/Edit" a="Guest">
+                                <Can I="Create/Edit" a="GuestFlag">
                                     <div>
                                         <label className="font-semibold form-label block mb-1.5 text-slate-700">Flags</label>
                                         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-1 gap-2">
@@ -820,9 +820,19 @@ export default function AdminGuestProfile() {
                                                 />
                                             ))}
                                         </div>
+                                        {/* Show Save Flags button only when user cannot edit the full profile */}
+                                        <Can not I="Create/Edit" a="Guest">
+                                            <button
+                                                type="button"
+                                                onClick={() => handleUpdateGuestFlags(localFlags, false)}
+                                                className="mt-3 w-full px-3 py-2 bg-yellow-500 text-white text-xs rounded hover:bg-yellow-600"
+                                            >
+                                                SAVE FLAGS
+                                            </button>
+                                        </Can>
                                     </div>
                                 </Can>
-                                <Can not I="Create/Edit" a="Guest">
+                                <Can not I="Create/Edit" a="GuestFlag">
                                     <div className="flex flex-wrap gap-1">
                                         {selectedFlags.map((flag, index) => {
                                             let bgColor = 'bg-gray-500'; // default

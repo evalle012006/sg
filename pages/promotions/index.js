@@ -4,6 +4,8 @@ import { useRouter } from 'next/router';
 import { Eye, Edit, Trash2 } from 'lucide-react';
 import { toast } from 'react-toastify';
 import moment from 'moment';
+import { useContext } from 'react';
+import { AbilityContext } from '../../services/acl/can';
 
 const Layout = dynamic(() => import('../../components/layout'));
 const Table = dynamic(() => import('../../components/ui-v2/Table'));
@@ -13,6 +15,7 @@ const Spinner = dynamic(() => import('../../components/ui/spinner'));
 const PromotionForm = dynamic(() => import('../../components/promotions/PromotionForm'));
 
 export default function ManagePromotions() {
+    const ability = useContext(AbilityContext);
     const router = useRouter();
     const { mode, id } = router.query;
     
@@ -192,32 +195,36 @@ export default function ManagePromotions() {
                     >
                         <Eye className="w-4 h-4" />
                     </button>
-                    <button 
-                        className="p-2 rounded transition-colors duration-150 hover:opacity-80"
-                        style={{ backgroundColor: '#F59E0B1A', color: '#F59E0B' }}
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            showEditForm(row);
-                        }}
-                        title="Edit Promotion"
-                    >
-                        <Edit className="w-4 h-4" />
-                    </button>
-                    <button 
-                        className="p-2 rounded transition-colors duration-150 hover:opacity-80"
-                        style={{ backgroundColor: '#00467F1A', color: '#00467F' }}
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeletePromotion(row);
-                        }}
-                        title="Delete Promotion"
-                    >
-                        <Trash2 className="w-4 h-4" />
-                    </button>
+                    {ability.can('Create/Edit', 'Promotion') && (
+                        <button 
+                            className="p-2 rounded transition-colors duration-150 hover:opacity-80"
+                            style={{ backgroundColor: '#F59E0B1A', color: '#F59E0B' }}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                showEditForm(row);
+                            }}
+                            title="Edit Promotion"
+                        >
+                            <Edit className="w-4 h-4" />
+                        </button>
+                    )}
+                    {ability.can('Create/Edit', 'Promotion') && (
+                        <button 
+                            className="p-2 rounded transition-colors duration-150 hover:opacity-80"
+                            style={{ backgroundColor: '#00467F1A', color: '#00467F' }}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeletePromotion(row);
+                            }}
+                            title="Delete Promotion"
+                        >
+                            <Trash2 className="w-4 h-4" />
+                        </button>
+                    )}
                 </div>
             )
         }
-    ], []);
+    ], [ability]);
 
     // Show loading spinner for initial load
     if (!isFormMode && isListLoading && promotions.length === 0) {
@@ -257,13 +264,15 @@ export default function ManagePromotions() {
                                     Manage promotional offers displayed to guests
                                 </p>
                             </div>
-                            <Button
-                                type="button"
-                                color="primary"
-                                size="medium"
-                                label="Add New Promotion"
-                                onClick={showAddForm}
-                            />
+                            {ability.can('Create/Edit', 'Promotion') && (
+                                <Button
+                                    type="button"
+                                    color="primary"
+                                    size="medium"
+                                    label="Add New Promotion"
+                                    onClick={showAddForm}
+                                />
+                            )}
                         </div>
 
                         {/* Table */}

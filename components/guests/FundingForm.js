@@ -3,6 +3,8 @@ import { toast } from 'react-toastify';
 import dynamic from 'next/dynamic';
 import { Plus, Trash2, Edit2, AlertCircle, Calendar } from 'lucide-react';
 import moment from 'moment';
+import { useContext } from 'react';
+import { AbilityContext, Can } from '../../services/acl/can';
 
 const Button = dynamic(() => import('../ui-v2/Button'));
 const TextField = dynamic(() => import('../ui-v2/TextField'));
@@ -10,6 +12,7 @@ const SelectComponent = dynamic(() => import('../ui/select'));
 const DateComponent = dynamic(() => import('../ui-v2/DateField'));
 
 const FundingForm = ({ uuid, onSuccess }) => {
+  const ability = useContext(AbilityContext);
   const [loading, setLoading] = useState(false);
   const [fundingApprovals, setFundingApprovals] = useState([]);
   const [showModal, setShowModal] = useState(false);
@@ -245,21 +248,26 @@ const FundingForm = ({ uuid, onSuccess }) => {
               </div>
             </div>
 
+            {/* In ApprovalCard */}
             <div className="flex items-center gap-2">
-              <button
-                onClick={() => handleEdit(approval)}
-                className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                title="Edit"
-              >
-                <Edit2 size={16} />
-              </button>
-              <button
-                onClick={() => handleDelete(approval.id)}
-                className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
-                title="Delete"
-              >
-                <Trash2 size={16} />
-              </button>
+                {ability.can('Create/Edit', 'Approval') && (
+                    <button
+                        onClick={() => handleEdit(approval)}
+                        className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                        title="Edit"
+                    >
+                        <Edit2 size={16} />
+                    </button>
+                )}
+                {ability.can('Create/Edit', 'Approval') && (
+                    <button
+                        onClick={() => handleDelete(approval.id)}
+                        className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
+                        title="Delete"
+                    >
+                        <Trash2 size={16} />
+                    </button>
+                )}
             </div>
           </div>
         </div>
@@ -383,20 +391,24 @@ const FundingForm = ({ uuid, onSuccess }) => {
             </div>
 
             <div className="flex items-center gap-2">
-              <button
-                onClick={() => handleEdit(approval)}
-                className="p-1.5 text-purple-600 hover:bg-purple-50 rounded transition-colors"
-                title="Edit"
-              >
-                <Edit2 size={16} />
-              </button>
-              <button
-                onClick={() => handleDelete(approval.id)}
-                className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
-                title="Delete"
-              >
-                <Trash2 size={16} />
-              </button>
+              {ability.can('Create/Edit', 'Approval') && (
+                <button
+                  onClick={() => handleEdit(approval)}
+                  className="p-1.5 text-purple-600 hover:bg-purple-50 rounded transition-colors"
+                  title="Edit"
+                >
+                  <Edit2 size={16} />
+                </button>
+              )}
+              {ability.can('Create/Edit', 'Approval') && (
+                <button
+                  onClick={() => handleDelete(approval.id)}
+                  className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
+                  title="Delete"
+                >
+                  <Trash2 size={16} />
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -476,56 +488,6 @@ const FundingForm = ({ uuid, onSuccess }) => {
   const ApprovalFormModal = () => {
     const isAdditionalRoom = modalType === 'additional_room';
 
-    // If no type selected yet and not editing, show the type selection step
-    if (!editingApproval && modalType === null) {
-      return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-3 sm:p-4 z-50">
-          <div className="bg-white rounded-lg max-w-lg w-full flex flex-col my-4 sm:my-8">
-            <div className="flex items-center justify-between p-4 sm:p-6 border-b border-gray-200">
-              <div>
-                <h2 className="text-lg sm:text-xl font-semibold text-gray-800">Add Funding Approval</h2>
-                <p className="text-xs sm:text-sm text-gray-500 mt-1">Select the type of approval to add</p>
-              </div>
-              <button
-                onClick={() => setShowModal(false)}
-                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-              >
-                <span className="text-2xl text-gray-500">×</span>
-              </button>
-            </div>
-
-            <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <button
-                onClick={() => setModalType('primary')}
-                className="flex flex-col items-start p-5 border-2 border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-all text-left group"
-              >
-                <div className="w-10 h-10 bg-blue-100 group-hover:bg-blue-200 rounded-lg flex items-center justify-center mb-3">
-                  <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                </div>
-                <h3 className="font-semibold text-gray-800 mb-1">Package Approval</h3>
-                <p className="text-xs text-gray-500">Standard iCare package funding. Nights are automatically tracked when bookings are confirmed.</p>
-              </button>
-
-              <button
-                onClick={() => setModalType('additional_room')}
-                className="flex flex-col items-start p-5 border-2 border-gray-200 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition-all text-left group"
-              >
-                <div className="w-10 h-10 bg-purple-100 group-hover:bg-purple-200 rounded-lg flex items-center justify-center mb-3">
-                  <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                  </svg>
-                </div>
-                <h3 className="font-semibold text-gray-800 mb-1">Additional Room Approval</h3>
-                <p className="text-xs text-gray-500">Separate approval for an additional room. Nights are managed manually by admin.</p>
-              </button>
-            </div>
-          </div>
-        </div>
-      );
-    }
-
     const [formData, setFormData] = useState({
       approval_name: '',
       approval_number: '',
@@ -577,6 +539,56 @@ const FundingForm = ({ uuid, onSuccess }) => {
         });
       }
     }, [editingApproval]);
+
+    // If no type selected yet and not editing, show the type selection step
+    if (!editingApproval && modalType === null) {
+      return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-3 sm:p-4 z-50">
+          <div className="bg-white rounded-lg max-w-lg w-full flex flex-col my-4 sm:my-8">
+            <div className="flex items-center justify-between p-4 sm:p-6 border-b border-gray-200">
+              <div>
+                <h2 className="text-lg sm:text-xl font-semibold text-gray-800">Add Funding Approval</h2>
+                <p className="text-xs sm:text-sm text-gray-500 mt-1">Select the type of approval to add</p>
+              </div>
+              <button
+                onClick={() => setShowModal(false)}
+                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+              >
+                <span className="text-2xl text-gray-500">×</span>
+              </button>
+            </div>
+
+            <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <button
+                onClick={() => setModalType('primary')}
+                className="flex flex-col items-start p-5 border-2 border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-all text-left group"
+              >
+                <div className="w-10 h-10 bg-blue-100 group-hover:bg-blue-200 rounded-lg flex items-center justify-center mb-3">
+                  <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                </div>
+                <h3 className="font-semibold text-gray-800 mb-1">Package Approval</h3>
+                <p className="text-xs text-gray-500">Standard iCare package funding. Nights are automatically tracked when bookings are confirmed.</p>
+              </button>
+
+              <button
+                onClick={() => setModalType('additional_room')}
+                className="flex flex-col items-start p-5 border-2 border-gray-200 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition-all text-left group"
+              >
+                <div className="w-10 h-10 bg-purple-100 group-hover:bg-purple-200 rounded-lg flex items-center justify-center mb-3">
+                  <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                  </svg>
+                </div>
+                <h3 className="font-semibold text-gray-800 mb-1">Additional Room Approval</h3>
+                <p className="text-xs text-gray-500">Separate approval for an additional room. Nights are managed manually by admin.</p>
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
 
     const getSelectedPackageLabel = () => {
       if (formData.package_id && packageOptions.length > 0) {
@@ -967,15 +979,17 @@ const FundingForm = ({ uuid, onSuccess }) => {
             Track and manage funding approvals for this guest
           </p>
         </div>
-        <Button
-          onClick={handleAddNew}
-          size="medium"
-          color="primary"
-          label="Add Approval"
-          withIcon={true}
-          iconName="plus"
-          Icon={Plus}
-        />
+        {ability.can('Create/Edit', 'Approval') && (
+            <Button
+                onClick={handleAddNew}
+                size="medium"
+                color="primary"
+                label="Add Approval"
+                withIcon={true}
+                iconName="plus"
+                Icon={Plus}
+            />
+        )}
       </div>
 
       {/* Summary Cards — primary approvals only */}
@@ -1022,15 +1036,17 @@ const FundingForm = ({ uuid, onSuccess }) => {
           <p className="text-gray-600 mb-6">
             Create funding approvals for this guest to start tracking night usage
           </p>
-          <Button
-            onClick={handleAddNew}
-            size="medium"
-            color="primary"
-            label="Add First Approval"
-            withIcon={true}
-            iconName="plus"
-            Icon={Plus}
-          />
+          {ability.can('Create/Edit', 'Approval') && (
+            <Button
+                onClick={handleAddNew}
+                size="medium"
+                color="primary"
+                label="Add First Approval"
+                withIcon={true}
+                iconName="plus"
+                Icon={Plus}
+            />
+        )}
         </div>
       ) : (
         <div className="space-y-6">
