@@ -1064,45 +1064,43 @@ const QuestionPage = ({
                                             };
 
                                             const handleDateFieldChange = (e, secIdx, qIdx, checkInQuestion, checkOutQuestion, error) => {
-                                                console.log('🔍 handleDateFieldChange:', { e, checkInQuestion, checkOutQuestion, error });
-                                                
                                                 markQuestionAsInteracted(secIdx, qIdx);
                                                 
                                                 if (checkInQuestion) {
-                                                    dispatch(bookingRequestFormActions.setCheckinDate(e))
-                                                    // FIX: Only update checkInDate, don't set checkOutDate to null
+                                                    dispatch(bookingRequestFormActions.setCheckinDate(e));
                                                     onStayDatesUpdate?.({ checkInDate: e });
                                                 }
                                                 if (checkOutQuestion) {
-                                                    dispatch(bookingRequestFormActions.setCheckoutDate(e))
-                                                    // FIX: Only update checkOutDate, don't set checkInDate to null
+                                                    dispatch(bookingRequestFormActions.setCheckoutDate(e));
                                                     onStayDatesUpdate?.({ checkOutDate: e });
                                                 }
 
                                                 // Handle date-range type (combined check-in/check-out)
+                                                // CRITICAL: Only dispatch stay dates if this is actually the check-in/out date-range question
                                                 if (question?.type === 'date-range' && e && typeof e === 'string' && e.includes(' - ')) {
-                                                    const dates = e.split(' - ');
-                                                    const checkIn = dates[0]?.trim();
-                                                    const checkOut = dates[1]?.trim();
+                                                    const isCheckInOutDateRange = questionHasKey(question, QUESTION_KEYS.CHECK_IN_OUT_DATE);
                                                     
-                                                    console.log('📅 Date range updated:', { checkIn, checkOut });
-                                                    
-                                                    if (checkIn) {
-                                                        dispatch(bookingRequestFormActions.setCheckinDate(checkIn));
+                                                    if (isCheckInOutDateRange) {
+                                                        const dates = e.split(' - ');
+                                                        const checkIn = dates[0]?.trim();
+                                                        const checkOut = dates[1]?.trim();
+                                                        
+                                                        if (checkIn) {
+                                                            dispatch(bookingRequestFormActions.setCheckinDate(checkIn));
+                                                        }
+                                                        if (checkOut) {
+                                                            dispatch(bookingRequestFormActions.setCheckoutDate(checkOut));
+                                                        }
+                                                        
+                                                        onStayDatesUpdate?.({ checkInDate: checkIn, checkOutDate: checkOut });
                                                     }
-                                                    if (checkOut) {
-                                                        dispatch(bookingRequestFormActions.setCheckoutDate(checkOut));
-                                                    }
-                                                    
-                                                    // FIX: Update both dates together for date-range
-                                                    onStayDatesUpdate?.({ checkInDate: checkIn, checkOutDate: checkOut });
+                                                    // Non-check-in/out date-range fields (like NDIS plan dates): 
+                                                    // just fall through to updateSections below — no stayDates update
                                                 }
 
-                                                // Pass the error to updateSections - it will handle setting the error state
-                                                // Convert empty error to null for consistency
                                                 const errorToPass = error && error.trim() !== '' ? error : null;
                                                 updateSections(e, 'answer', secIdx, qIdx, [], errorToPass);
-                                            }
+                                            };
 
                                             const handleCheckboxFieldChange = (e, status, flag, secIdx, qIdx, simple) => {
                                                 markQuestionAsInteracted(secIdx, qIdx);

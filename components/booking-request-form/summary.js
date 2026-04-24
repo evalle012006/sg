@@ -1441,7 +1441,7 @@ const SummaryOfStay = ({
                 <div>
                   <h3 className="text-lg font-semibold text-amber-800 mb-2">Funding Assistance Available</h3>
                   <p className="text-base text-amber-900">
-                    Funding assistance of {formatAUD(319)} per night for up to 5 nights may be available to you.
+                    Funding assistance of {formatAUD(500)} per night for up to 3 nights ({formatAUD(1500)} total) may be available to you.
                   </p>
                 </div>
               </div>

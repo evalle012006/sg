@@ -76,11 +76,21 @@ export const templateSlice = createSlice({
 
         },
         updateQuestion: (state, action) => {
-            let pageIndex = state.template.Pages.findIndex(page => page.id === state.currentPage.id);
-            let sectionIndex = state.template.Pages[pageIndex].Sections.findIndex(section => section.id === action.payload.section_id);
-            let questionIndex = state.template.Pages[pageIndex].Sections[sectionIndex].Questions.findIndex(question => question.id === action.payload.id);
-            let currentSectionIndex = state.currentPage.Sections.findIndex(section => section.id === action.payload.section_id);
-            let currentQuestionIndex = state.currentPage.Sections[currentSectionIndex].Questions.findIndex(question => question.id === action.payload.id);
+            // Guard against stale currentPage/section mismatches (e.g. rapid page tab switches)
+            const pageIndex = state.template.Pages.findIndex(page => page.id === state.currentPage.id);
+            if (pageIndex === -1) return;
+
+            const sectionIndex = state.template.Pages[pageIndex].Sections.findIndex(section => section.id === action.payload.section_id);
+            if (sectionIndex === -1) return;
+
+            const questionIndex = state.template.Pages[pageIndex].Sections[sectionIndex].Questions?.findIndex(question => question.id === action.payload.id) ?? -1;
+            if (questionIndex === -1) return;
+
+            const currentSectionIndex = state.currentPage.Sections.findIndex(section => section.id === action.payload.section_id);
+            if (currentSectionIndex === -1) return;
+
+            const currentQuestionIndex = state.currentPage.Sections[currentSectionIndex].Questions?.findIndex(question => question.id === action.payload.id) ?? -1;
+            if (currentQuestionIndex === -1) return;
 
             state.template.Pages[pageIndex].Sections[sectionIndex].Questions[questionIndex] = action.payload;
             state.currentPage.Sections[currentSectionIndex].Questions[currentQuestionIndex] = action.payload;

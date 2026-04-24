@@ -83,7 +83,7 @@ export default function FieldBuilder(props) {
 
         setQuestion(props.question);
 
-        if (props.question && props.question.options == null) {
+        if (props.question && props.question?.options == null) {
             setQuestion({ ...props.question, options: [] });
         }
 
@@ -148,7 +148,7 @@ export default function FieldBuilder(props) {
 
     const updateRequiredStatus = async (label, checkedStatus) => {
         setQuestion({ ...question, required: checkedStatus });
-        const response = await fetch('/api/booking-templates/questions/' + question.id, {
+        const response = await fetch('/api/booking-templates/questions/' + question?.id, {
             method: 'POST',
             body: JSON.stringify({ ...question, required: checkedStatus }),
             headers: {
@@ -163,7 +163,7 @@ export default function FieldBuilder(props) {
 
     const updateLabel = async (selected) => {
         setQuestion({ ...question, label: selected.value });
-        const response = await fetch('/api/booking-templates/questions/' + question.id, {
+        const response = await fetch('/api/booking-templates/questions/' + question?.id, {
             method: 'POST',
             body: JSON.stringify({ ...question, label: selected.value }),
             headers: {
@@ -182,7 +182,7 @@ export default function FieldBuilder(props) {
         
         setQuestion(updatedQuestion);
         
-        const response = await fetch('/api/booking-templates/questions/' + question.id, {
+        const response = await fetch('/api/booking-templates/questions/' + question?.id, {
             method: 'POST',
             body: JSON.stringify(updatedQuestion),
             headers: {
@@ -197,7 +197,7 @@ export default function FieldBuilder(props) {
 
     const updateNdisOnlyStatus = async (label, checkedStatus) => {
         setQuestion({ ...question, ndis_only: checkedStatus });
-        const response = await fetch('/api/booking-templates/questions/' + question.id, {
+        const response = await fetch('/api/booking-templates/questions/' + question?.id, {
             method: 'POST',
             body: JSON.stringify({ ...question, ndis_only: checkedStatus }),
             headers: {
@@ -216,7 +216,7 @@ export default function FieldBuilder(props) {
         
         if (type === 'card-selection') {
             // Handle card selection field updates
-            updatedOptions = question.options.map((option, index) => {
+            updatedOptions = question?.options.map((option, index) => {
                 let opt = { ...option };
                 if (index === selected.index) {
                     if (selected.field === 'label') {
@@ -231,7 +231,7 @@ export default function FieldBuilder(props) {
             });
         } else if (type === 'service-card') {
             // Handle service card field updates
-            updatedOptions = question.options.map((option, index) => {
+            updatedOptions = question?.options.map((option, index) => {
                 let opt = { ...option };
                 if (index === selected.index) {
                     // Handle all service card fields
@@ -260,7 +260,7 @@ export default function FieldBuilder(props) {
             });
         } else {
             // Handle regular options updates (radio, checkbox, etc.)
-            updatedOptions = question.options.map((option, index) => {
+            updatedOptions = question?.options.map((option, index) => {
                 let opt = { ...option };
                 if (index === selected.index) {
                     if (selected.field === 'label' || !selected.field) {
@@ -279,13 +279,13 @@ export default function FieldBuilder(props) {
         }
 
     const updateUrlField = async (field, value) => {
-        let details = typeof question.details === 'string' ? JSON.parse(question.details) : (question.details || {});
+        let details = typeof question?.details === 'string' ? JSON.parse(question?.details) : (question?.details || {});
         details[field] = value;
         
         const updatedQuestion = { ...question, details: details };
         setQuestion(updatedQuestion);
         
-        const response = await fetch('/api/booking-templates/questions/' + question.id, {
+        const response = await fetch('/api/booking-templates/questions/' + question?.id, {
             method: 'POST',
             body: JSON.stringify(updatedQuestion),
             headers: {
@@ -299,13 +299,13 @@ export default function FieldBuilder(props) {
     }
 
     const updateRichTextField = async (field, value) => {
-        let details = typeof question.details === 'string' ? JSON.parse(question.details) : (question.details || {});
+        let details = typeof question?.details === 'string' ? JSON.parse(question?.details) : (question?.details || {});
         details[field] = value;
         
         const updatedQuestion = { ...question, details: details };
         setQuestion(updatedQuestion);
         
-        const response = await fetch('/api/booking-templates/questions/' + question.id, {
+        const response = await fetch('/api/booking-templates/questions/' + question?.id, {
             method: 'POST',
             body: JSON.stringify(updatedQuestion),
             headers: {
@@ -326,7 +326,7 @@ export default function FieldBuilder(props) {
             ? selected.index 
             : selected;
         
-        const updatedOptions = question.options.filter((option, index) => index !== indexToRemove);
+        const updatedOptions = question?.options.filter((option, index) => index !== indexToRemove);
         const updatedQuestion = { ...question, options: updatedOptions };
         
         // Update local state
@@ -337,7 +337,7 @@ export default function FieldBuilder(props) {
 
         // Immediately update the backend
         try {
-            const response = await fetch('/api/booking-templates/questions/' + question.id, {
+            const response = await fetch('/api/booking-templates/questions/' + question?.id, {
                 method: 'POST',
                 body: JSON.stringify(updatedQuestion),
                 headers: {
@@ -370,7 +370,7 @@ export default function FieldBuilder(props) {
         const updatedQuestion = { ...question, tooltip: value || null };
         setQuestion(updatedQuestion);
         
-        const response = await fetch('/api/booking-templates/questions/' + question.id, {
+        const response = await fetch('/api/booking-templates/questions/' + question?.id, {
             method: 'POST',
             body: JSON.stringify(updatedQuestion),
             headers: { 'Content-Type': 'application/json' }
@@ -384,12 +384,12 @@ export default function FieldBuilder(props) {
     const debounceUpdateTooltip = useDebouncedCallback((value) => updateTooltip(value), 1000);
 
     const addOption = async () => {
-        const currentOptions = typeof question.options === 'string' ? 
-            JSON.parse(question.options) : question.options;
+        const currentOptions = typeof question?.options === 'string' ? 
+            JSON.parse(question?.options) : question?.options;
         
         let newOptionToAdd;
         
-        if (cardSelectionFields.includes(question.type)) {
+        if (cardSelectionFields.includes(question?.type)) {
             newOptionToAdd = {
                 label: newOption.label,
                 value: newOption.value || newOption.label.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''),
@@ -397,7 +397,7 @@ export default function FieldBuilder(props) {
                 imageUrl: null,
                 imageFilename: null
             };
-        } else if (serviceCardsFields.includes(question.type)) {
+        } else if (serviceCardsFields.includes(question?.type)) {
             // Service cards structure
             newOptionToAdd = {
                 label: newOption.label,
@@ -414,11 +414,11 @@ export default function FieldBuilder(props) {
             };
             
             // Set option_type to 'service' if not already set
-            if (!question.option_type) {
+            if (!question?.option_type) {
                 const updatedQuestion = { ...question, option_type: 'service', options: [...currentOptions, newOptionToAdd] };
                 setQuestion(updatedQuestion);
                 
-                const response = await fetch('/api/booking-templates/questions/' + question.id, {
+                const response = await fetch('/api/booking-templates/questions/' + question?.id, {
                     method: 'POST',
                     body: JSON.stringify(updatedQuestion),
                     headers: { 'Content-Type': 'application/json' }
@@ -452,7 +452,7 @@ export default function FieldBuilder(props) {
 
         // Immediately update the backend
         try {
-            const response = await fetch('/api/booking-templates/questions/' + question.id, {
+            const response = await fetch('/api/booking-templates/questions/' + question?.id, {
                 method: 'POST',
                 body: JSON.stringify(updatedQuestion),
                 headers: {
@@ -477,11 +477,10 @@ export default function FieldBuilder(props) {
     }
 
     useEffect(() => {
-        if (!optionSyncStatus) {
-            syncOptions();
-            console.log('options updated')
-        }
-    }, [question.options]);
+        if (!question || !optionSyncStatus) return;
+        syncOptions();
+        console.log('options updated');
+    }, [question?.options]);
 
     // Dynamic file upload based on option_type or field type
     const uploadImageFile = async (file) => {
@@ -491,17 +490,17 @@ export default function FieldBuilder(props) {
             
             // Determine file type based on field type
             let fileType;
-            if (serviceCardsFields.includes(question.type)) {
+            if (serviceCardsFields.includes(question?.type)) {
                 fileType = 'service/'; // Use 'service' for service-cards
             } else {
-                fileType = `${question.option_type || 'funder'}/`;
+                fileType = `${question?.option_type || 'funder'}/`;
             }
             
             formData.append('fileType', fileType);
             formData.append('metadata', JSON.stringify({
-                questionId: question.id,
+                questionId: question?.id,
                 uploadedBy: 'booking-request-form',
-                optionType: question.option_type || 'service'
+                optionType: question?.option_type || 'service'
             }));
 
             const response = await fetch('/api/storage/upload', {
@@ -524,7 +523,7 @@ export default function FieldBuilder(props) {
 
     const handleImageUpload = async (index, file, subOptionIndex = null) => {
         try {
-            const currentOption = question.options[index];
+            const currentOption = question?.options[index];
             
             // Show loading state - create temporary preview
             const previewUrl = URL.createObjectURL(file);
@@ -534,10 +533,10 @@ export default function FieldBuilder(props) {
             
             // Determine file type
             let fileType;
-            if (serviceCardsFields.includes(question.type)) {
+            if (serviceCardsFields.includes(question?.type)) {
                 fileType = 'service';
             } else {
-                fileType = question.option_type || 'funder';
+                fileType = question?.option_type || 'funder';
             }
             
             // Update options with loading preview
@@ -550,14 +549,14 @@ export default function FieldBuilder(props) {
                     return subOpt;
                 });
                 
-                tempUpdatedOptions = question.options.map((option, optionIndex) => {
+                tempUpdatedOptions = question?.options.map((option, optionIndex) => {
                     if (optionIndex === index) {
                         return { ...option, subOptions: updatedSubOptions };
                     }
                     return option;
                 });
             } else {
-                tempUpdatedOptions = question.options.map((option, optionIndex) => {
+                tempUpdatedOptions = question?.options.map((option, optionIndex) => {
                     if (optionIndex === index) {
                         return { ...option, imageUrl: previewUrl, uploading: true };
                     }
@@ -619,14 +618,14 @@ export default function FieldBuilder(props) {
                     return subOpt;
                 });
                 
-                finalUpdatedOptions = question.options.map((option, optionIndex) => {
+                finalUpdatedOptions = question?.options.map((option, optionIndex) => {
                     if (optionIndex === index) {
                         return { ...option, subOptions: updatedSubOptions };
                     }
                     return option;
                 });
             } else {
-                finalUpdatedOptions = question.options.map((option, optionIndex) => {
+                finalUpdatedOptions = question?.options.map((option, optionIndex) => {
                     if (optionIndex === index) {
                         // Clean up blob URL
                         if (option.imageUrl && option.imageUrl.startsWith('blob:')) {
@@ -650,7 +649,7 @@ export default function FieldBuilder(props) {
             console.error('Image upload failed:', error);
             
             // Handle error - remove loading state
-            const errorUpdatedOptions = question.options.map((option, optionIndex) => {
+            const errorUpdatedOptions = question?.options.map((option, optionIndex) => {
                 if (optionIndex === index) {
                     if (option.imageUrl && option.imageUrl.startsWith('blob:')) {
                         URL.revokeObjectURL(option.imageUrl);
@@ -672,7 +671,7 @@ export default function FieldBuilder(props) {
         }
     };
 
-    const syncOptions = async () => await fetch('/api/booking-templates/questions/' + question.id, {
+    const syncOptions = async () => await fetch('/api/booking-templates/questions/' + question?.id, {
         method: 'POST',
         body: JSON.stringify(question),
         headers: {
@@ -686,16 +685,16 @@ export default function FieldBuilder(props) {
     });
 
     const RenderQuestion = ({ question }) => {
-        switch (question.type) {
+        switch (question?.type) {
             case 'url':
-                return <GetField type={"url"} builderMode={true} label={typeof question.details === 'string' ? JSON.parse(question.details).label : question.details.label} url={typeof question.details === 'string' ? JSON.parse(question.details).url : question.details.url} onChange={updateUrlField} className="w-full" />;
+                return <GetField type={"url"} builderMode={true} label={typeof question?.details === 'string' ? JSON.parse(question?.details).label : question?.details.label} url={typeof question?.details === 'string' ? JSON.parse(question?.details).url : question?.details.url} onChange={updateUrlField} className="w-full" />;
             case 'rich-text':
-                return <GetField type={"rich-text"} builderMode={true} description={typeof question.details === 'string' ? JSON.parse(question.details).description : question.details.description || null} onChange={updateRichTextField} className="w-full" />;
+                return <GetField type={"rich-text"} builderMode={true} description={typeof question?.details === 'string' ? JSON.parse(question?.details).description : question?.details.description || null} onChange={updateRichTextField} className="w-full" />;
             case 'package-selection':
             case 'package-selection-multi':
                 // MODIFIED: In builderMode, show ALL packages without any filters
                 return <GetField 
-                    type={question.type} 
+                    type={question?.type} 
                     className="w-full" 
                     builderMode={true}
                     // Remove funder and ndis_package_type params in builderMode to show all packages
@@ -705,9 +704,9 @@ export default function FieldBuilder(props) {
             case 'horizontal-card':
             case 'horizontal-card-multi':
                 return <GetField 
-                    type={question.type} 
-                    options={question.options} 
-                    option_type={question.option_type}
+                    type={question?.type} 
+                    options={question?.options} 
+                    option_type={question?.option_type}
                     className="w-full" 
                     builder={true} 
                     builderMode={true}
@@ -718,9 +717,9 @@ export default function FieldBuilder(props) {
             case 'service-cards':
             case 'service-cards-multi':
                 return <GetField 
-                    type={question.type} 
-                    options={question.options} 
-                    option_type={question.option_type || 'service'}
+                    type={question?.type} 
+                    options={question?.options} 
+                    option_type={question?.option_type || 'service'}
                     className="w-full" 
                     builder={true} 
                     builderMode={true}
@@ -729,25 +728,25 @@ export default function FieldBuilder(props) {
                     onImageUpload={handleImageUpload}
                 />;
             default:
-                return <GetField type={question.type} options={question.options} className="w-full" builder={true} updateOptionLabel={updateOptionLabel} handleRemoveOption={handleRemoveOption} />;
+                return <GetField type={question?.type} options={question?.options} className="w-full" builder={true} updateOptionLabel={updateOptionLabel} handleRemoveOption={handleRemoveOption} />;
         }
     };
 
-    const isCardSelectionField = cardSelectionFields.includes(question.type);
-    const isPackageSelectionField = packageSelectionFields.includes(question.type);
-    const isServiceCardsField = serviceCardsFields.includes(question.type);
+    const isCardSelectionField = cardSelectionFields.includes(question?.type);
+    const isPackageSelectionField = packageSelectionFields.includes(question?.type);
+    const isServiceCardsField = serviceCardsFields.includes(question?.type);
 
     return (<>
         <div className="info-item">
             {/* TODO - IMPROVE THE TYPE SELECTION FEATURE */}
-            {/* <GetField type='select' value={labelSelector.find(o => o.value === question.label)} width='100%' label="Type" options={labelSelector} onChange={updateLabel} /> */}
-            {richTextQuestionFields.includes(question.type) ? (
+            {/* <GetField type='select' value={labelSelector.find(o => o.value === question?.label)} width='100%' label="Type" options={labelSelector} onChange={updateLabel} /> */}
+            {richTextQuestionFields.includes(question?.type) ? (
                 /* Rich Text Editor for radio/checkbox question text */
                 <div className="w-full mb-4">
                     <GetField 
                         type="rich-text" 
                         builderMode={true} 
-                        description={question.question || ''} 
+                        description={question?.question || ''} 
                         onChange={updateRichTextQuestion} 
                         className="w-full" 
                     />
@@ -756,11 +755,11 @@ export default function FieldBuilder(props) {
                 /* Plain textarea for other field types */
                 <textarea className="auto-save-input font-bold p-1 bg-transparent border-stone-50 mb-4"
                     placeholder="Type your question here"
-                    value={question.question}
+                    value={question?.question}
                     data-tip="edit field label"
                     data-effect="solid"
                     style={{ width: '90%' }}
-                    disabled={question.is_locked}
+                    disabled={question?.is_locked}
                     onChange={(e) => {
                         const updatedQuestion = { ...question, question: e.target.value };
                         setQuestion(updatedQuestion);
@@ -773,7 +772,7 @@ export default function FieldBuilder(props) {
             <div className="mt-4 mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                     Tooltip / Help Text
-                    {question.tooltip && <span className="ml-2 text-green-600 text-xs">(active)</span>}
+                    {question?.tooltip && <span className="ml-2 text-green-600 text-xs">(active)</span>}
                 </label>
                 <div className="flex items-start gap-2">
                     <textarea
@@ -803,7 +802,7 @@ export default function FieldBuilder(props) {
                 <div className="mb-4">
                     <GetField 
                         type='select' 
-                        value={optionTypes.find(o => o.value === (question.option_type || 'funder'))} 
+                        value={optionTypes.find(o => o.value === (question?.option_type || 'funder'))} 
                         width='100%' 
                         label="Option Type" 
                         options={optionTypes} 
@@ -817,13 +816,13 @@ export default function FieldBuilder(props) {
             <RenderQuestion question={question} />
             
             {/* Required checkbox */}
-            {!nonRequiredFields.includes(question.type) && 
+            {!nonRequiredFields.includes(question?.type) && 
                 <GetField 
                     className="text-right" 
                     type="simple-checkbox" 
                     label="required" 
-                    value={question.required} 
-                    checked={question.required} 
+                    value={question?.required} 
+                    checked={question?.required} 
                     onChange={updateRequiredStatus} 
                 />
             }
@@ -833,25 +832,25 @@ export default function FieldBuilder(props) {
                 className="text-right" 
                 type="simple-checkbox" 
                 label="NDIS Only Question" 
-                value={question.ndis_only} 
-                checked={question.ndis_only} 
+                value={question?.ndis_only} 
+                checked={question?.ndis_only} 
                 onChange={updateNdisOnlyStatus} 
             />
             
-            {fieldWithSelectOptions.includes(question.type) && (
+            {fieldWithSelectOptions.includes(question?.type) && (
                 <div className="flex flex-col mt-2">
                     {isCardSelectionField || isServiceCardsField ? (
                         // Simplified form for card selection and service cards fields
                         <div className="space-y-2">
                             <div className="text-sm font-medium text-gray-700 mb-2">
-                                Add New {isServiceCardsField ? 'Service' : question.option_type === 'course' ? 'Course' : 'Funder'} Option:
+                                Add New {isServiceCardsField ? 'Service' : question?.option_type === 'course' ? 'Course' : 'Funder'} Option:
                             </div>
                             
                             <input 
                                 className="p-1 px-2 block w-full text-base font-normal text-gray-700 bg-white bg-clip-padding border-b border-gray-400
                                     shadow-sm transition ease-in-out focus:text-gray-700 focus:bg-white focus:outline-none disabled:opacity-80 
                                     focus:border-slate-400" 
-                                placeholder={`Option label (e.g., '${isServiceCardsField ? 'Occupational Therapy' : question.option_type === 'course' ? 'Advanced Cooking' : 'NDIS'}')`}
+                                placeholder={`Option label (e.g., '${isServiceCardsField ? 'Occupational Therapy' : question?.option_type === 'course' ? 'Advanced Cooking' : 'NDIS'}')`}
                                 value={newOption.label} 
                                 onChange={(e) => setNewOption({ ...newOption, label: e.target.value })} 
                             />

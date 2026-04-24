@@ -1227,7 +1227,7 @@ const PackageSelection = ({
               </span>
             </div>
 
-            {!['icare','promotional stay','promotional-stay'].includes(selectedFunder.toLowerCase()) && (
+            {!['icare','promotional stay','promotional-stay'].includes(selectedFunder?.toLowerCase()) && (
               <div className="text-2xl font-bold text-gray-900">
                 {safeRender(pkg.formattedPrice, 'Price not available')}
               </div>
