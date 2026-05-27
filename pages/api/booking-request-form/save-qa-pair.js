@@ -1,4 +1,4 @@
-import { Booking, Equipment, EquipmentCategory, Guest, Log, QaPair, Section, Setting, CourseOffer, Course, sequelize, BookingEquipment, Package } from "../../../models"
+import { Booking, Equipment, EquipmentCategory, Guest, Log, QaPair, Question, Section, Setting, CourseOffer, Course, sequelize, BookingEquipment, Package } from "../../../models"
 import { BookingService } from "../../../services/booking/booking";
 import { dispatchHttpTaskHandler } from "../../../services/queues/dispatchHttpTask";
 import StorageService from "../../../services/storage/storage";
@@ -16,6 +16,221 @@ const toDisplay = (val) => {
   return String(val);
 };
 
+// Profile field → question_key mapping for fallback ──────────────
+// Keys must match question_key values in the questions table exactly.
+// Source of truth: mapProfileDataToQuestions() in booking-request-form/index.js
+// Only covers fields sourced directly from the Guest record (not HealthInfo).
+// Phone has two possible question_keys depending on the template — both are listed;
+// the backfill will write whichever one exists in this booking's sections.
+const PROFILE_FIELD_TO_QUESTION_KEY = {
+    first_name:             'first-name',
+    last_name:              'last-name',
+    email:                  'email',
+    phone_number:           'mobile-no',             // alias 'phone-number' handled below
+    gender:                 'gender-person-with-sci',
+    dob:                    'date-of-birth-person-with-sci',
+    address_street1:        'street-address',         // frontend also handles 'street-address-line-1'
+    address_street2:        'street-address-line-2-optional', // frontend also handles 'street-address-line-2'
+    address_city:           'city',
+    address_state_province: 'state-province',
+    address_postal:         'post-code',
+    address_country:        'country',
+};
+
+// Some guest fields have template-variant question_keys.
+// This map lists the fallback key to try if the primary key isn't found.
+const PROFILE_FIELD_ALIAS_KEY = {
+    phone_number:    'phone-number',
+    address_street1: 'street-address-line-1',
+    address_street2: 'street-address-line-2',
+};
+
+// Fallback function ───────────────────────────────────────────────
+/**
+ * On final submission, find any profile-mapped QaPairs that are missing or
+ * empty and patch them from the guest record.
+ *
+ * This is a safety net for the race condition where mapProfileDataToQuestions
+ * didn't apply in time on the frontend, causing First Name / Last Name etc.
+ * to be absent from the qa_pairs payload sent to save-qa-pair.
+ *
+ * Runs in its own transaction so a failure here never blocks the submission.
+ * Only touches primary guest fields — not health info.
+ *
+ * @param {object} booking  Fresh Booking instance with Sections → QaPairs → Question, and Guest
+ */
+async function backfillMissingProfileQaPairs(booking) {
+    const guest = booking.Guest;
+    if (!guest) {
+        console.warn('⚠️ [ProfileFallback] No guest on booking — skipping');
+        return;
+    }
+
+    // ── Step 1: Build answered-key set from current QaPairs (in-memory, post-commit) ──
+    // This tells us which profile fields already have a saved answer and need no patch.
+    const answeredKeys = new Set();
+    for (const section of booking.Sections || []) {
+        for (const qaPair of section.QaPairs || []) {
+            const key = qaPair.Question?.question_key;
+            if (!key) continue;
+            if (qaPair.answer !== null && qaPair.answer !== undefined && qaPair.answer !== '') {
+                answeredKeys.add(key);
+            }
+        }
+    }
+
+    // ── Step 2: Determine which profile fields actually need patching ─────────────
+    const needed = Object.entries(PROFILE_FIELD_TO_QUESTION_KEY).filter(([guestField, questionKey]) => {
+        const profileValue = guest[guestField];
+        if (profileValue === null || profileValue === undefined || profileValue === '') return false;
+        if (answeredKeys.has(questionKey)) return false;
+        return true;
+    });
+
+    if (needed.length === 0) {
+        console.log('✅ [ProfileFallback] All profile fields present — no patches needed');
+        return;
+    }
+
+    // ── Step 3: Fresh targeted fetch — bridge booking sections → template questions ─
+    // Data model reality:
+    //   questions.section_id  → template section id  (orig_section_id on cloned sections)
+    //   qa_pairs.section_id   → cloned booking section id
+    //
+    // So we cannot do Section.findAll(booking sections, include: [Question]) directly —
+    // no question has section_id equal to a cloned section id.
+    //
+    // Instead: fetch booking's cloned sections to get orig_section_id values, then
+    // fetch template sections by those ids to get Questions, then map back to
+    // cloned section ids for QaPair writes.
+    const bookingSections = await Section.findAll({
+        where: { model_type: 'booking', model_id: booking.id },
+        attributes: ['id', 'orig_section_id'],
+    });
+
+    // Map: orig_section_id → cloned booking section id
+    const origToClonedId = new Map();
+    for (const s of bookingSections) {
+        if (s.orig_section_id) origToClonedId.set(s.orig_section_id, s.id);
+    }
+
+    // Fetch the template sections (by orig_section_id) with their Questions
+    const origSectionIds = [...origToClonedId.keys()];
+    const templateSections = origSectionIds.length > 0
+        ? await Section.findAll({
+            where: { id: origSectionIds },
+            include: [{
+                model: Question,
+                attributes: ['id', 'question', 'type', 'question_key'],
+            }],
+        })
+        : [];
+
+    // Build a map of question_key → { sectionId (cloned), question }
+    const questionKeyMap = new Map();
+    for (const tmplSection of templateSections) {
+        const clonedSectionId = origToClonedId.get(tmplSection.id);
+        if (!clonedSectionId) continue;
+        for (const question of tmplSection.Questions || []) {
+            if (question.question_key && !questionKeyMap.has(question.question_key)) {
+                questionKeyMap.set(question.question_key, {
+                    sectionId: clonedSectionId,
+                    question,
+                });
+            }
+        }
+    }
+
+    // ── Step 4: Also fetch any existing QaPairs with empty answers for these keys ──
+    // These need an UPDATE rather than a CREATE.
+    const neededQuestionKeys = needed.map(([, qk]) => qk);
+    const neededQuestionIds = neededQuestionKeys
+        .map(qk => questionKeyMap.get(qk)?.question?.id)
+        .filter(Boolean);
+
+    // Map of question_id → existing QaPair instance (empty answer)
+    const emptyQaPairMap = new Map();
+    if (neededQuestionIds.length > 0) {
+        const existingEmpty = await QaPair.findAll({
+            where: {
+                section_id: bookingSections.map(s => s.id),
+                question_id: neededQuestionIds,
+            },
+        });
+        for (const qaPair of existingEmpty) {
+            emptyQaPairMap.set(qaPair.question_id, qaPair);
+        }
+    }
+
+    // ── Step 5: Patch each missing field ─────────────────────────────────────────
+    const patched = [];
+    const skipped = [];
+
+    for (const [guestField, questionKey] of needed) {
+        const profileValue = guest[guestField];
+
+        // Try primary key first, then alias if primary not found in this booking's template
+        let entry = questionKeyMap.get(questionKey);
+        if (!entry && PROFILE_FIELD_ALIAS_KEY[guestField]) {
+            entry = questionKeyMap.get(PROFILE_FIELD_ALIAS_KEY[guestField]);
+        }
+
+        if (!entry) {
+            // Question doesn't exist in this booking's template sections — skip
+            skipped.push(questionKey);
+            continue;
+        }
+
+        const { sectionId, question } = entry;
+
+        // Format dob using moment to avoid toISOString() timezone shift
+        let valueToSave;
+        if (guestField === 'dob' && profileValue) {
+            valueToSave = moment(profileValue).format('YYYY-MM-DD');
+        } else {
+            valueToSave = String(profileValue);
+        }
+
+        // Each patch in its own transaction so one failure doesn't block others
+        const fallbackTransaction = await sequelize.transaction();
+        try {
+            const existingEmptyQaPair = emptyQaPairMap.get(question.id);
+
+            if (existingEmptyQaPair) {
+                // Row exists with empty answer — update it
+                await existingEmptyQaPair.update(
+                    { answer: valueToSave, updated_at: new Date() },
+                    { transaction: fallbackTransaction }
+                );
+                console.log(`✅ [ProfileFallback] Patched empty QaPair for "${questionKey}": "${valueToSave}"`);
+            } else {
+                // No row at all — create one
+                await QaPair.create({
+                    question_id:   question.id,
+                    section_id:    sectionId,
+                    question:      question.question || questionKey,
+                    question_type: question.type || 'text',
+                    answer:        valueToSave,
+                    created_at:    new Date(),
+                    updated_at:    new Date(),
+                }, { transaction: fallbackTransaction });
+                console.log(`✅ [ProfileFallback] Created missing QaPair for "${questionKey}": "${valueToSave}"`);
+            }
+
+            await fallbackTransaction.commit();
+            patched.push(questionKey);
+
+        } catch (patchError) {
+            await fallbackTransaction.rollback();
+            console.error(`⚠️ [ProfileFallback] Failed to patch "${questionKey}":`, patchError);
+            skipped.push(questionKey);
+        }
+    }
+
+    if (patched.length > 0) console.log(`🔧 [ProfileFallback] Patched ${patched.length} field(s):`, patched);
+    if (skipped.length > 0) console.log(`⏭️  [ProfileFallback] Skipped ${skipped.length} field(s):`, skipped);
+}
+
 export default async function handler(req, res) {
     if (req.method !== "POST") {
         return res.status(405).json({ success: false, error: "Method not allowed" });
@@ -26,6 +241,10 @@ export default async function handler(req, res) {
 
     const { qa_pairs, flags, equipmentChanges } = req.body;
     const bookingUuid = flags?.bookingUuid || null;
+
+    // Added Question to the initial QaPair include so question_key
+    //             is available throughout the handler (needed by fallback + any
+    //             existing code that reads qaPair.Question?.question_key) ──────
     const booking = await Booking.findOne({ 
         where: { 
             uuid: bookingUuid 
@@ -33,7 +252,10 @@ export default async function handler(req, res) {
         include: [
             {
                 model: Section,
-                include: [QaPair]
+                include: [{
+                    model: QaPair,
+                    include: [Question]
+                }]
             },
             Guest,
             {
@@ -261,6 +483,23 @@ async function handleCourseOfferLinking(booking, qa_pairs, transaction) {
             return false;
         }
 
+        // ── Pre-pass: unlink offer if guest answered "No" to course offer question ──
+        const courseOfferNo = qa_pairs.find(
+            p => p.question_key === QUESTION_KEYS.COURSE_OFFER_QUESTION &&
+                 p.answer?.toLowerCase() !== 'yes'
+        );
+        if (courseOfferNo) {
+            // Guest removed their course intent — release any accepted offer tied to this booking
+            const linkedOffers = await CourseOffer.findAll({
+                where: { booking_id: bookingId, status: 'accepted' },
+                transaction
+            });
+            for (const lo of linkedOffers) {
+                await lo.update({ booking_id: null, status: 'offered' }, { transaction });
+                console.log(`↩️ Released course offer ${lo.id} back to 'offered' (guest answered No)`);
+            }
+        }
+
         // Check for course-related questions in the QA pairs
         for (const qaPair of qa_pairs) {
             const questionKey = qaPair.question_key;
@@ -322,12 +561,14 @@ async function handleCourseOfferLinking(booking, qa_pairs, transaction) {
                             continue; // Skip this one
                         }
 
-                        // Link the course offer to this booking
+                        // Link the course offer to this booking and auto-accept if still offered
+                        const wasOffered = courseOffer.status === 'offered';
                         await courseOffer.update({
-                            booking_id: bookingId
+                            booking_id: bookingId,
+                            ...(wasOffered ? { status: 'accepted' } : {})
                         }, { transaction });
 
-                        console.log(`✅ Successfully linked course offer ${courseOffer.id} to booking ${bookingId}`);
+                        console.log(`✅ Successfully linked course offer ${courseOffer.id} to booking ${bookingId}${wasOffered ? ' (auto-accepted)' : ''}`);
                         
                         // Log the successful linking
                         await Log.create({
@@ -389,8 +630,33 @@ const updateBooking = async (booking, qa_pairs = [], flags, bookingService) => {
         const currentBookingStatus = booking.status ? JSON.parse(booking.status) : null;
         bookingService.disseminateChanges(booking, qa_pairs);
 
+        // Profile fallback runs before isBookingComplete ─────────
+        // Determine allSubmitted early so we can conditionally run the fallback.
+        // This mirrors the same check done below — no logic change to the
+        // original allSubmitted behaviour.
+        const validResponsesEarly = qa_pairs.filter(item => 'submit' in item);
+        const allSubmittedEarly = validResponsesEarly.every(qa => qa.submit);
+
+        if (allSubmittedEarly) {
+            try {
+                await backfillMissingProfileQaPairs(booking);
+
+                // Reload sections with fresh QaPairs so isBookingCompleteFromBooking
+                // sees the rows just written by the backfill. The initial booking
+                // object is pre-transaction and won't reflect newly created QaPairs.
+                const freshSections = await Section.findAll({
+                    where: { model_type: 'booking', model_id: booking.id },
+                    include: [{ model: QaPair, include: [Question] }],
+                });
+                booking.Sections = freshSections;
+            } catch (fallbackError) {
+                // Non-fatal: log and continue — submission must never be blocked
+                console.error('⚠️ [ProfileFallback] Unexpected error — submission unaffected:', fallbackError);
+            }
+        }
+
         const incompleteQuestions = [];
-        const isBookingComplete = await bookingService.isBookingComplete(booking.uuid, incompleteQuestions);
+        const isBookingComplete = await bookingService.isBookingCompleteFromBooking(booking, incompleteQuestions);
         console.log('isBookingComplete', isBookingComplete);
         const validResponses = qa_pairs.filter(item => 'submit' in item);
         const allSubmitted = validResponses.every(qa => qa.submit);

@@ -179,13 +179,21 @@ export default function CourseOffers({ onEditOffer, onViewOffer }) {
                 type: 'warning', 
                 label: 'Offered', 
                 icon: <AlertCircle className="w-4 h-4" />,
-                description: 'Waiting for guest response'
+                description: offer.isLinkedToBooking
+                    ? `Booked — Ref #${offer.booking?.reference_id || offer.booking_id}`
+                    : offer.courseStarted
+                        ? 'Course already underway'
+                        : !offer.bookingWindowOpen
+                            ? 'Booking window closed'
+                            : 'Guest will confirm when booking'
             },
             accepted: { 
                 type: 'success', 
-                label: 'Accepted', 
+                label: 'Booked', 
                 icon: <UserCheck className="w-4 h-4" />,
-                description: 'Guest has accepted'
+                description: offer.booking?.reference_id
+                    ? `Booked — Ref #${offer.booking.reference_id}`
+                    : 'Guest has booked'
             },
             completed: { 
                 type: 'success', 

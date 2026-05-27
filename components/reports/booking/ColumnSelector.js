@@ -1,15 +1,35 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { DragDropContext, Droppable, Draggable } from 'react-beautiful-dnd';
-import { Search } from 'lucide-react';
+import { Search, Loader } from 'lucide-react';
 
-const ColumnSelector = ({ availableColumns, selectedColumns, onColumnToggle, onReorder, onColumnHide }) => {
+const ColumnSelector = ({
+  availableColumns,
+  selectedColumns,
+  onColumnToggle,
+  onReorder,
+  onColumnHide,
+  onOpen,            // called once when the dropdown is first opened — triggers QA fetch
+  isLoadingColumns,  // shows a spinner in the dropdown while QA data loads
+}) => {
   const [showDropdown, setShowDropdown] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [hasOpened, setHasOpened] = useState(false);
   const dropdownRef = useRef(null);
 
   const onDragEnd = (result) => {
     if (!result.destination) return;
     onReorder(result.source.index, result.destination.index);
+  };
+
+  const handleToggleDropdown = () => {
+    const next = !showDropdown;
+    setShowDropdown(next);
+
+    // Trigger QA fetch on first open only
+    if (next && !hasOpened && typeof onOpen === 'function') {
+      setHasOpened(true);
+      onOpen();
+    }
   };
 
   useEffect(() => {
@@ -18,16 +38,13 @@ const ColumnSelector = ({ availableColumns, selectedColumns, onColumnToggle, onR
         setShowDropdown(false);
       }
     };
-
     document.addEventListener('mousedown', handleClickOutside);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
   const filteredColumns = Object.entries(availableColumns)
-    .filter(([key, value]) => 
-      !selectedColumns.includes(key) && 
+    .filter(([key, value]) =>
+      !selectedColumns.includes(key) &&
       value.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
@@ -35,7 +52,11 @@ const ColumnSelector = ({ availableColumns, selectedColumns, onColumnToggle, onR
     <DragDropContext onDragEnd={onDragEnd}>
       <Droppable droppableId="columns" direction="horizontal">
         {(provided) => (
-          <div ref={provided.innerRef} {...provided.droppableProps} className="mb-4 relative flex flex-wrap gap-2 items-center">
+          <div
+            ref={provided.innerRef}
+            {...provided.droppableProps}
+            className="mb-4 relative flex flex-wrap gap-2 items-center"
+          >
             {selectedColumns.map((key, index) => (
               <Draggable key={key} draggableId={key} index={index}>
                 {(provided, snapshot) => (
@@ -43,7 +64,9 @@ const ColumnSelector = ({ availableColumns, selectedColumns, onColumnToggle, onR
                     ref={provided.innerRef}
                     {...provided.draggableProps}
                     {...provided.dragHandleProps}
-                    className={`px-3 py-1 rounded border ${snapshot.isDragging ? 'bg-blue-200' : 'bg-blue-100'} border-blue-500 flex items-center`}
+                    className={`px-3 py-1 rounded border ${
+                      snapshot.isDragging ? 'bg-blue-200' : 'bg-blue-100'
+                    } border-blue-500 flex items-center`}
                   >
                     <span className="mr-2">{truncateString(availableColumns[key], 50)}</span>
                     <button
@@ -59,11 +82,13 @@ const ColumnSelector = ({ availableColumns, selectedColumns, onColumnToggle, onR
             {provided.placeholder}
             <div className="relative" ref={dropdownRef}>
               <button
-                onClick={() => setShowDropdown(!showDropdown)}
-                className="px-3 py-1 rounded border bg-gray-100 border-gray-300"
+                onClick={handleToggleDropdown}
+                className="px-3 py-1 rounded border bg-gray-100 border-gray-300 flex items-center gap-1.5"
               >
+                {isLoadingColumns && <Loader className="h-3.5 w-3.5 animate-spin text-gray-500" />}
                 More +
               </button>
+
               {showDropdown && (
                 <div className="absolute z-10 mt-2 w-96 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5">
                   <div className="p-2">
@@ -78,8 +103,18 @@ const ColumnSelector = ({ availableColumns, selectedColumns, onColumnToggle, onR
                       <Search className="absolute left-2 top-2.5 h-5 w-5 text-gray-400" />
                     </div>
                   </div>
-                  <div className="py-1 max-h-60 overflow-y-auto" role="menu" aria-orientation="vertical" aria-labelledby="options-menu">
-                    {filteredColumns.length > 0 ? (
+
+                  <div
+                    className="py-1 max-h-60 overflow-y-auto"
+                    role="menu"
+                    aria-orientation="vertical"
+                  >
+                    {isLoadingColumns ? (
+                      <div className="flex items-center justify-center gap-2 px-4 py-6 text-sm text-gray-500">
+                        <Loader className="h-4 w-4 animate-spin" />
+                        Loading additional columns…
+                      </div>
+                    ) : filteredColumns.length > 0 ? (
                       filteredColumns.map(([key, value]) => (
                         <button
                           key={key}
@@ -95,9 +130,7 @@ const ColumnSelector = ({ availableColumns, selectedColumns, onColumnToggle, onR
                         </button>
                       ))
                     ) : (
-                      <div className="px-4 py-2 text-sm text-gray-500">
-                        No columns found
-                      </div>
+                      <div className="px-4 py-2 text-sm text-gray-500">No columns found</div>
                     )}
                   </div>
                 </div>
@@ -113,8 +146,6 @@ const ColumnSelector = ({ availableColumns, selectedColumns, onColumnToggle, onR
 export default ColumnSelector;
 
 const truncateString = (str, num) => {
-    if (str.length <= num) {
-      return str;
-    }
-    return str.slice(0, num) + '...';
+  if (!str || str.length <= num) return str;
+  return str.slice(0, num) + '...';
 };

@@ -1,4 +1,4 @@
-import { Guest, Course, CourseOffer } from '../../../../models';
+import { Guest, Course, CourseOffer, Booking } from '../../../../models';
 import { Op } from 'sequelize';
 import StorageService from '../../../../services/storage/storage';
 import moment from 'moment';
@@ -10,7 +10,7 @@ export default async function handler(req, res) {
 
     const storage = new StorageService({ bucketType: 'restricted' });
 
-    const { uuid, checkInDate, checkOutDate } = req.query;
+    const { uuid, checkInDate, checkOutDate, bookingUuid } = req.query;
 
     if (!uuid) {
         return res.status(400).json({ message: 'Guest ID is required' });
@@ -27,6 +27,17 @@ export default async function handler(req, res) {
         //     guestCheckInParsed: guestCheckIn?.format('YYYY-MM-DD'),
         //     currentDate: now.format('YYYY-MM-DD')
         // });
+
+        // Resolve current booking ID from bookingUuid so we can allow
+        // the guest to still see an offer they already selected in THIS booking
+        let currentBookingId = null;
+        if (bookingUuid) {
+            const currentBooking = await Booking.findOne({
+                where: { uuid: bookingUuid },
+                attributes: ['id']
+            });
+            currentBookingId = currentBooking?.id ?? null;
+        }
 
         // Build course filter conditions
         const courseWhereConditions = {
@@ -54,12 +65,20 @@ export default async function handler(req, res) {
             };
         }
 
+        // Build booking_id filter:
+        // - Exclude offers linked to a different booking (already used elsewhere)
+        // - Allow offers with no booking_id (available) or this booking's ID (editing)
+        const bookingFilter = currentBookingId
+            ? { [Op.or]: [{ booking_id: null }, { booking_id: currentBookingId }] }
+            : { booking_id: null };
+
         const courseOffers = await CourseOffer.findAll({
             where: {
                 guest_id: uuid,
                 status: {
                     [Op.in]: ['offered', 'accepted']
-                }
+                },
+                ...bookingFilter
             },
             include: [{
                 model: Course,
@@ -188,6 +207,7 @@ export default async function handler(req, res) {
             return {
                 id: offer.id,
                 courseId: offer.course_id,
+                bookingId: offer.booking_id,
                 courseName: course.title,
                 courseDescription: course.description || '',
                 courseImage: course.image_filename || null,

@@ -1,6 +1,6 @@
 import { BOOKING_TYPES } from "../../../../components/constants";
 import { 
-    AccessToken, Booking, BookingApprovalUsage, Guest, FundingApproval,
+    AccessToken, Booking, BookingApprovalUsage, CourseOffer, Guest, FundingApproval,
     NotificationLibrary, Package, QaPair, Question, Room, RoomType, Section, Setting 
 } from "../../../../models";
 import { NotificationService } from "../../../../services/notification/notification";
@@ -514,6 +514,13 @@ export default async function handler(req, res) {
                         }, { where: { id: booking.id } });
                     }
 
+                    // Release any accepted course offer linked to this booking
+                    await CourseOffer.update(
+                        { booking_id: null, status: 'offered' },
+                        { where: { booking_id: booking.id, status: 'accepted' } }
+                    );
+                    console.log(`↩️ Released course offers for cancelled booking ${booking.id}`);
+
                     generateNotifications(booking, 'booking_cancelled', true);
                     break;
                 }
@@ -524,6 +531,14 @@ export default async function handler(req, res) {
                         { status_logs: JSON.stringify(updateStatusLogs(statusLogs, 'guest_canceled')) },
                         { where: { id: booking.id } }
                     );
+
+                    // Release any accepted course offer linked to this booking
+                    await CourseOffer.update(
+                        { booking_id: null, status: 'offered' },
+                        { where: { booking_id: booking.id, status: 'accepted' } }
+                    );
+                    console.log(`↩️ Released course offers for guest-cancelled booking ${booking.id}`);
+
                     generateNotifications(booking, 'guest_cancelled', true);
                     break;
 

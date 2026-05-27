@@ -19,6 +19,7 @@ const CardSelection = ({
   onImageUpload,
   guestId = null,
   bookingId = null,
+  bookingUuid = null,
   currentUser = null,
   stayDates = null,
   courseOffers = [],
@@ -240,6 +241,10 @@ const CardSelection = ({
               if (checkInDate && checkOutDate) {
                   queryParams.push(`checkInDate=${encodeURIComponent(checkInDate)}`);
                   queryParams.push(`checkOutDate=${encodeURIComponent(checkOutDate)}`);
+              }
+
+              if (bookingUuid) {
+                  queryParams.push(`bookingUuid=${encodeURIComponent(bookingUuid)}`);
               }
               
               if (queryParams.length > 0) {

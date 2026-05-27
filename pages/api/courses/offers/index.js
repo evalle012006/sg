@@ -576,15 +576,37 @@ async function getCourseOffers(req, res) {
 }
 
 async function courseOfferSentTriggerDispatch(offer, guest, course) {
-  // 🔔 Fire any configured system triggers for course_offer_sent
+  const baseUrl = process.env.APP_URL || 'https://bookings.sargoodoncollaroy.com.au';
+
+  const courseStartDate = course.start_date
+    ? moment(course.start_date).format('D MMMM YYYY')
+    : null;
+  const courseEndDate = course.end_date
+    ? moment(course.end_date).format('D MMMM YYYY')
+    : null;
+  const courseDates = courseStartDate && courseEndDate
+    ? `${courseStartDate} – ${courseEndDate}`
+    : courseStartDate || '';
+
+  const responseDeadline = course.min_end_date
+    ? moment(course.min_end_date).format('D MMMM YYYY')
+    : '';
+
+  // Link to the guest portal course offers page
+  const bookingUrl = `${baseUrl}/auth/login?callbackUrl=${encodeURIComponent('/bookings')}`;
+
   try {
     await EmailTriggerService.evaluateAndSendTriggers(null, {
-      course_offer_sent: true,
-      guest_email:       guest.email,
-      guest_name:        guest.first_name,
-      course_name:       course.title,
-      course_id:         course.id,
-      offer_id:          offer.id,
+      course_offer_sent:  true,
+      guest_email:        guest.email,
+      guest_name:         guest.first_name,
+      course_name:        course.title,
+      course_dates:       courseDates,
+      course_description: course.description || null,
+      response_deadline:  responseDeadline,
+      booking_url:        bookingUrl,
+      course_id:          course.id,
+      offer_id:           offer.id,
     });
   } catch (triggerErr) {
     console.warn(`⚠️ course_offer_sent trigger dispatch failed for offer ${offer.id} (non-fatal):`, triggerErr.message);

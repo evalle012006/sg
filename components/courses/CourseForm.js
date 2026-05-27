@@ -109,10 +109,10 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
                     errors.start_date = 'Start date cannot be after end date';
                     errors.end_date = 'End date cannot be before start date';
                 } else {
-                    if (dateRangeContainsSunday(startDate, endDate)) {
-                        errors.start_date = 'Course date range cannot include any Sundays';
-                        errors.end_date = 'Course date range cannot include any Sundays';
-                    }
+                    // if (dateRangeContainsSunday(startDate, endDate)) {
+                    //     errors.start_date = 'Course date range cannot include any Sundays';
+                    //     errors.end_date = 'Course date range cannot include any Sundays';
+                    // }
                 }
             }
         }
@@ -214,16 +214,16 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
         setIsRecalculating(false);
     };
 
-    const dateRangeContainsSunday = (startDate, endDate) => {
-        const start = new Date(startDate);
-        const end = new Date(endDate);
-        const currentDate = new Date(start);
-        while (currentDate <= end) {
-            if (currentDate.getDay() === 0) return true;
-            currentDate.setDate(currentDate.getDate() + 1);
-        }
-        return false;
-    };
+    // const dateRangeContainsSunday = (startDate, endDate) => {
+    //     const start = new Date(startDate);
+    //     const end = new Date(endDate);
+    //     const currentDate = new Date(start);
+    //     while (currentDate <= end) {
+    //         if (currentDate.getDay() === 0) return true;
+    //         currentDate.setDate(currentDate.getDate() + 1);
+    //     }
+    //     return false;
+    // };
 
     const validateAllFields = useCallback(() => {
         const errors = {};
@@ -266,10 +266,10 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
                     errors.start_date = 'Start date cannot be after end date';
                     errors.end_date = 'End date cannot be before start date';
                 } else {
-                    if (dateRangeContainsSunday(startDate, endDate)) {
-                        errors.start_date = 'Course date range cannot include any Sundays';
-                        errors.end_date = 'Course date range cannot include any Sundays';
-                    }
+                    // if (dateRangeContainsSunday(startDate, endDate)) {
+                    //     errors.start_date = 'Course date range cannot include any Sundays';
+                    //     errors.end_date = 'Course date range cannot include any Sundays';
+                    // }
                 }
             }
         }
@@ -1257,7 +1257,7 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
                                             onChange={handleInputChange('start_date')}
                                             required
                                             allowPrevDate={false}
-                                            blockSundays={true}
+                                            blockSundays={false}
                                             size="large"
                                             error={getFieldError('start_date')}
                                         />
@@ -1269,15 +1269,15 @@ export default function CourseForm({ mode, courseId, onCancel, onSuccess }) {
                                             onChange={handleInputChange('end_date')}
                                             required
                                             allowPrevDate={false}
-                                            blockSundays={true}
+                                            blockSundays={false}
                                             size="large"
                                             error={getFieldError('end_date')}
                                         />
                                     </div>
                                 </div>
-                                <div className="mt-2 text-xs text-gray-600">
+                                {/* <div className="mt-2 text-xs text-gray-600">
                                     <strong>Note:</strong> Course dates cannot include any Sundays in the date range. Individual Sundays and the entire date range are blocked.
-                                </div>
+                                </div> */}
                             </div>
 
                             {/* Minimum Booking Dates Section */}

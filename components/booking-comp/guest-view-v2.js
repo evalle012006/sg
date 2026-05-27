@@ -415,7 +415,7 @@ export default function GuestBookingsV2() {
         try {
             const params = new URLSearchParams({
                 guest_id: user.id.toString(),
-                status: 'offered',
+                status: 'offered,accepted',
                 include_invalid: 'false',
                 include_booked: 'true',
                 limit: '20'
@@ -649,13 +649,55 @@ export default function GuestBookingsV2() {
         }));
     };
 
+    const getBookingFunder = (sections) => {
+        try {
+            const raw = getFunder(sections);
+            if (!raw) return null;
+            return raw.replace(/--/g, ' ').replace(/-/g, ' ').trim().replace(/\s+/g, ' ').toUpperCase();
+        } catch {
+            return null;
+        }
+    };
+
+    const getBookingCourse = (booking) => {
+        // First try: cross-reference by booking_id (works after auto-accept)
+        if (courseOffers && courseOffers.length > 0) {
+            const linkedOffer = courseOffers.find(
+                offer => offer.booking_id === booking.id || offer.booking?.id === booking.id
+            );
+            if (linkedOffer?.course?.title) return linkedOffer.course.title;
+        }
+        
+        // Fallback: read course ID directly from booking's QA pairs (question_id 5400 = "Which course?")
+        // Then look up the course name from courseOffers list
+        if (!booking.Sections || !courseOffers || courseOffers.length === 0) return null;
+        
+        let courseIdFromQa = null;
+        for (const section of booking.Sections) {
+            const qa = section.QaPairs?.find(p => p.question_id === 5400);
+            if (qa?.answer) {
+                courseIdFromQa = parseInt(qa.answer);
+                break;
+            }
+        }
+        
+        if (!courseIdFromQa) return null;
+        
+        // Match against any offer with that course ID
+        const matchedOffer = courseOffers.find(
+            offer => offer.course_id === courseIdFromQa || offer.course?.id === courseIdFromQa
+        );
+        return matchedOffer?.course?.title || null;
+    };
+
     const renderBookingCards = (bookingsToRender) => {
         return (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {bookingsToRender.length > 0 ? (
                     bookingsToRender.map((booking, index) => {
                         let bookingTitle = getBookingTitle(booking) || "No Room Selected";
-                        const funder = getFunder(booking.Sections);
+                        const funder = getBookingFunder(booking.Sections);
+                        const courseName = getBookingCourse(booking);
                         const bookingStatus = JSON.parse(booking.status);
                         let imageUrl = null;
                         
@@ -785,6 +827,7 @@ export default function GuestBookingsV2() {
                                 bookingDate={bookingDate}
                                 title={bookingTitle}
                                 funder={funder} 
+                                courseName={courseName}
                                 checkInDate={checkinDate}
                                 checkOutDate={checkoutDate}
                                 status={bookingStatus.label}
@@ -858,6 +901,10 @@ export default function GuestBookingsV2() {
 
         const offersToShow = showAllCourseOffers ? courseOffers : courseOffers.slice(0, 3);
         const hasMoreOffers = courseOffers.length > 3;
+
+        const getLinkedBookingRef = (offer) => {
+            return offer.booking?.reference_id || offer.reference_id || null;
+        };
 
         return (
             <div>

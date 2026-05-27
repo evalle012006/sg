@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useRef, useState } from "react";
+import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
 import { useDispatch } from "react-redux";
 import { useDebouncedCallback } from 'use-debounce';
 import { addNewPage, fetchTemplate } from "../../../store/templateSlice";
@@ -86,7 +86,14 @@ const PagesBuilder = forwardRef(function PagesBuilder(props, ref) {
         else if (ref) ref.current = el;
     };
 
-    const pages = props.template?.Pages ?? [];
+    // useMemo prevents a new array reference on every render, which would cause
+    // useDragReorder's useEffect([pages]) to fire infinitely (infinite loop bug).
+    // Only re-computes when page ids or order values actually change.
+    const pages = useMemo(
+        () => [...(props.template?.Pages ?? [])].sort((a, b) => (a.order ?? 0) - (b.order ?? 0)),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [JSON.stringify(props.template?.Pages?.map(p => ({ id: p.id, order: p.order })))]
+    );
 
     const handleReorder = async (reorderedPages) => {
         await Promise.all(
@@ -94,7 +101,7 @@ const PagesBuilder = forwardRef(function PagesBuilder(props, ref) {
                 fetch(`/api/booking-templates/${props.template.uuid}/pages/${page.id}`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ ...page, sort_order: index }),
+                    body: JSON.stringify({ ...page, order: index }),
                 })
             )
         );

@@ -172,6 +172,8 @@ const BookingRequestForm = () => {
     const latestDateValuesRef = useRef({});
     const syncJustHappenedRef = useRef(false);
     const successfullySyncedDateFieldsRef = useRef(new Set());
+    const profileLoadAttemptedRef = useRef(false);
+    const ndisQuestionsSnapshotRef = useRef(null);
 
     const saveCareDataToAPI = async (careQuestion, sectionId, pageId, templateId) => {
         try {
@@ -1567,7 +1569,8 @@ const BookingRequestForm = () => {
                     ndisFunded,
                     calculatePageCompletion,
                     (page, allPages) => applyQuestionDependenciesAcrossPages(page, allPages, bookingFormRoomSelected),
-                    bookingFormRoomSelected
+                    bookingFormRoomSelected,
+                    ndisQuestionsSnapshotRef.current
                 );
 
                 // ✅ CRITICAL FIX: Protect profile data during processing
@@ -2219,7 +2222,8 @@ const BookingRequestForm = () => {
             const apiParams = {
                 guestId,
                 checkInDate: currentStayDates.checkInDate,
-                checkOutDate: currentStayDates.checkOutDate
+                checkOutDate: currentStayDates.checkOutDate,
+                bookingUuid: uuid || null
             };
             
             const paramString = JSON.stringify(apiParams);
@@ -2232,7 +2236,8 @@ const BookingRequestForm = () => {
             try {
                 // console.log('📅 fetchCourseOffers with dates:', currentStayDates);
                 
-                const apiUrl = `/api/guests/${guestId}/course-offers?checkInDate=${encodeURIComponent(currentStayDates.checkInDate)}&checkOutDate=${encodeURIComponent(currentStayDates.checkOutDate)}`;
+                const bookingUuidParam = uuid ? `&bookingUuid=${encodeURIComponent(uuid)}` : '';
+                const apiUrl = `/api/guests/${guestId}/course-offers?checkInDate=${encodeURIComponent(currentStayDates.checkInDate)}&checkOutDate=${encodeURIComponent(currentStayDates.checkOutDate)}${bookingUuidParam}`;
                 
                 const response = await fetch(apiUrl);
                 if (response.ok) {
@@ -2644,6 +2649,7 @@ const BookingRequestForm = () => {
 
         if (!guestId) {
             console.log('❌ No guest ID available for profile loading');
+            profileLoadAttemptedRef.current = true;
             setProfileDataLoaded(true);
             return;
         }
@@ -2674,6 +2680,7 @@ const BookingRequestForm = () => {
             // ADD: Verify we're still mounted and guest hasn't changed
             if (!profileData) {
                 console.log('⚠️ No profile data found for guest:', guestId);
+                profileLoadAttemptedRef.current = true;
                 setProfileDataLoaded(true);
                 return;
             }
@@ -2715,10 +2722,12 @@ const BookingRequestForm = () => {
 
             setProcessedFormData(finalPages);
             safeDispatchData(finalPages, 'Profile data applied after template load');
+            profileLoadAttemptedRef.current = true;
             setProfileDataLoaded(true);
             
         } catch (error) {
             console.error('❌ Error loading profile data:', error);
+            profileLoadAttemptedRef.current = true;
             setProfileDataLoaded(true);
         } finally {
             profilePreloadInProgressRef.current = false;
@@ -2749,12 +2758,18 @@ const BookingRequestForm = () => {
                             if (profileData.first_name) {
                                 updatedQuestion.answer = profileData.first_name;
                                 mapped = true;
+                            } else {
+                                console.warn('⚠️ [ProfileMap] first_name missing from profile data. Guest ID:', 
+                                    profileData.id, '| Keys present:', Object.keys(profileData).join(', '));
                             }
                             break;
                         case 'last-name':
                             if (profileData.last_name) {
                                 updatedQuestion.answer = profileData.last_name;
                                 mapped = true;
+                            } else {
+                                console.warn('⚠️ [ProfileMap] last_name missing from profile data. Guest ID:', 
+                                    profileData.id, '| Keys present:', Object.keys(profileData).join(', '));
                             }
                             break;
                         case 'email':
@@ -5329,6 +5344,22 @@ const BookingRequestForm = () => {
                             question.type === 'service-cards' ||
                             question.type === 'service-cards-multi'
                         )) ? JSON.stringify(normalizedAnswer) : normalizedAnswer;
+
+                        // ✅ FIX: Profile-mapped fields must never be silently dropped.
+                        // If answer is undefined/empty but the question is profile-mapped,
+                        // it means profile data didn't apply in time (race condition).
+                        // Log it so we can detect it, but don't push an empty QaPair.
+                        if (answer == undefined || answer === '') {
+                            if (question.fromProfile) {
+                                console.warn(
+                                    `⚠️ [saveCurrentPage] Profile-mapped field has no answer at save time.`,
+                                    `question_key: ${question.question_key}`,
+                                    `question: ${question.question}`,
+                                    `fromProfile: ${question.fromProfile}`,
+                                    `profileAnswer: ${question.profileAnswer}`
+                                );
+                            }
+                        }
                         
                         if (answer != undefined) {
                             let qap = {
@@ -5343,7 +5374,7 @@ const BookingRequestForm = () => {
                                 updatedAt: new Date(),
                                 question_key: question.question_key,
                                 oldAnswer: question.oldAnswer,
-                                dirty: question.dirty || question.profileOverrideBooking, // Include dirty flags
+                                dirty: question.dirty || question.profileOverrideBooking,
                                 fromProfile: question.fromProfile
                             };
 
@@ -5802,7 +5833,7 @@ const BookingRequestForm = () => {
                                         }
                                     }
 
-                                    if (answer && answer.length > 0 && answer.find(a => a === qd.answer)) {
+                                    if (!question.hidden && answer && answer.length > 0 && answer.find(a => a === qd.answer)) {
                                         hiddenQuestions.push({ id: qd.id, qId: qd.question_id, dId: qd.dependence_id, hidden: false });
                                     } else {
                                         hiddenQuestions.push({ id: qd.id, qId: qd.question_id, dId: qd.dependence_id, hidden: true });
@@ -5812,7 +5843,7 @@ const BookingRequestForm = () => {
                                     if (typeof answer === 'number') {
                                         qdAnswer = typeof qdAnswer === 'string' ? parseInt(qdAnswer) : qdAnswer;
                                     }
-                                    if (qdAnswer === answer) {
+                                    if (!question.hidden && qdAnswer === answer) {
                                         hiddenQuestions.push({ id: qd.id, qId: qd.question_id, dId: qd.dependence_id, hidden: false });
                                     } else {
                                         hiddenQuestions.push({ id: qd.id, qId: qd.question_id, dId: qd.dependence_id, hidden: true });
@@ -6007,7 +6038,7 @@ const BookingRequestForm = () => {
                         q.QuestionDependencies.map(qd => {
                             page.Sections.map(section => {
                                 let temp = section.Questions.find(qt => qt.question_id === qd.dependence_id || qt.id === qd.dependence_id);
-                                if (temp && (temp.answer == qd.answer)) {
+                                if (temp && !temp.hidden && (temp.answer == qd.answer)) {
                                     temp.showDependence = true;
                                     main.add(temp);
                                 }
@@ -6637,6 +6668,15 @@ const BookingRequestForm = () => {
                 ) : 
                 pagesWithAllNdisQuestions;
 
+
+            const initialNdisPage = finalPages.find(p => p.id === 'ndis_packages_page');
+            if (initialNdisPage) {
+                ndisQuestionsSnapshotRef.current = structuredClone(initialNdisPage.Sections);
+                console.log('📸 NDIS questions snapshot captured:', 
+                    ndisQuestionsSnapshotRef.current.flatMap(s => s.Questions).map(q => q.question_key)
+                );
+            }
+
             // Store the form data
             safeDispatchData(finalPages, 'template load with completion guard');
 
@@ -7184,6 +7224,23 @@ const BookingRequestForm = () => {
             }
         }
     }, [currentBookingType, stableBookingRequestFormData?.length]);
+
+    useEffect(() => {
+        // Only re-trigger if: flag was reset AFTER an initial attempt, 
+        // we have pages to map against, and we have a guest ID
+        if (!profileDataLoaded && profileLoadAttemptedRef.current) {
+            const guestId = getGuestId();
+            const pages = stableProcessedFormData?.length > 0 
+                ? stableProcessedFormData 
+                : null;
+
+            if (guestId && pages) {
+                console.log('🔄 profileDataLoaded reset detected — re-triggering profile load');
+                profilePreloadInProgressRef.current = false; // Clear in-progress guard
+                loadAndApplyProfileData(pages, guestId);
+            }
+        }
+    }, [profileDataLoaded]);
 
     useEffect(() => {
         // Determine which data source to use

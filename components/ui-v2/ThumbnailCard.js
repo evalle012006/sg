@@ -22,6 +22,7 @@ const ThumbnailCard = ({
   price = null,
   isPaid = false,
   funder = null,
+  courseName = null,
 }) => {
   // State to track if the image has failed to load
   const [imageError, setImageError] = useState(false);
@@ -142,10 +143,24 @@ const ThumbnailCard = ({
 
         {/* Room Title */}
         <h3 className="text-lg font-medium text-gray-800 mb-6">{title}</h3>
-        {/* {funder && (
-          <p className="text-sm text-gray-500 mb-4">Funder: {funder}</p>
+        
+        {/* Funder and Course badges */}
+        {(funder || courseName) ? (
+          <div className="flex flex-wrap gap-1.5 mb-4">
+            {funder && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                {funder}
+              </span>
+            )}
+            {courseName && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">
+                🎓 {courseName}
+              </span>
+            )}
+          </div>
+        ) : (
+          <div className="mb-4" />
         )}
-        {!funder && <div className="mb-6"></div>} */}
 
         {/* Check-in/Check-out */}
         <div className="flex justify-between mb-6 -mx-4 px-4 py-3" style={{ background: '#F9FBFC', border: '1px solid #EBECF0' }}>

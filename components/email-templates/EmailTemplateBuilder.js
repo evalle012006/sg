@@ -303,6 +303,72 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
   const [structureValidationErrors, setStructureValidationErrors] = useState(null);
 
   /**
+   * Proper stack-based Handlebars nesting validator.
+   * Catches unbalanced {{#if}}/{{/if}} even when total counts match
+   * (e.g. one missing {{/if}} inside an {{else}} branch).
+   * Returns null if valid, or an error object if invalid.
+   */
+  const validateHandlebarsNesting = (html) => {
+    // Tokenise all Handlebars block-level tokens, in order
+    const tokenPattern = /\{\{(#|\/)(if|each|unless|with)[\s}]/g;
+    const stack = [];
+    let match;
+
+    while ((match = tokenPattern.exec(html)) !== null) {
+      const sigil = match[1]; // '#' = open, '/' = close
+      const blockName = match[2];
+
+      if (sigil === '#') {
+        stack.push({ blockName, position: match.index });
+      } else {
+        // closing tag
+        if (stack.length === 0) {
+          return {
+            type: 'handlebars',
+            blockType: blockName,
+            message: `Unexpected closing {{/${blockName}}} with no matching opening block`,
+            details: `Found {{/${blockName}}} at position ${match.index} but the stack is empty`,
+            severity: 'error',
+            position: match.index
+          };
+        }
+
+        const last = stack[stack.length - 1];
+        if (last.blockName !== blockName) {
+          return {
+            type: 'handlebars',
+            blockType: blockName,
+            message: `Mismatched block: expected {{/${last.blockName}}}, found {{/${blockName}}}`,
+            details: `Opening {{#${last.blockName}}} at position ${last.position} does not match closing {{/${blockName}}} at position ${match.index}`,
+            severity: 'error',
+            position: match.index
+          };
+        }
+
+        stack.pop();
+      }
+    }
+
+    if (stack.length > 0) {
+      const unclosed = stack[stack.length - 1];
+      return {
+        type: 'handlebars',
+        blockType: unclosed.blockName,
+        message: `Unclosed {{#${unclosed.blockName}}} block`,
+        details: `Missing closing {{/${unclosed.blockName}}} tag. Block opened at position ${unclosed.position}`,
+        severity: 'error',
+        position: unclosed.position,
+        context: html.substring(
+          Math.max(0, unclosed.position - 30),
+          Math.min(html.length, unclosed.position + 80)
+        )
+      };
+    }
+
+    return null; // valid
+  };
+
+  /**
    * Comprehensive template structure validation
    * Validates HTML tags and Handlebars block helpers for proper syntax
    */
@@ -321,33 +387,11 @@ const EmailTemplateBuilder = ({ mode, templateId, onCancel, onSuccess }) => {
     const errors = [];
     const warnings = [];
 
-    // 1. Validate Handlebars block helpers
-    const handlebarsBlocks = [
-      { open: /\{\{#if\s+/g, close: /\{\{\/if\}\}/g, name: 'if' },
-      { open: /\{\{#each\s+/g, close: /\{\{\/each\}\}/g, name: 'each' },
-      { open: /\{\{#unless\s+/g, close: /\{\{\/unless\}\}/g, name: 'unless' },
-      { open: /\{\{#with\s+/g, close: /\{\{\/with\}\}/g, name: 'with' }
-    ];
-
-    handlebarsBlocks.forEach(block => {
-      const openMatches = html.match(block.open) || [];
-      const closeMatches = html.match(block.close) || [];
-      const openCount = openMatches.length;
-      const closeCount = closeMatches.length;
-      
-      if (openCount !== closeCount) {
-        errors.push({
-          type: 'handlebars',
-          blockType: block.name,
-          message: `Mismatched {{#${block.name}}} blocks: found ${openCount} opening tag(s) but ${closeCount} closing tag(s)`,
-          severity: 'error',
-          details: openCount > closeCount 
-            ? `Missing ${openCount - closeCount} closing {{/${block.name}}} tag(s)`
-            : `Extra ${closeCount - openCount} closing {{/${block.name}}} tag(s)`
-        });
-      }
-    });
-
+    // 1. Validate Handlebars block nesting (stack-based, not counter-based)
+    const handlebarsNestingError = validateHandlebarsNesting(html);
+    if (handlebarsNestingError) {
+      errors.push(handlebarsNestingError);
+    }
     // 2. Validate HTML tag structure
     const htmlTagPattern = /<\/?([a-zA-Z][a-zA-Z0-9]*)\b[^>]*>/g;
     const selfClosingTags = new Set([
@@ -1281,8 +1325,43 @@ ${bodyContent}
   }, [content]);
 
   const getPreviewContent = () => {
-    // Use the same display conversion as the editor
-    return getEditorDisplayContent(content);
+    // First replace logo as usual
+    let previewHtml = getEditorDisplayContent(content);
+
+    // Then replace all remaining {{variable}} tags with placeholder sample values
+    // so the preview looks like a real rendered email
+    const sampleData = {
+      guest_name: 'Jane Smith',
+      guest_email: 'jane.smith@example.com',
+      guest_phone: '0400 000 000',
+      booking_reference: 'BK-2026-001',
+      checkin_date: '10 June 2026',
+      checkout_date: '14 June 2026',
+      course_name: 'Sample Course Name',
+      course_dates: '10 June 2026 – 14 June 2026',
+      course_location: 'Sargood on Collaroy',
+      course_description: 'A sample course description.',
+      response_deadline: '1 June 2026',
+      booking_url: '#',
+      status_name: 'Confirmed',
+    };
+
+    // Replace {{#if var}}...{{else}}...{{/if}} — show the truthy branch for known vars
+    previewHtml = previewHtml.replace(
+      /\{\{#if (\w+)\}\}([\s\S]*?)(?:\{\{else\}\}([\s\S]*?))?\{\{\/if\}\}/g,
+      (match, varName, truthyContent, falsyContent = '') => {
+        return sampleData[varName] ? truthyContent : falsyContent;
+      }
+    );
+
+    // Replace remaining simple {{variable}} tags
+    previewHtml = previewHtml.replace(/\{\{(\w+)\}\}/g, (match, varName) => {
+      return sampleData[varName] !== undefined
+        ? `<span style="background:#fef9c3;border-radius:2px;padding:0 2px">${sampleData[varName]}</span>`
+        : `<span style="background:#fee2e2;border-radius:2px;padding:0 2px;color:#991b1b">${match}</span>`;
+    });
+
+    return previewHtml;
   };
 
   if (isPageLoading) {

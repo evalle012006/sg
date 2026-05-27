@@ -148,17 +148,17 @@ const DateField = (props) => {
             return { isValid: false, error: 'Past dates are not allowed!' };
         }
 
-        if (isBookingField && props.name === 'checkinDate' && crossValidationValue) {
-            const selectedMoment = moment(selectedDate);
-            const checkoutMoment = moment(crossValidationValue);
+        // if (isBookingField && props.name === 'checkinDate' && crossValidationValue) {
+        //     const selectedMoment = moment(selectedDate);
+        //     const checkoutMoment = moment(crossValidationValue);
             
-            if (selectedMoment.isSameOrAfter(checkoutMoment, 'day')) {
-                return { 
-                    isValid: false, 
-                    error: 'Check-in date must be before the check-out date' 
-                };
-            }
-        }
+        //     if (selectedMoment.isSameOrAfter(checkoutMoment, 'day')) {
+        //         return { 
+        //             isValid: false, 
+        //             error: 'Check-in date must be before the check-out date' 
+        //         };
+        //     }
+        // }
         
         if (isBookingField && props.name === 'checkoutDate' && crossValidationValue) {
             const selectedMoment = moment(selectedDate);
@@ -216,12 +216,19 @@ const DateField = (props) => {
                             (currentMonth + 1).toString() === month && 
                             currentYear.toString() === year;
             
+            // if (crossValidationDate && isBookingField) {
+            //     if (props.name === 'checkoutDate') {
+            //         isDisabled = isDisabled || (date.getTime() <= crossValidationDate.getTime());
+            //     } else if (props.name === 'checkinDate') {
+            //         isDisabled = isDisabled || (date.getTime() >= crossValidationDate.getTime());
+            //     }
+            // }
+
             if (crossValidationDate && isBookingField) {
                 if (props.name === 'checkoutDate') {
                     isDisabled = isDisabled || (date.getTime() <= crossValidationDate.getTime());
-                } else if (props.name === 'checkinDate') {
-                    isDisabled = isDisabled || (date.getTime() >= crossValidationDate.getTime());
                 }
+                // checkinDate: no upper bound restriction — checkout auto-shifts to preserve night count
             }
             
             days.push({

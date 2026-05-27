@@ -650,15 +650,35 @@ export const analyzeNdisProcessingNeeds = (formData, isNdisFunded) => {
 };
 
 /**
- * Enhanced function to process form data for NDIS packages with duplicate prevention
- * @param {Array} formData - Form data to process
- * @param {boolean} isNdisFunded - Whether NDIS funding is detected
- * @param {Function} calculatePageCompletion - Function to calculate page completion
+ * Enhanced function to process form data for NDIS packages with duplicate prevention.
+ *
+ * KEY CHANGE: Accepts an optional `ndisQuestionsSnapshot` parameter.
+ * When the NDIS page needs to be recreated (user switched away from NDIS then back),
+ * the snapshot — captured at template load — is used as the source of questions
+ * instead of scanning formData. This is necessary because the cleaning pipeline
+ * (cleanReduxStateBeforeDispatch, removeDuplicateQuestions) strips ndis_only questions
+ * from non-NDIS pages after the NDIS page is removed, so there is nothing left to move
+ * on the second NDIS selection without the snapshot.
+ *
+ * @param {Array}    formData                          - Form data to process (from Redux or processedFormData)
+ * @param {boolean}  isNdisFunded                      - Whether NDIS funding is detected
+ * @param {Function} calculatePageCompletion           - Function to calculate page completion
  * @param {Function} applyQuestionDependenciesAcrossPages - Function to apply dependencies
+ * @param {Array}    bookingFormRoomSelected            - Currently selected rooms
+ * @param {Array}    ndisQuestionsSnapshot              - Snapshot of NDIS page sections captured at template load
  * @returns {Array} - Processed form data
  */
-export const processFormDataForNdisPackages = (formData, isNdisFunded, calculatePageCompletion, applyQuestionDependenciesAcrossPages, bookingFormRoomSelected) => {
-    // Find the funding page index
+export const processFormDataForNdisPackages = (
+    formData,
+    isNdisFunded,
+    calculatePageCompletion,
+    applyQuestionDependenciesAcrossPages,
+    bookingFormRoomSelected,
+    ndisQuestionsSnapshot = null   // ← NEW parameter
+) => {
+    // ------------------------------------------------------------------
+    // STEP 1: Locate the funding page
+    // ------------------------------------------------------------------
     let fundingPageIndex = -1;
     let fundingQuestionFound = false;
     let currentFundingAnswer = null;
@@ -683,60 +703,228 @@ export const processFormDataForNdisPackages = (formData, isNdisFunded, calculate
         return formData;
     }
 
-    // Check if NDIS packages page already exists
+    // ------------------------------------------------------------------
+    // STEP 2: Determine current NDIS page state
+    // ------------------------------------------------------------------
     const ndisPageExists = formData.some(page => page.id === 'ndis_packages_page');
-    const existingNdisPageIndex = formData.findIndex(page => page.id === 'ndis_packages_page');
 
+    // ------------------------------------------------------------------
+    // BRANCH A: NDIS page exists but funding changed to non-NDIS → remove page
+    // ------------------------------------------------------------------
     if (ndisPageExists && !isNdisFunded) {
-        // Remove NDIS page if funding is not NDIS
-        return formData.filter(page => page.id !== 'ndis_packages_page');
-    } else if (ndisPageExists && isNdisFunded) {
-        // NDIS page already exists and funding is NDIS, preserve it but apply dependencies
+        // Collect ndis_only questions from the NDIS page and park them back on their
+        // source pages so they survive for when the user switches back to NDIS.
+        const ndisPage = formData.find(p => p.id === 'ndis_packages_page');
+        const questionsBySourceSection = new Map();
+
+        ndisPage.Sections.forEach(section => {
+            section.Questions?.forEach(question => {
+                const sectionId = question.section_id || section.id;
+                if (!questionsBySourceSection.has(sectionId)) {
+                    questionsBySourceSection.set(sectionId, []);
+                }
+                questionsBySourceSection.get(sectionId).push({
+                    ...question,
+                    hidden: true,       // hide on source page — not relevant for non-NDIS
+                    ndis_parked: true,  // dedicated flag; never confused with dependency-driven hidden
+                    completed: false
+                });
+            });
+        });
+
+        // Restore parked questions to their source pages
+        const restoredFormData = formData.map(page => {
+            if (page.id === 'ndis_packages_page') return page; // filtered out below
+
+            const updatedSections = page.Sections.map(section => {
+                const parkedForThisSection = questionsBySourceSection.get(section.id) || [];
+                if (parkedForThisSection.length === 0) return section;
+
+                // Avoid re-adding questions that already exist
+                const existingKeys = new Set(
+                    section.Questions?.map(q => q.question_key).filter(Boolean)
+                );
+                const toRestore = parkedForThisSection.filter(
+                    q => !existingKeys.has(q.question_key)
+                );
+
+                if (toRestore.length === 0) return section;
+
+                return {
+                    ...section,
+                    Questions: [...(section.Questions || []), ...toRestore]
+                };
+            });
+
+            return { ...page, Sections: updatedSections };
+        });
+
+        console.log(
+            '🅿️ Parked NDIS questions on source pages:',
+            restoredFormData.flatMap(page =>
+                page.Sections?.flatMap(s =>
+                    s.Questions?.filter(q => q.ndis_parked).map(q => ({
+                        page: page.title,
+                        key: q.question_key
+                    }))
+                )
+            ).filter(Boolean)
+        );
+
+        return restoredFormData.filter(page => page.id !== 'ndis_packages_page');
+    }
+
+    // ------------------------------------------------------------------
+    // BRANCH B: NDIS page already exists and funding is still NDIS
+    //           → preserve page, apply dependencies only
+    // ------------------------------------------------------------------
+    if (ndisPageExists && isNdisFunded) {
         const updatedFormData = formData.map(page => {
             if (page.id === 'ndis_packages_page') {
-                // Apply dependencies to existing NDIS page but DON'T calculate completion yet
-                const pageWithDependencies = applyQuestionDependenciesAcrossPages(page, formData, bookingFormRoomSelected);
-                // ✅ FIXED: Don't calculate completion here - will be done later
-                return { ...pageWithDependencies, completed: false }; // Will be calculated properly later
+                const pageWithDependencies = applyQuestionDependenciesAcrossPages(
+                    page,
+                    formData,
+                    bookingFormRoomSelected
+                );
+                return { ...pageWithDependencies, completed: false };
             }
             return page;
         });
         return updatedFormData;
     }
 
-    // Only create NDIS page if NDIS is funded
+    // ------------------------------------------------------------------
+    // BRANCH C: NDIS page does NOT exist but funding IS NDIS
+    //           → create the NDIS page
+    // ------------------------------------------------------------------
     if (!isNdisFunded) {
+        // Safety guard — should not reach here
         return formData;
     }
 
-    // ENHANCED: Collect all NDIS-only questions from all pages with improved deduplication
+    // ------------------------------------------------------------------
+    // SUB-BRANCH C1: Restore from snapshot (user switched away then back)
+    // ------------------------------------------------------------------
+    if (ndisQuestionsSnapshot && ndisQuestionsSnapshot.length > 0) {
+        console.log('📸 Restoring NDIS page from snapshot...');
+
+        // Build a quick-lookup of current answers from formData (including parked questions)
+        // so any answers the user entered before switching away are preserved.
+        const currentAnswerByKey = new Map();
+        const currentAnswerById = new Map();
+
+        for (const page of formData) {
+            for (const section of page.Sections || []) {
+                for (const question of section.Questions || []) {
+                    if (question.answer !== null && question.answer !== undefined && question.answer !== '') {
+                        if (question.question_key) currentAnswerByKey.set(question.question_key, question.answer);
+                        const id = question.question_id || question.id;
+                        if (id) currentAnswerById.set(id, question.answer);
+                    }
+                }
+            }
+        }
+
+        const restoredSections = ndisQuestionsSnapshot.map(snapshotSection => ({
+            ...snapshotSection,
+            Questions: snapshotSection.Questions.map(snapshotQ => {
+                // Prefer any answer the user entered in the current session;
+                // fall back to the answer captured in the snapshot.
+                const currentAnswer =
+                    currentAnswerByKey.get(snapshotQ.question_key) ||
+                    currentAnswerById.get(snapshotQ.question_id || snapshotQ.id) ||
+                    snapshotQ.answer ||
+                    null;
+
+                return {
+                    ...snapshotQ,
+                    answer: currentAnswer,
+                    oldAnswer: currentAnswer,
+                    hidden: false,
+                    ndis_parked: false  // clear park flag — question is back on NDIS page
+                };
+            }),
+            QaPairs: snapshotSection.QaPairs || []
+        }));
+
+        const ndisPage = {
+            id: 'ndis_packages_page',
+            title: 'NDIS Requirements',
+            description: '',
+            Sections: restoredSections,
+            url: '&&page_id=ndis_packages_page',
+            active: false,
+            hasNext: true,
+            hasBack: true,
+            lastPage: false,
+            pageQuestionDependencies: [],
+            completed: false,
+            noItems: restoredSections.reduce((total, s) => total + s.Questions.length, 0),
+            dirty: false,
+            hidden: false,
+            template_id: formData[0]?.template_id || null
+        };
+
+        // Strip parked questions from source pages now that they're back on the NDIS page
+        const cleanedFormData = formData.map(page => ({
+            ...page,
+            Sections: page.Sections.map(section => ({
+                ...section,
+                Questions: section.Questions?.filter(q => !q.ndis_parked) || []
+            }))
+        }));
+
+        const newFormData = [...cleanedFormData];
+        newFormData.splice(fundingPageIndex + 1, 0, ndisPage);
+
+        const finalFormData = newFormData.map(page => {
+            const pageWithDependencies = applyQuestionDependenciesAcrossPages(
+                page,
+                newFormData,
+                bookingFormRoomSelected
+            );
+            return { ...pageWithDependencies, completed: false };
+        });
+
+        finalFormData.forEach((page, index) => {
+            page.hasNext = index < finalFormData.length - 1;
+            page.hasBack = index > 0;
+            page.lastPage = index === finalFormData.length - 1;
+        });
+
+        console.log('✅ NDIS page restored from snapshot with', restoredSections.length, 'sections');
+        return finalFormData;
+    }
+
+    // ------------------------------------------------------------------
+    // SUB-BRANCH C2: No snapshot available — scan formData for ndis_only questions
+    //                (first-time NDIS selection on a fresh load)
+    // ------------------------------------------------------------------
+    console.log('🔄 Building NDIS page by scanning formData for ndis_only questions...');
+
     const ndisQuestions = [];
     const updatedPages = [];
     let movedQuestionsCount = 0;
-    const processedQuestionKeys = new Set(); // Track processed questions to avoid duplicates
-    const processedQuestionIds = new Set(); 
+    const processedQuestionKeys = new Set();
+    const processedQuestionIds = new Set();
 
-    formData.forEach((page, pageIndex) => {
+    formData.forEach((page) => {
         const updatedSections = [];
 
         page.Sections.forEach(section => {
             const remainingQuestions = [];
             const remainingQaPairs = [];
 
-            // STEP 1: Build comprehensive map with ID tracking
             const allNdisQuestions = new Map();
 
-            // Process QaPairs first (answered questions - higher priority)
+            // QaPairs first (answered — higher priority)
             section.QaPairs?.forEach(qaPair => {
                 const question = qaPair.Question;
                 if (question && shouldMoveQuestionToNdisPage(question, isNdisFunded)) {
                     const questionKey = question.question_key || question.question || question.id;
                     const questionId = qaPair.question_id || question.id;
-                    
-                    // ✅ NEW: Create composite key with section info
                     const compositeKey = `${questionKey}_${questionId}`;
-                    
-                    // Only add if not already processed globally
+
                     if (!processedQuestionKeys.has(compositeKey) && !processedQuestionIds.has(questionId)) {
                         allNdisQuestions.set(compositeKey, {
                             question,
@@ -744,43 +932,47 @@ export const processFormDataForNdisPackages = (formData, isNdisFunded, calculate
                             data: qaPair,
                             hasAnswer: true,
                             answer: qaPair.answer,
-                            questionId: questionId
+                            questionId
                         });
                     }
                 }
             });
 
-            // Then process Questions array (unanswered questions)
+            // Questions array (unanswered)
             section.Questions?.forEach(question => {
-                if (shouldMoveQuestionToNdisPage(question, isNdisFunded)) {
+                // Also pick up parked questions (ndis_parked flag)
+                const eligible =
+                    shouldMoveQuestionToNdisPage(question, isNdisFunded) ||
+                    question.ndis_parked === true;
+
+                if (eligible) {
                     const questionKey = question.question_key || question.question || question.id;
                     const questionId = question.question_id || question.id;
                     const compositeKey = `${questionKey}_${questionId}`;
-                    
-                    // Only add if not in QaPairs and not processed globally
-                    if (!allNdisQuestions.has(compositeKey) && 
+
+                    if (
+                        !allNdisQuestions.has(compositeKey) &&
                         !processedQuestionKeys.has(compositeKey) &&
-                        !processedQuestionIds.has(questionId)) {
+                        !processedQuestionIds.has(questionId)
+                    ) {
                         allNdisQuestions.set(compositeKey, {
                             question,
                             source: 'Questions',
                             data: question,
                             hasAnswer: false,
                             answer: question.answer,
-                            questionId: questionId
+                            questionId
                         });
                     }
                 }
             });
 
-            // STEP 2: Move unique NDIS questions to NDIS page
+            // Move unique NDIS questions to the NDIS page
             allNdisQuestions.forEach((ndisQuestionInfo, compositeKey) => {
-                // ✅ CRITICAL: Mark as processed globally
                 processedQuestionKeys.add(compositeKey);
                 processedQuestionIds.add(ndisQuestionInfo.questionId);
                 movedQuestionsCount++;
 
-                // Create question object for NDIS page
                 const ndisQuestion = {
                     ...ndisQuestionInfo.question,
                     answer: ndisQuestionInfo.answer,
@@ -793,16 +985,16 @@ export const processFormDataForNdisPackages = (formData, isNdisFunded, calculate
                     type: ndisQuestionInfo.question.type,
                     QuestionDependencies: ndisQuestionInfo.question.QuestionDependencies || [],
                     hidden: false,
+                    ndis_parked: false, // clear park flag
                     fromQa: ndisQuestionInfo.source === 'QaPairs',
-                    question_id: ndisQuestionInfo.source === 'QaPairs' ? 
-                        ndisQuestionInfo.data.question_id : 
-                        (ndisQuestionInfo.question.id || ndisQuestionInfo.question.question_id),
-                    id: ndisQuestionInfo.source === 'QaPairs' ? 
-                        ndisQuestionInfo.data.id : 
-                        ndisQuestionInfo.question.id
+                    question_id: ndisQuestionInfo.source === 'QaPairs'
+                        ? ndisQuestionInfo.data.question_id
+                        : (ndisQuestionInfo.question.id || ndisQuestionInfo.question.question_id),
+                    id: ndisQuestionInfo.source === 'QaPairs'
+                        ? ndisQuestionInfo.data.id
+                        : ndisQuestionInfo.question.id
                 };
 
-                // Find or create section for NDIS page
                 let existingNdisSection = ndisQuestions.find(ns => ns.id === section.id);
                 if (!existingNdisSection) {
                     existingNdisSection = {
@@ -815,7 +1007,6 @@ export const processFormDataForNdisPackages = (formData, isNdisFunded, calculate
                     ndisQuestions.push(existingNdisSection);
                 }
 
-                // ✅ NEW: Check if question already exists in this section before adding
                 const alreadyExists = existingNdisSection.Questions.some(q => {
                     const qKey = q.question_key || q.question;
                     const qId = q.question_id || q.id;
@@ -824,25 +1015,20 @@ export const processFormDataForNdisPackages = (formData, isNdisFunded, calculate
 
                 if (!alreadyExists) {
                     existingNdisSection.Questions.push(ndisQuestion);
-                    
-                    // Also preserve QaPair if it exists
                     if (ndisQuestionInfo.source === 'QaPairs') {
                         existingNdisSection.QaPairs.push({
                             ...ndisQuestionInfo.data,
                             section_id: section.id
                         });
                     }
-                } else {
-                    // console.log(`⚠️ Skipping duplicate in NDIS section: "${ndisQuestion.question}"`);
                 }
             });
 
-            // STEP 3: Filter original sections
+            // Keep non-NDIS questions on the original page
             section.Questions?.forEach(question => {
                 const questionKey = question.question_key || question.question || question.id;
                 const questionId = question.question_id || question.id;
                 const compositeKey = `${questionKey}_${questionId}`;
-                
                 if (!allNdisQuestions.has(compositeKey)) {
                     remainingQuestions.push(question);
                 }
@@ -850,16 +1036,16 @@ export const processFormDataForNdisPackages = (formData, isNdisFunded, calculate
 
             section.QaPairs?.forEach(qaPair => {
                 const question = qaPair.Question;
-                const questionKey = question ? (question.question_key || question.question || question.id) : null;
+                const questionKey = question
+                    ? (question.question_key || question.question || question.id)
+                    : null;
                 const questionId = qaPair.question_id || question?.id;
                 const compositeKey = questionKey ? `${questionKey}_${questionId}` : null;
-                
                 if (!compositeKey || !allNdisQuestions.has(compositeKey)) {
                     remainingQaPairs.push(qaPair);
                 }
             });
 
-            // Only add section if it has remaining content
             if (remainingQuestions.length > 0 || remainingQaPairs.length > 0) {
                 updatedSections.push({
                     ...section,
@@ -869,81 +1055,70 @@ export const processFormDataForNdisPackages = (formData, isNdisFunded, calculate
             }
         });
 
-        updatedPages.push({
-            ...page,
-            Sections: updatedSections
-        });
+        updatedPages.push({ ...page, Sections: updatedSections });
     });
 
-    // Create NDIS Packages page if we have NDIS questions
-    if (ndisQuestions.length > 0) {
-        // ✅ NEW: Sort questions within each section by their order property
-        const sortedNdisQuestions = ndisQuestions.map(section => {
-            const sortedQuestions = [...section.Questions].sort((a, b) => {
-                // Sort by order property
-                const orderA = a.order !== undefined ? a.order : 999;
-                const orderB = b.order !== undefined ? b.order : 999;
-                return orderA - orderB;
-            });
-            
-            const sortedQaPairs = section.QaPairs ? [...section.QaPairs].sort((a, b) => {
-                // Sort QaPairs by their Question's order
-                const orderA = a.Question?.order !== undefined ? a.Question.order : 999;
-                const orderB = b.Question?.order !== undefined ? b.Question.order : 999;
-                return orderA - orderB;
-            }) : [];
-            
-            console.log(`📋 Sorted NDIS section "${section.label}":`, 
-                sortedQuestions.map(q => `${q.question} (order: ${q.order})`).join(', ')
-            );
-            
-            return {
-                ...section,
-                Questions: sortedQuestions,
-                QaPairs: sortedQaPairs
-            };
-        });
-
-        const ndisPage = {
-            id: 'ndis_packages_page',
-            title: 'NDIS Requirements',
-            description: '',
-            Sections: sortedNdisQuestions,
-            url: "&&page_id=ndis_packages_page",
-            active: false,
-            hasNext: true,
-            hasBack: true,
-            lastPage: false,
-            pageQuestionDependencies: [],
-            completed: false, // ✅ FIXED: Don't calculate completion here - will be done later
-            noItems: sortedNdisQuestions.reduce((total, section) => total + section.Questions.length, 0),
-            dirty: false,
-            hidden: false,
-            template_id: formData[0]?.template_id || null
-        };
-
-        // Insert NDIS page after funding page
-        const newFormData = [...updatedPages];
-        newFormData.splice(fundingPageIndex + 1, 0, ndisPage);
-
-        // ✅ FIXED: Apply dependencies to ALL pages but DON'T calculate completion yet
-        const finalFormData = newFormData.map(page => {
-            const pageWithDependencies = applyQuestionDependenciesAcrossPages(page, newFormData, bookingFormRoomSelected);
-            // ✅ Don't calculate completion here - it will be done later after all processing
-            return { ...pageWithDependencies, completed: false };
-        });
-
-        // Update hasNext/hasBack and lastPage properties
-        finalFormData.forEach((page, index) => {
-            page.hasNext = index < finalFormData.length - 1;
-            page.hasBack = index > 0;
-            page.lastPage = index === finalFormData.length - 1;
-        });
-
-        return finalFormData;
-    } else {
+    // No NDIS questions found — return unchanged
+    if (ndisQuestions.length === 0) {
         return updatedPages;
     }
+
+    // Sort questions within each section by order property
+    const sortedNdisQuestions = ndisQuestions.map(section => {
+        const sortedQuestions = [...section.Questions].sort((a, b) =>
+            (a.order ?? 999) - (b.order ?? 999)
+        );
+        const sortedQaPairs = section.QaPairs
+            ? [...section.QaPairs].sort(
+                (a, b) => (a.Question?.order ?? 999) - (b.Question?.order ?? 999)
+            )
+            : [];
+
+        console.log(
+            `📋 Sorted NDIS section "${section.label}":`,
+            sortedQuestions.map(q => `${q.question} (order: ${q.order})`).join(', ')
+        );
+
+        return { ...section, Questions: sortedQuestions, QaPairs: sortedQaPairs };
+    });
+
+    const ndisPage = {
+        id: 'ndis_packages_page',
+        title: 'NDIS Requirements',
+        description: '',
+        Sections: sortedNdisQuestions,
+        url: '&&page_id=ndis_packages_page',
+        active: false,
+        hasNext: true,
+        hasBack: true,
+        lastPage: false,
+        pageQuestionDependencies: [],
+        completed: false,
+        noItems: sortedNdisQuestions.reduce((total, s) => total + s.Questions.length, 0),
+        dirty: false,
+        hidden: false,
+        template_id: formData[0]?.template_id || null
+    };
+
+    const newFormData = [...updatedPages];
+    newFormData.splice(fundingPageIndex + 1, 0, ndisPage);
+
+    const finalFormData = newFormData.map(page => {
+        const pageWithDependencies = applyQuestionDependenciesAcrossPages(
+            page,
+            newFormData,
+            bookingFormRoomSelected
+        );
+        return { ...pageWithDependencies, completed: false };
+    });
+
+    finalFormData.forEach((page, index) => {
+        page.hasNext = index < finalFormData.length - 1;
+        page.hasBack = index > 0;
+        page.lastPage = index === finalFormData.length - 1;
+    });
+
+    return finalFormData;
 };
 
 /**

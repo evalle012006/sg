@@ -12,6 +12,7 @@ import TooltipIcon from "../ui-v2/TooltipIcon";
 import parse from 'html-react-parser';
 import { processCheckboxAnswerWithNoneLogic } from "../../utilities/checkboxHelpers";
 import { stripSimpleParagraphTags } from "../../utilities/common";
+import moment from "moment";
 
 const QuestionPage = ({ 
     uuid,
@@ -1069,14 +1070,46 @@ const QuestionPage = ({
                                                 if (checkInQuestion) {
                                                     dispatch(bookingRequestFormActions.setCheckinDate(e));
                                                     onStayDatesUpdate?.({ checkInDate: e });
+
+                                                    // Auto-shift checkout when check-in changes via the calendar
+                                                    if (e && !error) {
+                                                        const pageToRead = updatedCurrentPageRef.current || currentPage;
+                                                        let oldCheckInAnswer = null;
+                                                        let checkoutAnswer = null;
+                                                        let checkoutSecIdx = null;
+                                                        let checkoutQIdx = null;
+
+                                                        pageToRead.Sections.forEach((section, sIdx) => {
+                                                            section.Questions.forEach((question, qI) => {
+                                                                if (questionHasKey(question, QUESTION_KEYS.CHECK_IN_DATE)) {
+                                                                    oldCheckInAnswer = question.answer;
+                                                                }
+                                                                if (questionHasKey(question, QUESTION_KEYS.CHECK_OUT_DATE) && question.answer) {
+                                                                    checkoutAnswer = question.answer;
+                                                                    checkoutSecIdx = sIdx;
+                                                                    checkoutQIdx = qI;
+                                                                }
+                                                            });
+                                                        });
+
+                                                        if (checkoutAnswer && checkoutSecIdx !== null && oldCheckInAnswer) {
+                                                            const nights = moment(checkoutAnswer).diff(moment(oldCheckInAnswer), 'days');
+                                                            if (nights > 0) {
+                                                                const newCheckOut = moment(e).add(nights, 'days').format('YYYY-MM-DD');
+                                                                updateSections(newCheckOut, 'answer', checkoutSecIdx, checkoutQIdx, [], null);
+                                                                dispatch(bookingRequestFormActions.setCheckoutDate(newCheckOut));
+                                                                onStayDatesUpdate?.({ checkOutDate: newCheckOut });
+                                                            }
+                                                        }
+                                                    }
                                                 }
+
                                                 if (checkOutQuestion) {
                                                     dispatch(bookingRequestFormActions.setCheckoutDate(e));
                                                     onStayDatesUpdate?.({ checkOutDate: e });
                                                 }
 
-                                                // Handle date-range type (combined check-in/check-out)
-                                                // CRITICAL: Only dispatch stay dates if this is actually the check-in/out date-range question
+                                                // Handle date-range type (combined check-in/check-out) — UNCHANGED
                                                 if (question?.type === 'date-range' && e && typeof e === 'string' && e.includes(' - ')) {
                                                     const isCheckInOutDateRange = questionHasKey(question, QUESTION_KEYS.CHECK_IN_OUT_DATE);
                                                     
@@ -1094,8 +1127,6 @@ const QuestionPage = ({
                                                         
                                                         onStayDatesUpdate?.({ checkInDate: checkIn, checkOutDate: checkOut });
                                                     }
-                                                    // Non-check-in/out date-range fields (like NDIS plan dates): 
-                                                    // just fall through to updateSections below — no stayDates update
                                                 }
 
                                                 const errorToPass = error && error.trim() !== '' ? error : null;

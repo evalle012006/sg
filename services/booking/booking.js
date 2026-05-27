@@ -359,77 +359,97 @@ export class BookingService extends EntityBuilder {
         return template;
     }
 
+    /**
+     * Check booking completeness by uuid.
+     * Fetches the booking internally — use when you only have a uuid.
+     * All existing callers (generatePDFExport, generateNotifications, etc.) use this.
+     */
     isBookingComplete = async (uuid, incompleteQuestions = null) => {
-        const booking = await this.entityModel.findOne({ 
-            where: { uuid }, 
+        const booking = await this.entityModel.findOne({
+            where: { uuid },
             include: [
-                { model: Section, include: [{ model: QaPair }] },
+                // Added Question include — question_key is needed by the NDIS funder
+                // and course selection checks inside isBookingCompleteFromBooking.
+                // Without this the qa.Question?.question_key checks silently return
+                // undefined and those filters don't work correctly.
+                { model: Section, include: [{ model: QaPair, include: [Question] }] },
                 { model: Guest }
-            ] 
+            ]
         });
-        
+
+        return this.isBookingCompleteFromBooking(booking, incompleteQuestions);
+    }
+
+    /**
+     * Check booking completeness from a pre-fetched booking instance.
+     *
+     * Use this when the booking has already been fetched with:
+     *   Section → QaPair → Question  (question_key needed for NDIS/course checks)
+     *   Guest                        (id needed for checkGuestHasFutureCourseOffers)
+     *
+     * Avoids the internal findOne — called from save-qa-pair after the single
+     * initial handler fetch so we don't re-query the same booking a third time.
+     *
+     * @param {object}     booking             Pre-fetched Booking Sequelize instance
+     * @param {Array|null} incompleteQuestions Mutable array populated with missing items
+     * @returns {Promise<boolean>}
+     */
+    isBookingCompleteFromBooking = async (booking, incompleteQuestions = null) => {
+        if (!booking) return false;
+
         const defaultTemplate = await this.getBookingTemplate(booking, false);
         const qaPairs = booking.Sections.map(section => section.QaPairs).flat();
-        const templateQuestions = defaultTemplate ? defaultTemplate.Pages.map(page => page.Sections.map(section => section.Questions).flat()).flat() : [];
-        
+        const templateQuestions = defaultTemplate
+            ? defaultTemplate.Pages.map(page => page.Sections.map(section => section.Questions).flat()).flat()
+            : [];
+
         // Check if NDIS funder
         const isNdisFunder = qaPairs.some(qa => {
-            return qa.Question?.question_key === QUESTION_KEYS.FUNDING_SOURCE && 
-                qa.answer && 
+            return qa.Question?.question_key === QUESTION_KEYS.FUNDING_SOURCE &&
+                qa.answer &&
                 (qa.answer.includes('NDIS') || qa.answer.includes('NDIA'));
         });
-        
-        // ✅ NEW: Check if guest has future course offers
+
+        // Check if guest has future course offers
         const hasFutureCourseOffers = await this.checkGuestHasFutureCourseOffers(booking.Guest.id);
-        
-        // ✅ NEW: Check if there's an existing course selection in the booking
+
+        // Check if there's an existing course selection in the booking
         const hasExistingCourseSelection = qaPairs.some(qa => {
-            return (qa.Question?.question_key === QUESTION_KEYS.COURSE_OFFER_QUESTION && 
+            return (qa.Question?.question_key === QUESTION_KEYS.COURSE_OFFER_QUESTION &&
                     qa.answer?.toLowerCase() === 'yes') ||
-                (qa.Question?.question_key === QUESTION_KEYS.WHICH_COURSE && 
+                (qa.Question?.question_key === QUESTION_KEYS.WHICH_COURSE &&
                     qa.answer && qa.answer !== '');
         });
-        
-        // ✅ NEW: Determine if course questions should be excluded
+
+        // Determine if course questions should be excluded
         const shouldExcludeCourseQuestions = !hasFutureCourseOffers && !hasExistingCourseSelection;
-        
-        // console.log('Course validation context:', {
-        //     hasFutureCourseOffers,
-        //     hasExistingCourseSelection,
-        //     shouldExcludeCourseQuestions
-        // });
-        
-        // calculating required questions
+
+        // Calculate required questions from the template
         const requiredTemplateQuestions = templateQuestions
-            .filter(question => question.type != 'equipment') // Remove equipment questions
+            .filter(question => question.type != 'equipment')
             .filter(question => question.required)
             .filter(question => {
-                // Existing filters
                 if (question.second_booking_only || question.ndis_only || question.question_key === 'i-acknowledge-additional-costs-icare') return false;
-                
-                // NDIS package filter
-                if (isNdisFunder && question.type == 'radio' && 
+
+                if (isNdisFunder && question.type == 'radio' &&
                     question.question_key === QUESTION_KEYS.ACCOMMODATION_PACKAGE_FULL) return false;
-                
-                // Exclude course questions if no offers and no existing selection
+
                 if (shouldExcludeCourseQuestions) {
-                    const isCourseQuestion = 
+                    const isCourseQuestion =
                         question.question_key === QUESTION_KEYS.COURSE_OFFER_QUESTION ||
                         question.question_key === QUESTION_KEYS.WHICH_COURSE ||
                         question.question_key === QUESTION_KEYS.COURSE_SELECTION;
-                    
+
                     if (isCourseQuestion) {
                         console.log(`Excluding course question from required: "${question.question}"`);
                         return false;
                     }
                 }
-                
-                // No dependencies - include it
+
                 if (question.QuestionDependencies.length == 0) {
                     return true;
                 }
 
-                // Has dependencies - check if they're satisfied
                 if (question.QuestionDependencies.length > 0) {
                     return question.QuestionDependencies.some(dependency => {
                         const dependencyQuestion = qaPairs.find(q => q.question_id == dependency.dependence_id);
@@ -438,20 +458,20 @@ export class BookingService extends EntityBuilder {
                                 return true;
                             }
                         }
-                    })
+                    });
                 }
 
                 return false;
-        });
+            });
 
-        // validating required questions
+        // Validate that all required questions have answers
         const validatedQuestions = requiredTemplateQuestions.filter(requiredQuestion => {
             const qaPair = qaPairs.find(qa => qa.question_id == requiredQuestion.id);
             if (qaPair) {
                 if (qaPair.answer) {
                     return true;
                 } else {
-                    console.log('this required questions is not answered: ', requiredQuestion);
+                    console.log('this required question is not answered: ', requiredQuestion);
                     if (incompleteQuestions) {
                         incompleteQuestions.push({ type: 'not_answered', question: requiredQuestion.question, question_id: requiredQuestion.id });
                     }
@@ -462,15 +482,14 @@ export class BookingService extends EntityBuilder {
                     incompleteQuestions.push({ type: 'missing', question: requiredQuestion.question, question_id: requiredQuestion.id });
                 }
             }
-        })
+        });
 
-        console.log('qaPairs:', qaPairs.length)
-        console.log('requiredTemplateQuestions:', requiredTemplateQuestions.length)
-        console.log('validatedQuestions:', validatedQuestions.length)
+        console.log('qaPairs:', qaPairs.length);
+        console.log('requiredTemplateQuestions:', requiredTemplateQuestions.length);
+        console.log('validatedQuestions:', validatedQuestions.length);
 
-        // verifying if all required and validated questions are answered
         if (validatedQuestions.length == requiredTemplateQuestions.length) {
-            console.log('Booking is Complete')
+            console.log('Booking is Complete');
             return true;
         }
 

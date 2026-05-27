@@ -74,6 +74,7 @@ const DateRangeField = (props) => {
     const startYearRef = useRef();
     const endMonthRef = useRef();
     const endYearRef = useRef();
+    const nightCountRef = useRef(null);
 
     // Month names for dropdown
     const monthNames = [
@@ -267,13 +268,13 @@ const DateRangeField = (props) => {
                 }
             }
             
-            if (isStartCalendar && endDate) {
-                const endDateObj = new Date(endDate);
-                endDateObj.setHours(0, 0, 0, 0);
-                if (date.getTime() >= endDateObj.getTime()) {
-                    isDisabled = true;
-                }
-            }
+            // if (isStartCalendar && endDate) {
+            //     const endDateObj = new Date(endDate);
+            //     endDateObj.setHours(0, 0, 0, 0);
+            //     if (date.getTime() >= endDateObj.getTime()) {
+            //         isDisabled = true;
+            //     }
+            // }
             
             days.push({
                 day: dayNum,
@@ -314,6 +315,20 @@ const DateRangeField = (props) => {
             setStartDateValue(selectedDate);
             setStartDate(moment(selectedDate).format('YYYY-MM-DD'));
             setShowStartCalendar(false);
+
+            // Auto-shift end date if we have a captured night count
+            if (nightCountRef.current !== null && nightCountRef.current > 0) {
+                const newEndDate = moment(selectedDate).add(nightCountRef.current, 'days');
+                const newEndFormatted = newEndDate.format('DD-MM-YYYY');
+                const newEndArr = newEndFormatted.split('-');
+                setEndDay(newEndArr[0]);
+                setEndMonth(newEndArr[1]);
+                setEndYear(newEndArr[2]);
+                setEndDateValue(newEndDate.toDate());
+                setEndDate(newEndDate.format('YYYY-MM-DD'));
+                // Navigate end calendar to the new month in case it's open
+                setEndDateValue(newEndDate.toDate());
+            }
         } else {
             setEndDay(dateArr[0]);
             setEndMonth(dateArr[1]);
@@ -553,7 +568,16 @@ const DateRangeField = (props) => {
                                     strokeWidth="1.5" 
                                     stroke="currentColor" 
                                     className="w-3.5 h-3.5 cursor-pointer text-gray-500 hover:text-blue-600 transition-colors ml-1 touch-manipulation" 
-                                    onClick={() => setShowStartCalendar(true)}
+                                    onClick={() => {
+                                        // Capture current night count before user starts editing
+                                        if (startDate && endDate) {
+                                            const nights = moment(endDate).diff(moment(startDate), 'days');
+                                            nightCountRef.current = nights > 0 ? nights : null;
+                                        } else {
+                                            nightCountRef.current = null;
+                                        }
+                                        setShowStartCalendar(true);
+                                    }}
                                 >
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
                                 </svg>
