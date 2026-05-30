@@ -2723,6 +2723,9 @@ export default function BookingDetail() {
                 <h1 className="text-lg text-gray-900">
                   <span className="font-semibold">BOOKINGS / </span>{booking.Guest?.first_name?.toUpperCase()} {booking.Guest?.last_name?.toUpperCase()}
                 </h1>
+                {booking.reference_id && (
+                  <p className="text-sm text-gray-500 mt-0.5">Booking ID: <span className="font-mono">{booking.reference_id}</span></p>
+                )}
               </div>
             </div>
             

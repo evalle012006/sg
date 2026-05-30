@@ -150,6 +150,7 @@ export default function GuestProfilePage() {
     // Initial data load
     useEffect(() => {
         if (currentUser?.uuid) {
+            dispatch(guestActions.clearData());
             fetchGuest();
             fetchHealthInfo();
         }

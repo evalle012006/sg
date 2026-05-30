@@ -178,10 +178,12 @@ export default function GuestPage() {
 
   useEffect(() => {
     if (!router.isReady) return;
+    dispatch(guestActions.clearData());
     fetchGuest();
-  }, [router.isReady, fetchGuest]);
+  }, [router.isReady, fetchGuest, uuid]);
 
   const fetchGuest = useCallback(async () => {
+    if (!uuid) return;
     dispatch(globalActions.setLoading(true));
     const response = await fetch(`/api/guests/${uuid}`);
     if (response.ok) {
@@ -196,7 +198,7 @@ export default function GuestPage() {
         dispatch(globalActions.setLoading(false));
       }, 1000);
     }
-  });
+  }, [uuid, dispatch]);
 
   // Fetch funding information
   const fetchFundingInfo = useCallback(async () => {
@@ -574,6 +576,11 @@ export default function GuestPage() {
       render: (value) => <span className="font-medium">{value}</span>
     },
     {
+      key: 'reference_id',
+      label: 'BOOKING ID',
+      render: (value) => <span className="font-mono text-sm">{value || '—'}</span>
+    },
+    {
       key: 'check_in',
       label: 'CHECK-IN'
     },
@@ -638,6 +645,11 @@ export default function GuestPage() {
       render: (value) => <span className="font-medium">{value}</span>
     },
     {
+      key: 'reference_id',
+      label: 'BOOKING ID',
+      render: (value) => <span className="font-mono text-sm">{value || '—'}</span>
+    },
+    {
       key: 'check_in',
       label: 'CHECK-IN'
     },
@@ -682,6 +694,11 @@ export default function GuestPage() {
       key: 'type',
       label: 'TYPE',
       render: (value) => <span className="font-medium">{value}</span>
+    },
+    {
+      key: 'reference_id',
+      label: 'BOOKING ID',
+      render: (value) => <span className="font-mono text-sm">{value || '—'}</span>
     },
     {
       key: 'check_in',

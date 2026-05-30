@@ -222,7 +222,30 @@ export default function GuestProfileTab({ isGuestUser = false }) {
                     }
                     const cleanedHealthInfo = validateAndCleanHealthInfo(healthInfoData);
                     setHealthInfo(cleanedHealthInfo);
+                } else {
+                    setHealthInfo({
+                        identify_aboriginal_torres: false,
+                        language: '',
+                        require_interpreter: false,
+                        cultural_beliefs: '',
+                        emergency_name: '',
+                        emergency_mobile_number: '',
+                        emergency_email: '',
+                        emergency_relationship: '',
+                        specialist_name: '',
+                        specialist_mobile_number: '',
+                        specialist_practice_name: '',
+                        sci_year: '',
+                        sci_level_asia: '',
+                        sci_intial_spinal_rehab: '',
+                        sci_type: '',
+                        sci_type_level: [],
+                        sci_inpatient: false,
+                        sci_injury_type: '',
+                        sci_other_details: ''
+                    });
                 }
+
 
                 // ── NEW: load funding profiles ────────────────────────────
                 if (data.fundingProfiles) {

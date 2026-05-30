@@ -1271,19 +1271,10 @@ const QuestionPage = ({
                                             const handleCareTableChange = (careData, error, secIdx, qIdx) => {
                                                 markQuestionAsInteracted(secIdx, qIdx);
                                                 
-                                                // Enhanced error handling for date mismatches and validation
-                                                let finalError = error;
+                                                let finalError = error === true ? 'Please complete your care schedule' : (error || null);
                                                 
-                                                // If error is specifically about date mismatch, provide more context
                                                 if (error && typeof error === 'string' && error.includes('date')) {
                                                     finalError = 'Please set up your care schedule for your current stay dates';
-                                                }
-                                                
-                                                // If there's no care data but it's required, show appropriate error
-                                                if ((!careData || careData.length === 0) && currentPage.Sections[secIdx]?.Questions[qIdx]?.required) {
-                                                    if (!finalError) {
-                                                        finalError = 'Please complete your care schedule';
-                                                    }
                                                 }
                                                 
                                                 updateSections(careData, 'answer', secIdx, qIdx, [], finalError);

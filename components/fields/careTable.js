@@ -795,7 +795,8 @@ export default function CareTable({
   value = [], 
   onChange, 
   required = false,
-  stayDates = { checkInDate: null, checkOutDate: null }
+  stayDates = { checkInDate: null, checkOutDate: null },
+  forceShowErrors = false,
 }) {
   const parsedValue = React.useMemo(() => {
     if (typeof value === 'string' && value.trim()) {
@@ -1173,35 +1174,35 @@ export default function CareTable({
       autoSaveTimeoutRef.current = setTimeout(() => {
           const transformedData = transformDataForSaving(tableData, defaultValues, careVaries, dates, additionalLines);
           const transformedString = JSON.stringify(transformedData);
-          
+
           if (transformedString === lastSentDataRef.current) {
-              console.log('🔄 CareTable: Skipping auto-save - data unchanged');
               return;
           }
 
-          // ✅ GUARD: Never send the blank initial state upstream.
-          // This prevents overwriting real saved data during mount/re-render cycles.
-          if (isEmptyState(transformedData)) {
+          // ✅ REVISED GUARD: Only skip if user has NEVER interacted AND state is empty.
+          // If user HAS interacted, always report — even if they cleared everything back to blank.
+          if (!userHasInteractedRef.current && isEmptyState(transformedData)) {
               console.log('🔄 CareTable: Skipping auto-save - empty initial state, nothing meaningful to save');
               return;
           }
-          
+
           let hasErrors = false;
-          if (required && careVaries !== null) {
-              const errors = validateAllFieldsFilled(tableData, dates, careVaries, defaultValues);
-              hasErrors = errors.hasErrors;
-              setValidationErrors(hasErrors ? errors : null);
-          } else {
-              setValidationErrors(null);
+          if (required) {
+              if (careVaries === null) {
+                  // User hasn't decided if care varies — incomplete
+                  hasErrors = true;
+              } else {
+                  const errors = validateAllFieldsFilled(tableData, dates, careVaries, defaultValues);
+                  hasErrors = errors.hasErrors;
+                  setValidationErrors(hasErrors ? errors : null);
+              }
           }
-          
-          console.log('🔄 CareTable: Auto-saving changes', { 
-              hasErrors,
-              hasPrefilledData,
-              userInteracted: userHasInteractedRef.current,
-              additionalLinesCount: additionalLines.length,
-          });
-          
+
+          // ✅ NEW: If user interacted and table is now empty/blank, that's a required-field error
+          if (required && userHasInteractedRef.current && isEmptyState(transformedData)) {
+              hasErrors = true;
+          }
+
           onChange(transformedData, hasErrors);
           lastSentDataRef.current = transformedString;
           
@@ -1610,6 +1611,7 @@ export default function CareTable({
             <p className="text-yellow-600">Date initialization attempted but failed.</p>
             {debug.error && <p className="text-red-500 text-xs mt-1">{debug.error}</p>}
             <button 
+              type="button"
               onClick={forceInitializeDates}
               className="mt-2 bg-blue-500 text-white px-4 py-2 rounded text-sm"
             >
@@ -1777,31 +1779,48 @@ export default function CareTable({
       {/* Question: Does your care vary from day to day? */}
       {hasAnyDefaultValues(defaultValues) && (
         <div className="flex flex-col border rounded-lg p-4 bg-white">
-          <h3 className="text-base font-semibold mb-3">Does your care vary from day to day?</h3>
-          <div className="flex gap-4">
-            <button
-              onClick={() => handleCareVariesChange(false)}
-              className={`flex-1 py-3 px-4 rounded-lg font-medium transition-all ${
-                careVaries === false
-                  ? 'bg-blue-500 text-white shadow-md'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-            >
-              No, my care is the same every day
-            </button>
-            <button
-              onClick={() => handleCareVariesChange(true)}
-              className={`flex-1 py-3 px-4 rounded-lg font-medium transition-all ${
-                careVaries === true
-                  ? 'bg-blue-500 text-white shadow-md'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-            >
-              Yes, my care varies
-            </button>
-          </div>
+            <h3 className="text-base font-semibold mb-3">Does your care vary from day to day?</h3>
+            <div className="flex gap-4">
+                <button
+                    type="button"
+                    onClick={() => handleCareVariesChange(false)}
+                    className={`flex-1 py-3 px-4 rounded-lg font-medium transition-all ${
+                        careVaries === false
+                            ? 'bg-blue-500 text-white shadow-md'
+                            : careVaries === null && required && forceShowErrors
+                                ? 'bg-white text-gray-700 border-2 border-red-400'
+                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                >
+                    No, my care is the same every day
+                </button>
+                <button
+                    type="button"
+                    onClick={() => handleCareVariesChange(true)}
+                    className={`flex-1 py-3 px-4 rounded-lg font-medium transition-all ${
+                        careVaries === true
+                            ? 'bg-blue-500 text-white shadow-md'
+                            : careVaries === null && required && forceShowErrors
+                                ? 'bg-white text-gray-700 border-2 border-red-400'
+                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                >
+                    Yes, my care varies
+                </button>
+            </div>
+            {/* ✅ Inline error when careVaries not answered */}
+            {careVaries === null && required && forceShowErrors && (
+                <div className="mt-2 flex items-center gap-1.5">
+                    <svg className="h-4 w-4 text-red-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                    </svg>
+                    <p className="text-red-600 text-sm font-medium">
+                        Please answer &quot;Does your care vary from day to day?&quot; before continuing.
+                    </p>
+                </div>
+            )}
         </div>
-      )}
+    )}
 
       {/* Detailed Daily Care Table - Only shown if care varies */}
       {showDetailedTable && careVaries === true && (

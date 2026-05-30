@@ -575,8 +575,8 @@ export default function CourseEOIModal({
                 <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
                     {availableCourses.map(course => {
                         const isSelected = formData.selected_courses.includes(course.id);
-                        const courseDates = course.start_date && course.end_date 
-                            ? `${moment(course.start_date).format('DD MMM YYYY')} - ${moment(course.end_date).format('DD MMM YYYY')}`
+                        const courseDates = course.min_start_date && course.min_end_date 
+                            ? `${moment(course.min_start_date).format('DD MMM YYYY')} - ${moment(course.min_end_date).format('DD MMM YYYY')}`
                             : 'Dates TBD';
                         
                         // Get the date preferences for this course
@@ -628,9 +628,9 @@ export default function CourseEOIModal({
                                 {/* Date Preferences - only show if course is selected */}
                                 {isSelected && (
                                     <div className="mt-4 pl-8 border-t pt-4 space-y-3" onClick={(e) => e.stopPropagation()}>
-                                        <p className="text-sm font-medium text-gray-700">
+                                        {/* <p className="text-sm font-medium text-gray-700">
                                             When would you like to attend? <span className="text-red-500">*</span>
-                                        </p>
+                                        </p> */}
                                         <p className="text-xs text-gray-500">
                                             Available booking window: {moment(course.min_start_date).format('DD MMM YYYY')} - {moment(course.min_end_date).format('DD MMM YYYY')}
                                         </p>

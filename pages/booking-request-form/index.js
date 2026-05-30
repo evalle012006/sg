@@ -73,6 +73,7 @@ const BookingRequestForm = () => {
     const questionDependenciesData = useSelector(state => state.bookingRequestForm.questionDependencies);
     const currentPage = useSelector(state => state.bookingRequestForm.currentPage);
     const equipmentChangesState = useSelector(state => state.bookingRequestForm.equipmentChanges);
+    const equipmentChangesRef = useRef(equipmentChangesState);
     const bookingSubmitted = useSelector(state => state.bookingRequestForm.bookingSubmitted);
     const isNdisFunded = useSelector(state => state.bookingRequestForm.isNdisFunded);
     const bookingFormRoomSelected = useSelector(state => state.bookingRequestForm.rooms);
@@ -2412,7 +2413,7 @@ const BookingRequestForm = () => {
                         // ✅ FIX: Calculate care hours from the CURRENT formData
                         if (isHolidayType) {
                             // Get care hours from the form data
-                            const careHours = extractCareHoursFromFormData(formData);
+                            const careHours = careAnalysisData?.totalHoursPerDay ?? extractCareHoursFromFormData(formData);
                             
                             // ✅ FIX: Only use holiday-plus if care hours is EXPLICITLY greater than 0
                             if (careHours > 0) {
@@ -2446,7 +2447,7 @@ const BookingRequestForm = () => {
 
         console.log('🎯 Final calculated NDIS filters:', newFilters);
         return newFilters;
-    }, [ndisFormFilters.additionalFilters, extractCareHoursFromFormData]);
+    }, [ndisFormFilters.additionalFilters, extractCareHoursFromFormData, careAnalysisData]);
 
     // Extract care hours directly from form data
     const extractCareHoursFromFormData = useCallback((formData) => {
@@ -2549,7 +2550,6 @@ const BookingRequestForm = () => {
         try {
             let careData = typeof answer === 'string' ? JSON.parse(answer) : answer;
             
-            // Handle nested structure
             let careDataArray = careData;
             if (careData && typeof careData === 'object' && !Array.isArray(careData)) {
                 if (Array.isArray(careData.careData)) {
@@ -2557,11 +2557,25 @@ const BookingRequestForm = () => {
                 }
             }
             
+            // ✅ If careData array is empty but we have defaultValues, use those
+            // This handles the case where careVaries hasn't been answered yet
+            if ((!careDataArray || careDataArray.length === 0) && 
+                careData?.defaultValues) {
+                const defaults = careData.defaultValues;
+                const hasDefaults = Object.values(defaults).some(
+                    p => p.carers && p.carers !== 'No care required'
+                );
+                if (hasDefaults) {
+                    // Calculate hours from defaultValues directly
+                    const analysis = calculateCareHours(careData); // pass full object
+                    return analysis.totalHoursPerDay || 0;
+                }
+            }
+            
             if (!Array.isArray(careDataArray) || careDataArray.length === 0) {
                 return 0;
             }
             
-            // Calculate using the imported utility
             const analysis = calculateCareHours(careDataArray);
             return analysis.totalHoursPerDay || 0;
         } catch (error) {
@@ -3992,9 +4006,8 @@ const BookingRequestForm = () => {
                     // ============================================
                     // NON-EQUIPMENT PAGES - Normal validation
                     // ============================================
-                    const latestReduxData = bookingRequestFormData || [];
-                    const latestPageData = latestReduxData.find(p => p.id === pageToValidate.id);
-                    const pageToValidateWithLatestData = latestPageData || pageToValidate;
+                    const pageToValidateWithLatestData = 
+                        stableProcessedFormData.find(p => p.id === pageToValidate.id) || pageToValidate;
                     
                     const pageErrors = validate([pageToValidateWithLatestData], courseOffers);
                     
@@ -4025,6 +4038,20 @@ const BookingRequestForm = () => {
                                 return `Please complete ${pageErrors.length} required fields on this page before continuing.`;
                             }
                         };
+
+                        console.log('❌ PAGE ERRORS DETAIL:', JSON.stringify(pageErrors, null, 2));
+                        console.log('❌ PAGE BEING VALIDATED:', JSON.stringify(pageToValidateWithLatestData?.Sections?.map(s => ({
+                            id: s.id,
+                            hidden: s.hidden,
+                            questions: s.Questions?.map(q => ({
+                                type: q.type,
+                                question: q.question,
+                                required: q.required,
+                                hidden: q.hidden,
+                                answer: q.answer,
+                                error: q.error
+                            }))
+                        })), null, 2));
                         
                         toast.error(createNavigationErrorMessage());
                         throw new Error('Validation failed');
@@ -4267,7 +4294,7 @@ const BookingRequestForm = () => {
                                 // Keep existing field-specific validation error
                                 console.log(`Preserving validation error during validation for ${currentQuestion.type}: ${currentQuestion.error}`);
                             }
-                            else if ((currentQuestion.type == 'checkbox' || currentQuestion.type == 'checkbox-button') && !currentQuestion.answer || (currentQuestion.answer && currentQuestion.answer.length == 0)) {
+                            else if (currentQuestion.required && ((currentQuestion.type == 'checkbox' || currentQuestion.type == 'checkbox-button') && !currentQuestion.answer || (currentQuestion.answer && currentQuestion.answer.length == 0))) {
                                 currentQuestion.error = 'This is a required field.'
                             }
                             else if (currentQuestion.answer === null || currentQuestion.answer === undefined || currentQuestion.answer === '') {
@@ -4502,6 +4529,10 @@ const BookingRequestForm = () => {
         dispatch(bookingRequestFormActions.updateEquipmentChanges(updates));
     }, [dispatch]);
 
+    useEffect(() => {
+        equipmentChangesRef.current = equipmentChangesState;
+    }, [equipmentChangesState]);
+
     const validate = (pages, courseOffers = []) => {
         let errorMessage = new Set();
 
@@ -4528,7 +4559,7 @@ const BookingRequestForm = () => {
 
                     if (question.type !== 'url') {
                         // ENHANCED: Check for ANY existing errors on the question first
-                        if (question.error && typeof question.error === 'string' && question.error.trim() !== '') {
+                        if (question.error && typeof question.error === 'string' && question.error.trim() !== '' && question.type !== 'care-table') {
                             console.log(`❌ Found existing error on question "${question.question}": ${question.error}`);
                             errorMessage.add({
                                 pageId: page.id,
@@ -4582,19 +4613,22 @@ const BookingRequestForm = () => {
                             errorMessage.add({ pageId: page.id, pageTitle: page.title, message: 'Missing NDIS Package Type', question: question.question, type: question.type });
                         }
                         else if (required && !answer) {
-                            console.log(`❌ Required field validation failed for: "${question.question}" (answer: ${answer})`);
-                            errorMessage.add({
-                                pageId: page.id,
-                                pageTitle: page.title,
-                                message: 'Please input/select an answer.',
-                                question: question.question,
-                                type: question.type
-                            });
+                            // ✅ Skip care-table — it has its own validation block below
+                            if (question.type !== 'care-table') {
+                                console.log(`❌ Required field validation failed for: "${question.question}" (answer: ${answer})`);
+                                errorMessage.add({
+                                    pageId: page.id,
+                                    pageTitle: page.title,
+                                    message: 'Please input/select an answer.',
+                                    question: question.question,
+                                    type: question.type
+                                });
+                            }
                         }
                     }
 
                     // Checkbox validation
-                    if ((question.type == 'checkbox' || question.type == 'checkbox-button') && question.answer && question.answer.length === 0) {
+                    if ((question.type == 'checkbox' || question.type == 'checkbox-button') && question.answer && required && question.answer.length === 0) {
                         console.log(`❌ Checkbox validation failed for: "${question.question}"`);
                         errorMessage.add({ pageId: page.id, pageTitle: page.title, message: 'Please select at least one option.', question: question.question, type: question.type });
                     }
@@ -4606,9 +4640,42 @@ const BookingRequestForm = () => {
                     }
 
                     // Care table validation
-                    if (question.type == 'care-table' && question.error) {
-                        console.log(`❌ Care table validation failed for: "${question.question}"`);
-                        errorMessage.add({ pageId: page.id, pageTitle: page.title, message: 'Please fill in all table columns and rows.', question: question.question, type: question.type });
+                    if (question.type == 'care-table' && question.required && !question.hidden) {
+                        const getCareTableValidationError = (answer) => {
+                            if (!answer) return 'Please complete your care schedule.';
+                            
+                            let data;
+                            try {
+                                data = typeof answer === 'string' ? JSON.parse(answer) : answer;
+                            } catch (e) {
+                                return 'Please complete your care schedule.';
+                            }
+                            
+                            const hasData = Array.isArray(data?.careData) && data.careData.length > 0;
+                            const hasDefaults = data?.defaultValues && 
+                                Object.values(data.defaultValues).some(p => p.carers && p.carers !== 'No care required');
+                            
+                            if (!hasData && !hasDefaults) return 'Please complete your care schedule.';
+                            
+                            if (data?.careVaries === null || data?.careVaries === undefined) {
+                                return 'Please answer "Does your care vary from day to day?" before continuing.';
+                            }
+                            
+                            return null;
+                        };
+                        
+                        const careTableError = getCareTableValidationError(question.answer) || 
+                            (question.error ? 'Please fill in all care schedule fields.' : null);
+                        
+                        if (careTableError) {
+                            errorMessage.add({
+                                pageId: page.id,
+                                pageTitle: page.title,
+                                message: careTableError,
+                                question: question.question,
+                                type: question.type
+                            });
+                        }
                     }
 
                     // Service cards validation
@@ -5507,9 +5574,14 @@ const BookingRequestForm = () => {
                 });
             }
 
+            // Use ref instead of state to guarantee we read the latest equipment changes
+            // at the moment of save — equipmentChangesState in this closure may be stale
+            // if the guest's last action (e.g. ticking the acknowledgement checkbox) was
+            // dispatched via setTimeout and hasn't committed to Redux yet.
+            const latestEquipmentChanges = equipmentChangesRef.current ?? equipmentChangesState;
             let dataForm = { qa_pairs: qa_pairs, flags: { origin: origin, bookingUuid: uuid, pageId: cPage.id, templateId: cPage.template_id, currentUserId: currentUser.id, submit: submit } };
-            if (equipmentChangesState.length > 0) {
-                dataForm.equipmentChanges = [...equipmentChangesState];
+            if (latestEquipmentChanges.length > 0) {
+                dataForm.equipmentChanges = [...latestEquipmentChanges];
             }
 
             const response = await fetch('/api/booking-request-form/save-qa-pair', {
@@ -7213,14 +7285,18 @@ const BookingRequestForm = () => {
     }, [currentPage?.id, currentBookingType, prevBookingId]);
 
     useEffect(() => {
-        // If booking type changes and we have form data, force profile reload
+        // Profile data only needs to load once per guest per session.
+        // Resetting profileDataLoaded here causes it to re-fire every time
+        // currentBookingType changes (e.g. when user selects NDIS on the
+        // Funding page), which overwrites the user's fresh answer with the
+        // stale saved value from the API.
+        //
+        // The original intent was to ensure profile data loads after booking
+        // type is known — but profileLoadAttemptedRef already guards against
+        // double-loads. Only trigger if profile has never been attempted.
         if (stableBookingRequestFormData?.length > 0 && currentBookingType) {
-            // console.log(`📋 Booking type detected: ${currentBookingType} - ensuring profile data takes precedence`);
-            
-            // Reset profile loaded flag to force reload
-            if (profileDataLoaded) {
-                setProfileDataLoaded(false);
-                // console.log('🔄 Resetting profile data flag to ensure it loads for this booking type');
+            if (!profileLoadAttemptedRef.current && !profileDataLoaded) {
+                setProfileDataLoaded(false); // triggers the load useEffect
             }
         }
     }, [currentBookingType, stableBookingRequestFormData?.length]);
@@ -7505,6 +7581,11 @@ const BookingRequestForm = () => {
     }, [guest, booking, currentUser, futureCourseOffersChecked, fetchAllFutureCourseOffers]);
 
     useEffect(() => {
+        if (origin === 'admin') {
+            console.log('⚠️ Admin origin detected - skipping course offer filtering');
+            return;
+        }
+
         if (futureCourseOffersChecked && hasFutureCourseOffers === false) {
             if (stableProcessedFormData && stableProcessedFormData.length > 0) {
                 // console.log('🔍 Evaluating course page filtering...', {
@@ -7543,6 +7624,7 @@ const BookingRequestForm = () => {
             }
         }
     }, [
+        origin,
         futureCourseOffersChecked, 
         hasFutureCourseOffers, 
         stableProcessedFormData, 

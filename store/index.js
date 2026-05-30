@@ -23,6 +23,7 @@ const persistConfig = {
     blacklist: [
         'bookingRequestForm',  // Prevents stale form data from previous sessions
         'global',              // Loading states shouldn't persist
+        'guest',                // Guest data can be sensitive and may not need to persist
     ]
 }
 

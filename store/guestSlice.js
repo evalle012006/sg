@@ -22,6 +22,9 @@ export const guestSlice = createSlice({
         setIsFiltering: (state, action) => {
             state.isFiltering = action.payload;
         },
+        clearData: (state) => {
+            state.data = null;
+        },
     }
 })
 
