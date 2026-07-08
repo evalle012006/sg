@@ -12,15 +12,38 @@ const TabButton = dynamic(() => import('../../../components/ui-v2/TabButton'));
 const TextField = dynamic(() => import('../../../components/ui-v2/TextField'));
 const Modal = dynamic(() => import('../../../components/ui/modal'));
 
+// Mirrors the server-side suggestAcronym() in pages/api/settings/flags.js,
+// used here purely for the live preview as the admin types — the server
+// is still the source of truth and re-derives this on save.
+function suggestAcronym(label) {
+    return String(label)
+        .split(/[\s_-]+/)
+        .filter(Boolean)
+        .slice(0, 3)
+        .map(word => word[0].toUpperCase())
+        .join('');
+}
+
 export default function ManageFlags() {
     const [selectedTab, setSelectedTab] = useState("guest-flags");
     const [guestFlags, setGuestFlags] = useState([]);
     const [bookingFlags, setBookingFlags] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
+
+    // Inline edit state — now covers label/acronym/color, not just value
     const [editingId, setEditingId] = useState(null);
-    const [editValue, setEditValue] = useState('');
+    const [editLabel, setEditLabel] = useState('');
+    const [editAcronym, setEditAcronym] = useState('');
+    const [editColor, setEditColor] = useState('#6B7280');
+    const [editAcronymTouched, setEditAcronymTouched] = useState(false);
+
+    // Add modal state
     const [showAddModal, setShowAddModal] = useState(false);
-    const [newFlagValue, setNewFlagValue] = useState('');
+    const [newFlagLabel, setNewFlagLabel] = useState('');
+    const [newFlagAcronym, setNewFlagAcronym] = useState('');
+    const [newFlagColor, setNewFlagColor] = useState('#6B7280');
+    const [newFlagAcronymTouched, setNewFlagAcronymTouched] = useState(false);
+
     const [showDeleteDialog, setShowDeleteDialog] = useState(false);
     const [selectedFlag, setSelectedFlag] = useState(null);
 
@@ -61,20 +84,22 @@ export default function ManageFlags() {
     };
 
     const handleAddFlag = async () => {
-        if (!newFlagValue.trim()) {
-            toast.error('Please enter a flag value');
+        if (!newFlagLabel.trim()) {
+            toast.error('Please enter a flag label');
             return;
         }
 
-        const attribute = selectedTab === 'guest-flags' ? 'guest_flag' : 'booking_flag';
+        const type = selectedTab === 'guest-flags' ? 'guest' : 'booking';
 
         try {
             const response = await fetch('/api/settings/flags', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    attribute,
-                    value: newFlagValue.trim().toLowerCase().replace(/\s+/g, '-')
+                    type,
+                    label: newFlagLabel.trim(),
+                    acronym: newFlagAcronym.trim(), // empty => server auto-suggests
+                    color: newFlagColor,
                 })
             });
 
@@ -82,7 +107,10 @@ export default function ManageFlags() {
 
             if (response.ok) {
                 toast.success('Flag added successfully');
-                setNewFlagValue('');
+                setNewFlagLabel('');
+                setNewFlagAcronym('');
+                setNewFlagColor('#6B7280');
+                setNewFlagAcronymTouched(false);
                 setShowAddModal(false);
                 loadFlags();
             } else {
@@ -96,17 +124,23 @@ export default function ManageFlags() {
 
     const handleStartEdit = (flag) => {
         setEditingId(flag.id);
-        setEditValue(flag.value);
+        setEditLabel(flag.label);
+        setEditAcronym(flag.acronym);
+        setEditColor(flag.color || '#6B7280');
+        setEditAcronymTouched(true); // existing acronym is already a deliberate value
     };
 
     const handleCancelEdit = () => {
         setEditingId(null);
-        setEditValue('');
+        setEditLabel('');
+        setEditAcronym('');
+        setEditColor('#6B7280');
+        setEditAcronymTouched(false);
     };
 
     const handleSaveEdit = async (id) => {
-        if (!editValue.trim()) {
-            toast.error('Flag value cannot be empty');
+        if (!editLabel.trim()) {
+            toast.error('Flag label cannot be empty');
             return;
         }
 
@@ -116,7 +150,9 @@ export default function ManageFlags() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     id,
-                    value: editValue.trim().toLowerCase().replace(/\s+/g, '-')
+                    label: editLabel.trim(),
+                    acronym: editAcronym.trim(),
+                    color: editColor,
                 })
             });
 
@@ -124,8 +160,7 @@ export default function ManageFlags() {
 
             if (response.ok) {
                 toast.success('Flag updated successfully');
-                setEditingId(null);
-                setEditValue('');
+                handleCancelEdit();
                 loadFlags();
             } else {
                 toast.error(data.message || 'Failed to update flag');
@@ -170,27 +205,92 @@ export default function ManageFlags() {
     // Table columns - using project's Table component format
     const columns = useMemo(() => [
         {
-            key: 'value',
-            label: 'FLAG VALUE',
+            key: 'label',
+            label: 'FLAG',
+            render: (value, row) => {
+                if (editingId === row.id) {
+                    return (
+                        <div className="space-y-2 min-w-[220px]">
+                            <TextField
+                                value={editLabel}
+                                onChange={(value) => {
+                                    setEditLabel(value);
+                                    if (!editAcronymTouched) {
+                                        setEditAcronym(suggestAcronym(value));
+                                    }
+                                }}
+                                placeholder="Enter flag label"
+                                className="w-full"
+                            />
+                            <div className="text-xs text-gray-500">
+                                value: {row.value}
+                            </div>
+                        </div>
+                    );
+                }
+                return (
+                    <div className="flex items-center gap-2">
+                        <span
+                            className="inline-flex items-center justify-center w-7 h-7 rounded-full text-white text-[10px] font-semibold flex-shrink-0"
+                            style={{ backgroundColor: row.color || '#6B7280' }}
+                            title={row.label}
+                        >
+                            {row.acronym}
+                        </span>
+                        <div>
+                            <div className="font-medium text-gray-900">
+                                {row.label}
+                            </div>
+                            <div className="text-sm text-gray-500">
+                                {row.value}
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+        },
+        {
+            key: 'acronym',
+            label: 'ACRONYM',
             render: (value, row) => {
                 if (editingId === row.id) {
                     return (
                         <TextField
-                            value={editValue}
-                            onChange={(value) => setEditValue(value)}
-                            placeholder="Enter flag value"
-                            className="w-full"
+                            value={editAcronym}
+                            onChange={(value) => {
+                                setEditAcronymTouched(true);
+                                setEditAcronym(value.toUpperCase());
+                            }}
+                            placeholder="e.g. CC"
+                            className="w-24"
+                        />
+                    );
+                }
+                return <span className="text-sm text-gray-700">{row.acronym}</span>;
+            }
+        },
+        {
+            key: 'color',
+            label: 'COLOR',
+            render: (value, row) => {
+                if (editingId === row.id) {
+                    return (
+                        <input
+                            type="color"
+                            value={editColor}
+                            onChange={(e) => setEditColor(e.target.value)}
+                            className="w-12 h-9 p-0 border border-gray-300 rounded cursor-pointer"
+                            aria-label="Flag color"
                         />
                     );
                 }
                 return (
-                    <div>
-                        <div className="font-medium text-gray-900">
-                            {_.startCase(row.value)}
-                        </div>
-                        <div className="text-sm text-gray-500">
-                            {row.value}
-                        </div>
+                    <div className="flex items-center gap-2">
+                        <span
+                            className="inline-block w-5 h-5 rounded-full border border-gray-300"
+                            style={{ backgroundColor: row.color || '#6B7280' }}
+                        />
+                        <span className="text-xs text-gray-500">{row.color}</span>
                     </div>
                 );
             }
@@ -240,7 +340,7 @@ export default function ManageFlags() {
                 );
             }
         }
-    ], [editingId, editValue]);
+    ], [editingId, editLabel, editAcronym, editColor, editAcronymTouched]);
 
     const currentData = selectedTab === 'guest-flags' ? guestFlags : bookingFlags;
     const currentTabLabel = selectedTab === 'guest-flags' ? 'Guest Flag' : 'Booking Flag';
@@ -294,27 +394,67 @@ export default function ManageFlags() {
                         show={showAddModal}
                         onClose={() => {
                             setShowAddModal(false);
-                            setNewFlagValue('');
+                            setNewFlagLabel('');
+                            setNewFlagAcronym('');
+                            setNewFlagColor('#6B7280');
+                            setNewFlagAcronymTouched(false);
                         }}
                         onConfirm={handleAddFlag}
                         title={`Add New ${currentTabLabel}`}
-                        description="Enter the flag value. It will be automatically formatted (lowercase with hyphens)."
+                        description="Enter a label, an acronym shown on badges, and a color. The acronym is suggested from the label but can be edited."
                         confirmLabel="Add Flag"
                         confirmColor="text-sargood-blue"
                         cancelLabel="Cancel"
                     >
                         <div className="space-y-4">
                             <TextField
-                                label="Flag Value"
-                                value={newFlagValue}
-                                onChange={(value) => setNewFlagValue(value)}
-                                placeholder="e.g., complex-care or waiting-approval"
+                                label="Flag Label"
+                                value={newFlagLabel}
+                                onChange={(value) => {
+                                    setNewFlagLabel(value);
+                                    if (!newFlagAcronymTouched) {
+                                        setNewFlagAcronym(suggestAcronym(value));
+                                    }
+                                }}
+                                placeholder="e.g., Complex Care or Waiting Approval"
                             />
-                            {newFlagValue && (
-                                <div className="text-sm">
-                                    <span className="text-gray-600">Preview: </span>
+                            <div className="flex gap-4 items-end">
+                                <div className="flex-1">
+                                    <TextField
+                                        label="Acronym"
+                                        value={newFlagAcronym}
+                                        onChange={(value) => {
+                                            setNewFlagAcronymTouched(true);
+                                            setNewFlagAcronym(value.toUpperCase());
+                                        }}
+                                        placeholder="e.g., CC"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium mb-2 text-gray-700">Color</label>
+                                    <input
+                                        type="color"
+                                        value={newFlagColor}
+                                        onChange={(e) => setNewFlagColor(e.target.value)}
+                                        className="w-12 h-10 p-0 border border-gray-300 rounded cursor-pointer"
+                                        aria-label="Flag color"
+                                    />
+                                </div>
+                            </div>
+                            {newFlagLabel && (
+                                <div className="flex items-center gap-3 text-sm pt-2 border-t border-gray-100">
+                                    <span className="text-gray-600">Preview:</span>
+                                    <span
+                                        className="inline-flex items-center justify-center w-7 h-7 rounded-full text-white text-[10px] font-semibold"
+                                        style={{ backgroundColor: newFlagColor }}
+                                    >
+                                        {newFlagAcronym || suggestAcronym(newFlagLabel)}
+                                    </span>
                                     <span className="font-medium text-gray-900">
-                                        {newFlagValue.trim().toLowerCase().replace(/\s+/g, '-')}
+                                        {newFlagLabel}
+                                    </span>
+                                    <span className="text-gray-400">
+                                        ({newFlagLabel.trim().toLowerCase().replace(/\s+/g, '-')})
                                     </span>
                                 </div>
                             )}
@@ -332,7 +472,7 @@ export default function ManageFlags() {
                         }}
                         onConfirm={handleConfirmDelete}
                         title="Delete Flag"
-                        description={`Are you sure you want to delete the flag "${_.startCase(selectedFlag.value)}"? This action cannot be undone. This flag may be in use by existing guests or bookings.`}
+                        description={`Are you sure you want to delete the flag "${selectedFlag.label}"? This action cannot be undone. This flag may be in use by existing guests or bookings, and will render with a default gray badge if so.`}
                         confirmLabel="Delete"
                         cancelLabel="Cancel"
                     />

@@ -107,10 +107,16 @@
             page-break-before: avoid;
         }
         
+        /* Flag badges now render via inline style (background-color set
+           per-flag from the enriched {value, label, acronym, color} data
+           passed by download-profile-pdf.js / email-profile-link.js), so
+           colors come from the Manage Flags admin UI instead of being
+           hardcoded here per slug. This base class still supplies layout;
+           a fallback gray is set inline by the handler if a flag has no
+           matching row in the flags table. */
         .flag-badge {
             display: inline-block;
             padding: 0.25rem 0.75rem;
-            background-color: #6B7280;
             color: white;
             border-radius: 9999px;
             font-size: 0.75rem;
@@ -119,14 +125,6 @@
             margin-bottom: 0.5rem;
             white-space: nowrap;
         }
-        
-        .flag-badge.complex-care { background-color: #F59E0B; }
-        .flag-badge.banned { background-color: #EF4444; }
-        .flag-badge.outstanding-invoices { background-color: #C026D3; }
-        .flag-badge.specific-room-requirements { background-color: #0EA5E9; }
-        .flag-badge.account-credit { background-color: #10B981; }
-        .flag-badge.deceased { background-color: #374151; }
-        .flag-badge.not-eligible { background-color: #6B7280; }
         
         /* Profile image with better default handling */
         .profile-image {
@@ -363,7 +361,7 @@
                     <p class="info-label mb-2">Flags</p>
                     <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
                         {{#each flags}}
-                        <span class="flag-badge {{this}}">{{this}}</span>
+                        <span class="flag-badge" style="background-color: {{this.color}}">{{this.label}}</span>
                         {{/each}}
                     </div>
                 </div>

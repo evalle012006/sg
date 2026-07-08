@@ -1,5 +1,6 @@
 import { QUESTION_KEYS } from '../../../services/booking/question-helper';
-import { Booking, BookingApprovalUsage, Guest, QaPair, Section, Question, Package, FundingApproval } from './../../../models'
+import { getPaymentSubstate } from '../../../utilities/paymentSubstate';
+import { Booking, BookingApprovalUsage, Guest, QaPair, Section, Question, Package, FundingApproval, PaymentLink } from './../../../models'
 import { Op } from 'sequelize'
 
 // PRIMARY: Use predefined question keys as the authoritative list
@@ -610,6 +611,7 @@ export default async function handler(req, res) {
     // Parse filter parameters
     const filterStatus = req.query.status || null;
     const filterEligibility = req.query.eligibility || null;
+    const filterAccommodationPayment = req.query.accommodation_payment || null;
     const searchQuery = req.query.search || null;
     const isIncomplete = req.query.incomplete === 'true';
     const includeQA = req.query.include_qa === 'true';
@@ -622,7 +624,7 @@ export default async function handler(req, res) {
     
     // Create a cache key based on all parameters (except invalidateCache)
     const cacheKey = JSON.stringify({
-      page, limit, filterStatus, filterEligibility, searchQuery, isIncomplete, includeQA, hasQuestionKeySupport
+      page, limit, filterStatus, filterEligibility, filterAccommodationPayment, searchQuery, isIncomplete, includeQA, hasQuestionKeySupport
     });
     
     // Try to get the data from cache first (but skip if invalidateCache is true)
@@ -690,6 +692,12 @@ export default async function handler(req, res) {
             };
           }
         }
+
+        if (filterAccommodationPayment === 'funded') {
+          where.booking_type = { [Op.or]: [{ [Op.ne]: 'accommodation_only' }, { [Op.is]: null }] };
+        } else if (filterAccommodationPayment && filterAccommodationPayment.startsWith('aob')) {
+          where.booking_type = 'accommodation_only';
+        }
       }
       
       // THE KEY OPTIMIZATION: Only include what we absolutely need
@@ -697,7 +705,7 @@ export default async function handler(req, res) {
         'id', 'uuid', 'reference_id', 'status', 'status_name', 'eligibility', 
         'eligibility_name', 'type', 'type_of_spinal_injury', 'createdAt', 'updatedAt',
         'preferred_arrival_date', 'preferred_departure_date', 'label',
-        'complete', 'cancellation_type'
+        'complete', 'cancellation_type', 'payment_status', 'booking_type'
       ];
       
       // Build the query with limited attributes
@@ -722,7 +730,8 @@ export default async function handler(req, res) {
               attributes: ['id', 'approval_number', 'approval_name']
             }],
             attributes: ['id', 'booking_id', 'funding_approval_id', 'room_type', 'nights_consumed', 'status']
-          }
+          },
+          { model: PaymentLink, separate: true, order: [['created_at', 'DESC']], limit: 1 },
         ],
         order: [["createdAt", "DESC"]]
       };
@@ -856,7 +865,9 @@ export default async function handler(req, res) {
         const sortedData = [...guestCancelledBookings, ...amendedBookings, ...otherStatusBookings];
         
         // Apply final filters for status exclusion
-        if (filterStatus && filterStatus !== 'all') {
+        const hasExplicitFilter = (filterStatus && filterStatus !== 'all') || 
+                                  (filterAccommodationPayment && filterAccommodationPayment !== 'all');
+        if (hasExplicitFilter) {
           processedBookings = sortedData;
         } else {
           if (hasStatusName) {
@@ -877,6 +888,16 @@ export default async function handler(req, res) {
       
       // Cache the full results
       cache.set(cacheKey, processedBookings);
+    }
+
+    if (filterAccommodationPayment && ['aob_paid', 'aob_awaiting', 'aob_link_not_sent'].includes(filterAccommodationPayment)) {
+      processedBookings = processedBookings.filter(b => {
+        const substate = getPaymentSubstate(b);
+        if (filterAccommodationPayment === 'aob_paid') return substate === 'paid';
+        if (filterAccommodationPayment === 'aob_link_not_sent') return substate === 'link_not_sent';
+        if (filterAccommodationPayment === 'aob_awaiting') return substate === 'awaiting';
+        return false;
+      });
     }
     
     // Get total count

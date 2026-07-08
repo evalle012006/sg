@@ -50,6 +50,8 @@ export default async function handler(req, res) {
 
     const whereClause = {};
 
+    whereClause.is_active = true; // Only include active packages
+
     // Check if admin mode for NDIS - only apply funder filter
     const isAdminNdisMode = admin && funder_type === 'NDIS' && false; // disable for now
     console.log(`🔧 Admin mode: ${admin}, Funder type: ${funder_type}`, isAdminNdisMode);
@@ -102,6 +104,7 @@ export default async function handler(req, res) {
         'description',
         'ndis_line_items', 
         'image_filename',
+        'is_active',
         'created_at',
         'updated_at'
       ],

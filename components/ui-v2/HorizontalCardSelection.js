@@ -26,6 +26,7 @@ const HorizontalCardSelection = memo(({
   
   // Track if we've initialized to prevent re-initialization
   const initializedRef = useRef(false);
+  const lastUserSetValueRef = useRef(null);
 
   const sizeConfig = {
     small: {
@@ -106,7 +107,6 @@ const HorizontalCardSelection = memo(({
       const cachedState = imageLoadCacheRef.current[cacheKey];
       
       if (cachedState && cachedState.url === (item.imageUrl || getDefaultImage('equipment'))) {
-        // Use cached state - image already loaded successfully
         newStates[index] = {
           loading: false,
           error: false,
@@ -114,7 +114,6 @@ const HorizontalCardSelection = memo(({
           hasCustomImage
         };
       } else {
-        // New image or not in cache - initialize with loading state
         newStates[index] = {
           loading: hasCustomImage,
           error: false,
@@ -135,7 +134,7 @@ const HorizontalCardSelection = memo(({
         delete imageTimeoutsRef.current[key];
       }
     });
-  }, [itemsKey]); // Only re-run if items actually change
+  }, [itemsKey]);
 
   // Timeout for loading images
   useEffect(() => {
@@ -167,9 +166,16 @@ const HorizontalCardSelection = memo(({
   }, [imageStates, items]);
 
   useEffect(() => {
-    if (!isUpdating && JSON.stringify(value) !== JSON.stringify(localValue)) {
-      setLocalValue(value);
-    }
+      // If the incoming value matches what the user just selected, never override it.
+      // This prevents the NDIS cascade (processedFormData rebuild, profile reload etc.)
+      // from briefly passing a stale/null value that wipes the visual selection.
+      if (JSON.stringify(value) === JSON.stringify(lastUserSetValueRef.current)) {
+          return;
+      }
+      // Only sync from props when not in the middle of a user interaction
+      if (!isUpdating && JSON.stringify(value) !== JSON.stringify(localValue)) {
+          setLocalValue(value);
+      }
   }, [value, isUpdating, localValue]);
 
   const debouncedOnChange = useCallback((newValue) => {
@@ -199,19 +205,22 @@ const HorizontalCardSelection = memo(({
     let newValue;
     
     if (multi) {
-      const currentArray = Array.isArray(localValue) ? localValue : [];
-      if (currentArray.includes(itemValue)) {
-        newValue = currentArray.filter(v => v !== itemValue);
-      } else {
-        newValue = [...currentArray, itemValue];
-      }
+        const currentArray = Array.isArray(localValue) ? localValue : [];
+        if (currentArray.includes(itemValue)) {
+            newValue = currentArray.filter(v => v !== itemValue);
+        } else {
+            newValue = [...currentArray, itemValue];
+        }
     } else {
-      newValue = localValue === itemValue ? null : itemValue;
+        newValue = localValue === itemValue ? null : itemValue;
     }
     
+    // Record what the user explicitly set so the value sync useEffect
+    // doesn't override it during parent re-render cascades
+    lastUserSetValueRef.current = newValue;
     setLocalValue(newValue);
     debouncedOnChange(newValue);
-  }, [localValue, multi, debouncedOnChange]);
+}, [localValue, multi, debouncedOnChange]);
 
   const isSelected = useCallback((itemValue) => {
     if (multi) {
@@ -220,15 +229,19 @@ const HorizontalCardSelection = memo(({
     return localValue === itemValue;
   }, [localValue, multi]);
 
-  const handleCardClick = useCallback((itemValue, event) => {
+  // ── CHANGED: accept isDisabled flag and bail early ────────────────────────
+  const handleCardClick = useCallback((itemValue, event, isDisabled) => {
     event.preventDefault();
     event.stopPropagation();
+    if (isDisabled) return;
     handleLocalChange(itemValue);
   }, [handleLocalChange]);
 
-  const handleInputChange = useCallback((itemValue) => {
+  const handleInputChange = useCallback((itemValue, isDisabled) => {
+    if (isDisabled) return;
     handleLocalChange(itemValue);
   }, [handleLocalChange]);
+  // ─────────────────────────────────────────────────────────────────────────
 
   const handleImageError = useCallback((index, imageUrl) => {
     console.log(`Image ${index} error - switching to default`);
@@ -252,7 +265,6 @@ const HorizontalCardSelection = memo(({
   const handleImageLoad = useCallback((index, imageUrl) => {
     const cacheKey = imageUrl || `default-${index}`;
     
-    // Store in cache
     imageLoadCacheRef.current[cacheKey] = {
       url: imageUrl || getDefaultImage('equipment'),
       loadedAt: Date.now()
@@ -293,17 +305,23 @@ const HorizontalCardSelection = memo(({
           hasCustomImage: false 
         };
         const { loading, error, url, hasCustomImage } = state;
+
+        // ── CHANGED: per-item disabled classes ────────────────────────────
+        const isItemDisabled = Boolean(item.disabled);
         
         return (
           <label
             key={item.value}
-            className={`flex cursor-pointer items-center border-2 rounded-xl transition-all duration-200 ${
-              isSelected(item.value) 
-                ? 'border-blue-600 bg-blue-50 shadow-md ring-2 ring-blue-200' 
-                : 'border-gray-200 hover:border-gray-300 hover:shadow-sm'
+            className={`flex items-center border-2 rounded-xl transition-all duration-200 ${
+              isItemDisabled
+                ? 'cursor-not-allowed opacity-50 border-gray-200 bg-gray-50'
+                : isSelected(item.value)
+                  ? 'cursor-pointer border-blue-600 bg-blue-50 shadow-md ring-2 ring-blue-200'
+                  : 'cursor-pointer border-gray-200 hover:border-gray-300 hover:shadow-sm'
             }`}
-            onClick={(e) => handleCardClick(item.value, e)}
+            onClick={(e) => handleCardClick(item.value, e, isItemDisabled)}
           >
+        {/* ─────────────────────────────────────────────────────────────── */}
             <div className={`flex w-full ${currentSize.card} items-center`}>
               <div className={`flex-shrink-0 ${currentSize.image} bg-gray-100 flex items-center justify-center overflow-hidden ${origin == 'room' ? '' : 'rounded-l-xl'} relative group`}>
                 {loading && (
@@ -343,10 +361,20 @@ const HorizontalCardSelection = memo(({
                 )}
               </div>
               
+              {/* ── CHANGED: content section — adds disabledMessage ──────── */}
               <div className={`flex flex-col flex-grow justify-center ${currentSize.content}`}>
                 <div className={`${currentSize.title} text-gray-800 mb-2`}>{item.label}</div>
                 <div className={`${currentSize.description} text-gray-600 leading-relaxed`}>{item.description}</div>
+                {isItemDisabled && item.disabledMessage && (
+                  <p className="mt-1 text-xs font-medium text-amber-700 flex items-center gap-1">
+                    <svg className="w-3 h-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                    </svg>
+                    {item.disabledMessage}
+                  </p>
+                )}
               </div>
+              {/* ─────────────────────────────────────────────────────────── */}
               
               <div className={`flex-shrink-0 flex items-center justify-center ml-auto ${currentSize.controlPadding}`}>
                 {multi ? (
@@ -360,12 +388,14 @@ const HorizontalCardSelection = memo(({
                         <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                       </svg>
                     )}
+                    {/* ── CHANGED: disabled attribute + pass flag to onChange */}
                     <input
                       type="checkbox"
                       className="sr-only" 
                       value={item.value}
                       checked={isSelected(item.value)}
-                      onChange={() => handleInputChange(item.value)}
+                      onChange={() => handleInputChange(item.value, isItemDisabled)}
+                      disabled={isItemDisabled}
                       required={required && (!Array.isArray(localValue) || localValue.length === 0)}
                     />
                   </div>
@@ -380,13 +410,15 @@ const HorizontalCardSelection = memo(({
                         <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                       </svg>
                     )}
+                    {/* ── CHANGED: disabled attribute + pass flag to onChange */}
                     <input
                       type="radio"
                       name="horizontal-card-selection"
                       className="sr-only" 
                       value={item.value}
                       checked={isSelected(item.value)}
-                      onChange={() => handleInputChange(item.value)}
+                      onChange={() => handleInputChange(item.value, isItemDisabled)}
+                      disabled={isItemDisabled}
                       required={required}
                     />
                   </div>

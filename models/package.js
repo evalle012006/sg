@@ -102,7 +102,12 @@ module.exports = (sequelize, DataTypes) => {
     image_filename: {
       type: DataTypes.STRING,
       allowNull: true
-    }
+    },
+    is_active: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: true,
+    },
   }, {
     sequelize,
     modelName: 'Package',

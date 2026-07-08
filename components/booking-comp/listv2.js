@@ -9,6 +9,7 @@ import { toast } from "react-toastify";
 import { getCancellationType, getFirstLetters, getFunder, isBookingCancelled } from "../../utilities/common";
 import { QUESTION_KEYS } from "./../../services/booking/question-helper";
 import _ from "lodash";
+import useFlagDefinitions from "../../hooks/useFlagDefinitions";
 
 import dynamic from 'next/dynamic';
 import { globalActions } from "../../store/globalSlice";
@@ -16,6 +17,8 @@ import { eligibilityContext, fetchBookingEligibilities } from "../../services/bo
 import { DropdownEligibility } from "./dropdown-eligibility";
 import ActionDropDown from "./action-dropdown";
 import { AbilityContext } from "../../services/acl/can";
+import { BOOKING_FUND_TYPES } from "../constants";
+import { getDisplayStatus } from '../../utilities/bookingStatus';
 
 // Dynamic imports for better initial load time
 const PaginatedTable = dynamic(() => import('../ui/paginated-table'));
@@ -27,6 +30,10 @@ function BookingList(props) {
   const dispatch = useDispatch();
   const ability = useContext(AbilityContext);
   const currentUser = useSelector(state => state.user.user);
+
+  // Flag definitions (label/acronym/color), fetched once per mount and
+  // shared across every row's flag badges — not refetched per row.
+  const { getGuestFlag, getBookingFlag } = useFlagDefinitions();
   
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
@@ -56,12 +63,22 @@ function BookingList(props) {
 
   const [selectedRows, setSelectedRows] = useState([]);
 
+  const [selectedFilterAccommodationPayment, setSelectedFilterAccommodationPayment] = useState('');
+  const filterAccommodationPaymentOptions = [
+    { label: 'All', value: 'all' },
+    { label: 'Funded', value: 'funded' },
+    { label: 'Accommodation Only — All', value: 'aob_all' },
+    { label: 'Accommodation Only — Paid', value: 'aob_paid' },
+    { label: 'Accommodation Only — Awaiting Payment', value: 'aob_awaiting' },
+    { label: 'Accommodation Only — Link Not Sent', value: 'aob_link_not_sent' },
+  ];
+
   // Create debounced search function that will only execute after typing stops
   const debouncedSearch = useCallback(
     _.debounce((searchTerm) => {
       fetchBookings(searchTerm, true);
     }, 500), 
-    [pageSize, toggleIncomplete, selectedFilterStatus, selectedFilterEligibility, currentPage]
+    [pageSize, toggleIncomplete, selectedFilterStatus, selectedFilterEligibility, selectedFilterAccommodationPayment, currentPage]
   );
 
   // Initial load - fetch filters and set permissions
@@ -91,7 +108,7 @@ function BookingList(props) {
   // Monitor filter/page changes and trigger fetch
   useEffect(() => {
     fetchBookings(searchValue, true);
-  }, [currentPage, pageSize, toggleIncomplete, selectedFilterStatus, selectedFilterEligibility]);
+  }, [currentPage, pageSize, toggleIncomplete, selectedFilterStatus, selectedFilterEligibility, selectedFilterAccommodationPayment]);
 
   const fetchFilters = async () => {
     try {
@@ -156,6 +173,10 @@ const fetchBookings = async (searchTerm = searchValue, invalidateCache = false) 
           queryParams.append('eligibility', eligibilityObj.value);
         }
       }
+
+      if (selectedFilterAccommodationPayment && selectedFilterAccommodationPayment !== 'all') {
+        queryParams.append('accommodation_payment', selectedFilterAccommodationPayment);
+      }
     }
     
     // Use the unified API endpoint for all booking queries
@@ -213,6 +234,12 @@ const fetchBookings = async (searchTerm = searchValue, invalidateCache = false) 
     setSelectedFilterEligibility(selected.label);
     setSearchValue('');
     setCurrentPage(1); // Reset to first page on new filter
+  };
+
+  const handleChangeAccommodationPayment = (selected) => {
+    setSelectedFilterAccommodationPayment(selected.value);
+    setSearchValue('');
+    setCurrentPage(1);
   };
 
   // Pagination handlers
@@ -613,24 +640,17 @@ const fetchBookings = async (searchTerm = searchValue, invalidateCache = false) 
             <>
               {original.Guest?.first_name} {original.Guest?.last_name}
               <div className="flex relative">
-                {original.Guest?.flags && original.Guest.flags.map((flag, index) => {
-                  // Flag color mapping
-                  const flagColors = {
-                    'complex-care': 'amber',
-                    'banned': 'red',
-                    'outstanding-invoices': 'fuchsia',
-                    'specific-room-requirements': 'sky',
-                    'account-credit': 'green',
-                    'deceased': 'slate-700',
-                    'not-eligible': 'gray'
-                  };
-                  
-                  const color = flagColors[flag] || 'gray';
-                  
+                {original.Guest?.flags && original.Guest.flags.map((flagValue, index) => {
+                  const flag = getGuestFlag(flagValue);
+
                   return (
-                    <p key={index} className={`${index > 0 && 'ml-1'} bg-${color}-500 w-fit px-2 p-1 text-xs text-white rounded-full group`}>
-                      {getFirstLetters(flag)}
-                      <span className="absolute bg-black/90 p-4 py-2 rounded-md hidden group-hover:block whitespace-nowrap bottom-2/3">{_.startCase(flag)}</span>
+                    <p
+                      key={index}
+                      className={`${index > 0 && 'ml-1'} w-fit px-2 p-1 text-xs text-white rounded-full group`}
+                      style={{ backgroundColor: flag.color }}
+                    >
+                      {flag.acronym}
+                      <span className="absolute bg-black/90 p-4 py-2 rounded-md hidden group-hover:block whitespace-nowrap bottom-2/3">{flag.label}</span>
                     </p>
                   );
                 })}
@@ -710,6 +730,39 @@ const fetchBookings = async (searchTerm = searchValue, invalidateCache = false) 
         },
       },
       {
+        Header: "Payment",
+        accessor: "payment_status_display",
+        Cell: ({ row: { original } }) => {
+          const statusObj = original.status ? JSON.parse(original.status) : null;
+          const isAOB = original.booking_type === BOOKING_FUND_TYPES.AOB;
+          const isConfirmed = statusObj?.name === 'booking_confirmed';
+
+          if (!isAOB || !isConfirmed) return <span className="text-gray-300">—</span>;
+
+          const displayStatus = getDisplayStatus(original);
+          const isPaid = original.payment_status === 'paid';
+
+          return (
+            <div className={`px-2.5 py-1 rounded-md text-xs font-semibold w-fit flex items-center gap-1 ${
+              isPaid
+                ? 'bg-green-50 text-green-800 border border-green-300'
+                : 'bg-orange-50 text-orange-800 border border-orange-300'
+            }`}>
+              {isPaid ? (
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              ) : (
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              )}
+              {isPaid ? 'Paid' : displayStatus.label}
+            </div>
+          );
+        },
+      },
+      {
         Header: "Package Type",
         accessor: "package_type",
         Cell: ({ row: { original } }) => {
@@ -753,30 +806,21 @@ const fetchBookings = async (searchTerm = searchValue, invalidateCache = false) 
         accessor: "label",
         Cell: ({ row: { original } }) => {
           const labels = (original.label && original.label.length > 0) ? original.label : [];
-          
-          // Label color mapping
-          const labelColors = {
-            'travel_grant': 'amber',
-            'foundation_stay': 'violet',
-            'waiting_icare_approval': 'fuchsia',
-            'waiting_icare_approval_2nd_room': 'sky',
-            'waiting_emergency_contacts': 'green',
-            'waiting_new_dates': 'slate-700',
-            'waiting_snapform': 'yellow',
-            'waiting_icare_confirmation': 'blue',
-            'waiting_to_hear_from_seb': 'orange',
-            'see_notes': 'gray'
-          };
-          
+
           return (
             <div className="flex relative">
-              {labels.map((label, index) => {
-                const color = labelColors[label] || 'gray';
-                const displayLabel = label instanceof Object ? label.label : label;
+              {labels.map((labelValue, index) => {
+                const rawValue = labelValue instanceof Object ? labelValue.value : labelValue;
+                const flag = getBookingFlag(rawValue);
+
                 return (
-                  <p key={index} className={`${index > 0 && 'ml-1'} bg-${color}-500 w-fit px-2 p-1 text-xs text-white rounded-full group`}>
-                    {getFirstLetters(displayLabel, '_')}
-                    <span className="absolute bg-black/90 p-4 py-2 rounded-md hidden group-hover:block whitespace-nowrap bottom-2/3">{_.startCase(displayLabel)}</span>
+                  <p
+                    key={index}
+                    className={`${index > 0 && 'ml-1'} w-fit px-2 p-1 text-xs text-white rounded-full group`}
+                    style={{ backgroundColor: flag.color }}
+                  >
+                    {flag.acronym}
+                    <span className="absolute bg-black/90 p-4 py-2 rounded-md hidden group-hover:block whitespace-nowrap bottom-2/3">{flag.label}</span>
                   </p>
                 );
               })}
@@ -853,7 +897,7 @@ const fetchBookings = async (searchTerm = searchValue, invalidateCache = false) 
         },
       },
     ], 
-    [router, ability, fetchBookings, searchValue]
+    [router, ability, fetchBookings, searchValue, getGuestFlag, getBookingFlag]
   );
 
   return (
@@ -944,6 +988,15 @@ const fetchBookings = async (searchTerm = searchValue, invalidateCache = false) 
                 placeholder={"Status"} 
                 onChange={handleChangeStatus} 
                 value={selectedFilterStatus} 
+                disabled={toggleIncomplete || searchValue.trim() !== ''} 
+              />
+            </div>
+            <div className="mr-2 w-fit">
+              <SelectFilterComponent 
+                options={filterAccommodationPaymentOptions} 
+                placeholder={"Payment"} 
+                onChange={handleChangeAccommodationPayment} 
+                value={filterAccommodationPaymentOptions.find(o => o.value === selectedFilterAccommodationPayment)?.label || ''} 
                 disabled={toggleIncomplete || searchValue.trim() !== ''} 
               />
             </div>

@@ -1,7 +1,7 @@
 import { BookingService } from "../../../../services/booking/booking";
 import {
     Address, Booking, BookingApprovalUsage, Equipment, EquipmentCategory, 
-    FundingApproval, Guest, Log, Page, QaPair, Question, Room, RoomType, 
+    FundingApproval, Guest, Log, Page, PaymentLink, QaPair, Question, Room, RoomType, 
     Section, Template
 } from "./../../../../models";
 import StorageService from "./../../../../services/storage/storage";
@@ -45,6 +45,7 @@ export default async function handler(req, res) {
                     }],
                     attributes: ['id', 'booking_id', 'funding_approval_id', 'room_type', 'nights_consumed', 'status']
                 },
+                { model: PaymentLink, separate: true, order: [['created_at', 'DESC']], limit: 1 },
                 Log
             ],
         });

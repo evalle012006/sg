@@ -1,24 +1,38 @@
 import { Page, Question, Section, Setting, Template, sequelize } from "../../../models"
 
 export default async function handler(req, res) {
-    const { bookingId } = req.body;
+    const { bookingId, bookingType } = req.body;
 
     if (req.method !== "POST" || !bookingId) {
         return res.status(400).json({ success: false, message: "Invalid request" });
     }
 
     try {
-        // Get template with all relations in a single query
-        const defaultTemplate = await Setting.findOne({ 
-            where: { attribute: 'default_template' } 
+        // Resolve which template to scaffold from.
+        // accommodation_only bookings use a dedicated template setting when configured,
+        // falling back to default_template until AOB-04 is complete and the setting exists.
+        const templateAttribute = bookingType === 'accommodation_only'
+            ? 'accommodation_only_template'
+            : 'default_template';
+
+        let templateSetting = await Setting.findOne({
+            where: { attribute: templateAttribute }
         });
-        
-        if (!defaultTemplate?.value) {
+
+        // Fallback: if accommodation_only_template not yet configured, use default
+        if (!templateSetting?.value && bookingType === 'accommodation_only') {
+            console.warn('⚠️ accommodation_only_template setting not found — falling back to default_template');
+            templateSetting = await Setting.findOne({
+                where: { attribute: 'default_template' }
+            });
+        }
+
+        if (!templateSetting?.value) {
             return res.status(404).json({ success: false, message: "Default template not found" });
         }
 
         const template = await Template.findOne({ 
-            where: { id: defaultTemplate.value }, 
+            where: { id: templateSetting.value },
             include: [{
                 model: Page, 
                 include: [{

@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import Modal from "../../../components/ui/modal";
 import { toast } from 'react-toastify';
 import { useDispatch, useSelector } from "react-redux";
-import { templateActions } from "../../../store/templateSlice";
+import { templateActions, createTemplate } from "../../../store/templateSlice";
 import dynamic from 'next/dynamic';
 import { 
     Edit, 
@@ -13,7 +13,8 @@ import {
     Settings, 
     Check, 
     Copy,
-    Plus
+    Plus,
+    Home
 } from 'lucide-react';
 
 const Layout = dynamic(() => import('../../../components/layout'));
@@ -33,10 +34,15 @@ export default function BookingTemplateList() {
     const [showRestoreModal, setShowRestoreModal] = useState(false);
     const [defaultTemplateSettings, setDefaultTemplateSettings] = useState({ value: null });
 
-    // Updated tab state management similar to GuestPage
+    // ── New Template dialog state ─────────────────────────────────────────────
+    const [showNewTemplateDialog, setShowNewTemplateDialog] = useState(false);
+    const [newTemplateName, setNewTemplateName] = useState('');
+    const [newTemplateType, setNewTemplateType] = useState(null); // 'funded' | 'accommodation_only'
+    const [creatingTemplate, setCreatingTemplate] = useState(false);
+
+    // Tab state
     const [selectedTab, setSelectedTab] = useState("active-templates");
 
-    // Tab configuration similar to GuestPage
     const mainTabs = [
         { label: "ACTIVE", size: "medium", fullLabel: "ACTIVE TEMPLATES" },
         { label: "ARCHIVED", size: "medium", fullLabel: "ARCHIVED TEMPLATES" }
@@ -47,14 +53,12 @@ export default function BookingTemplateList() {
         setSelectedTab(tabNames[index]);
     };
 
-    // Save tab to localStorage when it changes
     useEffect(() => {
         if (selectedTab) {
             localStorage.setItem("currentTemplateTab", JSON.stringify(selectedTab));
         }
     }, [selectedTab]);
 
-    // Load tab from localStorage on mount
     useEffect(() => {
         const currentTabLocalStorage = JSON.parse(localStorage.getItem("currentTemplateTab"));
         if (currentTabLocalStorage) {
@@ -103,49 +107,45 @@ export default function BookingTemplateList() {
                 toast("Template deleted sucessfully.", { type: 'success' });
             }
             else toast("Sorry, something went wrong. Please try again.", { type: 'error' });
-
-        }).catch((error) => {
+        }).catch(() => {
             toast("Sorry, something went wrong. Please try again.", { type: 'error' });
         });
     };
 
-    const setActiveTemplate = async (selected) => {
+    const setActiveTemplate = async (selected, settingAttribute = 'default_template') => {
         await fetch(`/api/booking-templates/set-active`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(selected),
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: selected.id, settingAttribute }),
         }).then((res) => {
             if (res.status === 200) {
-                toast("Template sucessfully set as active.", { type: 'success' });
+                const label = settingAttribute === 'accommodation_only_template'
+                    ? 'Accommodation-only template updated.'
+                    : 'Template successfully set as active.';
+                toast(label, { type: 'success' });
                 fetchDefaultTemplateSettings();
             }
             else toast("Sorry, something went wrong. Please try again.", { type: 'error' });
-
-        }).catch((error) => {
+        }).catch(() => {
             toast("Sorry, something went wrong. Please try again.", { type: 'error' });
         });
-    }
+    };
 
     const duplicateTemplate = async (selected) => {
         await fetch(`/api/booking-templates/duplicate`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ uuid: selected.uuid }),
         }).then((res) => {
             if (res.status === 200) {
                 toast("Template sucessfully duplicated.", { type: 'success' });
-
                 setTimeout(fetchTemplates, 2000);
             }
             else toast("Sorry, something went wrong. Please try again.", { type: 'error' });
-        }).catch((error) => {
+        }).catch(() => {
             toast("Sorry, something went wrong. Please try again.", { type: 'error' });
         });
-    }
+    };
 
     const archiveTemplate = async () => {
         try {
@@ -153,7 +153,6 @@ export default function BookingTemplateList() {
                 method: "POST",
                 headers: { 'Content-Type': 'application/json' },
             });
-            
             if (response.status === 200) {
                 setShowArchiveModal(false);
                 fetchTemplates();
@@ -161,7 +160,7 @@ export default function BookingTemplateList() {
             } else {
                 toast("Sorry, something went wrong. Please try again.", { type: 'error' });
             }
-        } catch (error) {
+        } catch {
             toast("Sorry, something went wrong. Please try again.", { type: 'error' });
         }
     };
@@ -172,7 +171,6 @@ export default function BookingTemplateList() {
                 method: "POST",
                 headers: { 'Content-Type': 'application/json' },
             });
-            
             if (response.status === 200) {
                 setShowRestoreModal(false);
                 fetchTemplates();
@@ -180,12 +178,44 @@ export default function BookingTemplateList() {
             } else {
                 toast("Sorry, something went wrong. Please try again.", { type: 'error' });
             }
-        } catch (error) {
+        } catch {
             toast("Sorry, something went wrong. Please try again.", { type: 'error' });
         }
     };
 
-    // Updated columns configuration similar to GuestList
+    // ── New Template dialog handler ────────────────────────────────────────────
+    const openNewTemplateDialog = () => {
+        setNewTemplateName('');
+        setNewTemplateType(null);
+        setShowNewTemplateDialog(true);
+    };
+
+    const handleCreateNewTemplate = async () => {
+        if (!newTemplateName.trim() || !newTemplateType) return;
+
+        setCreatingTemplate(true);
+        try {
+            const result = await dispatch(createTemplate({
+                name: newTemplateName.trim(),
+                type: newTemplateType,
+            }));
+
+            if (result.payload?.uuid) {
+                setShowNewTemplateDialog(false);
+                setNewTemplateName('');
+                setNewTemplateType(null);
+                router.push('/settings/booking-templates/builder?template_uuid=' + result.payload.uuid);
+            } else {
+                toast('Sorry, something went wrong. Please try again.', { type: 'error' });
+            }
+        } catch {
+            toast('Sorry, something went wrong. Please try again.', { type: 'error' });
+        } finally {
+            setCreatingTemplate(false);
+        }
+    };
+
+    // ── Columns ───────────────────────────────────────────────────────────────
     const activeColumns = useMemo(() => [
         {
             key: 'name',
@@ -210,6 +240,29 @@ export default function BookingTemplateList() {
             render: (value) => (
                 <span className="text-gray-600">{value}</span>
             )
+        },
+        // ── NEW: Template type column ─────────────────────────────────────────
+        {
+            key: 'type',
+            label: 'TYPE',
+            searchable: false,
+            render: (value) => {
+                if (value === 'accommodation_only') {
+                    return (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700">
+                            Accommodation Only
+                        </span>
+                    );
+                }
+                if (value === 'funded') {
+                    return (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700">
+                            Funded
+                        </span>
+                    );
+                }
+                return <span className="text-gray-400 text-xs">—</span>;
+            }
         },
         {
             key: 'actions',
@@ -267,19 +320,48 @@ export default function BookingTemplateList() {
                         <Settings className="w-4 h-4" />
                     </button>
 
+                    {/* Set as funded/default template */}
                     <button 
-                        title="Set as active template" 
+                        title={
+                            row.id == parseInt(defaultTemplateSettings?.default_template?.value)
+                                ? 'Active funded template'
+                                : 'Set as funded template'
+                        }
                         className="p-2 rounded transition-colors duration-150 hover:opacity-80"
                         style={{ 
-                            backgroundColor: row.id == parseInt(defaultTemplateSettings.value) ? '#10b9811A' : '#6b72801A', 
-                            color: row.id == parseInt(defaultTemplateSettings.value) ? '#10b981' : '#6b7280' 
+                            backgroundColor: row.id == parseInt(defaultTemplateSettings?.default_template?.value)
+                                ? '#10b9811A' : '#6b72801A', 
+                            color: row.id == parseInt(defaultTemplateSettings?.default_template?.value)
+                                ? '#10b981' : '#6b7280' 
                         }}
                         onClick={(e) => {
                             e.stopPropagation();
-                            setActiveTemplate(row);
+                            setActiveTemplate(row, 'default_template');
                         }}
                     >
                         <Check className="w-4 h-4" />
+                    </button>
+
+                    {/* Set as accommodation-only template */}
+                    <button 
+                        title={
+                            row.id == parseInt(defaultTemplateSettings?.accommodation_only_template?.value)
+                                ? 'Active accommodation-only template'
+                                : 'Set as accommodation-only template'
+                        }
+                        className="p-2 rounded transition-colors duration-150 hover:opacity-80"
+                        style={{ 
+                            backgroundColor: row.id == parseInt(defaultTemplateSettings?.accommodation_only_template?.value)
+                                ? '#3b82f61A' : '#6b72801A',
+                            color: row.id == parseInt(defaultTemplateSettings?.accommodation_only_template?.value)
+                                ? '#3b82f6' : '#6b7280'
+                        }}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveTemplate(row, 'accommodation_only_template');
+                        }}
+                    >
+                        <Home className="w-4 h-4" />
                     </button>
 
                     <button 
@@ -324,6 +406,28 @@ export default function BookingTemplateList() {
             )
         },
         {
+            key: 'type',
+            label: 'TYPE',
+            searchable: false,
+            render: (value) => {
+                if (value === 'accommodation_only') {
+                    return (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700">
+                            Accommodation Only
+                        </span>
+                    );
+                }
+                if (value === 'funded') {
+                    return (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700">
+                            Funded
+                        </span>
+                    );
+                }
+                return <span className="text-gray-400 text-xs">—</span>;
+            }
+        },
+        {
             key: 'actions',
             label: 'ACTION',
             searchable: false,
@@ -346,20 +450,8 @@ export default function BookingTemplateList() {
         }
     ], []);
 
-    // Get current data based on selected tab
-    const getCurrentData = () => {
-        if (selectedTab === "archived-templates") {
-            return archivedData;
-        }
-        return activeData;
-    };
-
-    const getCurrentColumns = () => {
-        if (selectedTab === "archived-templates") {
-            return archivedColumns;
-        }
-        return activeColumns;
-    };
+    const getCurrentData = () => selectedTab === "archived-templates" ? archivedData : activeData;
+    const getCurrentColumns = () => selectedTab === "archived-templates" ? archivedColumns : activeColumns;
 
     return (
         <Layout title={"Booking Templates"}>
@@ -381,7 +473,7 @@ export default function BookingTemplateList() {
                                 color="secondary"
                                 size="medium"
                                 label="New Template"
-                                onClick={() => router.push('/settings/booking-templates/builder?type=new')}
+                                onClick={openNewTemplateDialog}
                                 withIcon={true}
                                 iconName="custom"
                                 iconSvg={<Plus />}
@@ -415,7 +507,7 @@ export default function BookingTemplateList() {
                                             color="secondary"
                                             size="medium"
                                             label="New Template"
-                                            onClick={() => router.push('/settings/booking-templates/builder?type=new')}
+                                            onClick={openNewTemplateDialog}
                                             withIcon={true}
                                             iconName="custom"
                                             iconSvg={<Plus />}
@@ -427,7 +519,135 @@ export default function BookingTemplateList() {
                     )}
                 </div>
         
-                {/* Modals */}
+                {/* ── Modals ────────────────────────────────────────────────────────── */}
+
+                {/* New Template Type Dialog */}
+                {showNewTemplateDialog && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
+                        <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 p-6">
+                            <h2 className="text-lg font-semibold text-gray-900 mb-1">New Booking Template</h2>
+                            <p className="text-sm text-gray-500 mb-5">Choose the type of booking this template is for.</p>
+
+                            {/* Template name */}
+                            <div className="mb-5">
+                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                    Template Name <span className="text-red-500">*</span>
+                                </label>
+                                <input
+                                    type="text"
+                                    value={newTemplateName}
+                                    onChange={e => setNewTemplateName(e.target.value)}
+                                    placeholder="e.g. Accommodation Only Booking v2"
+                                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    onKeyDown={e => {
+                                        if (e.key === 'Enter' && newTemplateName.trim() && newTemplateType) {
+                                            handleCreateNewTemplate();
+                                        }
+                                    }}
+                                />
+                            </div>
+
+                            {/* Template type selection */}
+                            <div className="mb-6">
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    Template Type <span className="text-red-500">*</span>
+                                </label>
+                                <div className="grid grid-cols-2 gap-3">
+
+                                    {/* Funded */}
+                                    <button
+                                        onClick={() => setNewTemplateType('funded')}
+                                        className={`flex flex-col items-start p-4 rounded-lg border-2 text-left transition-all ${
+                                            newTemplateType === 'funded'
+                                                ? 'border-green-500 bg-green-50'
+                                                : 'border-gray-200 hover:border-gray-300 bg-white'
+                                        }`}
+                                    >
+                                        <div className={`w-8 h-8 rounded-full flex items-center justify-center mb-2 ${
+                                            newTemplateType === 'funded' ? 'bg-green-100' : 'bg-gray-100'
+                                        }`}>
+                                            <svg
+                                                className={`w-4 h-4 ${newTemplateType === 'funded' ? 'text-green-600' : 'text-gray-400'}`}
+                                                fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                                            >
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                                                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                            </svg>
+                                        </div>
+                                        <span className={`text-sm font-semibold ${newTemplateType === 'funded' ? 'text-green-700' : 'text-gray-700'}`}>
+                                            Funded
+                                        </span>
+                                        <span className="text-xs text-gray-500 mt-0.5 leading-snug">
+                                            NDIS, iCare or other funded stays
+                                        </span>
+                                    </button>
+
+                                    {/* Accommodation Only */}
+                                    <button
+                                        onClick={() => setNewTemplateType('accommodation_only')}
+                                        className={`flex flex-col items-start p-4 rounded-lg border-2 text-left transition-all ${
+                                            newTemplateType === 'accommodation_only'
+                                                ? 'border-blue-500 bg-blue-50'
+                                                : 'border-gray-200 hover:border-gray-300 bg-white'
+                                        }`}
+                                    >
+                                        <div className={`w-8 h-8 rounded-full flex items-center justify-center mb-2 ${
+                                            newTemplateType === 'accommodation_only' ? 'bg-blue-100' : 'bg-gray-100'
+                                        }`}>
+                                            <svg
+                                                className={`w-4 h-4 ${newTemplateType === 'accommodation_only' ? 'text-blue-600' : 'text-gray-400'}`}
+                                                fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                                            >
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                                                    d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                                            </svg>
+                                        </div>
+                                        <span className={`text-sm font-semibold ${newTemplateType === 'accommodation_only' ? 'text-blue-700' : 'text-gray-700'}`}>
+                                            Accommodation Only
+                                        </span>
+                                        <span className="text-xs text-gray-500 mt-0.5 leading-snug">
+                                            Private-pay stays, no funding
+                                        </span>
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Validation hint */}
+                            {(!newTemplateName.trim() || !newTemplateType) && (
+                                <p className="text-xs text-amber-600 mb-4">
+                                    {!newTemplateName.trim() && !newTemplateType
+                                        ? 'Please enter a name and select a type to continue.'
+                                        : !newTemplateName.trim()
+                                            ? 'Please enter a template name.'
+                                            : 'Please select a template type.'
+                                    }
+                                </p>
+                            )}
+
+                            {/* Actions */}
+                            <div className="flex justify-end gap-3">
+                                <button
+                                    onClick={() => {
+                                        setShowNewTemplateDialog(false);
+                                        setNewTemplateName('');
+                                        setNewTemplateType(null);
+                                    }}
+                                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={handleCreateNewTemplate}
+                                    disabled={!newTemplateName.trim() || !newTemplateType || creatingTemplate}
+                                    className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                >
+                                    {creatingTemplate ? 'Creating...' : 'Create Template'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 {showModal && (
                     <Modal 
                         title="Delete selected template?"

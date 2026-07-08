@@ -58,6 +58,22 @@ module.exports = (sequelize, DataTypes) => {
       defaultValue: null,
       comment: 'Type of cancellation charge: no_charge (nights returned) or full_charge (penalty applied)'
     },
+    booking_type: {
+      type: DataTypes.STRING(50),
+      allowNull: true,
+      defaultValue: null,
+      comment: 'Booking pathway: accommodation_only | funded | null (legacy/pre-AOB)',
+    },
+    payment_status: {
+      type: DataTypes.ENUM('unpaid', 'paid', 'refunded'),
+      allowNull: true,
+      defaultValue: null,
+    },
+    stripe_payment_intent: {
+      type: DataTypes.STRING(255),
+      allowNull: true,
+      defaultValue: null,
+    },
   }, {
     sequelize,
     modelName: 'Booking',

@@ -21,6 +21,11 @@ module.exports = (sequelize, DataTypes) => {
     name: DataTypes.STRING,
     archived: DataTypes.BOOLEAN,
     archived_date: DataTypes.DATE,
+    type: {
+      type: DataTypes.ENUM('funded', 'accommodation_only'),
+      allowNull: true,
+      defaultValue: null,
+    },
   }, {
     sequelize,
     modelName: 'Template',

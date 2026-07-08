@@ -26,7 +26,8 @@ export default function PackageForm({
         price: '',
         ndis_package_type: '',
         description: '',
-        ndis_line_items: []
+        ndis_line_items: [],
+        is_active: true
     });
 
     const [isLoading, setIsLoading] = useState(false);
@@ -355,7 +356,8 @@ export default function PackageForm({
                 price: packageData.price || '',
                 ndis_package_type: packageData.ndis_package_type || '',
                 description: packageData.description || '',
-                ndis_line_items: updatedLineItems
+                ndis_line_items: updatedLineItems,
+                is_active: packageData.is_active !== false // default true if missing
             });
             
             setFieldErrors({});
@@ -426,6 +428,7 @@ export default function PackageForm({
                 funder: formData.funder.trim(),
                 ndis_package_type: formData.funder === 'NDIS' ? formData.ndis_package_type : null,
                 description: formData.description || null,
+                is_active: formData.is_active,
                 price: formData.funder === 'Non-NDIS' ? (parseFloat(formData.price) || 0) : null,
                 ndis_line_items: formData.funder === 'NDIS' ? formData.ndis_line_items.map(item => ({
                     sta_package: item.sta_package.trim(),
@@ -1002,6 +1005,32 @@ export default function PackageForm({
                             </div>
                         </div>
                     )}
+
+                    {/* Active Status Toggle */}
+                    <div className="mb-6">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Package Status
+                        </label>
+                        <div className="flex items-center gap-3">
+                            <button
+                                type="button"
+                                disabled={isReadOnly}
+                                onClick={() => !isReadOnly && setFormData(prev => ({ ...prev, is_active: !prev.is_active }))}
+                                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                                    formData.is_active ? 'bg-green-500' : 'bg-gray-300'
+                                } ${isReadOnly ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
+                            >
+                                <span
+                                    className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                                        formData.is_active ? 'translate-x-6' : 'translate-x-1'
+                                    }`}
+                                />
+                            </button>
+                            <span className={`text-sm font-medium ${formData.is_active ? 'text-green-700' : 'text-gray-500'}`}>
+                                {formData.is_active ? 'Active — visible to guests' : 'Inactive — hidden from booking form'}
+                            </span>
+                        </div>
+                    </div>
                 </div>
             </form>
         </>

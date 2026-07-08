@@ -12,7 +12,7 @@ import ImageModal from "../ui-v2/ImageModal";
 import { getDefaultImage } from "../../lib/defaultImages";
 
 const EquipmentField = forwardRef((props, ref) => {
-    const { forceShowErrors = false } = props;
+    const { forceShowErrors = false, stayDates = null } = props;
     const bookingType = useSelector(state => state.bookingRequestForm.bookingType);
     
     // State management
@@ -54,6 +54,12 @@ const EquipmentField = forwardRef((props, ref) => {
 
     const [imageModalOpen, setImageModalOpen] = useState(false);
     const [selectedImage, setSelectedImage] = useState({ url: '', alt: '' });
+
+    // Map of equipment IDs that are unavailable for the current date range.
+    // null = not yet fetched (no dates available); empty Set = all available.
+    const [availabilityMap, setAvailabilityMap] = useState(null);
+    const [availabilityLoading, setAvailabilityLoading] = useState(false);
+    const availabilityDebounceRef = useRef(null);
 
     // Cleanup on unmount
     useEffect(() => {
@@ -105,6 +111,11 @@ const EquipmentField = forwardRef((props, ref) => {
     };
 
     const getBinaryQuestionLabel = (categoryName) => {
+        // Read custom_label from the DB-stored category record first.
+        const categoryEquipments = groupedEquipments[categoryName] || [];
+        const customLabel = categoryEquipments[0]?.EquipmentCategory?.custom_label;
+        if (customLabel) return customLabel;
+        // Fallback: legacy hardcoded labels, then auto-generate
         const specialLabels = {
             'ceiling_hoist': 'Will you be using our ceiling hoist?',
             'slide_transfer_boards': 'Would you like to use a slide transfer board?',
@@ -116,6 +127,11 @@ const EquipmentField = forwardRef((props, ref) => {
     };
 
     const getConfirmationQuestionLabel = (categoryName) => {
+        // Read custom_label from the DB-stored category record first.
+        const categoryEquipments = groupedEquipments[categoryName] || [];
+        const customLabel = categoryEquipments[0]?.EquipmentCategory?.custom_label;
+        if (customLabel) return customLabel;
+        // Fallback: legacy hardcoded labels, then auto-generate
         const specialLabels = {
             'shower_commodes': 'Would you like to book a shower commode?'
         };
@@ -312,6 +328,32 @@ const EquipmentField = forwardRef((props, ref) => {
             });
         }
     }, [uuid]);
+
+    // Re-fetch availability whenever stay dates change.
+    // Debounced 400ms so rapid date-picker changes don't spam the endpoint.
+    useEffect(() => {
+        const checkIn  = stayDates?.checkInDate  ?? null;
+        const checkOut = stayDates?.checkOutDate ?? null;
+
+        if (availabilityDebounceRef.current) {
+            clearTimeout(availabilityDebounceRef.current);
+        }
+
+        if (checkIn && checkOut) {
+            availabilityDebounceRef.current = setTimeout(() => {
+                fetchAvailability(checkIn, checkOut);
+            }, 400);
+        } else {
+            // Dates cleared — reset to "no data" state
+            setAvailabilityMap(null);
+        }
+
+        return () => {
+            if (availabilityDebounceRef.current) {
+                clearTimeout(availabilityDebounceRef.current);
+            }
+        };
+    }, [stayDates?.checkInDate, stayDates?.checkOutDate, fetchAvailability]);
 
     // Function to mark user interaction
     const markUserInteraction = useCallback(() => {
@@ -537,6 +579,33 @@ const EquipmentField = forwardRef((props, ref) => {
             return [];
         }
     };
+
+    // Fetches date-based availability from the new endpoint and stores the
+    // set of UNAVAILABLE equipment IDs. Only called when both dates are present.
+    const fetchAvailability = useCallback(async (checkInDate, checkOutDate) => {
+        if (!checkInDate || !checkOutDate) {
+            setAvailabilityMap(null);
+            return;
+        }
+        setAvailabilityLoading(true);
+        try {
+            const params = new URLSearchParams({ startDate: checkInDate, endDate: checkOutDate });
+            const res = await fetch(`/api/equipments/available-for-dates?${params}`);
+            if (!res.ok) throw new Error('Availability fetch failed');
+            const data = await res.json();
+            // Build a Set of IDs that are NOT available (booked)
+            const unavailable = new Set(
+                data.filter(eq => !eq.available).map(eq => eq.id)
+            );
+            if (mountedRef.current) setAvailabilityMap(unavailable);
+        } catch (err) {
+            console.error('[EquipmentField] fetchAvailability error:', err);
+            // On error, treat all as available rather than blocking the guest
+            if (mountedRef.current) setAvailabilityMap(new Set());
+        } finally {
+            if (mountedRef.current) setAvailabilityLoading(false);
+        }
+    }, []);
     
     const fetchCurrentBookingEquipments = async (bookingId) => {
         try {
@@ -1475,12 +1544,18 @@ const EquipmentField = forwardRef((props, ref) => {
         const useCardSelection = hasImages || categoryName === 'mattress_options';
 
         if (useCardSelection) {
-            const cards = equipments.map(eq => ({
-                value: eq.id,
-                label: eq.name,
-                description: eq.description || '',
-                imageUrl: eq.image_url || getDefaultImage('equipment')
-            }));
+            const cards = equipments.map(eq => {
+                // availabilityMap === null means no dates entered yet → show all as enabled
+                const isUnavailable = availabilityMap !== null && availabilityMap.has(eq.id);
+                return {
+                    value: eq.id,
+                    label: eq.name,
+                    description: eq.description || '',
+                    imageUrl: eq.image_url || getDefaultImage('equipment'),
+                    disabled: isUnavailable,
+                    disabledMessage: isUnavailable ? 'Not available for your dates' : undefined
+                };
+            });
 
             return (
                 <div>
@@ -1539,7 +1614,7 @@ const EquipmentField = forwardRef((props, ref) => {
                 );
             }
         }
-    }, [categorySelections, categoryTypes, handleCategoryChange, props?.disabled]);
+    }, [categorySelections, categoryTypes, handleCategoryChange, props?.disabled, availabilityMap]);
 
     const renderCategorySection = (categoryName, equipments) => {
         const categoryType = categoryTypes[categoryName];
@@ -1722,6 +1797,23 @@ const EquipmentField = forwardRef((props, ref) => {
             )}
             
             <div className="py-4">
+                {/* Availability banner — shown when dates are not yet entered */}
+                {(!stayDates?.checkInDate || !stayDates?.checkOutDate) ? (
+                    <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                        <svg className="mt-0.5 h-4 w-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                        </svg>
+                        <span>Enter your check-in and check-out dates to see real-time equipment availability.</span>
+                    </div>
+                ) : availabilityLoading ? (
+                    <div className="mb-4 flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700">
+                        <svg className="h-4 w-4 animate-spin flex-shrink-0" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                        </svg>
+                        <span>Checking equipment availability for your dates…</span>
+                    </div>
+                ) : null }
                 {buildOrderedSections().map((section, index) => {
                     if (section.type === 'category' || section.type === 'conditional_category') {
                         return renderCategorySection(section.categoryName, section.equipments);

@@ -46,6 +46,9 @@ const bookingApprovalUsageModel = require('./bookingapprovalusage');
 const fundingApprovalModel = require('./fundingapproval');
 const courseEOIModel = require('./courseeoi');
 const guestFundingProfileModel = require('./guestfundingprofile');
+const flagModel = require('./flag');
+const paymentLinkModel = require('./paymentlink');
+const stripeWebhookEventModel = require('./stripewebhookevent');
 
 const env = process.env.NODE_ENV || 'development';
 const config = require(__dirname + '/../config/config.js')[env];
@@ -102,6 +105,9 @@ const BookingApprovalUsage = bookingApprovalUsageModel(sequelize, Sequelize.Data
 const FundingApproval = fundingApprovalModel(sequelize, Sequelize.DataTypes);
 const CourseEOI = courseEOIModel(sequelize, Sequelize.DataTypes);
 const GuestFundingProfile = guestFundingProfileModel(sequelize, Sequelize.DataTypes);
+const Flag = flagModel(sequelize, Sequelize.DataTypes);
+const PaymentLink = paymentLinkModel(sequelize, Sequelize.DataTypes);
+const StripeWebhookEvent = stripeWebhookEventModel(sequelize, Sequelize.DataTypes);
 
 //ASSOCIATIONS
 
@@ -458,6 +464,9 @@ GuestFundingProfile.belongsTo(Booking, {
   as: 'sourceBooking' 
 });
 
+PaymentLink.belongsTo(Booking, { foreignKey: 'booking_id' });
+Booking.hasMany(PaymentLink,   { foreignKey: 'booking_id' });
+
 module.exports = {
   sequelize,
   Sequelize,
@@ -506,4 +515,7 @@ module.exports = {
   FundingApproval,
   CourseEOI,
   GuestFundingProfile,
+  Flag,
+  PaymentLink,
+  StripeWebhookEvent,
 };

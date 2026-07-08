@@ -184,6 +184,28 @@ export default async function handler(req, res) {
     const isHolidaySupportPlus = packageCode === 'HOLIDAY_SUPPORT_PLUS';
     const isHolidaySupport = packageCode === 'HOLIDAY_SUPPORT';
     const isHSPPackage = isHolidaySupportPlus || isHolidaySupport;
+    const isSTAPackage = resolvedPackage?.ndis_package_type === 'sta';
+
+    // STA accommodation cost: sum of all 'room' line items × nights
+    const staNights = summaryData.data?.nights || 0;
+    const staAccommodationCost = isSTAPackage
+      ? (resolvedPackage.ndis_line_items || [])
+          .filter(li => li.line_item_type === 'room')
+          .reduce((sum, li) => sum + (parseFloat(li.price_per_night || 0) * staNights), 0)
+      : 0;
+
+    const staRoomLineItems = isSTAPackage
+      ? (resolvedPackage.ndis_line_items || [])
+          .filter(li => li.line_item_type === 'room')
+          .map(li => ({
+            description: li.sta_package || 'Accommodation',
+            line_item: li.line_item || '—',
+            nightly_rate: parseFloat(li.price_per_night || 0).toFixed(2),
+            nights: staNights,
+            total: (parseFloat(li.price_per_night || 0) * staNights).toFixed(2),
+          }))
+      : null;
+
     
     // ✅ UPDATED: Format NDIS package details for template with proper currency and rounding
     // Only include details if NOT any Holiday Support package (both HOLIDAY_SUPPORT and HOLIDAY_SUPPORT_PLUS)
@@ -272,6 +294,9 @@ export default async function handler(req, res) {
       is_holiday_support_plus: isHolidaySupportPlus,
       is_holiday_support: isHolidaySupport,
       is_hsp_package: isHSPPackage,
+      is_sta_package: isSTAPackage,
+      sta_accommodation_cost: staAccommodationCost.toFixed(2),
+      sta_room_line_items: staRoomLineItems,
       ndis_package_details: formattedNdisDetails,
       
       total_package_cost: summaryData.packageCosts.totalCost.toFixed(2) || 0,
@@ -327,10 +352,12 @@ export default async function handler(req, res) {
       });
     }
 
-    console.log('📦 Package type for PDF:', {
+    console.log('📦 Package type for PDF:', {   // or 'for email:'
       isHolidaySupportPlus: formattedData.is_holiday_support_plus,
       isHolidaySupport: formattedData.is_holiday_support,
       isHSPPackage: formattedData.is_hsp_package,
+      isSTAPackage: formattedData.is_sta_package,
+      staAccommodationCost: formattedData.sta_accommodation_cost,
       packageCode,
       hasNdisDetails: !!formattedData.ndis_package_details
     });

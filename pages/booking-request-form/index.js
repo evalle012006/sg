@@ -62,9 +62,11 @@ import { scroller, Element } from 'react-scroll';
 import { regenerateCareDataForNewDates } from "../../utilities/careTableUtils";
 
 const BookingProgressHeader = dynamic(() => import('../../components/booking-request-form/booking-progress-header'));
+const ConfirmDialog = dynamic(() => import('../../components/ui-v2/ConfirmDialog'));
 const QuestionPage = dynamic(() => import('../../components/booking-request-form/questions'));
 const BookingFormLayout = dynamic(() => import('../../components/booking-request-form/BookingFormLayout'), { ssr: false });
 const Accordion = dynamic(() => import('../../components/ui-v2/Accordion'), { ssr: false });
+const SummaryOfStayAOB = dynamic(() => import('../../components/booking-request-form/summary-aob'));
 
 const BookingRequestForm = () => {
     const dispatch = useDispatch();
@@ -90,6 +92,7 @@ const BookingRequestForm = () => {
 
     const [showWarningDialog, setShowWarningDialog] = useState(false);
     const [submitting, setSubmitting] = useState(false);
+    const [showChangePathwayDialog, setShowChangePathwayDialog] = useState(false);
 
     const [bookingData, setBookingData] = useState();
     const [summaryData, setSummaryData] = useState({ uuid: null, guestName: null, rooms: [], data: [], agreement_tc: null, signature: null });
@@ -175,6 +178,33 @@ const BookingRequestForm = () => {
     const successfullySyncedDateFieldsRef = useRef(new Set());
     const profileLoadAttemptedRef = useRef(false);
     const ndisQuestionsSnapshotRef = useRef(null);
+
+    // ── AOB-02: Pathway selection redirect guard ──────────────────────────────
+    // Guests who navigate directly to the booking form without going through
+    // pathway selection are redirected back. Scoped to guest users only.
+    // Returning guests resuming an existing booking (prevBookingId present)
+    // and admin-initiated forms (origin === 'admin') are excluded.
+    useEffect(() => {
+        if (!router.isReady) return;
+        if (!uuid) return;
+        // Wait until booking data has loaded so we can check booking_type.
+        // Without this guard the effect fires before getRequestFormTemplate completes
+        // and booking is still null — causing false redirects for existing bookings.
+        if (!bookingData) return;
+
+        const isGuestUser = currentUser?.type === 'guest';
+        const hasTypeParam = !!router.query.type;
+        const isResumingBooking = !!prevBookingId;
+        const isAdminOrigin = origin === 'admin';
+        // If the booking already has a booking_type stored on the record it was
+        // created through pathway selection — no need to redirect again.
+        const hasSavedBookingType = !!(bookingData?.booking?.booking_type || bookingData?.newBooking?.booking_type);
+
+        if (isGuestUser && !hasTypeParam && !isResumingBooking && !isAdminOrigin && !hasSavedBookingType) {
+            console.log('ℹ️ AOB-02: No booking type param — redirecting guest to pathway selection');
+            router.replace('/booking-type-select');
+        }
+    }, [router.isReady, uuid, currentUser?.type, prevBookingId, origin, bookingData]);
 
     const saveCareDataToAPI = async (careQuestion, sectionId, pageId, templateId) => {
         try {
@@ -328,8 +358,23 @@ const BookingRequestForm = () => {
                     return { ...page, Sections: updatedSections };
                 });
                 
-                setProcessedFormData(updatedPages);
-                safeDispatchData(updatedPages, 'Dates committed - care data regenerated');
+                // ✅ Invalidate Equipment page completion when dates change.
+                // Previously-selected equipment may no longer be available for
+                // the new date range. Mark incomplete so the submit guard blocks
+                // the guest until they revisit and confirm selections.
+                const pagesWithEquipmentInvalidated = updatedPages.map(page => {
+                    if (page.title === 'Equipment' && page.completed) {
+                        console.log('📅 Dates changed — invalidating Equipment page completion');
+                        return { ...page, completed: false };
+                    }
+                    return page;
+                });
+
+                // Reset the flag so processFormData() doesn't immediately re-complete the page
+                setEquipmentPageCompleted(false);
+
+                setProcessedFormData(pagesWithEquipmentInvalidated);
+                safeDispatchData(pagesWithEquipmentInvalidated, 'Dates committed - care data regenerated, equipment invalidated');
                 
                 // Save care data to API
                 if (careQuestionToSave && careSectionId) {
@@ -1507,7 +1552,7 @@ const BookingRequestForm = () => {
                     
                     // STEP 2: Remove duplicate QaPairs
                     if (seenQuestions.has(compositeKey) || seenQuestionIds.has(questionId)) {
-                        console.log(`🗑️ Removing duplicate QaPair from ${page.title}`);
+                        // console.log(`🗑️ Removing duplicate QaPair from ${page.title}`);
                         return false;
                     }
                     
@@ -1573,6 +1618,17 @@ const BookingRequestForm = () => {
                     bookingFormRoomSelected,
                     ndisQuestionsSnapshotRef.current
                 );
+
+                // Capture snapshot if not yet captured (covers first-time dynamic NDIS page creation)
+                if (!ndisQuestionsSnapshotRef.current) {
+                    const firstNdisPage = processed.find(p => p.id === 'ndis_packages_page');
+                    if (firstNdisPage) {
+                        ndisQuestionsSnapshotRef.current = structuredClone(firstNdisPage.Sections);
+                        console.log('📸 NDIS questions snapshot captured from dynamic creation:', 
+                            ndisQuestionsSnapshotRef.current.flatMap(s => s.Questions).map(q => q.question_key)
+                        );
+                    }
+                }
 
                 // ✅ CRITICAL FIX: Protect profile data during processing
                 const protectedProcessed = processed.map(page => ({
@@ -5063,10 +5119,11 @@ const BookingRequestForm = () => {
                     //         setBookingSubmittedState(true);
                     //     });
                     // }
-                    if (isNdisFunded) {
-                        // Save the current page without submitting
+                    if (isNdisFunded || booking?.booking_type === 'accommodation_only') {
+                        // Save the current page without submitting — show Summary of Stay first.
+                        // AOB bookings need to display the indicative total before the guest
+                        // signs and submits. NDIS bookings need the same for package review.
                         saveCurrentPage(cPage, false).then(() => {
-                            // Show the summary component
                             setBookingSubmittedState(true);
                         });
                     } else {
@@ -5091,6 +5148,43 @@ const BookingRequestForm = () => {
         dispatch(bookingRequestFormActions.setQuestionDependencies([]));
         window.open('/bookings', '_self');
     }
+
+    // ── AOB-03: Change pathway ────────────────────────────────────────────────
+    // Deletes the in-progress booking record, clears all form state, and
+    // routes the guest back to pathway selection. Only available to guest users
+    // on the first page of the form, before meaningful data has been saved.
+    const handleConfirmChangePathway = async () => {
+        setShowChangePathwayDialog(false);
+        dispatch(globalActions.setLoading(true));
+
+        try {
+            // Delete the orphaned booking record so it doesn't appear as
+            // an incomplete booking on the guest's next visit.
+            if (uuid) {
+                await fetch(`/api/bookings/${uuid}`, { method: 'DELETE' });
+            }
+        } catch (err) {
+            // Non-fatal — guest still gets routed back to selection.
+            // The incomplete booking cleanup cron will catch it.
+            console.error('AOB-03: Failed to delete in-progress booking:', err);
+        } finally {
+            // Clear all form state regardless of delete outcome
+            dispatch(bookingRequestFormActions.setData([]));
+            dispatch(bookingRequestFormActions.setQuestionDependencies([]));
+            dispatch(bookingRequestFormActions.clearEquipmentChanges());
+            dispatch(bookingRequestFormActions.setRooms([]));
+            dispatch(bookingRequestFormActions.setIsNdisFunded(false));
+            dispatch(bookingRequestFormActions.setFunder(null));
+            dispatch(bookingRequestFormActions.setCheckinDate(null));
+            dispatch(bookingRequestFormActions.setCheckoutDate(null));
+            dispatch(bookingRequestFormActions.setBookingSubmitted(false));
+            dispatch(bookingRequestFormActions.setAccommodationBookingType(null));
+            dispatch(globalActions.setLoading(false));
+
+            router.replace('/booking-type-select');
+        }
+    };
+    // ── End AOB-03 ────────────────────────────────────────────────────────────
 
     const handleSaveExit = async (cPage, submit) => {
         dispatch(globalActions.setLoading(true));
@@ -5591,7 +5685,31 @@ const BookingRequestForm = () => {
                     'Content-Type': 'application/json'
                 }
             });
-
+        
+            // ── Equipment save blocked: missing dates
+            if (response.status === 422) {
+                let errorBody = {};
+                try { errorBody = await response.json(); } catch (_) {}
+        
+                if (errorBody.error === 'equipment_save_missing_dates') {
+                    console.error('[save] Equipment save blocked — missing dates:', errorBody);
+        
+                    // Mark Equipment page as incomplete so the submit guard blocks progress
+                    const updatedPages = stableProcessedFormData.map(page =>
+                        page.title === 'Equipment' ? { ...page, completed: false } : page
+                    );
+                    setProcessedFormData(updatedPages);
+                    safeDispatchData(updatedPages, 'Equipment save blocked — missing dates');
+        
+                    toast.error(
+                        'Your equipment selections could not be saved. Please complete the Dates section first, then return to Equipment.',
+                        { autoClose: 6000 }
+                    );
+                    dispatch(globalActions.setLoading(false));
+                    return; // Block navigation — do NOT proceed to the next page
+                }
+            }
+        
             if (response.ok) {
                 const result = await response.json();
 
@@ -6335,6 +6453,9 @@ const BookingRequestForm = () => {
             }
 
             dispatch(bookingRequestFormActions.setBookingType(bookingType));
+            dispatch(bookingRequestFormActions.setAccommodationBookingType(
+                data.booking?.booking_type || data.newBooking?.booking_type || null
+            ));
 
             let questionDependencies = [];
 
@@ -6789,14 +6910,25 @@ const BookingRequestForm = () => {
                 )
             )
         );
-        
+
+        // If no ndis_only questions found in form data, check if we have a snapshot
+        // to restore from. This handles the case where the user toggled away from NDIS
+        // then back — cleanReduxStateBeforeDispatch strips ndis_only questions from
+        // source pages when the NDIS page is removed, leaving nothing to scan.
         if (!hasNdisQuestions) {
-            console.log('ℹ️ No NDIS-only questions found to move');
+            if (ndisQuestionsSnapshotRef.current && ndisQuestionsSnapshotRef.current.length > 0) {
+                console.log('📸 No NDIS questions in form data — falling back to snapshot for NDIS page restore');
+                // Delegate to the debounced processor which already handles the snapshot path
+                // via processFormDataForNdisPackages (Branch C1: SUB-BRANCH C1)
+                processNdisWithDebounce(stableProcessedFormData, true);
+            } else {
+                console.log('ℹ️ No NDIS-only questions found and no snapshot available — skipping');
+            }
             return;
         }
-        
+
         console.log('🔄 Creating NDIS page after funding change to NDIS...');
-        
+
         try {
             // Process the form data to create NDIS page
             const processedPages = postProcessPagesForNdis(
@@ -7938,6 +8070,13 @@ const BookingRequestForm = () => {
                             dispatch(bookingRequestFormActions.setQuestionDependencies([]));
                             window.open('/bookings', '_self');
                         }}
+                        onChangePathway={
+                            // Only expose for guest users, never for admin,
+                            // and never for course bookings (courseOfferId in URL)
+                            !origin && !router.query.courseOfferId
+                                ? () => setShowChangePathwayDialog(true)
+                                : undefined
+                        }
                     />
                 )}
 
@@ -7950,6 +8089,15 @@ const BookingRequestForm = () => {
                                 origin={origin} 
                                 getRequestFormTemplate={getRequestFormTemplate} 
                                 bookingAmended={bookingAmended} 
+                                submitBooking={submitBooking}
+                            />
+                        ) : booking?.booking_type === 'accommodation_only' ? (
+                            <SummaryOfStayAOB
+                                bookingData={summaryData}
+                                bookingId={uuid}
+                                origin={origin}
+                                getRequestFormTemplate={getRequestFormTemplate}
+                                bookingAmended={bookingAmended}
                                 submitBooking={submitBooking}
                             />
                         ) : (
@@ -7982,6 +8130,19 @@ const BookingRequestForm = () => {
                 )}
             </BookingFormLayout>
         )}
+
+        {/* AOB-03: Change pathway confirmation */}
+        <ConfirmDialog
+            isOpen={showChangePathwayDialog}
+            onClose={() => setShowChangePathwayDialog(false)}
+            onConfirm={handleConfirmChangePathway}
+            title="Change booking type?"
+            message={`Switching to a different booking type will discard everything you have entered in this form.\n\nYour current booking request will be removed and you will start fresh.\n\nAre you sure you want to continue?`}
+            type="warning"
+            confirmText="Yes, change booking type"
+            cancelText="No, keep my current form"
+            isLoading={false}
+        />
 
         {showWarningDialog && (
             <Modal

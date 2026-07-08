@@ -9,7 +9,8 @@ import {
     User, 
     HealthInfo, 
     FundingApproval,
-    Package
+    Package,
+    PaymentLink
 } from "./../../../models"
 import { omitAttribute } from "../../../utilities/common";
 import StorageService from "../../../services/storage/storage";
@@ -103,7 +104,8 @@ export default async function handler(req, res) {
             model: Section,
             plain: true,
             include: [QaPair]
-        }],
+        },
+        { model: PaymentLink, separate: true, order: [['created_at', 'DESC']], limit: 1 }],
     });
 
     const bookingService = new BookingService();

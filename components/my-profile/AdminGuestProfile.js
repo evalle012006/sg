@@ -7,6 +7,7 @@ import ProfileImage from "./ProfileImage";
 import _ from 'lodash';
 import { AbilityContext, Can } from "../../services/acl/can";
 import FundingProfileSection from "./FundingProfileSection";
+import useFlagDefinitions from "../../hooks/useFlagDefinitions";
 
 const Spinner = dynamic(() => import('../ui/spinner'));
 const RadioButton = dynamic(() => import('../ui-v2/RadioButton'));
@@ -28,8 +29,11 @@ export default function AdminGuestProfile() {
     const [imageUploading, setImageUploading] = useState(false);
     const [profileImageUrl, setProfileImageUrl] = useState('');
     
-    // Guest flags state
-    const [settingsFlagsList, setSettingsFlagsList] = useState([]);
+    // Guest flags state — flag metadata (label/acronym/color) now comes
+    // from the shared useFlagDefinitions hook instead of a local fetch
+    // against /api/settings/guest_flag, so this component and listv2.js
+    // stay in sync with Manage Flags without duplicating fetch logic.
+    const { guestFlags: flagDefinitions, getGuestFlag } = useFlagDefinitions();
     const [guestFlags, setGuestFlags] = useState([]);
     const [selectedFlags, setSelectedFlags] = useState([]);
     const [localFlags, setLocalFlags] = useState([]); // Local state for pending flag changes
@@ -330,12 +334,14 @@ export default function AdminGuestProfile() {
         }
     };
 
-    // Guest Flags Functions
+    // Guest Flags Functions — now sourced from useFlagDefinitions instead
+    // of a local /api/settings/guest_flag fetch, so the checkbox list
+    // here always matches what Manage Flags currently has configured.
     const updateGuestFlags = () => {
-        setGuestFlags(settingsFlagsList.map(flag => ({
-            label: _.startCase(flag),  // For display: "Complex Care"
-            value: flag,               // For storage: "complex-care"
-            checked: localFlags.includes(flag) // Check against local flags
+        setGuestFlags(flagDefinitions.map(flag => ({
+            label: flag.label,
+            value: flag.value,
+            checked: localFlags.includes(flag.value)
         })));
     };
 
@@ -605,22 +611,12 @@ export default function AdminGuestProfile() {
         }
     }, [user]);
 
-    // Fetch settings flags list
+    // Update guest flags when flagDefinitions (from useFlagDefinitions) or localFlags changes
     useEffect(() => {
-        const fetchSettingsFlagsList = async () => {
-            const response = await fetch('/api/settings/guest_flag');
-            const data = await response.json();
-            setSettingsFlagsList(data.map(flag => flag.value));
-        }
-        fetchSettingsFlagsList();
-    }, []);
-
-    // Update guest flags when settingsFlagsList or localFlags changes
-    useEffect(() => {
-        if (settingsFlagsList.length > 0) {
+        if (flagDefinitions.length > 0) {
             updateGuestFlags();
         }
-    }, [settingsFlagsList, localFlags]);
+    }, [flagDefinitions, localFlags]);
 
     // Initialize local flags when user data loads
     useEffect(() => {
@@ -857,28 +853,15 @@ export default function AdminGuestProfile() {
                                 </Can>
                                 <Can not I="Create/Edit" a="GuestFlag">
                                     <div className="flex flex-wrap gap-1">
-                                        {selectedFlags.map((flag, index) => {
-                                            let bgColor = 'bg-gray-500'; // default
-                                            
-                                            if (flag === 'Complex Care') {
-                                                bgColor = 'bg-amber-500';
-                                            } else if (flag === 'Banned') {
-                                                bgColor = 'bg-red-500';
-                                            } else if (flag === 'Outstanding Invoices') {
-                                                bgColor = 'bg-fuchsia-500';
-                                            } else if (flag === 'Specific Room Requirements') {
-                                                bgColor = 'bg-sky-500';
-                                            } else if (flag === 'Account Credit') {
-                                                bgColor = 'bg-green-500';
-                                            } else if (flag === 'Deceased') {
-                                                bgColor = 'bg-slate-700';
-                                            } else if (flag === 'Not Eligible') {
-                                                bgColor = 'bg-gray-500';
-                                            }
-                                            
+                                        {localFlags.map((flagValue, index) => {
+                                            const flag = getGuestFlag(flagValue);
                                             return (
-                                                <p key={index} className={`${bgColor} w-fit px-2 p-1 text-xs text-white rounded-full`}>
-                                                    {_.startCase(flag)}
+                                                <p
+                                                    key={index}
+                                                    className="w-fit px-2 p-1 text-xs text-white rounded-full"
+                                                    style={{ backgroundColor: flag.color }}
+                                                >
+                                                    {flag.label}
                                                 </p>
                                             );
                                         })}

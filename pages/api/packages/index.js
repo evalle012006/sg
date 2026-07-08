@@ -56,7 +56,8 @@ export default async function handler(req, res) {
         package_code: package_code.trim(),
         description: description ? description.trim() : null,
         funder: funder.trim(),
-        image_filename: image_filename || null
+        image_filename: image_filename || null,
+        is_active: true // new packages are active by default
       };
 
       if (funder === 'NDIS') {
@@ -126,6 +127,7 @@ export default async function handler(req, res) {
           description: newPackage.description,
           ndis_line_items: newPackage.ndis_line_items,
           image_filename: newPackage.image_filename,
+          is_active: newPackage.is_active,
           created_at: newPackage.created_at,
           updated_at: newPackage.updated_at
         }
@@ -168,6 +170,7 @@ export default async function handler(req, res) {
         priceRange,
         search,
         include_requirements = 'false',
+        admin = 'false',
         page = 1,
         limit = 50,
         sort = 'name'
@@ -176,6 +179,11 @@ export default async function handler(req, res) {
       // Build the where clause for filtering
       const whereClause = {};
       const orderClause = [];
+
+      // Hide inactive packages unless admin explicitly requests all
+      if (admin !== 'true') {
+        whereClause.is_active = true;
+      }
 
       // ✅ FIXED: Apply funder filter with proper mapping
       // Since packages table only has "NDIS" or "Non-NDIS", we need to map all incoming funder values
@@ -250,6 +258,7 @@ export default async function handler(req, res) {
           'description',
           'ndis_line_items',
           'image_filename',
+          'is_active',
           'created_at',
           'updated_at'
         ],
@@ -302,6 +311,7 @@ export default async function handler(req, res) {
           description: packageData.description,
           ndis_line_items: packageData.ndis_line_items,
           image_filename: packageData.image_filename,
+          is_active: packageData.is_active !== false, // default true if null/missing
           created_at: packageData.created_at,
           updated_at: packageData.updated_at
         };

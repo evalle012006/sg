@@ -631,6 +631,22 @@ const SummaryOfStay = ({
     return packageName.includes('Holiday Support');
   };
 
+  const isStaPackage = () => {
+    if (resolvedPackageData?.ndis_package_type) {
+      return resolvedPackageData.ndis_package_type === 'sta';
+    }
+    if (summary?.data?.packageCode === 'NDIS STA') return true;
+    return ndisFormFilters?.ndisPackageType === 'sta' && !!summary?.data?.isNDISFunder;
+  };
+
+  const getStaAccommodationCost = () => {
+    if (!resolvedPackageData?.ndis_line_items) return 0;
+    const nights = summary?.data?.nights || 0;
+    return resolvedPackageData.ndis_line_items
+      .filter(li => li.line_item_type === 'room')
+      .reduce((sum, li) => sum + (parseFloat(li.price_per_night || 0) * nights), 0);
+  };
+
   const isHolidaySupportPlusPackage = () => {
     if (!resolvedPackageData && !summary?.data) {
       return false;
@@ -1331,10 +1347,79 @@ const SummaryOfStay = ({
         {(summary?.data?.isNDISFunder || summary?.data?.funder == "ndis") ? (
           <div className="mt-8">
             <h2 className="text-lg font-semibold mb-4 text-slate-700">Package - cost to be charged to your funder:</h2>
-            <p className="text-slate-700 mb-2 p-2">Package Name: {summary.data.ndisPackage}</p>
-            
-            {/* ✅ UPDATED: Use isSupportHolidayPackage() to show Custom Quote Required for all Holiday Support packages */}
-            {isSupportHolidayPackage() ? (
+            <p className="text-slate-700 mb-2 p-2">Package Name: {resolvedPackageData?.name || summary.data.ndisPackage}</p>
+
+            {isStaPackage() ? (
+              <div className="space-y-4">
+                {/* Accommodation line items table */}
+                {resolvedPackageData?.ndis_line_items?.filter(li => li.line_item_type === 'room').length > 0 && (
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse bg-white text-sm">
+                      <thead>
+                        <tr className="bg-[#20485A] text-white">
+                          <th className="p-3 text-left border border-gray-300">Description</th>
+                          <th className="p-3 text-left border border-gray-300">Line Item</th>
+                          <th className="p-3 text-left border border-gray-300">Nightly Rate</th>
+                          <th className="p-3 text-left border border-gray-300">Qty</th>
+                          <th className="p-3 text-left border border-gray-300">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {resolvedPackageData.ndis_line_items
+                          .filter(li => li.line_item_type === 'room')
+                          .map((li, idx) => {
+                            const nights = summary?.data?.nights || 0;
+                            const total = parseFloat(li.price_per_night || 0) * nights;
+                            return (
+                              <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                                <td className="p-3 border border-gray-300">{li.sta_package || 'Accommodation'}</td>
+                                <td className="p-3 border border-gray-300 font-mono text-xs">{li.line_item || '—'}</td>
+                                <td className="p-3 border border-gray-300">{formatAUD(parseFloat(li.price_per_night || 0))}</td>
+                                <td className="p-3 border border-gray-300">{nights} nights</td>
+                                <td className="p-3 border border-gray-300 font-semibold">{formatAUD(total)}</td>
+                              </tr>
+                            );
+                          })}
+                      </tbody>
+                      <tfoot>
+                        <tr>
+                          <td colSpan={4} className="p-3 text-right font-semibold text-slate-700 border border-gray-300">
+                            Total Accommodation (billed to NDIS):
+                          </td>
+                          <td className="p-3 font-bold text-slate-700 border border-gray-300">
+                            {formatAUD(getStaAccommodationCost())}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                    <p className="mt-1 text-xs text-gray-500 italic">
+                      Accommodation cost is billed directly to your NDIS funder.
+                    </p>
+                  </div>
+                )}
+
+                <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-900 space-y-3">
+                  <p className="font-semibold italic">This service includes the following:</p>
+                  <ul className="list-disc ml-5 space-y-1">
+                    <li className="italic">Accessible accommodation in studio apartment</li>
+                    <li className="italic">
+                      Support Worker Services including
+                      <ul className="list-[lower-alpha] ml-5 mt-1 space-y-0.5">
+                        <li className="italic">Personal care</li>
+                        <li className="italic">Community, social and recreation participation</li>
+                      </ul>
+                    </li>
+                  </ul>
+                </div>
+                <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-900 italic">
+                  <p>
+                    Due to complexity of individual support needs, all short term respite bookings require an individual
+                    custom quote. This quote will be developed and sent out for your review and approval after this
+                    booking request has been submitted.
+                  </p>
+                </div>
+              </div>
+            ) : isSupportHolidayPackage() ? (
               <div className="mt-4 p-6 bg-amber-50 border-2 border-amber-400 rounded-lg shadow-sm">
                 <div className="flex items-start space-x-3">
                   <div className="flex-shrink-0">
@@ -1375,7 +1460,7 @@ const SummaryOfStay = ({
           </div>
         )}
 
-        <div className="mt-8 space-y-4">
+        {!isStaPackage() && <div className="mt-8 space-y-4">
           <h2 className="text-lg font-semibold text-slate-700">
             Accommodation (to be paid privately by you)
           </h2>
@@ -1447,32 +1532,57 @@ const SummaryOfStay = ({
               </div>
             </div>
           )}
-        </div>
+        </div>}
 
         <div className="mt-8 p-4 bg-gray-50 rounded-lg">
           <h2 className="text-lg font-semibold text-slate-700 mb-4">Cost Summary</h2>
           <div className="space-y-2">
-            {/* ✅ UPDATED: Use isSupportHolidayPackage() for TBD display */}
-            {isSupportHolidayPackage() ? (
-              <div className="flex justify-between">
-                <span>Package Costs <i>(Quote to be provided by bookings team)</i>:</span>
-                <span className="text-amber-600 font-medium">TBD</span>
-              </div>
+            {isStaPackage() ? (
+              <>
+                <div className="flex justify-between">
+                  <span>Accommodation price <i>(to be billed to your funder)</i>:</span>
+                  <span>{formatAUD(getStaAccommodationCost())}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Support worker services:</span>
+                  <span className="text-amber-600 font-medium italic">To be determined</span>
+                </div>
+                <div className="flex justify-between pt-2 border-t border-gray-200 font-semibold">
+                  <span>Total (excl. support worker costs):</span>
+                  <span>{formatAUD(getStaAccommodationCost())}</span>
+                </div>
+              </>
+            ) : isSupportHolidayPackage() ? (
+              <>
+                <div className="flex justify-between">
+                  <span>Package Costs <i>(Quote to be provided by bookings team)</i>:</span>
+                  <span className="text-amber-600 font-medium">TBD</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Accommodation <i>(To be paid privately by you)</i>:</span>
+                  <span>{formatAUD(getTotalOutOfPocketExpenses())}</span>
+                </div>
+                <div className="flex justify-between pt-2 border-t border-gray-200 font-semibold">
+                  <span>Grand Total (excluding package costs):</span>
+                  <span>{formatAUD(getGrandTotal())}</span>
+                </div>
+              </>
             ) : (
-              <div className="flex justify-between">
-                <span>Package Costs<i> {`${summary?.data?.isNDISFunder ? "(To be billed to your funder)" : "(To be paid for by your funder)"}`}</i>:</span>
-                <span>{formatAUD(totalPackageCost)}</span>
-              </div>
+              <>
+                <div className="flex justify-between">
+                  <span>Package Costs<i> {`${summary?.data?.isNDISFunder ? "(To be billed to your funder)" : "(To be paid for by your funder)"}`}</i>:</span>
+                  <span>{formatAUD(totalPackageCost)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Accommodation <i>(To be paid privately by you)</i>:</span>
+                  <span>{formatAUD(getTotalOutOfPocketExpenses())}</span>
+                </div>
+                <div className="flex justify-between pt-2 border-t border-gray-200 font-semibold">
+                  <span>Grand Total:</span>
+                  <span>{formatAUD(getGrandTotal())}</span>
+                </div>
+              </>
             )}
-            <div className="flex justify-between">
-              <span>Accommodation <i>(To be paid privately by you)</i>:</span>
-              <span>{formatAUD(getTotalOutOfPocketExpenses())}</span>
-            </div>
-            <div className="flex justify-between pt-2 border-t border-gray-200 font-semibold">
-              {/* ✅ UPDATED: Use isSupportHolidayPackage() for Grand Total label */}
-              <span>Grand Total{isSupportHolidayPackage() ? ' (excluding package costs)' : ''}:</span>
-              <span>{formatAUD(getGrandTotal())}</span>
-            </div>
           </div>
         </div>
 

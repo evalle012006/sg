@@ -95,7 +95,7 @@ class EmailTriggerService {
     console.log(`\n🔍 EmailTriggerService: evaluating triggers for booking ${bookingId ?? '(none)'}`, context);
 
     const triggers = await this.getAllTriggers();
-    console.log(`📋 Found ${triggers.length} enabled triggers`);
+    // console.log(`📋 Found ${triggers.length} enabled triggers`);
 
     const results = [];
     for (const trigger of triggers) {
@@ -111,7 +111,7 @@ class EmailTriggerService {
     const sent    = results.filter(r => r.sent).length;
     const skipped = results.filter(r => !r.sent && !r.error).length;
     const errored = results.filter(r => r.error).length;
-    console.log(`✅ Done: ${sent} sent, ${skipped} skipped, ${errored} errors\n`);
+    // console.log(`✅ Done: ${sent} sent, ${skipped} skipped, ${errored} errors\n`);
 
     return results;
   }
@@ -134,15 +134,15 @@ class EmailTriggerService {
     const triggerContext    = trigger.trigger_context;
     const contextConditions = trigger.context_conditions || {};
 
-    console.log(`  🔧 System trigger ${trigger.id} [${triggerContext}]: evaluating...`);
+    // console.log(`  🔧 System trigger ${trigger.id} [${triggerContext}]: evaluating...`);
 
     const matchResult = this._contextMatchesTrigger(triggerContext, contextConditions, context);
     if (!matchResult.matches) {
-      console.log(`  ⏭️  Skipped trigger ${trigger.id}: ${matchResult.reason}`);
+      // console.log(`  ⏭️  Skipped trigger ${trigger.id}: ${matchResult.reason}`);
       return { triggerId: trigger.id, sent: false, reason: matchResult.reason };
     }
 
-    console.log(`  ✅ Matched trigger ${trigger.id}: ${matchResult.reason}`);
+    // console.log(`  ✅ Matched trigger ${trigger.id}: ${matchResult.reason}`);
 
     // ── Enrich context with guest_email from the booking before recipient resolution ──
     // update-status and other system-event APIs only pass status/flag fields in context;
@@ -202,7 +202,7 @@ class EmailTriggerService {
      * @param {Object} context  - system trigger context (booking_status, etc.)
      */
     static async evaluateAllTriggers(bookingId, context = {}) {
-        console.log(`\n🔍 EmailTriggerService: evaluating ALL triggers for booking ${bookingId}`, context);
+        // console.log(`\n🔍 EmailTriggerService: evaluating ALL triggers for booking ${bookingId}`, context);
 
         // ── 1. System triggers ────────────────────────────────────────────────────
         const systemResults = await this.evaluateAndSendTriggers(bookingId, context);
@@ -632,7 +632,7 @@ class EmailTriggerService {
     // Accept either a string hint (legacy: 'default'/'on_submit') or a full context object
     const contextObj = typeof context === 'string' ? { context } : context;
 
-    console.log(`\n📋 EmailTriggerService.evaluateBookingFormTriggers: booking ${bookingId}`, contextObj);
+    // console.log(`\n📋 EmailTriggerService.evaluateBookingFormTriggers: booking ${bookingId}`, contextObj);
 
     const triggers = await EmailTrigger.findAll({
         where: { enabled: true, type: ['internal', 'external'] },
@@ -648,7 +648,7 @@ class EmailTriggerService {
         order: [['priority', 'ASC'], ['id', 'ASC']],
     });
 
-    console.log(`📋 Found ${triggers.length} enabled booking form triggers`);
+    // console.log(`📋 Found ${triggers.length} enabled booking form triggers`);
 
     const results = await Promise.allSettled(
         triggers.map(t => BookingEmailDataService.sendWithTriggerEvaluation(t, bookingId, contextObj))

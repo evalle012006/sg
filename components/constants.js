@@ -3,6 +3,12 @@ const BOOKING_TYPES = {
     'RETURNING_GUEST': 'Returning Guest',
 };
 
+const BOOKING_FUND_TYPES = {
+    'AOB': 'accommodation_only',
+    'FUNDED': 'funded'
+}
+
 module.exports = {
-    BOOKING_TYPES
+    BOOKING_TYPES,
+    BOOKING_FUND_TYPES
 };

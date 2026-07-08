@@ -1,9 +1,18 @@
-import { ChecklistTemplate, Page, Question, Section, Setting, Template } from "../../../models"
+import { Setting } from "../../../models"
+
+const ALLOWED_ATTRIBUTES = ['default_template', 'accommodation_only_template'];
 
 export default async function handler(req, res) {
-    const selected = req.body;
+    const { id, settingAttribute = 'default_template' } = req.body;
 
-    await Setting.update({ value: selected.id }, { where: { attribute: 'default_template' } });
+    if (!ALLOWED_ATTRIBUTES.includes(settingAttribute)) {
+        return res.status(400).json({ message: 'Invalid setting attribute' });
+    }
+
+    await Setting.upsert({
+        attribute: settingAttribute,
+        value: id,
+    });
 
     return res.status(200).json();
 }

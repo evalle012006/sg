@@ -16,6 +16,7 @@ export default async function handler(req, res) {
         'description',
         'ndis_line_items', 
         'image_filename',
+        'is_active',
         'created_at',
         'updated_at'
       ]
@@ -59,8 +60,18 @@ export default async function handler(req, res) {
       });
 
     } else if (req.method === 'PUT' || req.method === 'PATCH') {
-      // Update package
-      const { name, package_code, funder, price, ndis_package_type, description, ndis_line_items, image_filename } = req.body;
+      // Partial update — status toggle only (e.g. from table toggle)
+      if (Object.keys(req.body).length === 1 && req.body.hasOwnProperty('is_active')) {
+        await packageResult.update({ is_active: Boolean(req.body.is_active) });
+        return res.status(200).json({
+          success: true,
+          message: `Package ${req.body.is_active ? 'activated' : 'deactivated'} successfully`,
+          package: { ...packageResult.dataValues, is_active: Boolean(req.body.is_active) }
+        });
+      }
+
+      // Full update
+      const { name, package_code, funder, price, ndis_package_type, description, ndis_line_items, image_filename, is_active } = req.body;
 
       // Basic validation
       if (!name || !name.trim()) {
@@ -90,7 +101,8 @@ export default async function handler(req, res) {
         package_code: package_code.trim(),
         description: description ? description.trim() : null,
         funder: funder.trim(),
-        image_filename: image_filename || null
+        image_filename: image_filename || null,
+        is_active: is_active !== undefined ? Boolean(is_active) : true
       };
 
       if (funder === 'NDIS') {
@@ -204,6 +216,7 @@ export default async function handler(req, res) {
           'ndis_package_type', 
           'ndis_line_items', 
           'image_filename',
+          'is_active',
           'created_at',
           'updated_at'
         ]

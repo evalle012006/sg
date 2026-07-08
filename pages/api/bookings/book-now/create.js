@@ -6,7 +6,12 @@ import { Op } from "sequelize";
 import { BOOKING_TYPES } from "../../../../components/constants";
 
 export default async function handler(request, response) {
-    const data = JSON.parse(request.body);
+    // Body may arrive pre-parsed (when Content-Type: application/json is set)
+    // or as a raw string (legacy callers without the header). Handle both.
+    const data = typeof request.body === 'string' 
+        ? JSON.parse(request.body) 
+        : request.body;
+    const bookingType = data.bookingType || null; // 'accommodation_only' | 'funded' | null
     const bookingStatuses = await Setting.findAll({ where: { attribute: 'booking_status' } });
     const eligibilityStatuses = await Setting.findAll({ where: { attribute: 'booking_eligibility' } });
 
@@ -16,14 +21,14 @@ export default async function handler(request, response) {
 
     try {
         // SF-342: Succeeding Booking always gets answer from the First Booking
+        // SF-1452: Only clone from a booking_confirmed booking. A complete=1 booking can
+        // still be pending_approval or in_progress — those are unverified selections
+        // that should never seed a new booking's equipment.
         prevBooking = await Booking.findOne({
             where: {
                 guest_id: data.guestId,
                 deleted_at: null,
-                status_name: {
-                    [Op.notLike]: '%cancelled%'
-                },
-                complete: 1
+                status_name: 'booking_confirmed'
             }, include: [Guest], order: [['created_at', 'DESC']]
         }, { transaction });
 
@@ -44,7 +49,8 @@ export default async function handler(request, response) {
                 eligibility: eligibleStatus.value,
                 status: pendingApprovalStatus.value,
                 status_name: JSON.parse(pendingApprovalStatus.value).name,
-                eligibility_name: JSON.parse(eligibleStatus.value).name
+                eligibility_name: JSON.parse(eligibleStatus.value).name,
+                booking_type: bookingType,
             }, { transaction });
         } else {
             booking = await Booking.create({
@@ -54,7 +60,8 @@ export default async function handler(request, response) {
                 eligibility: eligibleStatus.value,
                 status: pendingApprovalStatus.value,
                 status_name: JSON.parse(pendingApprovalStatus.value).name,
-                eligibility_name: JSON.parse(eligibleStatus.value).name
+                eligibility_name: JSON.parse(eligibleStatus.value).name,
+                booking_type: bookingType,
             }, { transaction });
         }
 

@@ -2,139 +2,196 @@ import React, { useMemo } from 'react';
 
 /**
  * Parse inline formatting (bold, italic)
+ * Supports: **bold**, *italic*
  */
 const parseInlineFormatting = (text) => {
     if (!text) return text;
-    
+
     const parts = [];
     let currentIndex = 0;
     let key = 0;
-    
-    // Regex to match **bold** or *italic* (but not *** which could be a divider)
+
+    // Match **bold** or *italic* (not ***)
     const formatRegex = /(\*\*(.+?)\*\*|\*([^*]+?)\*)/g;
     let match;
-    
+
     while ((match = formatRegex.exec(text)) !== null) {
-        // Add text before the match
+        // Text before match
         if (match.index > currentIndex) {
             parts.push(text.substring(currentIndex, match.index));
         }
-        
-        // Add formatted text
+
         if (match[0].startsWith('**')) {
-            // Bold
             parts.push(
                 <strong key={`bold-${key++}`} className="font-semibold">
                     {match[2]}
                 </strong>
             );
         } else {
-            // Italic
             parts.push(
                 <em key={`italic-${key++}`} className="italic">
                     {match[3]}
                 </em>
             );
         }
-        
+
         currentIndex = match.index + match[0].length;
     }
-    
-    // Add remaining text
+
+    // Remaining text
     if (currentIndex < text.length) {
         parts.push(text.substring(currentIndex));
     }
-    
+
     return parts.length > 0 ? parts : text;
 };
 
 /**
- * FormattedDescription - Renders plain text with formatting patterns as styled elements
- * Supports:
- * - Bullet lists (lines starting with - or •)
- * - Numbered lists (lines starting with 1., 2., etc.)
- * - Nested lists (bullets under numbered items)
- * - Section headers (lines ending with :)
- * - Horizontal dividers (---)
- * - Inline bold (**text**) and italic (*text*)
- * - Paragraphs
+ * Recursively render a nested bullet list from a flat array of
+ * { content, indent } items, where indent is 0-based relative to the
+ * first item in the group.
+ */
+const renderBulletList = (items, currentIndent = 0) => {
+    const result = [];
+    let j = 0;
+
+    while (j < items.length) {
+        const current = items[j];
+
+        if (current.indent !== currentIndent) {
+            j++;
+            continue;
+        }
+
+        // Collect children: consecutive items with indent > currentIndent
+        const children = [];
+        let k = j + 1;
+        while (k < items.length && items[k].indent > currentIndent) {
+            children.push(items[k]);
+            k++;
+        }
+
+        result.push(
+            <li key={`li-${currentIndent}-${j}`} className="text-gray-700 pl-1">
+                {parseInlineFormatting(current.content)}
+                {children.length > 0 && (
+                    <ul className="list-disc list-outside ml-5 mt-1 space-y-1">
+                        {renderBulletList(children, currentIndent + 1)}
+                    </ul>
+                )}
+            </li>
+        );
+
+        j = k; // skip past children
+    }
+
+    return result;
+};
+
+/**
+ * FormattedDescription
+ *
+ * Renders plain/markdown-lite text as styled React elements.
+ *
+ * Supported syntax
+ * ────────────────
+ *  **bold**          → <strong>
+ *  *italic*          → <em>
+ *  - item            → unordered list  (supports indented nesting via leading spaces)
+ *  • item            → same as above
+ *  1. item           → ordered list    (nested bullets under each item also supported)
+ *  ---  /  ***  / ___ → <hr> divider
+ *  (blank line)      → paragraph break
+ *  any other line    → <p>
  */
 const FormattedDescription = ({
     text = '',
     className = '',
-    variant = 'default', // 'default', 'compact', 'card'
+    variant = 'default', // 'default' | 'compact' | 'card'
 }) => {
     const formattedContent = useMemo(() => {
-        if (!text || typeof text !== 'string') {
-            return null;
-        }
+        if (!text || typeof text !== 'string') return null;
 
         const lines = text.split('\n');
         const elements = [];
         let key = 0;
 
-        // Parse all lines into structured data first
+        // ── Pass 1: classify every line ──────────────────────────────────────
         const parsedLines = [];
-        
+
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
-            const trimmedLine = line.trim();
-            
-            // Check indentation (spaces or tabs at start)
-            const indentMatch = line.match(/^(\s*)/);
-            const indentLevel = indentMatch ? Math.floor(indentMatch[1].length / 2) : 0;
+            const trimmed = line.trim();
 
-            if (!trimmedLine) {
+            if (!trimmed) {
                 parsedLines.push({ type: 'empty' });
                 continue;
             }
 
-            if (trimmedLine === '---' || trimmedLine === '***' || trimmedLine === '___') {
+            // Divider: ---, ***, ___
+            if (/^(-{3,}|\*{3,}|_{3,})$/.test(trimmed)) {
                 parsedLines.push({ type: 'divider' });
                 continue;
             }
 
-            const bulletMatch = trimmedLine.match(/^[-•*]\s+(.+)$/);
+            // Bullet: -, •, * (with optional leading spaces for nesting)
+            const bulletMatch = trimmed.match(/^[-•*]\s+(.+)$/);
             if (bulletMatch) {
-                parsedLines.push({ type: 'bullet', content: bulletMatch[1], indent: indentLevel });
-                continue;
-            }
-
-            const numberedMatch = trimmedLine.match(/^(\d+)\.\s+(.+)$/);
-            if (numberedMatch) {
-                parsedLines.push({ 
-                    type: 'numbered', 
-                    number: parseInt(numberedMatch[1]), 
-                    content: numberedMatch[2],
-                    indent: indentLevel,
-                    endsWithColon: numberedMatch[2].trim().endsWith(':')
+                const rawIndent = line.match(/^(\s*)/)?.[1]?.length || 0;
+                parsedLines.push({
+                    type: 'bullet',
+                    content: bulletMatch[1],
+                    indent: Math.floor(rawIndent / 2),
                 });
                 continue;
             }
 
-            parsedLines.push({ type: 'paragraph', content: trimmedLine, indent: indentLevel });
+            // Numbered: 1. text
+            const numberedMatch = trimmed.match(/^(\d+)\.\s+(.+)$/);
+            if (numberedMatch) {
+                parsedLines.push({
+                    type: 'numbered',
+                    number: parseInt(numberedMatch[1], 10),
+                    content: numberedMatch[2],
+                });
+                continue;
+            }
+
+            // Paragraph
+            parsedLines.push({ type: 'paragraph', content: trimmed });
         }
 
-        // Now render with proper nesting and grouping
+        // ── Pass 2: group & render ────────────────────────────────────────────
         let i = 0;
-        
+
         while (i < parsedLines.length) {
             const item = parsedLines[i];
 
+            // ── Empty line ──
             if (item.type === 'empty') {
                 i++;
                 continue;
             }
 
+            // ── Divider ──
             if (item.type === 'divider') {
-                elements.push(<hr key={`hr-${key++}`} className="my-4 border-t border-gray-200" />);
+                elements.push(
+                    <hr
+                        key={`hr-${key++}`}
+                        className="my-4 border-0 border-t border-gray-200"
+                    />
+                );
                 i++;
                 continue;
             }
 
+            // ── Paragraph ──
             if (item.type === 'paragraph') {
                 elements.push(
-                    <p key={`p-${key++}`} className="text-gray-700 my-2 first:mt-0 last:mb-0">
+                    <p
+                        key={`p-${key++}`}
+                        className="text-gray-700 my-2 first:mt-0 last:mb-0"
+                    >
                         {parseInlineFormatting(item.content)}
                     </p>
                 );
@@ -142,118 +199,102 @@ const FormattedDescription = ({
                 continue;
             }
 
-            // Handle numbered list with potential nested bullets and paragraphs
+            // ── Ordered list ──
             if (item.type === 'numbered') {
                 const numberedItems = [];
-                
-                while (i < parsedLines.length) {
-                    // Check if this is a numbered item
-                    if (parsedLines[i].type === 'numbered') {
-                        const numItem = parsedLines[i];
-                        const nestedContent = [];
-                        
-                        i++;
-                        
-                        // Collect content that belongs to this numbered item:
-                        // - Nested bullet items
-                        // - Paragraphs (that aren't numbered items)
-                        // - Empty lines (within reason)
-                        let consecutiveEmptyLines = 0;
-                        
-                        while (i < parsedLines.length) {
-                            const nextItem = parsedLines[i];
-                            
-                            // Stop if we hit another numbered item at the same level
-                            if (nextItem.type === 'numbered') {
-                                break;
-                            }
-                            
-                            // Handle empty lines - allow one, but stop at two consecutive
-                            if (nextItem.type === 'empty') {
-                                consecutiveEmptyLines++;
-                                if (consecutiveEmptyLines >= 2) {
-                                    break; // Two empty lines = end of this numbered item
-                                }
-                                i++;
-                                continue;
-                            }
-                            
-                            // Reset empty line counter when we hit content
-                            consecutiveEmptyLines = 0;
-                            
-                            // Add bullets to nested content
-                            if (nextItem.type === 'bullet') {
-                                nestedContent.push({ type: 'bullet', content: nextItem.content });
-                                i++;
-                                continue;
-                            }
-                            
-                            // Add paragraphs to nested content
-                            if (nextItem.type === 'paragraph') {
-                                nestedContent.push({ type: 'paragraph', content: nextItem.content });
-                                i++;
-                                continue;
-                            }
-                            
-                            break;
+
+                while (i < parsedLines.length && parsedLines[i].type === 'numbered') {
+                    const numItem = parsedLines[i];
+                    const nestedContent = [];
+                    i++;
+
+                    let emptyCount = 0;
+
+                    while (i < parsedLines.length) {
+                        const next = parsedLines[i];
+
+                        if (next.type === 'numbered') break;
+
+                        if (next.type === 'empty') {
+                            emptyCount++;
+                            if (emptyCount >= 2) break;
+                            i++;
+                            continue;
                         }
-                        
-                        numberedItems.push({
-                            content: numItem.content,
-                            nestedContent
-                        });
-                    } else {
-                        // If we hit something that's not a numbered item, stop
+
+                        emptyCount = 0;
+
+                        if (next.type === 'bullet' || next.type === 'paragraph') {
+                            nestedContent.push(next);
+                            i++;
+                            continue;
+                        }
+
                         break;
                     }
+
+                    numberedItems.push({ content: numItem.content, nestedContent });
                 }
-                
+
                 elements.push(
-                    <ol key={`ol-${key++}`} className="list-decimal list-outside ml-5 my-2 space-y-2">
+                    <ol
+                        key={`ol-${key++}`}
+                        className="list-decimal list-outside ml-5 my-2 space-y-2"
+                    >
                         {numberedItems.map((numItem, idx) => (
                             <li key={idx} className="text-gray-700 pl-1">
                                 <span>{parseInlineFormatting(numItem.content)}</span>
+
                                 {numItem.nestedContent.length > 0 && (
-                                    <div className="mt-2 space-y-2">
-                                        {/* Group consecutive bullets */}
+                                    <div className="mt-1 space-y-1">
                                         {(() => {
-                                            const nestedElements = [];
+                                            const nested = [];
                                             let j = 0;
-                                            
+
                                             while (j < numItem.nestedContent.length) {
-                                                const nestedItem = numItem.nestedContent[j];
-                                                
-                                                if (nestedItem.type === 'bullet') {
-                                                    // Collect consecutive bullets
+                                                const nc = numItem.nestedContent[j];
+
+                                                // Group consecutive bullets
+                                                if (nc.type === 'bullet') {
                                                     const bullets = [];
-                                                    while (j < numItem.nestedContent.length && 
-                                                           numItem.nestedContent[j].type === 'bullet') {
-                                                        bullets.push(numItem.nestedContent[j].content);
+                                                    const baseIndent = nc.indent || 0;
+
+                                                    while (
+                                                        j < numItem.nestedContent.length &&
+                                                        numItem.nestedContent[j].type === 'bullet'
+                                                    ) {
+                                                        const b = numItem.nestedContent[j];
+                                                        bullets.push({
+                                                            content: b.content,
+                                                            indent: (b.indent || 0) - baseIndent,
+                                                        });
                                                         j++;
                                                     }
-                                                    
-                                                    nestedElements.push(
-                                                        <ul key={`nested-ul-${idx}-${nestedElements.length}`} 
-                                                            className="list-disc list-outside ml-5 space-y-1">
-                                                            {bullets.map((bullet, bIdx) => (
-                                                                <li key={bIdx} className="text-gray-700 pl-1">
-                                                                    {parseInlineFormatting(bullet)}
-                                                                </li>
-                                                            ))}
+
+                                                    nested.push(
+                                                        <ul
+                                                            key={`nested-ul-${idx}-${nested.length}`}
+                                                            className="list-disc list-outside ml-5 mt-1 space-y-1"
+                                                        >
+                                                            {renderBulletList(bullets, 0)}
                                                         </ul>
                                                     );
-                                                } else if (nestedItem.type === 'paragraph') {
-                                                    nestedElements.push(
-                                                        <p key={`nested-p-${idx}-${nestedElements.length}`} 
-                                                           className="text-gray-700">
-                                                            {parseInlineFormatting(nestedItem.content)}
+                                                } else if (nc.type === 'paragraph') {
+                                                    nested.push(
+                                                        <p
+                                                            key={`nested-p-${idx}-${nested.length}`}
+                                                            className="text-gray-700"
+                                                        >
+                                                            {parseInlineFormatting(nc.content)}
                                                         </p>
                                                     );
                                                     j++;
+                                                } else {
+                                                    j++;
                                                 }
                                             }
-                                            
-                                            return nestedElements;
+
+                                            return nested;
                                         })()}
                                     </div>
                                 )}
@@ -264,22 +305,31 @@ const FormattedDescription = ({
                 continue;
             }
 
-            // Handle standalone bullet list (not nested under a number)
+            // ── Unordered list (top-level, supports nesting via indent) ──
             if (item.type === 'bullet') {
-                const bulletItems = [];
-                
+                const bullets = [];
+
                 while (i < parsedLines.length && parsedLines[i].type === 'bullet') {
-                    bulletItems.push(parsedLines[i].content);
+                    bullets.push({
+                        content: parsedLines[i].content,
+                        indent: parsedLines[i].indent || 0,
+                    });
                     i++;
                 }
-                
+
+                // Re-index indents relative to the first item
+                const baseIndent = bullets[0]?.indent || 0;
+                const reIndexed = bullets.map((b) => ({
+                    ...b,
+                    indent: b.indent - baseIndent,
+                }));
+
                 elements.push(
-                    <ul key={`ul-${key++}`} className="list-disc list-outside ml-5 my-2 space-y-1">
-                        {bulletItems.map((bullet, idx) => (
-                            <li key={idx} className="text-gray-700 pl-1">
-                                {parseInlineFormatting(bullet)}
-                            </li>
-                        ))}
+                    <ul
+                        key={`ul-${key++}`}
+                        className="list-disc list-outside ml-5 my-2 space-y-1"
+                    >
+                        {renderBulletList(reIndexed, 0)}
                     </ul>
                 );
                 continue;
@@ -295,34 +345,39 @@ const FormattedDescription = ({
         return null;
     }
 
-    // Variant-specific classes
     const variantClasses = {
         default: 'text-sm sm:text-base leading-relaxed',
         compact: 'text-xs sm:text-sm leading-snug',
-        card: 'text-sm leading-relaxed'
+        card: 'text-sm leading-relaxed',
     };
 
     return (
-        <div className={`formatted-description ${variantClasses[variant]} ${className}`}>
+        <div
+            className={`formatted-description ${variantClasses[variant] ?? variantClasses.default} ${className}`}
+        >
             {formattedContent}
         </div>
     );
 };
 
 /**
- * Preview component for the description editor
- * Shows how the text will be rendered
+ * DescriptionPreview
+ *
+ * Wraps FormattedDescription in a bordered preview card.
+ * Used in the package editor alongside the textarea.
  */
 export const DescriptionPreview = ({
     text = '',
     title = 'Preview',
-    className = ''
+    className = '',
 }) => {
     if (!text) {
         return (
-            <div className={`border border-dashed border-gray-300 rounded-lg p-4 bg-gray-50 ${className}`}>
+            <div
+                className={`border border-dashed border-gray-300 rounded-lg p-4 bg-gray-50 ${className}`}
+            >
                 <p className="text-gray-400 text-sm text-center">
-                    Preview will appear here as you type...
+                    Preview will appear here as you type…
                 </p>
             </div>
         );

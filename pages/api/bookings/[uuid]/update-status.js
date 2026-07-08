@@ -15,6 +15,8 @@ import { Op } from "sequelize";
 import EmailService from '../../../../services/booking/emailService';
 import { TEMPLATE_IDS } from '../../../../services/booking/templateIds';
 import AuditLogService from "../../../../services/AuditLogService";
+import { BOOKING_FUND_TYPES } from "../../../../components/constants";
+import { createPaymentLinkForBooking } from "../../../../services/booking/paymentLinkService";
 
 // ─── Build formatted iCare context for trigger dispatch ───────────────────────
 const buildIcareContext = (allocationSummary, updateType, extraFields = {}) => {
@@ -586,6 +588,21 @@ export default async function handler(req, res) {
                 { status: JSON.stringify(status), status_name: status?.name },
                 { where: { uuid } }
             );
+
+            // ── Auto-send AOB payment link on first transition to booking_confirmed ──
+            if (
+                status.name === 'booking_confirmed' &&
+                currentStatus?.name !== 'booking_confirmed' &&
+                booking.booking_type === BOOKING_FUND_TYPES.AOB &&
+                booking.payment_status !== 'paid'
+            ) {
+                try {
+                    await createPaymentLinkForBooking(booking.uuid);
+                    console.log(`✅ Auto-sent AOB payment link for booking ${booking.id}`);
+                } catch (paymentLinkErr) {
+                    console.error(`❌ Auto payment-link send failed for booking ${booking.id} (non-fatal):`, paymentLinkErr.message);
+                }
+            }
 
             // ── Audit log the status change ───────────────────────────────────────────
             try {

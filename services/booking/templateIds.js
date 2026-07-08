@@ -47,4 +47,7 @@ export const TEMPLATE_IDS = {
   MIGRATED_INTERNAL_RECIPIENT_HEALTH_INFO: 6, // Migrated: Internal Recipient Health Info
   MIGRATED_INTERNAL_RECIPIENT_FOUNDATION_STAY: 7, // Migrated: Internal Recipient Foundation Stay
   TEST_TEMPLATE: 8, // Test template
+
+  // STRIPE PAYMENT
+  AOB_PAYMENT_LINK: 'aob-payment-link',
 };

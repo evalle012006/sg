@@ -5,7 +5,7 @@ import handlebars from 'handlebars';
 import fs from 'fs';
 import path from 'path';
 import { promisify } from 'util';
-import { Address, Guest, HealthInfo } from '../../../../models';
+import { Address, Guest, HealthInfo, Flag } from '../../../../models';
 import { getTemplatePath, getPublicDir } from '../../../../lib/paths';
 import EmailService from '../../../../services/booking/emailService';
 import { TEMPLATE_IDS } from '../../../../services/booking/templateIds';
@@ -112,6 +112,32 @@ export default async function handler(req, res) {
       });
     };
 
+    // Enrich raw flag slugs with label/acronym/color from the Flag table,
+    // mirroring the same fix in download-profile-pdf.js — these two
+    // handlers render the same guest-profile.html template and must stay
+    // in sync, or the downloaded PDF and the emailed PDF would show
+    // differently styled flag badges for the same guest.
+    const rawFlagValues = guest.flags || [];
+    let enrichedFlags = rawFlagValues.map(value => ({
+      value,
+      label: value,
+      acronym: value.slice(0, 3).toUpperCase(),
+      color: '#6B7280',
+    }));
+
+    if (rawFlagValues.length > 0) {
+      const flagDefs = await Flag.findAll({
+        where: { type: 'guest', value: rawFlagValues },
+      });
+      const flagDefMap = new Map(flagDefs.map(f => [f.value, f]));
+      enrichedFlags = rawFlagValues.map(value => {
+        const def = flagDefMap.get(value);
+        return def
+          ? { value: def.value, label: def.label, acronym: def.acronym, color: def.color }
+          : { value, label: value, acronym: value.slice(0, 3).toUpperCase(), color: '#6B7280' };
+      });
+    }
+
     const templateData = {
       // Basic Guest Information
       first_name: guest.first_name || guestData?.first_name || '',
@@ -156,8 +182,9 @@ export default async function handler(req, res) {
         sci_other_details: guest.HealthInfo?.sci_other_details || healthData?.sci_other_details || '',
       },
       
-      // Flags
-      flags: guest.flags || [],
+      // Flags — enriched objects ({value, label, acronym, color}) instead
+      // of raw slug strings, matching download-profile-pdf.js.
+      flags: enrichedFlags,
 
       // PDF styling
       logo_base64: logoBase64,

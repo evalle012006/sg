@@ -11,6 +11,7 @@ export const bookingRequestFormSlice = createSlice({
         equipmentChanges: [],
         rooms: [],
         bookingType: null,
+        accommodationBookingType: null,  // 'accommodation_only' | 'funded' | null
         bookingSubmitted: false,
         funder: null,
         isNdisFunded: false,
@@ -66,6 +67,9 @@ export const bookingRequestFormSlice = createSlice({
         },
         setBookingType: (state, action) => {
             state.bookingType = action.payload;
+        },
+        setAccommodationBookingType: (state, action) => {
+            state.accommodationBookingType = action.payload;
         },
         setBookingSubmitted: (state, action) => {
             state.bookingSubmitted = action.payload;

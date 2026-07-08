@@ -5,7 +5,8 @@ const BookingProgressHeader = ({
     bookingRequestFormData,
     origin,
     onSaveExit,
-    onCancel
+    onCancel,
+    onChangePathway,
 }) => {
     // FIXED: Use useMemo instead of useEffect + useState to prevent infinite re-renders
     const progressData = useMemo(() => {
@@ -36,7 +37,19 @@ const BookingProgressHeader = ({
         <>
             {/* Desktop Progress Header */}
             <div className="hidden lg:block w-full bg-gray-100 border-b border-gray-200">
-                <div className="flex items-center justify-end px-6 py-4">
+                <div className="flex items-center justify-between px-6 py-4">
+                    {/* Left - Change pathway link (guest only, first step only) */}
+                    <div className="flex items-center">
+                        {!origin && onChangePathway && (completedSteps === 0 || completedSteps === 1) && (
+                            <button
+                                onClick={onChangePathway}
+                                className="text-sm text-gray-500 hover:text-blue-700 underline underline-offset-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 rounded"
+                            >
+                                ← Change booking type
+                            </button>
+                        )}
+                    </div>
+
                     {/* Right - Progress Info + Action Buttons */}
                     <div className="flex items-center space-x-6">
                         {/* Progress Info */}
@@ -79,6 +92,17 @@ const BookingProgressHeader = ({
 
             {/* Mobile Progress Header */}
             <div className="lg:hidden w-full bg-gray-100 border-b border-gray-200 px-4 py-3">
+                {/* Change pathway link - mobile */}
+                {!origin && onChangePathway && completedSteps === 0 && (
+                    <div className="mb-2">
+                        <button
+                            onClick={onChangePathway}
+                            className="text-sm text-gray-500 hover:text-blue-700 underline underline-offset-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 rounded"
+                        >
+                            ← Change booking type
+                        </button>
+                    </div>
+                )}
                 {/* Progress Info */}
                 <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center space-x-3">

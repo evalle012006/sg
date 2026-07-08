@@ -70,6 +70,9 @@ const useRoomData = (isNdisFunded) => {
 const RoomsField = (props) => {
   const dispatch = useDispatch();
   const isNdisFunded = useSelector(state => state.bookingRequestForm.isNdisFunded);
+  const isAccommodationOnly = useSelector(
+      state => state.bookingRequestForm.accommodationBookingType === 'accommodation_only'
+  );
   
   // Initialize selected rooms
   const [selectedRooms, setSelectedRooms] = useState(() => {
@@ -228,10 +231,10 @@ const RoomsField = (props) => {
       if (isAdditional) {
         // Additional rooms logic
         if (isNdisFunded) {
-          // NDIS funded: Additional rooms (studio only) - Out of pocket fee
           priceLabel = `Out of pocket fee of AUD ${room.price_per_night}/night (May be covered by some funders)`;
+        } else if (isAccommodationOnly) {
+          priceLabel = `AUD ${room.price_per_night}/night`;
         } else {
-          // Non-NDIS funded: Additional rooms (studio only) - Package price + fee
           priceLabel = `Your package price + AUD ${room.price_per_night}/night`;
         }
       } else {
@@ -245,16 +248,22 @@ const RoomsField = (props) => {
             priceLabel = `Your package price + AUD ${room.price_per_night}/night`;
           }
         } else {
-          // Non-NDIS funded: Studio is included, others have additional cost
-          if (room.type === 'studio') {
-            priceLabel = '';
-            // priceLabel = 'Included in your package price';
-          } else {
-            priceLabel = `Your package price + AUD ${room.price_per_night}/night`;
-            
-            // Add peak rate info for non-NDIS users if applicable
+          // Non-NDIS funded
+          if (isAccommodationOnly) {
+            // AOB: direct-pay, no package — show the room rate plainly
+            priceLabel = `AUD ${room.price_per_night}/night`;
             if (room.peak_rate && room.peak_rate > 0) {
               priceLabel = `${priceLabel} (AUD ${room.peak_rate}/night Peak Period)`;
+            }
+          } else {
+            // Funded: studio is included in package, upgrades add cost
+            if (room.type === 'studio') {
+              priceLabel = '';
+            } else {
+              priceLabel = `Your package price + AUD ${room.price_per_night}/night`;
+              if (room.peak_rate && room.peak_rate > 0) {
+                priceLabel = `${priceLabel} (AUD ${room.peak_rate}/night Peak Period)`;
+              }
             }
           }
         }

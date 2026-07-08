@@ -1,142 +1,173 @@
 // pages/api/settings/flags.js
-import { Setting } from '../../../models';
+import { Flag } from '../../../models';
 import { Op } from 'sequelize';
 
+const VALID_TYPES = ['guest', 'booking'];
+
+// Mirrors the slugify behavior the UI already applies to `value`
+// (manage-flags/index.js: value.trim().toLowerCase().replace(/\s+/g, '-'))
+function slugify(input) {
+  return String(input).trim().toLowerCase().replace(/\s+/g, '-');
+}
+
+// Default acronym suggestion: first letter of up to the first 3 words.
+// Admin can always override this — see `acronym` handling below.
+function suggestAcronym(label) {
+  return String(label)
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .slice(0, 3)
+    .map(word => word[0].toUpperCase())
+    .join('');
+}
+
 export default async function handler(req, res) {
-    try {
-        if (req.method === 'GET') {
-            // Get all guest_flag and booking_flag settings
-            const flags = await Setting.findAll({
-                where: {
-                    attribute: ['guest_flag', 'booking_flag']
-                },
-                order: [['attribute', 'ASC'], ['value', 'ASC']]
-            });
+  try {
+    if (req.method === 'GET') {
+      const flags = await Flag.findAll({
+        order: [['type', 'ASC'], ['label', 'ASC']],
+      });
 
-            // Group by attribute type
-            const grouped = {
-                guest_flags: flags.filter(f => f.attribute === 'guest_flag'),
-                booking_flags: flags.filter(f => f.attribute === 'booking_flag')
-            };
+      const grouped = {
+        guest_flags: flags.filter(f => f.type === 'guest'),
+        booking_flags: flags.filter(f => f.type === 'booking'),
+      };
 
-            return res.status(200).json(grouped);
-        }
-
-        if (req.method === 'POST') {
-            const { attribute, value } = req.body;
-
-            // Validation
-            if (!attribute || !value) {
-                return res.status(400).json({ 
-                    message: 'Attribute and value are required' 
-                });
-            }
-
-            if (!['guest_flag', 'booking_flag'].includes(attribute)) {
-                return res.status(400).json({ 
-                    message: 'Invalid attribute type. Must be guest_flag or booking_flag' 
-                });
-            }
-
-            // Check if flag already exists
-            const existing = await Setting.findOne({
-                where: { attribute, value }
-            });
-
-            if (existing) {
-                return res.status(409).json({ 
-                    message: 'This flag already exists' 
-                });
-            }
-
-            // Create new flag
-            const newFlag = await Setting.create({
-                attribute,
-                value: value.trim(),
-                created_at: new Date(),
-                updated_at: new Date()
-            });
-
-            return res.status(201).json({
-                message: 'Flag created successfully',
-                flag: newFlag
-            });
-        }
-
-        if (req.method === 'PUT') {
-            const { id, value } = req.body;
-
-            if (!id || !value) {
-                return res.status(400).json({ 
-                    message: 'ID and value are required' 
-                });
-            }
-
-            const flag = await Setting.findByPk(id);
-
-            if (!flag) {
-                return res.status(404).json({ 
-                    message: 'Flag not found' 
-                });
-            }
-
-            // Check if new value already exists for this attribute
-            const existing = await Setting.findOne({
-                where: { 
-                    attribute: flag.attribute, 
-                    value,
-                    id: { [Op.ne]: id }
-                }
-            });
-
-            if (existing) {
-                return res.status(409).json({ 
-                    message: 'A flag with this value already exists' 
-                });
-            }
-
-            await flag.update({
-                value: value.trim(),
-                updated_at: new Date()
-            });
-
-            return res.status(200).json({
-                message: 'Flag updated successfully',
-                flag
-            });
-        }
-
-        if (req.method === 'DELETE') {
-            const { id } = req.body;
-
-            if (!id) {
-                return res.status(400).json({ 
-                    message: 'ID is required' 
-                });
-            }
-
-            const flag = await Setting.findByPk(id);
-
-            if (!flag) {
-                return res.status(404).json({ 
-                    message: 'Flag not found' 
-                });
-            }
-
-            await flag.destroy();
-
-            return res.status(200).json({
-                message: 'Flag deleted successfully'
-            });
-        }
-
-        return res.status(405).json({ message: 'Method not allowed' });
-
-    } catch (error) {
-        console.error('API error:', error);
-        return res.status(500).json({ 
-            message: 'Server error', 
-            error: error.message 
-        });
+      return res.status(200).json(grouped);
     }
+
+    if (req.method === 'POST') {
+      // Accept both the new `type` param and the legacy `attribute`
+      // ('guest_flag' / 'booking_flag') so any caller still using the old
+      // shape (e.g. cached client bundle mid-deploy) doesn't hard-fail.
+      let { type, attribute, label, value, acronym, color } = req.body;
+
+      if (!type && attribute) {
+        type = attribute === 'guest_flag' ? 'guest' : attribute === 'booking_flag' ? 'booking' : null;
+      }
+
+      if (!type || !VALID_TYPES.includes(type)) {
+        return res.status(400).json({
+          message: 'type is required and must be "guest" or "booking"',
+        });
+      }
+
+      if (!label || !String(label).trim()) {
+        return res.status(400).json({
+          message: 'label is required',
+        });
+      }
+
+      const resolvedLabel = String(label).trim();
+      const resolvedValue = value ? slugify(value) : slugify(resolvedLabel);
+      const resolvedAcronym = (acronym && String(acronym).trim())
+        ? String(acronym).trim().toUpperCase()
+        : suggestAcronym(resolvedLabel);
+      const resolvedColor = color || '#6B7280';
+
+      const existing = await Flag.findOne({ where: { type, value: resolvedValue } });
+      if (existing) {
+        return res.status(409).json({
+          message: 'This flag already exists',
+        });
+      }
+
+      const newFlag = await Flag.create({
+        type,
+        value: resolvedValue,
+        label: resolvedLabel,
+        acronym: resolvedAcronym,
+        color: resolvedColor,
+      });
+
+      return res.status(201).json({
+        message: 'Flag created successfully',
+        flag: newFlag,
+      });
+    }
+
+    if (req.method === 'PUT') {
+      const { id, label, value, acronym, color } = req.body;
+
+      if (!id) {
+        return res.status(400).json({ message: 'id is required' });
+      }
+
+      const flag = await Flag.findByPk(id);
+      if (!flag) {
+        return res.status(404).json({ message: 'Flag not found' });
+      }
+
+      const updates = {};
+
+      if (label !== undefined) {
+        if (!String(label).trim()) {
+          return res.status(400).json({ message: 'label cannot be empty' });
+        }
+        updates.label = String(label).trim();
+      }
+
+      if (value !== undefined) {
+        const resolvedValue = slugify(value);
+        if (!resolvedValue) {
+          return res.status(400).json({ message: 'value cannot be empty' });
+        }
+        const existing = await Flag.findOne({
+          where: { type: flag.type, value: resolvedValue, id: { [Op.ne]: id } },
+        });
+        if (existing) {
+          return res.status(409).json({ message: 'A flag with this value already exists' });
+        }
+        updates.value = resolvedValue;
+      }
+
+      // acronym: empty string is a valid explicit choice to re-trigger
+      // auto-suggestion from the (possibly just-updated) label; omitted
+      // entirely means "don't touch it".
+      if (acronym !== undefined) {
+        updates.acronym = String(acronym).trim()
+          ? String(acronym).trim().toUpperCase()
+          : suggestAcronym(updates.label || flag.label);
+      }
+
+      if (color !== undefined) {
+        updates.color = color;
+      }
+
+      await flag.update(updates);
+
+      return res.status(200).json({
+        message: 'Flag updated successfully',
+        flag,
+      });
+    }
+
+    if (req.method === 'DELETE') {
+      const { id } = req.body;
+
+      if (!id) {
+        return res.status(400).json({ message: 'id is required' });
+      }
+
+      const flag = await Flag.findByPk(id);
+      if (!flag) {
+        return res.status(404).json({ message: 'Flag not found' });
+      }
+
+      await flag.destroy();
+
+      return res.status(200).json({
+        message: 'Flag deleted successfully',
+      });
+    }
+
+    return res.status(405).json({ message: 'Method not allowed' });
+
+  } catch (error) {
+    console.error('API error:', error);
+    return res.status(500).json({
+      message: 'Server error',
+      error: error.message,
+    });
+  }
 }

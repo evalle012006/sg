@@ -7,6 +7,7 @@ import { BOOKING_TYPES } from "../../../components/constants";
 import moment from "moment";
 import { getFunder } from "../../../utilities/common";
 import AuditLogService from "../../../services/AuditLogService";
+import { extractStayDatesFromBooking } from "../../../utilities/equipmentDateUtils";
 
 // ── ADDED: safely convert any value to a display string for audit descriptions ──
 // Prevents "[object Object]" when answers are objects (e.g. care-table, service-cards)
@@ -417,11 +418,49 @@ export default async function handler(req, res) {
         }
 
         if (booking) {
-            courseOfferUpdated = await handleCourseOfferLinking(booking, qa_pairs, transaction);
+            courseOfferUpdated = await handleCourseOfferLinking(booking, qa_pairs);
 
             let bookingAmended = false;
             if (equipmentChanges && equipmentChanges?.length > 0) {
-                bookingService.manageBookingEquipment(booking, equipmentChanges);
+                const isAdminOrigin = flags?.origin === 'admin';
+                const dateResult = extractStayDatesFromBooking(booking);
+        
+                if (!dateResult.valid) {
+                    // ── Log every attempt — guest and admin ──────────────────────────
+                    console.error('[equipment-save] Missing or invalid stay dates', {
+                        bookingUuid: bookingUuid,
+                        bookingId: booking?.id,
+                        referenceId: booking?.reference_id,
+                        origin: flags?.origin || 'guest',
+                        source: dateResult.source,
+                        timestamp: new Date().toISOString(),
+                        equipmentCategoriesAttempted: equipmentChanges.map(ec => ec.category)
+                    });
+        
+                    if (!isAdminOrigin) {
+                        // ── Guest: hard block ────────────────────────────────────────
+                        return res.status(422).json({
+                            success: false,
+                            error: 'equipment_save_missing_dates',
+                            message: 'Your equipment selections could not be saved because your check-in and check-out dates are missing. Please complete the Dates section first.'
+                        });
+                    }
+                    // ── Admin: warn and allow — rows saved without dates (status quo)
+                    console.warn('[equipment-save] Admin save proceeding without dates — rows will have null start_date/end_date', {
+                        bookingUuid,
+                        adminUserId: flags?.currentUserId
+                    });
+                    bookingService.manageBookingEquipment(booking, equipmentChanges);
+                } else {
+                    // ── Dates present: inject into every equipment change ────────────
+                    const equipmentChangesWithDates = equipmentChanges.map(ec => ({
+                        ...ec,
+                        checkInDate:  dateResult.checkInDate,
+                        checkOutDate: dateResult.checkOutDate
+                    }));
+                    bookingService.manageBookingEquipment(booking, equipmentChangesWithDates);
+                }
+        
                 bookingAmended = true;
             }
 
@@ -470,7 +509,7 @@ export default async function handler(req, res) {
 /**
  * Handle linking course offers to bookings when course selections are made
  */
-async function handleCourseOfferLinking(booking, qa_pairs, transaction) {
+async function handleCourseOfferLinking(booking, qa_pairs) {
     try {
         console.log('🎓 Checking for course selection answers to link with offers...');
 
@@ -491,11 +530,10 @@ async function handleCourseOfferLinking(booking, qa_pairs, transaction) {
         if (courseOfferNo) {
             // Guest removed their course intent — release any accepted offer tied to this booking
             const linkedOffers = await CourseOffer.findAll({
-                where: { booking_id: bookingId, status: 'accepted' },
-                transaction
+                where: { booking_id: bookingId, status: 'accepted' }
             });
             for (const lo of linkedOffers) {
-                await lo.update({ booking_id: null, status: 'offered' }, { transaction });
+                await lo.update({ booking_id: null, status: 'offered' });
                 console.log(`↩️ Released course offer ${lo.id} back to 'offered' (guest answered No)`);
             }
         }
@@ -556,7 +594,7 @@ async function handleCourseOfferLinking(booking, qa_pairs, transaction) {
                                 loggable_id: bookingId,
                                 createdAt: new Date(),
                                 updatedAt: new Date()
-                            }, { transaction });
+                            });
 
                             continue; // Skip this one
                         }
@@ -566,7 +604,7 @@ async function handleCourseOfferLinking(booking, qa_pairs, transaction) {
                         await courseOffer.update({
                             booking_id: bookingId,
                             ...(wasOffered ? { status: 'accepted' } : {})
-                        }, { transaction });
+                        });
 
                         console.log(`✅ Successfully linked course offer ${courseOffer.id} to booking ${bookingId}${wasOffered ? ' (auto-accepted)' : ''}`);
                         
@@ -586,7 +624,7 @@ async function handleCourseOfferLinking(booking, qa_pairs, transaction) {
                             loggable_id: bookingId,
                             createdAt: new Date(),
                             updatedAt: new Date()
-                        }, { transaction });
+                        });
 
                         courseOfferUpdated = true;
                     } else {
@@ -608,7 +646,7 @@ async function handleCourseOfferLinking(booking, qa_pairs, transaction) {
                             loggable_id: bookingId,
                             createdAt: new Date(),
                             updatedAt: new Date()
-                        }, { transaction });
+                        });
                     }
                 }
             }

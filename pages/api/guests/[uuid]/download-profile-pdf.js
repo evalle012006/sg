@@ -1,7 +1,7 @@
 import { RenderPDF } from '../../../../services/booking/exports/pdf-render';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '../../auth/[...nextauth]';
-import { Address, Guest, HealthInfo } from '../../../../models';
+import { Address, Guest, HealthInfo, Flag } from '../../../../models';
 import path from 'path';
 import { promises as fs } from 'fs';
 import { getTemplatePath, getPublicDir } from '../../../../lib/paths';
@@ -72,6 +72,36 @@ export default async function handler(req, res) {
       });
     };
 
+    // Enrich raw flag slugs (e.g. 'complex-care') with label/acronym/color
+    // from the Flag table, so the template can render the badge color via
+    // inline style instead of matching CSS classes against the slug string.
+    // Falls back to a gray default + the raw slug as label if a flag value
+    // exists on the guest but has no corresponding row in Flag (e.g. it was
+    // deleted from Manage Flags after being applied) — this keeps PDF
+    // generation from failing on stale data, at the cost of an
+    // unconfigured-looking gray badge, which is the same tradeoff used in
+    // hooks/useFlagDefinitions.js for the live UI.
+    const rawFlagValues = guest.flags || [];
+    let enrichedFlags = rawFlagValues.map(value => ({
+      value,
+      label: value,
+      acronym: value.slice(0, 3).toUpperCase(),
+      color: '#6B7280',
+    }));
+
+    if (rawFlagValues.length > 0) {
+      const flagDefs = await Flag.findAll({
+        where: { type: 'guest', value: rawFlagValues },
+      });
+      const flagDefMap = new Map(flagDefs.map(f => [f.value, f]));
+      enrichedFlags = rawFlagValues.map(value => {
+        const def = flagDefMap.get(value);
+        return def
+          ? { value: def.value, label: def.label, acronym: def.acronym, color: def.color }
+          : { value, label: value, acronym: value.slice(0, 3).toUpperCase(), color: '#6B7280' };
+      });
+    }
+
     const formattedData = {
       logo_base64: `data:image/png;base64,${logoBase64}`,
       logo_footer_base64: `data:image/jpeg;base64,${logoFooterBase64}`,
@@ -125,8 +155,10 @@ export default async function handler(req, res) {
         ? profileImageUrl 
         : '',
       
-      // Flags
-      flags: guest.flags || [],
+      // Flags — now enriched objects ({value, label, acronym, color})
+      // instead of raw slug strings, so the template can render colors
+      // without matching CSS classes by string.
+      flags: enrichedFlags,
       
       // Generation timestamp
       generated_at: formatAustralianDateTime(new Date()),

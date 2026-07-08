@@ -1467,11 +1467,18 @@ export class BookingService extends EntityBuilder {
 
         const promise = await new Promise(async (resolve) => {
             const response = await Promise.all(equipmentChanges.map(async (equipmentChange) => {
-                const { category, equipments, isDirty } = equipmentChange;
+                const { category, equipments, isDirty, checkInDate, checkOutDate } = equipmentChange;
+
+                // Build the date fields to inject into every BookingEquipment row.
+                // If absent (e.g. legacy callers), rows are saved without dates —
+                // same as today, but the caller is responsible for the guard.
+                const dateFields = (checkInDate && checkOutDate)
+                    ? { start_date: checkInDate, end_date: checkOutDate }
+                    : {};
 
                 // Handle infant_care category specially
                 if (category === 'infant_care') {
-                    return await this.manageInfantCareEquipment(booking, equipments, isDirty);
+                    return await this.manageInfantCareEquipment(booking, equipments, isDirty, dateFields);
                 }
 
                 if (category != 'acknowledgement') {
@@ -1509,7 +1516,7 @@ export class BookingService extends EntityBuilder {
                                         });
                                     }
 
-                                    const updateData = { equipment_id: equipment.id };
+                                    const updateData = { equipment_id: equipment.id, ...dateFields };
                                     if (equipment.meta_data) {
                                         updateData.meta_data = equipment.meta_data;
                                     }
@@ -1547,7 +1554,8 @@ export class BookingService extends EntityBuilder {
                             if (!currentEquipment && equipment.type == 'independent' && equipment.value) {
                                 const createData = { 
                                     booking_id: booking.id, 
-                                    equipment_id: equipment.id 
+                                    equipment_id: equipment.id,
+                                    ...dateFields
                                 };
                                 if (equipment.meta_data) {
                                     createData.meta_data = equipment.meta_data;
@@ -1606,7 +1614,8 @@ export class BookingService extends EntityBuilder {
                             } else if (!equipmentExists && equipment.value == true) {
                                 const createData = { 
                                     booking_id: booking.id, 
-                                    equipment_id: equipment.id 
+                                    equipment_id: equipment.id,
+                                    ...dateFields
                                 };
                                 if (equipment.meta_data) {
                                     createData.meta_data = equipment.meta_data;
@@ -1653,7 +1662,8 @@ export class BookingService extends EntityBuilder {
                     } else if (!equipmentExists && equipment.value == true) {
                         const createData = { 
                             booking_id: booking.id, 
-                            equipment_id: equipment.id 
+                            equipment_id: equipment.id,
+                            ...dateFields
                         };
                         if (equipment.meta_data) {
                             createData.meta_data = equipment.meta_data;
@@ -1669,7 +1679,7 @@ export class BookingService extends EntityBuilder {
         return promise;
     };
 
-    manageInfantCareEquipment = async (booking, equipments, isDirty) => {
+    manageInfantCareEquipment = async (booking, equipments, isDirty, dateFields = {}) => {
         // Get existing infant_care equipment for this booking
         const existingEquipments = booking.Equipment
             .filter(equipment => equipment?.dataValues?.EquipmentCategory?.name === 'infant_care')
@@ -1708,11 +1718,11 @@ export class BookingService extends EntityBuilder {
                     }
 
                     // Update with meta_data including quantity
-                    const updateData = { equipment_id: equipment.id };
+                    const updateData = { equipment_id: equipment.id, ...dateFields };
                     if (equipment.meta_data) {
                         updateData.meta_data = equipment.meta_data;
                     }
-                    
+
                     await BookingEquipment.update(updateData, { 
                         where: { booking_id: booking.id, equipment_id: equipment.id } 
                     });
@@ -1768,7 +1778,8 @@ export class BookingService extends EntityBuilder {
                     // Create new equipment with meta_data
                     const createData = { 
                         booking_id: booking.id, 
-                        equipment_id: equipment.id 
+                        equipment_id: equipment.id,
+                        ...dateFields
                     };
                     if (equipment.meta_data) {
                         createData.meta_data = equipment.meta_data;

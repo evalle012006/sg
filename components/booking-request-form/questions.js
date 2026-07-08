@@ -1891,6 +1891,7 @@ const QuestionPage = ({
                                                             width='100%' 
                                                             error="Required field" 
                                                             required={q.required ? true : false}
+                                                            stayDates={stayDates}
                                                             infantCareQuantities={infantCareQuantities}
                                                             forceShowErrors={validationAttempted}
                                                             onChange={(isValid, equipmentChanges) => {

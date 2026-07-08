@@ -131,9 +131,16 @@ export default async function handler(req, res) {
                     for (const question of section.Questions) {
                         let newQuestionId;
                         
-                        // Generate question key if applicable
+                        // Generate question key if applicable.
+                        // If the original question already has a question_key, preserve it exactly —
+                        // canonical keys like 'first-name' must not be regenerated from question text.
+                        // Only generate a new key when the original has none.
                         let questionKey = null;
-                        if (question.question && question.type && !shouldSkipKeyGeneration(question.type)) {
+                        if (question.question_key) {
+                            // Preserve the existing key verbatim
+                            questionKey = question.question_key;
+                        } else if (question.question && question.type && !shouldSkipKeyGeneration(question.type)) {
+                            // No existing key — generate one from question text
                             questionKey = await generateQuestionKeyForCopy(
                                 question.question, 
                                 newSection.id, 

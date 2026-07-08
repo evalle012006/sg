@@ -8,8 +8,9 @@ import dynamic from 'next/dynamic';
 import { globalActions } from "../../store/globalSlice";
 import Modal from "../ui/modal";
 import StatusBadge from "../ui-v2/StatusBadge";
-import { BOOKING_TYPES } from "../constants";
+import { BOOKING_FUND_TYPES, BOOKING_TYPES } from "../constants";
 import { getFunder, isBookingInPast, isCheckInDatePassed } from "../../utilities/common";
+import { getDisplayStatus } from '../../utilities/bookingStatus';
 
 const Layout = dynamic(() => import('../layout'));
 const Spinner = dynamic(() => import('../ui/spinner'));
@@ -167,10 +168,10 @@ export default function GuestBookingsV2() {
         }
     }, [activeTab, user?.uuid]);
 
-    const createBookingRequestForm = async (bookingId) => {
+    const createBookingRequestForm = async (bookingId, bookingType = null) => {
         return await fetch(`/api/booking-request-form/check-booking-section`, {
             method: 'POST',
-            body: JSON.stringify({ bookingId }),
+            body: JSON.stringify({ bookingId, bookingType }),
             headers: {
                 'Content-Type': 'application/json'
             }
@@ -212,20 +213,33 @@ export default function GuestBookingsV2() {
         });
 
         if (response.ok) {
+            console.log("courseContext", courseContext)
             setLoading(false);
             const data = await response.json();
             if (data && data.hasIncomplete) {
                 setShowWarningNewBooking(true);
             } else {
                 setShowWarningNewBooking(false);
-                handleBookNow(courseContext);
+                if (courseContext) {
+                    // Course bookings always go direct — no pathway selection needed
+                    handleBookNow(courseContext);
+                } else {
+                    // Standard new booking — route to pathway selection page
+                    router.push('/booking-type-select');
+                }
             }
         }
     };
 
     const handleBookNow = async (courseContext = null) => {
         setLoading(true);
-        const data = { guestId: user.id };
+        // Course bookings are always funded — set explicitly for data integrity.
+        // Non-course bookings coming through here are the "incomplete booking" 
+        // resume path (Modal → New Booking), which is also funded.
+        const data = { 
+            guestId: user.id,
+            bookingType: 'funded',
+        };
 
         const response = await fetch("/api/bookings/book-now/create", {
             method: "POST",
@@ -617,7 +631,6 @@ export default function GuestBookingsV2() {
     }
 
     const editBooking = async (booking) => {
-        // Check if check-in date has passed or is today
         if (isCheckInDatePassed(booking)) {
             toast.error('This booking cannot be amended as the check-in date has passed or is today.');
             return;
@@ -626,7 +639,8 @@ export default function GuestBookingsV2() {
         if (booking.complete === true && booking.Sections.length > 0) {
             window.open(`/booking-request-form?uuid=${booking.uuid}`, '_self');
         } else {
-            const brf = await createBookingRequestForm(booking.id);
+            // Pass booking_type so check-booking-section uses the correct template
+            const brf = await createBookingRequestForm(booking.id, booking.booking_type || null);
             if (brf.ok) {
                 setTimeout(() => {
                     if (booking.id && booking.uuid && booking.type === BOOKING_TYPES.RETURNING_GUEST && prevBookingUuid) {
@@ -690,6 +704,12 @@ export default function GuestBookingsV2() {
         return matchedOffer?.course?.title || null;
     };
 
+    const getBookingTypeLabel = (booking) => {
+        if (booking.booking_type === BOOKING_FUND_TYPES.AOB) return 'Accommodation Only';
+        if (booking.booking_type === BOOKING_FUND_TYPES.FUNDED) return 'Funded';
+        return null; // legacy bookings, booking_type is null — don't show a badge
+    };
+
     const renderBookingCards = (bookingsToRender) => {
         return (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -698,7 +718,7 @@ export default function GuestBookingsV2() {
                         let bookingTitle = getBookingTitle(booking) || "No Room Selected";
                         const funder = getBookingFunder(booking.Sections);
                         const courseName = getBookingCourse(booking);
-                        const bookingStatus = JSON.parse(booking.status);
+                        const bookingStatus = getDisplayStatus(booking);
                         let imageUrl = null;
                         
                         if (booking.Rooms.length > 0 && booking.Rooms[0].RoomType?.imageUrl) {
@@ -726,7 +746,6 @@ export default function GuestBookingsV2() {
                         const bookingInPast = isBookingInPast(booking);
                         const checkInPassed = isCheckInDatePassed(booking);
                         const editButtonLabel = booking.complete ? "REQUEST TO AMEND" : "EDIT BOOKING";
-
                         
                         const customButtons = [];
                         
@@ -839,6 +858,7 @@ export default function GuestBookingsV2() {
                                 customButtons={customButtons.length > 0 ? customButtons : undefined}
                                 onButtonClick={() => editBooking(booking)}
                                 viewDetails={() => viewBooking(booking.uuid)}
+                                bookingType={getBookingTypeLabel(booking)}
                             />
                         );
                     })
@@ -1169,7 +1189,7 @@ export default function GuestBookingsV2() {
                                         size="small" 
                                         color="primary" 
                                         label="+ NEW BOOKING" 
-                                        onClick={handleCheckPrevBookingStatus}
+                                        onClick={() => handleCheckPrevBookingStatus()}
                                     />
                                 </div>
                             </div>
@@ -1280,9 +1300,16 @@ export default function GuestBookingsV2() {
                             }}
                             cancelLabel="Complete Booking"
                             cancelColor="text-sargood-blue"
-                            onConfirm={(e) => {
-                                handleBookNow(courseBookingContext);
+                            onConfirm={() => {
                                 setShowWarningNewBooking(false);
+                                if (courseBookingContext) {
+                                    // Course booking — bypass pathway selection, go direct
+                                    handleBookNow(courseBookingContext);
+                                } else {
+                                    // Standard new booking — route to pathway selection
+                                    // so the guest can choose their booking type
+                                    router.push('/booking-type-select');
+                                }
                             }}
                             confirmLabel="New Booking"
                             confirmColor="text-emerald-500"

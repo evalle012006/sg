@@ -23,6 +23,7 @@ const ThumbnailCard = ({
   isPaid = false,
   funder = null,
   courseName = null,
+  bookingType = null
 }) => {
   // State to track if the image has failed to load
   const [imageError, setImageError] = useState(false);
@@ -144,9 +145,14 @@ const ThumbnailCard = ({
         {/* Room Title */}
         <h3 className="text-lg font-medium text-gray-800 mb-6">{title}</h3>
         
-        {/* Funder and Course badges */}
-        {(funder || courseName) ? (
+        {/* Funder, Course, and Booking Type badges */}
+        {(funder || courseName || bookingType) ? (
           <div className="flex flex-wrap gap-1.5 mb-4">
+            {bookingType && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700 border border-gray-300">
+                {bookingType}
+              </span>
+            )}
             {funder && (
               <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
                 {funder}

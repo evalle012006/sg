@@ -181,6 +181,9 @@ function PaginatedTable({
 
   const itemsPerPageOptions = [10, 20, 50, 100];
 
+  const MIN_ROWS = 5;
+  const paddingRowsNeeded = Math.max(0, MIN_ROWS - rows.length);
+
   // Generate page numbers for pagination
   const renderPaginationButtons = () => {
     const buttons = [];
@@ -312,6 +315,13 @@ function PaginatedTable({
               </tr>
             ) : (
               memoizedRows
+            )}
+            {!loading && rows.length > 0 && paddingRowsNeeded > 0 && (
+              Array.from({ length: paddingRowsNeeded }).map((_, i) => (
+                <tr key={`pad-${i}`} className="h-[60px]">
+                  <td colSpan={columns.length + (selection ? 1 : 0)}>&nbsp;</td>
+                </tr>
+              ))
             )}
           </tbody>
         </table>

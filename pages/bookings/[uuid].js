@@ -35,6 +35,7 @@ const FunderImageDisplay = dynamic(() => import('../../components/booking-comp/c
 const QuestionDisplay = dynamic(() => import('../../components/booking-comp/component-display/QuestionDisplay'));
 const AmendmentDisplay = dynamic(() => import('../../components/booking-comp/component-display/AmendmentDisplay'));
 const BookingAuditLog = dynamic(() => import('../../components/booking-comp/BookingAuditLog'));
+const AOBPricingPanel = dynamic(() => import('../../components/booking-comp/AOBPricingPanel'));
 
 const handleEditBooking = (uuid) => {
   window.open(`/booking-request-form?uuid=${uuid}&origin=admin`, '_blank');
@@ -179,19 +180,15 @@ const DetailSidebar = ({ booking, callback, guest, address, setEditBooking }) =>
   };
 
   const handleSelectBookingLabel = async (selectedLabels) => {
-    const labelStrings = selectedLabels.map(item => {
+    // selectedLabels from the multi-select come back as option objects {label, value, checked}
+    // or as raw value strings depending on the Select component's onChange shape.
+    // Extract the slug value directly — never go through the display label.
+    const apiLabels = selectedLabels.map(item => {
       if (typeof item === 'object' && item !== null) {
-        return item.label || item.value || String(item);
+        return item.value; // use the slug, not the display label
       }
-      return String(item);
-    });
-
-    const apiLabels = labelStrings.map(displayLabel => {
-      const matchingFlag = settingsFlags.find(flag => 
-        _.startCase(flag) === displayLabel
-      );
-      return matchingFlag || displayLabel.toLowerCase().replace(/\s+/g, '_');
-    });
+      return item;
+    }).filter(Boolean);
 
     const response = await fetch(`/api/bookings/${booking.uuid}/update-label`, {
       method: 'POST',
@@ -210,10 +207,11 @@ const DetailSidebar = ({ booking, callback, guest, address, setEditBooking }) =>
 
   useEffect(() => {
     const fetchSettingsFlagsList = async () => {
-      const response = await fetch('/api/settings/booking_flag');
+      const response = await fetch('/api/settings/flags');
       if (response.ok) {
         const data = await response.json();
-        setSettingsFlags(data.map(flag => flag.value));
+        // new API returns {guest_flags, booking_flags} grouped
+        setSettingsFlags((data.booking_flags || []).map(f => f.value));
       }
     };
     fetchSettingsFlagsList();
@@ -592,6 +590,47 @@ export default function BookingDetail() {
   const hidePages = ['packages'];
 
   const [isSavingPackage, setIsSavingPackage] = useState(false);
+
+  const [sendingPaymentLink, setSendingPaymentLink] = useState(false);
+
+  const handleSendPaymentLink = async () => {
+    setSendingPaymentLink(true);
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 20000);
+
+    try {
+      const response = await fetch('/api/stripe/create-checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bookingUuid: booking.uuid }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        toast.error(data.error || 'Failed to generate payment link.');
+        return;
+      }
+
+      toast.success('Payment link sent to guest.');
+      fetchBooking(); // Refresh to show payment status
+    } catch (err) {
+      clearTimeout(timeoutId);
+
+      if (err.name === 'AbortError') {
+        toast.error('This is taking longer than expected. Please check the booking status and try again.');
+      } else {
+        console.error('Error sending payment link:', err);
+        toast.error('Failed to send payment link. Please try again.');
+      }
+    } finally {
+      setSendingPaymentLink(false);
+    }
+  };
 
   // Helper function to find package QA pair info from current booking data
   const findPackageQaPairInfo = useCallback(() => {
@@ -2802,6 +2841,15 @@ export default function BookingDetail() {
           {/* Right Sidebar */}
           {isUser ? (
             <div className="w-96 flex-shrink-0 h-full overflow-y-auto">
+              {booking?.booking_type === 'accommodation_only' && (
+                <div className="p-4 border-b border-gray-200">
+                  <AOBPricingPanel
+                    booking={booking}
+                    sendingLink={sendingPaymentLink}
+                    onSendPaymentLink={handleSendPaymentLink}
+                  />
+                </div>
+              )}
               <DetailSidebar 
                 booking={booking} 
                 guest={booking.Guest}

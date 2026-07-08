@@ -41,7 +41,7 @@ export default function ManagePackages() {
     const loadPackages = async () => {
         setIsListLoading(true);
         try {
-            const response = await fetch('/api/packages/');
+            const response = await fetch('/api/packages/?admin=true');
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
@@ -121,6 +121,24 @@ export default function ManagePackages() {
     const handleDeletePackage = (pkg) => {
         setSelectedPackage(pkg);
         setShowDeleteDialog(true);
+    };
+
+    const handleToggleActive = async (pkg) => {
+        try {
+            const response = await fetch(`/api/packages/${pkg.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ is_active: !pkg.is_active })
+            });
+
+            if (!response.ok) throw new Error('Failed to update package status');
+
+            toast.success(`Package ${!pkg.is_active ? 'activated' : 'deactivated'} successfully`);
+            loadPackages();
+        } catch (error) {
+            console.error('Error toggling package status:', error);
+            toast.error('Failed to update package status');
+        }
     };
 
     const confirmDelete = async () => {
@@ -240,6 +258,29 @@ export default function ManagePackages() {
                         </span>
                     )}
                 </div>
+            )
+        },
+        {
+            key: 'is_active',
+            label: 'STATUS',
+            searchable: false,
+            render: (value, row) => (
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        handleToggleActive(row);
+                    }}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+                        value !== false ? 'bg-green-500 focus:ring-green-500' : 'bg-gray-300 focus:ring-gray-400'
+                    }`}
+                    title={value !== false ? 'Active — click to deactivate' : 'Inactive — click to activate'}
+                >
+                    <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                            value !== false ? 'translate-x-6' : 'translate-x-1'
+                        }`}
+                    />
+                </button>
             )
         },
         {

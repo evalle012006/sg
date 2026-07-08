@@ -19,8 +19,8 @@ class AuditLogService {
     category = null
   }) {
     try {
-      // Validation: Must have either userId OR guestId
-      if (!userId && !guestId) {
+      // Validation: Must have either userId OR guestId and userType must be one of 'admin', 'guest'
+      if (!userId && !guestId && userType !== 'system') {
         console.warn('⚠️ Audit log created without userId or guestId');
       }
 
@@ -149,7 +149,8 @@ class AuditLogService {
     userType,
     oldStatus,
     newStatus,
-    reason = null
+    reason = null,
+    metadata = null
   }) {
     return this.createAuditEntry({
       bookingId,
@@ -161,7 +162,7 @@ class AuditLogService {
       oldValue: { status: oldStatus },
       newValue: { status: newStatus },
       category: 'Status',
-      metadata: { reason }
+      metadata: { reason, ...metadata }
     });
   }
 
