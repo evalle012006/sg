@@ -21,6 +21,7 @@ import dynamic from 'next/dynamic';
 import _ from 'lodash';
 import { getCancellationType, getFirstLetters, getFunder, isBookingCancelled } from "../../utilities/common";
 import CancellationModal from '../../components/booking-comp/CancellationModal';
+import { BOOKING_FUND_TYPES } from '../../components/constants';
 
 const Layout = dynamic(() => import('../../components/layout'));
 const BookingEditView = dynamic(() => import('../../components/booking-comp/booking-edit-view'));
@@ -1392,22 +1393,20 @@ export default function BookingDetail() {
     await performStatusUpdate(selected, false);
   }, [booking?.uuid, status, dispatch]);
 
-  const performStatusUpdate = useCallback(async (selected, isFullCharge = false) => {
-    // Save the previous status to revert on error
+  const performStatusUpdate = useCallback(async (selected, isFullCharge = false, cancellationReason = null) => {
     const previousStatus = status;
-    
     dispatch(globalActions.setLoading(true));
-    setStatus(selected);  // Optimistic update
-    
+    setStatus(selected);
+
     try {
       const response = await fetch(`/api/bookings/${booking.uuid}/update-status`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          status: selected,
-          isFullChargeCancellation: isFullCharge
+            status: selected,
+            isFullChargeCancellation: isFullCharge,
+            cancellationReason: cancellationReason,
+            currentUserId: currentUser?.id,
         })
       });
 
@@ -1515,10 +1514,10 @@ export default function BookingDetail() {
     }
   }, [booking?.uuid, eligibility, dispatch, fetchBooking]);
 
-  const handleCancellationConfirm = useCallback((isFullCharge) => {
+  const handleCancellationConfirm = useCallback(({ isFullCharge, reason } = {}) => {
     setShowCancellationModal(false);
     if (pendingCancellationStatus) {
-      performStatusUpdate(pendingCancellationStatus, isFullCharge);
+      performStatusUpdate(pendingCancellationStatus, isFullCharge, reason);
       setPendingCancellationStatus(null);
     }
   }, [pendingCancellationStatus, performStatusUpdate]);
@@ -1808,7 +1807,14 @@ export default function BookingDetail() {
                   </div>
 
                   {/* Cancellation Type Badge - Show if booking is cancelled */}
-                  {isBookingCancelled(status) && getCancellationType(booking) && (
+
+                  {isBookingCancelled(status) && booking?.booking_type === BOOKING_FUND_TYPES.AOB && booking?.cancellationReason && (
+                    <div className="mt-2 text-sm text-gray-600 italic">
+                      Reason: {booking.cancellationReason}
+                    </div>
+                  )}
+
+                  {isBookingCancelled(status) && getCancellationType(booking) && booking?.booking_type !== BOOKING_FUND_TYPES.AOB && (
                     <div className="mt-6 p-4 rounded-lg border" style={{
                       backgroundColor: getCancellationType(booking) === 'Full Charge' ? '#FEF2F2' : '#F0FDF4',
                       borderColor: getCancellationType(booking) === 'Full Charge' ? '#FCA5A5' : '#86EFAC'
@@ -2842,7 +2848,7 @@ export default function BookingDetail() {
           {isUser ? (
             <div className="w-96 flex-shrink-0 h-full overflow-y-auto">
               {booking?.booking_type === 'accommodation_only' && (
-                <div className="p-4 border-b border-gray-200">
+                <div className="border-b border-gray-200">
                   <AOBPricingPanel
                     booking={booking}
                     sendingLink={sendingPaymentLink}
@@ -2906,6 +2912,7 @@ export default function BookingDetail() {
         onClose={handleCancellationModalClose}
         onConfirm={handleCancellationConfirm}
         bookingId={booking?.reference_id}
+        bookingType={booking?.booking_type}
       />
     </Layout>
   );

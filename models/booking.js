@@ -65,7 +65,7 @@ module.exports = (sequelize, DataTypes) => {
       comment: 'Booking pathway: accommodation_only | funded | null (legacy/pre-AOB)',
     },
     payment_status: {
-      type: DataTypes.ENUM('unpaid', 'paid', 'refunded'),
+      type: DataTypes.ENUM('unpaid', 'paid', 'refunded', 'failed', 'partially_refunded'),
       allowNull: true,
       defaultValue: null,
     },
@@ -74,6 +74,11 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: true,
       defaultValue: null,
     },
+    submitted_at: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: null,
+    }
   }, {
     sequelize,
     modelName: 'Booking',

@@ -50,4 +50,8 @@ export const TEMPLATE_IDS = {
 
   // STRIPE PAYMENT
   AOB_PAYMENT_LINK: 'aob-payment-link',
+  AOB_PAYMENT_RECEIPT: 'aob-payment-receipt',
+  AOB_REFUND_CONFIRMATION: 'aob-refund-confirmation',
+  AOB_DEADLINE_CANCELLED: 'aob-deadline-cancelled',
+  AOB_PAYMENT_REMINDER: 'aob-payment-reminder',
 };

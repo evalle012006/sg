@@ -16,7 +16,7 @@ import EmailService from '../../../../services/booking/emailService';
 import { TEMPLATE_IDS } from '../../../../services/booking/templateIds';
 import AuditLogService from "../../../../services/AuditLogService";
 import { BOOKING_FUND_TYPES } from "../../../../components/constants";
-import { createPaymentLinkForBooking } from "../../../../services/booking/paymentLinkService";
+import { createPaymentLinkForBooking, createFullRefundForBooking } from '../../../../services/booking/paymentLinkService';
 
 // ─── Build formatted iCare context for trigger dispatch ───────────────────────
 const buildIcareContext = (allocationSummary, updateType, extraFields = {}) => {
@@ -55,7 +55,7 @@ const buildIcareContext = (allocationSummary, updateType, extraFields = {}) => {
 export default async function handler(req, res) {
     try {
         const { uuid } = req.query;
-        const { status, eligibility, isFullChargeCancellation } = req.body;
+        const { status, eligibility, isFullChargeCancellation, cancellationReason, currentUserId } = req.body;
 
         if (!uuid) {
             return res.status(400).json({ error: 'Booking UUID is required', message: 'Booking UUID is required' });
@@ -589,7 +589,7 @@ export default async function handler(req, res) {
                 { where: { uuid } }
             );
 
-            // ── Auto-send AOB payment link on first transition to booking_confirmed ──
+            // ── AOB-22: auto-send payment link on first transition to booking_confirmed ──
             if (
                 status.name === 'booking_confirmed' &&
                 currentStatus?.name !== 'booking_confirmed' &&
@@ -604,15 +604,42 @@ export default async function handler(req, res) {
                 }
             }
 
+            // ── AOB-19: auto-refund on cancellation of a paid AOB booking ──
+            // Fires only on a genuine first-time transition into booking_cancelled, for
+            // AOB bookings that were actually paid. Funded bookings use the existing
+            // No Charge / Full Charge mechanism instead — untouched here. The manual
+            // "Process Refund" button remains available regardless; once payment_status
+            // flips to 'refunded', its own guard (payment_status === 'paid') naturally
+            // hides it, so there's no dangling action pointing at an already-refunded booking.
+            if (
+                status.name === 'booking_cancelled' &&
+                currentStatus?.name !== 'booking_cancelled' &&
+                booking.booking_type === BOOKING_FUND_TYPES.AOB &&
+                booking.payment_status === 'paid'
+            ) {
+                try {
+                    await createFullRefundForBooking({
+                        bookingId: booking.id,
+                        initiatedByUserId: currentUserId || null,
+                        reason: cancellationReason
+                            ? `Automatic refund on cancellation: ${cancellationReason}`
+                            : 'Automatic refund on cancellation',
+                    });
+                    console.log(`💸 Auto-refunded AOB booking ${booking.id} on cancellation`);
+                } catch (refundErr) {
+                    console.error(`❌ Auto-refund failed for booking ${booking.id} on cancellation (non-fatal):`, refundErr.message);
+                }
+            }
+
             // ── Audit log the status change ───────────────────────────────────────────
             try {
                 await AuditLogService.logStatusChange({
-                    bookingId:  booking.id,
-                    userId:     null,
-                    guestId:    booking.Guest?.id || null,
-                    userType:   'system',
-                    oldStatus:  currentStatus?.name || 'unknown',
-                    newStatus:  status.name,
+                    bookingId,
+                    userId: currentUserId || null,
+                    guestId: currentUserId ? null : (booking.Guest?.id || null),
+                    userType: currentUserId ? 'admin' : 'system',
+                    oldStatus: currentStatus?.name || 'unknown',
+                    newStatus: status.name,
                 });
             } catch (auditErr) {
                 console.warn('⚠️ Status change audit log failed (non-fatal):', auditErr.message);

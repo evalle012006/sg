@@ -1,7 +1,11 @@
 import Stripe from 'stripe';
 import { Op } from 'sequelize';
-import { Booking, PaymentLink, StripeWebhookEvent } from '../../../models';
+import { Booking, PaymentLink, StripeWebhookEvent, Guest } from '../../../models';
 import AuditLogService from '../../../services/AuditLogService';
+import moment from 'moment';
+import EmailService from '../../../services/booking/emailService';
+import { TEMPLATE_IDS } from '../../../services/booking/templateIds';
+import { markPaymentLinkPaidAndNotify, markRefundSucceededAndNotify } from '../../../services/booking/paymentLinkService';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
@@ -66,34 +70,11 @@ export default async function handler(req, res) {
           break;
         }
 
-        const [linkAffected] = await PaymentLink.update(
-          {
-            status:                'paid',
-            paid_at:               new Date(),
-            stripe_payment_intent: session.payment_intent,
-          },
-          { where: { stripe_session_id: session.id } }
-        );
-
-        if (linkAffected === 0) {
-          console.error(`❌ Stripe webhook: no PaymentLink found for session ${session.id}`);
-        }
-
-        // Guard against a stale/out-of-order event downgrading a booking
-        // that a later, already-processed event has moved past 'pending'.
-        const [bookingAffected] = await Booking.update(
-          {
-            payment_status:        'paid',
-            stripe_payment_intent: session.payment_intent,
-          },
-          { where: { id: bookingId, payment_status: { [Op.or]: [{ [Op.ne]: 'paid' }, { [Op.is]: null }] } } }
-        );
-
-        if (bookingAffected === 0) {
-          console.log(`ℹ️ Stripe webhook: booking ${bookingId} already marked paid or not found — no rows updated (session ${session.id})`);
-        } else {
-          console.log(`✅ Payment confirmed for booking ${bookingId}, PI: ${session.payment_intent}`);
-        }
+        const { bookingAffected } = await markPaymentLinkPaidAndNotify({
+          stripeSessionId:      session.id,
+          stripePaymentIntent:  session.payment_intent,
+          bookingId,
+        });
 
         try {
           await AuditLogService.logStatusChange({
@@ -167,6 +148,20 @@ export default async function handler(req, res) {
           console.warn('⚠️ Audit log write failed (non-fatal):', auditErr.message);
         }
 
+        break;
+      }
+
+      case 'charge.refunded': {
+        const charge = event.data.object;
+        const stripeRefundId = charge.refunds?.data?.[0]?.id; // most recent refund on this charge
+        const bookingId = parseInt(charge.metadata?.booking_id);
+
+        if (!stripeRefundId || !bookingId) {
+          console.error('❌ charge.refunded: missing refund id or booking_id', { chargeId: charge.id });
+          break;
+        }
+
+        await markRefundSucceededAndNotify({ stripeRefundId, bookingId });
         break;
       }
 

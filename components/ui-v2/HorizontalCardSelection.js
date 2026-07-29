@@ -26,7 +26,15 @@ const HorizontalCardSelection = memo(({
   
   // Track if we've initialized to prevent re-initialization
   const initializedRef = useRef(false);
-  const lastUserSetValueRef = useRef(null);
+  // undefined = "user has never made a selection here" (sentinel).
+  // Deliberately NOT `null` — null is a legitimate value we need to sync TO
+  // (e.g. when a parent reconciliation effect clears a stale/unavailable
+  // selection). If the sentinel were null, an incoming value of null would
+  // match it by coincidence and the guard below would wrongly treat a
+  // parent-driven clear as "matches what the user already set," skipping
+  // the sync entirely — which is exactly what caused a cleared/unavailable
+  // prefilled selection to keep showing as checked.
+  const lastUserSetValueRef = useRef(undefined);
 
   const sizeConfig = {
     small: {
@@ -166,10 +174,19 @@ const HorizontalCardSelection = memo(({
   }, [imageStates, items]);
 
   useEffect(() => {
-      // If the incoming value matches what the user just selected, never override it.
-      // This prevents the NDIS cascade (processedFormData rebuild, profile reload etc.)
-      // from briefly passing a stale/null value that wipes the visual selection.
-      if (JSON.stringify(value) === JSON.stringify(lastUserSetValueRef.current)) {
+      // Only skip syncing from props if the user has ACTUALLY made a selection
+      // (lastUserSetValueRef.current !== undefined) AND that selection matches
+      // the incoming value. This prevents the NDIS cascade (processedFormData
+      // rebuild, profile reload etc.) from briefly passing a stale/null value
+      // that wipes a genuine user selection.
+      //
+      // Critically, this must NOT trigger just because the incoming value
+      // happens to equal the untouched sentinel (undefined) — that was the bug:
+      // parent-driven clears (e.g. availability reconciliation setting the
+      // selection to null) were being silently swallowed because null used to
+      // coincidentally equal the sentinel's default.
+      const userHasSetValue = lastUserSetValueRef.current !== undefined;
+      if (userHasSetValue && JSON.stringify(value) === JSON.stringify(lastUserSetValueRef.current)) {
           return;
       }
       // Only sync from props when not in the middle of a user interaction

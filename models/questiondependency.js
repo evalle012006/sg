@@ -28,7 +28,8 @@ module.exports = (sequelize, DataTypes) => {
         key: 'id'
       }
     },
-    answer: DataTypes.STRING
+    answer: DataTypes.STRING,
+    operator: DataTypes.STRING,
   }, {
     sequelize,
     modelName: 'QuestionDependency',

@@ -6,56 +6,7 @@ import React, { useEffect, useState, useRef } from "react";
 import { statusContext } from "./../../services/booking/statuses";
 import { trim } from 'lodash';
 import { BOOKING_TYPES } from '../constants';
-
-// Cancellation confirmation modal component
-const CancellationModal = ({ isOpen, onClose, onConfirm, bookingId }) => {
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 bg-black/30 z-50" onClick={onClose}>
-      <div className="flex items-center justify-center h-full">
-        <div 
-          className="bg-white rounded-lg shadow-lg w-full max-w-md mx-4" 
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="p-6">
-            <h2 className="text-xl font-bold text-blue-800 mb-3">Select Cancellation Type</h2>
-            <p className="text-gray-700 mb-6">
-              Please select the type of cancellation for this booking:
-            </p>
-            
-            <div className="space-y-3 mb-6">
-              <button
-                className="w-full text-left px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-                onClick={() => onConfirm(false)}
-              >
-                <div className="font-medium text-gray-900">No Charge Cancellation</div>
-                <div className="text-sm text-gray-500">Nights will NOT be returned to the guest&apos;s approval</div>
-              </button>
-              
-              <button
-                className="w-full text-left px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-                onClick={() => onConfirm(true)}
-              >
-                <div className="font-medium text-gray-900">Full Charge Cancellation</div>
-                <div className="text-sm text-gray-500">Nights WILL be returned to the guest&apos;s iCare approval</div>
-              </button>
-            </div>
-            
-            <div className="flex justify-end">
-              <button 
-                className="font-medium text-gray-500 uppercase text-sm px-4 py-2" 
-                onClick={onClose}
-              >
-                CANCEL
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
+import CancellationModal from './CancellationModal';
 
 export const DropdownStatus = ({ status, booking, fetchData, disabled }) => {
   const [isDrop, setIsDrop] = useState(false);
@@ -90,26 +41,25 @@ export const DropdownStatus = ({ status, booking, fetchData, disabled }) => {
     }
   };
 
-  const handleCancellationConfirm = (isFullCharge) => {
+  const handleCancellationConfirm = ({ isFullCharge, reason } = {}) => {
     setShowCancellationModal(false);
     if (pendingCancellationStatus) {
-      updateStatus(pendingCancellationStatus, booking, isFullCharge);
+      updateStatus(pendingCancellationStatus, booking, isFullCharge, reason);
       setPendingCancellationStatus(null);
     }
   };
 
   const handleCancellationModalClose = () => {
-    setShowCancellationModal(false);
-    setPendingCancellationStatus(null);
+      setShowCancellationModal(false);
+      setPendingCancellationStatus(null);
   };
 
-  const updateStatus = async (newStatus, booking, isFullCharge = false) => {
-    // Save the previous status to revert on error
+  const updateStatus = async (newStatus, booking, isFullCharge = false, cancellationReason = null) => {
     const previousStatus = selectedStatus;
     
     setIsUpdating(true);
-    setIsDrop(false); // Close dropdown immediately
-    setSelectedStatus(newStatus);  // Optimistic update
+    setIsDrop(false);
+    setSelectedStatus(newStatus);
     
     try {
       const response = await fetch(`/api/bookings/${booking.uuid}/update-status`, {
@@ -119,7 +69,8 @@ export const DropdownStatus = ({ status, booking, fetchData, disabled }) => {
         },
         body: JSON.stringify({
           status: newStatus,
-          isFullChargeCancellation: isFullCharge
+          isFullChargeCancellation: isFullCharge,
+          cancellationReason: cancellationReason,
         })
       });
 
@@ -251,10 +202,11 @@ export const DropdownStatus = ({ status, booking, fetchData, disabled }) => {
 
     {/* Cancellation Type Modal */}
     <CancellationModal
-      isOpen={showCancellationModal}
-      onClose={handleCancellationModalClose}
-      onConfirm={handleCancellationConfirm}
-      bookingId={booking?.reference_id}
+        isOpen={showCancellationModal}
+        onClose={handleCancellationModalClose}
+        onConfirm={handleCancellationConfirm}
+        bookingId={booking?.reference_id}
+        bookingType={booking?.booking_type}
     />
   </>);
 }

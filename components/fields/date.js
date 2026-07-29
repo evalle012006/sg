@@ -349,16 +349,16 @@ const DateField = (props) => {
 
     // Initialize from props.value
     useEffect(() => {
-        console.log('📅 DateField props.value changed:', {
-            name: props.name,
-            newValue: props.value,
-            currentState: { day, month, year }
-        });
+        // console.log('📅 DateField props.value changed:', {
+        //     name: props.name,
+        //     newValue: props.value,
+        //     currentState: { day, month, year }
+        // });
         
         if (props.value) {
             const valArr = props.value.split('-');
             if (valArr.length === 3) {
-                console.log('📅 Updating date state from props:', valArr);
+                // console.log('📅 Updating date state from props:', valArr);
                 
                 // ✅ Set flag to prevent notifying parent during props update
                 isUpdatingFromProps.current = true;
@@ -377,7 +377,7 @@ const DateField = (props) => {
             }
         } else if (props.value === '' && (day || month || year)) {
             // ✅ Only clear if we have values and props explicitly sets to empty
-            console.log('📅 props.value is empty/falsy - NOT clearing state');
+            // console.log('📅 props.value is empty/falsy - NOT clearing state');
             // Don't clear state - keep existing values
         }
     }, [props.value]);

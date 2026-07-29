@@ -32,6 +32,7 @@ export default function ConditionalsBuilder() {
     const [isAddPage, setIsAddPage] = useState(false);
     const [newConditionAnswer, setNewConditionAnswer] = useState(null);
     const [newConditionNextId, setNewConditionNextId] = useState(null);
+    const [newConditionOperator, setNewConditionOperator] = useState('equals');
     const [addPageNQSearch, setAddPageNQSearch] = useState("");
     const [isSaving, setIsSaving] = useState(false);
 
@@ -48,6 +49,43 @@ export default function ConditionalsBuilder() {
     ];
 
     const serviceCardFields = ['service-cards', 'service-cards-multi'];
+
+    // Only types listed here get an operator + value control in the Add Condition panel.
+    // Anything not listed keeps today's behavior: leave value blank, "any answer" triggers.
+    const operatorsByType = {
+        date: [
+            { value: 'equals', label: 'Is exactly' },
+            { value: 'before', label: 'Is before' },
+            { value: 'after', label: 'Is after' },
+            { value: 'age_less_than', label: 'Age is less than' },
+            { value: 'age_greater_than', label: 'Age is at least' },
+        ],
+        year: [
+            { value: 'equals', label: 'Equals' },
+            { value: 'greater_than', label: 'Is greater than' },
+            { value: 'less_than', label: 'Is less than' },
+        ],
+        number: [
+            { value: 'equals', label: 'Equals' },
+            { value: 'greater_than', label: 'Is greater than' },
+            { value: 'less_than', label: 'Is less than' },
+        ],
+    };
+
+    // Types that render as free text or have no options — give them a basic operator
+    // set too, instead of the old null (which skipped the operator UI entirely).
+    const defaultOperators = [
+        { value: 'equals', label: 'Equals' },
+        { value: 'not_equals', label: 'Does not equal' },
+        { value: 'contains', label: 'Contains' },
+    ];
+
+    const noOperatorTypes = ['goal-table', 'care-table', 'url', 'rich-text', 'rooms', 'equipment', 'package-selection'];
+
+    const getOperatorsForQuestion = (q) => {
+        if (!q || noOperatorTypes.includes(q.type)) return null;
+        return operatorsByType[q.type] || defaultOperators;
+    };
 
     // ── Helpers ──────────────────────────────────────────────────────────
     const isHtmlContent = (text) => {
@@ -395,7 +433,8 @@ export default function ConditionalsBuilder() {
     // CREATE — pages/api/booking-templates/questions/dependencies/create.js
     const saveNewCondition = async () => {
         if (!newConditionNextId || !selectedQuestion) return;
-        if (getOptionsForQuestion(selectedQuestion).length > 0 && !newConditionAnswer) return;
+        const requiresValue = getOptionsForQuestion(selectedQuestion).length > 0 || hasAdvancedOperators;
+        if (requiresValue && (newConditionAnswer === null || newConditionAnswer === '')) return;
         setIsSaving(true);
         try {
             const res = await fetch('/api/booking-templates/questions/dependencies/create', {
@@ -405,6 +444,7 @@ export default function ConditionalsBuilder() {
                     question_id: newConditionNextId,
                     answer: newConditionAnswer,
                     dependence_id: selectedQuestion.id,
+                    operator: hasAdvancedOperators ? newConditionOperator : 'equals',
                 }),
             });
             if (!res.ok) throw new Error('Save failed');
@@ -422,6 +462,7 @@ export default function ConditionalsBuilder() {
     const handleGoToAddPage = () => {
         setNewConditionAnswer(null);
         setNewConditionNextId(null);
+        setNewConditionOperator('equals');
         setAddPageNQSearch("");
         setIsAddPage(true);
     };
@@ -430,12 +471,24 @@ export default function ConditionalsBuilder() {
         setIsAddPage(false);
         setNewConditionAnswer(null);
         setNewConditionNextId(null);
+        setNewConditionOperator('equals');
         setAddPageNQSearch("");
     };
 
     // ── Derived data ──────────────────────────────────────────────────────
     const selectedQuestionOptions = getOptionsForQuestion(selectedQuestion);
     const hasOptions = selectedQuestionOptions.length > 0;
+    const operatorsForSelectedQuestion = !hasOptions ? getOperatorsForQuestion(selectedQuestion) : null;
+    const hasAdvancedOperators = !!operatorsForSelectedQuestion;
+    const isAgeOperator = newConditionOperator?.startsWith('age_');
+    const numberInputTypes = ['year', 'number'];
+    const advancedValueInputType = isAgeOperator
+        ? 'number'
+        : selectedQuestion?.type === 'date'
+            ? 'date'
+            : numberInputTypes.includes(selectedQuestion?.type)
+                ? 'number'
+                : 'text';
 
     const addPageNQFiltered = (() => {
         const lo = addPageNQSearch.toLowerCase();
@@ -459,7 +512,9 @@ export default function ConditionalsBuilder() {
 
     const sidebarGroups = getPageGroups(filteredQuestions);
 
-    const canSave = !!newConditionNextId && (!hasOptions || !!newConditionAnswer);
+    const conditionRequiresValue = hasOptions || hasAdvancedOperators;
+    const canSave = !!newConditionNextId &&
+        (!conditionRequiresValue || (newConditionAnswer !== null && newConditionAnswer !== ''));
 
     // ── Answer Pill ───────────────────────────────────────────────────────
     const getPillClass = (answer) => {
@@ -799,7 +854,9 @@ export default function ConditionalsBuilder() {
                             <p className="text-sm text-gray-600 mb-4 leading-relaxed">
                                 {hasOptions
                                     ? <>Choose which <strong className="text-gray-800">response</strong> triggers this condition, then select the <strong className="text-gray-800">next question</strong> that should appear.</>
-                                    : <>Select the <strong className="text-gray-800">next question</strong> to show when this question is answered.</>
+                                    : hasAdvancedOperators
+                                        ? <>Choose a <strong className="text-gray-800">condition</strong>, then select the <strong className="text-gray-800">next question</strong> that should appear.</>
+                                        : <>Select the <strong className="text-gray-800">next question</strong> to show when this question is answered.</>
                                 }
                             </p>
 
@@ -812,7 +869,7 @@ export default function ConditionalsBuilder() {
                                 })()}
                             </div>
 
-                            <div className={`grid gap-6 ${hasOptions ? 'grid-cols-[220px_1fr]' : 'grid-cols-1'}`}>
+                            <div className={`grid gap-6 ${(hasOptions || hasAdvancedOperators) ? 'grid-cols-[220px_1fr]' : 'grid-cols-1'}`}>
 
                                 {/* Response options — only for option-based types */}
                                 {hasOptions && (
@@ -843,6 +900,34 @@ export default function ConditionalsBuilder() {
                                                 );
                                             })}
                                         </div>
+                                    </div>
+                                )}
+
+                                {/* Operator + value — only for types with extra operators (date, year) */}
+                                {hasAdvancedOperators && (
+                                    <div>
+                                        <p className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-3">
+                                            Condition
+                                        </p>
+                                        <select
+                                            value={newConditionOperator}
+                                            onChange={e => {
+                                                setNewConditionOperator(e.target.value);
+                                                setNewConditionAnswer(null); // clear value when operator type changes
+                                            }}
+                                            className="w-full text-sm rounded-lg border-2 border-gray-200 px-3 py-2.5 mb-3 outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white font-medium text-gray-700"
+                                        >
+                                            {operatorsForSelectedQuestion.map(op => (
+                                                <option key={op.value} value={op.value}>{op.label}</option>
+                                            ))}
+                                        </select>
+                                        <input
+                                            type={advancedValueInputType}
+                                            placeholder={isAgeOperator ? 'Age in years (e.g. 18)' : ''}
+                                            value={newConditionAnswer ?? ''}
+                                            onChange={e => setNewConditionAnswer(e.target.value)}
+                                            className="w-full text-sm rounded-lg border-2 border-gray-200 px-3 py-2.5 outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                                        />
                                     </div>
                                 )}
 
@@ -913,7 +998,9 @@ export default function ConditionalsBuilder() {
                                             <>
                                                 <span className="font-bold text-teal-500 text-base">→</span>
                                                 <AnswerPill answer={
-                                                    selectedQuestionOptions.find(o => o.answerValue === newConditionAnswer)?.label || newConditionAnswer
+                                                    hasAdvancedOperators
+                                                        ? `${operatorsForSelectedQuestion.find(o => o.value === newConditionOperator)?.label || newConditionOperator}: ${newConditionAnswer}`
+                                                        : selectedQuestionOptions.find(o => o.answerValue === newConditionAnswer)?.label || newConditionAnswer
                                                 } />
                                             </>
                                         )}

@@ -4,7 +4,7 @@
 module.exports = {
   up: async (queryInterface, Sequelize) => {
     await queryInterface.addColumn('bookings', 'payment_status', {
-      type: Sequelize.ENUM('unpaid', 'paid', 'refunded'),
+      type: Sequelize.ENUM('unpaid', 'paid', 'refunded', 'failed', 'partially_refunded'),
       allowNull: true,
       defaultValue: null,  // null = not an AOB booking or payment not yet requested
     });

@@ -253,7 +253,7 @@ const SummaryOfStayAOB = ({
             <h2 className="text-xl font-semibold mb-2 text-slate-700">Sign &amp; Submit</h2>
             <p className="text-sm text-gray-600 mb-6">
               By signing below you confirm that all information provided is accurate and you agree to
-              Sargood on Collaroy's Terms and Conditions.
+              Sargood on Collaroy&apos;s Terms and Conditions.
             </p>
 
             {/* Admin verbal consent */}

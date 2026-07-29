@@ -730,20 +730,23 @@ const updateBooking = async (booking, qa_pairs = [], flags, bookingService) => {
             
             if (!booking.complete) {
                 console.log('Updating booking to complete')
-                await Booking.update({ complete: true }, { where: { id: booking.id } });
+
+                // submitted_at is the authoritative "date submitted" timestamp — set once,
+                // here, at the genuine first-completion transition. Distinct from createdAt
+                // (which reflects when the booking record was first created, potentially
+                // well before the guest actually finished and submitted it).
+                const submittedAt = new Date();
+                await Booking.update({ complete: true, submitted_at: submittedAt }, { where: { id: booking.id } });
                 
                 // ⭐⭐⭐ GUEST SUBMISSION AUDIT LOG ⭐⭐⭐
-                // ONLY log guest submissions when they complete the entire form
-                // DO NOT log admin submissions here (they're tracked elsewhere)
                 try {
                     const isAdminOrigin = flags?.origin === 'admin';
                     
-                    // Only for guests AND only on final submission
                     if (!isAdminOrigin && allSubmitted) {
                         await AuditLogService.createAuditEntry({
                             bookingId: booking.id,
                             userId: null,
-                            guestId: flags.currentUserId || booking.guestId, // Use current user ID if available, otherwise fallback to guest ID
+                            guestId: flags.currentUserId || booking.guestId,
                             actionType: 'booking_submitted',
                             userType: 'guest',
                             description: 'Booking request submitted for review',
@@ -751,7 +754,7 @@ const updateBooking = async (booking, qa_pairs = [], flags, bookingService) => {
                             newValue: { status: 'submitted', complete: true },
                             category: 'Submission',
                             metadata: {
-                                submitted_at: new Date(),
+                                submitted_at: submittedAt,
                                 booking_type: booking.type
                             }
                         });

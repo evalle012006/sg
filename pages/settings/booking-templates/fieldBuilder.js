@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { GetField } from "../../../components/fields"
 import { useDebouncedCallback } from 'use-debounce';
 import { useDispatch, useSelector } from "react-redux";
@@ -9,6 +9,8 @@ export default function FieldBuilder(props) {
     const [question, setQuestion] = useState(props.question || undefined);
     const [newOption, setNewOption] = useState({ label: "", value: "" });
     const [optionSyncStatus, setOptionSyncStatus] = useState(true);
+    const isMountedOptionsRef = useRef(false);
+    const userChangedOptionsRef = useRef(false);
     const dispatch = useDispatch();
     const template_uuid = useSelector(state => state.builder.template.uuid);
     const nonRequiredFields = ['url', 'rich-text'];
@@ -76,59 +78,55 @@ export default function FieldBuilder(props) {
         handleQuestionChanges(updatedQuestion);
     };
 
+    // Track whether defaults have already been initialised for this question
+    const defaultsInitialisedRef = useRef(false);
+
+    // Effect 1: Sync question state from props when the question actually changes
     useEffect(() => {
-        if (!question) {
-            return;
-        }
-
-        setQuestion(props.question);
-
-        if (props.question && props.question?.options == null) {
+        if (!props.question) return;
+        if (props.question.options == null) {
             setQuestion({ ...props.question, options: [] });
+        } else {
+            setQuestion(props.question);
         }
+    }, [props.question?.id]);
 
-        // Initialize option_type if not set for card selection fields
+    // Effect 2: One-time defaults initialisation — only when question ID first appears
+    // Uses a ref so it never re-runs on parent re-renders
+    useEffect(() => {
+        if (!props.question) return;
+        if (defaultsInitialisedRef.current) return; // already ran for this question
+        defaultsInitialisedRef.current = true;
+
+        // Initialize option_type for card selection fields only if genuinely missing
         if (cardSelectionFields.includes(props.question?.type) && !props.question?.option_type) {
             const questionWithOptionType = { ...props.question, option_type: 'funder' };
             setQuestion(questionWithOptionType);
-            
-            // Auto-save the option_type to database
-            setTimeout(() => {
-                handleQuestionChanges(questionWithOptionType);
-            }, 100);
+            setTimeout(() => { handleQuestionChanges(questionWithOptionType); }, 100);
+            return;
         }
 
-        // Initialize funder and ndis_package_type if not set for package selection fields
+        // Initialize NDIS defaults for package selection fields only if genuinely missing
         if (packageSelectionFields.includes(props.question?.type)) {
             let updatedQuestion = { ...props.question };
             let needsUpdate = false;
-            
-            // Parse existing details or create new object
-            let details = typeof updatedQuestion.details === 'string' 
-                ? JSON.parse(updatedQuestion.details) 
+
+            let details = typeof updatedQuestion.details === 'string'
+                ? JSON.parse(updatedQuestion.details)
                 : (updatedQuestion.details || {});
 
-            if (!details.funder) {
-                details.funder = 'NDIS';
-                needsUpdate = true;
-            }
-
+            if (!details.funder) { details.funder = 'NDIS'; needsUpdate = true; }
             if (!details.ndis_package_type && details.funder === 'NDIS') {
-                details.ndis_package_type = 'sta';
-                needsUpdate = true;
+                details.ndis_package_type = 'sta'; needsUpdate = true;
             }
 
             if (needsUpdate) {
                 updatedQuestion.details = details;
                 setQuestion(updatedQuestion);
-                
-                // Auto-save the defaults to database
-                setTimeout(() => {
-                    handleQuestionChanges(updatedQuestion);
-                }, 100);
+                setTimeout(() => { handleQuestionChanges(updatedQuestion); }, 100);
             }
         }
-    }, [props]);
+    }, [props.question?.id]);
 
     const debounceHandleQuestionChanges = useDebouncedCallback((questionToSave) => handleQuestionChanges(questionToSave), 2000);
 
@@ -275,6 +273,7 @@ export default function FieldBuilder(props) {
         }
 
         setOptionSyncStatus(false);
+        userChangedOptionsRef.current = true;
         setQuestion({ ...question, options: updatedOptions });
         }
 
@@ -477,9 +476,16 @@ export default function FieldBuilder(props) {
     }
 
     useEffect(() => {
+        if (!isMountedOptionsRef.current) {
+            isMountedOptionsRef.current = true;
+            return;
+        }
+        // Only sync if the options change came from a user action,
+        // not from props being re-synced after a server save.
+        if (!userChangedOptionsRef.current) return;
+        userChangedOptionsRef.current = false;
         if (!question || !optionSyncStatus) return;
         syncOptions();
-        console.log('options updated');
     }, [question?.options]);
 
     // Dynamic file upload based on option_type or field type

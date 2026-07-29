@@ -1,4 +1,5 @@
 import { QUESTION_KEYS, questionHasKey, questionMatches } from '../services/booking/question-helper';
+import { evaluateCondition } from './conditionEvaluator';
 
 /**
  * ENHANCED: Detect NDIS funding from BOTH QaPairs (saved) AND Questions (prefilled/current)
@@ -1149,33 +1150,6 @@ export const forceRefreshDependencies = (allPages, changedPageId, changedQuestio
 export const applyQuestionDependenciesAcrossPages = (targetPage, allPages, bookingFormRoomSelected = []) => {
     if (!targetPage || !targetPage.Sections || !allPages) return targetPage;
 
-    // Helper function to check if answers match
-    const checkAnswerMatch = (actualAnswer, expectedAnswer) => {
-        // Direct match
-        if (actualAnswer === expectedAnswer) {
-            return true;
-        }
-
-        // Handle array answers for multi-select questions
-        if (Array.isArray(actualAnswer) && actualAnswer.includes(expectedAnswer)) {
-            return true;
-        }
-
-        // Handle string array answers (JSON parsed)
-        if (typeof actualAnswer === 'string') {
-            try {
-                const parsedAnswer = JSON.parse(actualAnswer);
-                if (Array.isArray(parsedAnswer) && parsedAnswer.includes(expectedAnswer)) {
-                    return true;
-                }
-            } catch (e) {
-                // Not JSON, continue with other checks
-            }
-        }
-
-        return false;
-    };
-
     const getCurrentFunder = (pages) => {
         for (const page of pages) {
             for (const section of page.Sections || []) {
@@ -1295,7 +1269,7 @@ export const applyQuestionDependenciesAcrossPages = (targetPage, allPages, booki
                                             (searchQuestion.question && searchQuestion.question === dependency.dependence_id);
 
                                         if (questionMatches) {
-                                            const answerMatches = checkAnswerMatch(searchQuestion.answer, dependency.answer);
+                                            const answerMatches = evaluateCondition(dependency.operator, dependency.answer, searchQuestion.answer);
 
                                             if (answerMatches) {
                                                 shouldShow = true;
@@ -1326,7 +1300,7 @@ export const applyQuestionDependenciesAcrossPages = (targetPage, allPages, booki
                                             (qaPair.question === dependency.dependence_id);
 
                                         if (questionMatches) {
-                                            const answerMatches = checkAnswerMatch(qaPair.answer, dependency.answer);
+                                            const answerMatches = evaluateCondition(dependency.operator, dependency.answer, qaPair.answer);
 
                                             if (answerMatches) {
                                                 shouldShow = true;
@@ -1955,7 +1929,7 @@ export const forceRefreshAllDependencies = (allPages, bookingFormRoomSelected = 
                             for (const matchId of possibleMatches) {
                                 const dependentAnswer = answerMap.get(matchId);
                                 if (dependentAnswer && !dependentAnswer.hidden) { // CRITICAL: Only consider non-hidden questions
-                                    const answerMatches = checkAnswerMatch(dependentAnswer.answer, dependency.answer);
+                                    const answerMatches = evaluateCondition(dependency.operator, dependency.answer, dependentAnswer.answer);
                                     
                                     if (answerMatches) {
                                         shouldShow = true;
@@ -1997,122 +1971,6 @@ export const forceRefreshAllDependencies = (allPages, bookingFormRoomSelected = 
     // console.log(`✅ Dependency refresh completed after ${passCount} passes`);
     return workingPages;
 };
-
-/**
- * Enhanced answer matching function for dependencies
- * @param {any} actualAnswer - The actual answer from the question
- * @param {any} expectedAnswer - The expected answer from the dependency
- * @returns {boolean} - True if answers match
- */
-export const checkAnswerMatch = (actualAnswer, expectedAnswer) => {
-    // Direct match
-    if (actualAnswer === expectedAnswer) {
-        return true;
-    }
-
-    // Handle null/undefined cases
-    if (actualAnswer == null && expectedAnswer == null) {
-        return true;
-    }
-    
-    if (actualAnswer == null || expectedAnswer == null) {
-        return false;
-    }
-
-    // Handle service-cards format
-    // Service-cards stores answers as objects like:
-    // { "service-value": { selected: true, subOptions: ["sub1", "sub2"] } }
-    if (typeof actualAnswer === 'object' && !Array.isArray(actualAnswer)) {
-        // Parse actualAnswer if it's a string
-        let serviceData = actualAnswer;
-        if (typeof actualAnswer === 'string') {
-            try {
-                serviceData = JSON.parse(actualAnswer);
-            } catch (e) {
-                // Not JSON, fall through to other checks
-                serviceData = null;
-            }
-        }
-
-        // Check if this looks like service-cards data
-        if (serviceData && typeof serviceData === 'object' && !Array.isArray(serviceData)) {
-            // Check if expected answer contains colon (could be yes/no or sub-option format)
-            if (typeof expectedAnswer === 'string' && expectedAnswer.includes(':')) {
-                const parts = expectedAnswer.split(':');
-                const serviceValue = parts[0];
-                const optionValue = parts[1];
-                
-                // Check for Yes/No conditions
-                if (optionValue === 'yes') {
-                    // Format: "service-value:yes" - Check if service is selected
-                    const service = serviceData[serviceValue];
-                    return service && service.selected === true;
-                } else if (optionValue === 'no') {
-                    // Format: "service-value:no" - Check if service is NOT selected
-                    const service = serviceData[serviceValue];
-                    // Service explicitly not selected (selected: false) OR not in the data at all
-                    return !service || service.selected === false;
-                } else {
-                    // Format: "service-value:sub-option-value" - Check sub-option
-                    // When checking sub-option, we automatically imply the service must be selected (Yes)
-                    const service = serviceData[serviceValue];
-                    if (service && service.selected === true && service.subOptions) {
-                        return service.subOptions.includes(optionValue);
-                    }
-                    return false;
-                }
-            } else if (typeof expectedAnswer === 'string') {
-                // Legacy format: "service-value" (for backward compatibility)
-                // This checks if service is selected (same as :yes)
-                const service = serviceData[expectedAnswer];
-                if (service !== undefined) {
-                    // This is service-cards data, check if selected
-                    return service.selected === true;
-                }
-                // Not service-cards format, continue to other checks
-            }
-        }
-    }
-
-    // Handle array answers for multi-select questions
-    if (Array.isArray(actualAnswer)) {
-        if (Array.isArray(expectedAnswer)) {
-            // Both arrays - check if they have common elements
-            return expectedAnswer.some(expected => actualAnswer.includes(expected));
-        } else {
-            // Actual is array, expected is single value
-            return actualAnswer.includes(expectedAnswer);
-        }
-    }
-
-    // Handle string array answers (JSON parsed)
-    if (typeof actualAnswer === 'string') {
-        try {
-            const parsedAnswer = JSON.parse(actualAnswer);
-            if (Array.isArray(parsedAnswer)) {
-                if (Array.isArray(expectedAnswer)) {
-                    return expectedAnswer.some(expected => parsedAnswer.includes(expected));
-                } else {
-                    return parsedAnswer.includes(expectedAnswer);
-                }
-            }
-            // If parsed but not array, it might be service-cards
-            if (typeof parsedAnswer === 'object' && parsedAnswer !== null) {
-                // Recursively call with parsed data
-                return checkAnswerMatch(parsedAnswer, expectedAnswer);
-            }
-        } catch (e) {
-            // Not JSON, continue with other checks
-        }
-        
-        // String comparison as last resort
-        return String(actualAnswer).toLowerCase() === String(expectedAnswer).toLowerCase();
-    }
-
-    // Type conversion and comparison
-    return String(actualAnswer) === String(expectedAnswer);
-};
-
 
 /**
  * Mark hidden questions for exclusion during save, but preserve their answers in memory
@@ -2222,7 +2080,7 @@ export const validateNdisDependencies = (allPages, isNdisFunded) => {
                                     
                                     if (matches) {
                                         dependencyFound = true;
-                                        const answerMatches = checkAnswerMatch(searchQuestion.answer, dependency.answer);
+                                        const answerMatches = evaluateCondition(dependency.operator, dependency.answer, searchQuestion.answer);
                                         if (answerMatches) {
                                             dependencyMet = true;
                                             anyDependencyMet = true;
@@ -2238,7 +2096,7 @@ export const validateNdisDependencies = (allPages, isNdisFunded) => {
                                     
                                     if (matches) {
                                         dependencyFound = true;
-                                        const answerMatches = checkAnswerMatch(qaPair.answer, dependency.answer);
+                                        const answerMatches = evaluateCondition(dependency.operator, dependency.answer, qaPair.answer);
                                         if (answerMatches) {
                                             dependencyMet = true;
                                             anyDependencyMet = true;

@@ -49,6 +49,7 @@ const guestFundingProfileModel = require('./guestfundingprofile');
 const flagModel = require('./flag');
 const paymentLinkModel = require('./paymentlink');
 const stripeWebhookEventModel = require('./stripewebhookevent');
+const refundModel = require('./refund');
 
 const env = process.env.NODE_ENV || 'development';
 const config = require(__dirname + '/../config/config.js')[env];
@@ -108,6 +109,7 @@ const GuestFundingProfile = guestFundingProfileModel(sequelize, Sequelize.DataTy
 const Flag = flagModel(sequelize, Sequelize.DataTypes);
 const PaymentLink = paymentLinkModel(sequelize, Sequelize.DataTypes);
 const StripeWebhookEvent = stripeWebhookEventModel(sequelize, Sequelize.DataTypes);
+const Refund = refundModel(sequelize, Sequelize.DataTypes);
 
 //ASSOCIATIONS
 
@@ -467,6 +469,14 @@ GuestFundingProfile.belongsTo(Booking, {
 PaymentLink.belongsTo(Booking, { foreignKey: 'booking_id' });
 Booking.hasMany(PaymentLink,   { foreignKey: 'booking_id' });
 
+Refund.belongsTo(Booking, { foreignKey: 'booking_id' });
+Booking.hasMany(Refund, { foreignKey: 'booking_id' });
+
+Refund.belongsTo(PaymentLink, { foreignKey: 'payment_link_id' });
+PaymentLink.hasMany(Refund, { foreignKey: 'payment_link_id' });
+
+Refund.belongsTo(User, { foreignKey: 'initiated_by_user_id', as: 'initiatedBy' });
+
 module.exports = {
   sequelize,
   Sequelize,
@@ -518,4 +528,5 @@ module.exports = {
   Flag,
   PaymentLink,
   StripeWebhookEvent,
+  Refund,
 };

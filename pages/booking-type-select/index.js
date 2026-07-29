@@ -315,7 +315,7 @@ export default function BookingTypeSelectPage() {
                         color: '#64748B',
                         lineHeight: 1.55,
                     }}>
-                        Choose the option that best matches your needs. We'll take you to the right form.
+                        Choose the option that best matches your needs. We&apos;ll take you to the right form.
                     </p>
 
                     {/* Radiogroup */}

@@ -1,6 +1,7 @@
 import Stripe from 'stripe';
 import { PaymentLink, Booking, Guest, Room, RoomType } from '../../../../models';
-import { regenerateStripeSessionForPaymentLink } from '../../../../services/booking/paymentLinkService';
+import { markPaymentLinkPaidAndNotify, regenerateStripeSessionForPaymentLink } from '../../../../services/booking/paymentLinkService';
+import { Op } from 'sequelize';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
@@ -75,12 +76,54 @@ export default async function handler(req, res) {
     });
   }
 
+  if (link.status === 'deadline_cancelled') {
+    return res.status(200).json({
+      status: 'deadline_cancelled',
+      message: 'This booking was automatically cancelled because payment was not received before the deadline. Please contact Sargood on Collaroy at bookings@sargoodoncollaroy.com.au or call (02) 9971 0522 if you believe this is an error.',
+    });
+  }
+
   // ── Still within business deadline — check/regenerate Stripe session ──
   let session = await stripe.checkout.sessions.retrieve(link.stripe_session_id);
 
   if (session.payment_status === 'paid') {
-    // Race condition: guest paid, webhook hasn't landed yet
-    return res.status(200).json({ status: 'processing' });
+    // Webhook missed or delayed — reconcile via the same path the webhook
+    // itself uses, so a self-healed payment gets identical treatment
+    // (DB update + guest receipt email) regardless of which mechanism
+    // discovers it first.
+    await markPaymentLinkPaidAndNotify({
+      stripeSessionId:     link.stripe_session_id,
+      stripePaymentIntent: session.payment_intent,
+      bookingId:           link.booking_id,
+    });
+
+    console.log(`✅ payment-link/[uuid]: self-healed booking ${link.booking_id} via reconciliation (session ${link.stripe_session_id})`);
+
+    const updatedLink = await PaymentLink.findOne({
+      where: { uuid },
+      include: [{ model: Booking, include: [{ model: Guest }] }],
+    });
+
+    let receiptUrl = null;
+    try {
+      const pi = await stripe.paymentIntents.retrieve(session.payment_intent, { expand: ['latest_charge'] });
+      receiptUrl = pi.latest_charge?.receipt_url || null;
+    } catch (err) {
+      console.warn(`⚠️ Could not retrieve receipt for payment_intent ${session.payment_intent}:`, err.message);
+    }
+
+    return res.status(200).json({
+      status: 'paid',
+      booking: {
+        reference_id: updatedLink.Booking?.reference_id,
+        check_in:     updatedLink.Booking?.preferred_arrival_date,
+        check_out:    updatedLink.Booking?.preferred_departure_date,
+        guest_name:   updatedLink.Booking?.Guest?.first_name,
+      },
+      amountCents: updatedLink.amount_cents,
+      currency:    updatedLink.currency,
+      receiptUrl,
+    });
   }
 
   if (session.status !== 'open') {
