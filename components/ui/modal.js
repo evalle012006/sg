@@ -14,7 +14,11 @@ export default function Modal(props) {
                             <button className={`font-bold ${props.cancelColor ? props.cancelColor : 'text-natural-500'}  uppercase`} onClick={props.onClose}>
                                 {props.cancelLabel ? props.cancelLabel : 'Cancel'}
                             </button>
-                            <button className={`font-bold ${props.confirmColor ? props.confirmColor : 'text-red-600'}  uppercase`} onClick={props.onConfirm}>
+                            <button
+                                className={`font-bold ${props.confirmColor ? props.confirmColor : 'text-red-600'} uppercase ${props.confirmDisabled ? 'opacity-40 cursor-not-allowed' : ''}`}
+                                onClick={props.confirmDisabled ? undefined : props.onConfirm}
+                                disabled={props.confirmDisabled}
+                            >
                                 {props.confirmLabel ? props.confirmLabel : 'Delete'}
                             </button>
                         </div>

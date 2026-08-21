@@ -158,9 +158,16 @@ class EmailTriggerService {
         if (booking?.Guest?.email) {
           enrichedContext.guest_email = booking.Guest.email;
         }
+        if (!enrichedContext.booking_type) {
+          enrichedContext.booking_type = booking?.booking_type || 'funded';
+        }
       } catch (err) {
         console.warn(`  ⚠️  Could not pre-fetch guest_email for trigger ${trigger.id}:`, err.message);
       }
+    }
+    // Belt-and-braces default, independent of whether the fetch above succeeded
+    if (!enrichedContext.booking_type) {
+      enrichedContext.booking_type = 'funded';
     }
 
     const recipient = await this._resolveRecipient(trigger, enrichedContext);
@@ -258,6 +265,10 @@ class EmailTriggerService {
         return { matches: false, reason: `cancelled_by '${context.cancelled_by}' does not match required '${cc.cancelled_by}'` };
       }
 
+      // 6. booking_type — restrict trigger to funded vs accommodation_only bookings
+      const btr = this._checkBookingTypeCondition(cc, context);
+      if (!btr.matches) return btr;
+
       return { matches: true, reason: `booking_status_changed → ${context.booking_status}` };
     }
 
@@ -265,6 +276,8 @@ class EmailTriggerService {
       if (!context.booking_confirmed) {
         return { matches: false, reason: 'Not a booking_confirmed event' };
       }
+      const btr = this._checkBookingTypeCondition(cc, context);
+      if (!btr.matches) return btr;
       return { matches: true, reason: 'booking_confirmed fired' };
     }
 
@@ -273,11 +286,10 @@ class EmailTriggerService {
         return { matches: false, reason: 'Not a booking_cancelled event' };
       }
       if (cc.cancelled_by && context.cancelled_by !== cc.cancelled_by) {
-        return {
-          matches: false,
-          reason: `cancelled_by '${context.cancelled_by}' does not match required '${cc.cancelled_by}'`,
-        };
+        return { matches: false, reason: `cancelled_by '${context.cancelled_by}' does not match required '${cc.cancelled_by}'` };
       }
+      const btr = this._checkBookingTypeCondition(cc, context);
+      if (!btr.matches) return btr;
       return { matches: true, reason: `booking_cancelled (cancelled_by: ${context.cancelled_by || 'any'})` };
     }
 
@@ -458,6 +470,18 @@ class EmailTriggerService {
       return { matches: false, reason: `booking_status '${context.booking_status}' not in [${allowed.join(', ')}]` };
     }
     return { matches: true, reason: `booking_status '${context.booking_status}' matched` };
+  }
+
+  static _checkBookingTypeCondition(contextConditions, context) {
+    const allowed = contextConditions.booking_type || [];
+    if (allowed.length === 0) return { matches: true, reason: 'No booking_type condition' };
+    if (!context.booking_type) {
+      return { matches: false, reason: 'booking_type condition set but no booking_type in context' };
+    }
+    if (!allowed.includes(context.booking_type)) {
+      return { matches: false, reason: `booking_type '${context.booking_type}' not in [${allowed.join(', ')}]` };
+    }
+    return { matches: true, reason: `booking_type '${context.booking_type}' matched` };
   }
 
   /**

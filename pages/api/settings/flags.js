@@ -1,5 +1,5 @@
 // pages/api/settings/flags.js
-import { Flag } from '../../../models';
+import { Flag, Booking, sequelize } from '../../../models';
 import { Op } from 'sequelize';
 
 const VALID_TYPES = ['guest', 'booking'];
@@ -143,7 +143,7 @@ export default async function handler(req, res) {
     }
 
     if (req.method === 'DELETE') {
-      const { id } = req.body;
+      const { id, confirmed } = req.body;
 
       if (!id) {
         return res.status(400).json({ message: 'id is required' });
@@ -154,10 +154,48 @@ export default async function handler(req, res) {
         return res.status(404).json({ message: 'Flag not found' });
       }
 
-      await flag.destroy();
+      const affectedBookings = flag.type === 'booking'
+        ? await Booking.findAll({
+            attributes: ['id', 'label'],
+            where: sequelize.where(
+              sequelize.fn('JSON_CONTAINS', sequelize.col('label'), JSON.stringify(flag.value)),
+              1
+            ),
+          })
+        : [];
+
+      if (!confirmed) {
+        return res.status(200).json({
+          confirmationRequired: true,
+          affectedCount: affectedBookings.length,
+          message: `This flag is used on ${affectedBookings.length} booking(s).`,
+        });
+      }
+
+      const transaction = await sequelize.transaction();
+      try {
+        if (flag.type === 'booking') {
+          await sequelize.query(
+            `UPDATE bookings
+             SET label = JSON_REMOVE(label, JSON_UNQUOTE(JSON_SEARCH(label, 'one', :value)))
+             WHERE JSON_CONTAINS(label, :quotedValue)`,
+            {
+              replacements: { value: flag.value, quotedValue: JSON.stringify(flag.value) },
+              transaction,
+            }
+          );
+        }
+
+        await flag.destroy({ transaction });
+        await transaction.commit();
+      } catch (err) {
+        await transaction.rollback();
+        throw err;
+      }
 
       return res.status(200).json({
         message: 'Flag deleted successfully',
+        affectedCount: affectedBookings.length,
       });
     }
 

@@ -17,6 +17,8 @@ export const GLOBAL_MERGE_TAGS = {
       { key: 'booking_status_name', label: 'Status Name', description: 'Display name of status', example: 'Booking Confirmed' },
       { key: 'booking_type', label: 'Booking Type', description: 'Type of booking', example: 'Respite' },
       { key: 'booking_name', label: 'Booking Name', description: 'Name/title of booking', example: 'Smith Family Stay' },
+      { key: 'is_funded_booking', label: 'Is Funded Booking (for conditional blocks only)', description: 'Use inside a conditional block to show content only for Funded bookings. Do not insert this tag directly into email text.', example: '' },
+      { key: 'booking_name', label: 'Booking Name', description: 'Name/title of booking', example: 'Smith Family Stay' },
       { key: 'alternate_contact_name', label: 'Alternate Contact Name', description: 'Additional contact person', example: 'Jane Doe' },
       { key: 'alternate_contact_number', label: 'Alternate Contact Number', description: 'Additional contact phone', example: '0412 345 678' },
       { key: 'type_of_spinal_injury', label: 'Type of Spinal Injury', description: 'SCI classification', example: 'T6 Complete' },

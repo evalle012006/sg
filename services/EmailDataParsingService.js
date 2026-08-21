@@ -153,6 +153,8 @@ class EmailDataParsingService {
       booking_status: booking.status || '',
       booking_status_name: booking.status_name || '',
       booking_type: booking.type || '',
+      booking_funding_type: booking.booking_type || 'funded',
+      is_funded_booking: (booking.booking_type || 'funded') === 'funded',
       booking_name: booking.name || '',
 
       alternate_contact_name: booking.alternate_contact_name || '',

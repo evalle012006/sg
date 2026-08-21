@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { getRoomTypes } from '../../lib/roomDataCache';
 import { useDispatch, useSelector } from "react-redux";
 import { bookingRequestFormActions } from '../../store/bookingRequestFormSlice';
 import ordinal from "ordinal";
-import HorizontalCardSelection from "../ui-v2/HorizontalCardSelection";
+import RoomHorizontalCardSelection from "../ui-v2/RoomHorizontalCardSelection";
 
 // Custom hooks for logic separation
 const useRoomValidation = (selectedRooms, required) => {
@@ -32,27 +33,10 @@ const useRoomData = (isNdisFunded) => {
   const [loading, setLoading] = useState(true);
 
   const fetchRoomTypes = useCallback(async () => {
+    setLoading(true);
     try {
-      setLoading(true);
-      const response = await fetch("/api/manage-room");
-      const data = await response.json();
-      const processedRooms = data
-        .map(room => ({
-          ...room.data,
-          imageUrl: room.image_url,
-          value: false,
-          roomId: room.data.id // Ensure ID is preserved
-        }))
-        .filter(room => room != null)
-        .filter(room => {
-          if (isNdisFunded) {
-            return room.type === 'studio' || room.type === 'ocean_view';
-          }
-          return true;
-        })
-        .sort((a, b) => a.id - b.id);
-      
-      setRoomTypes(processedRooms);
+      const data = await getRoomTypes(isNdisFunded);
+      setRoomTypes(data);
     } catch (error) {
       console.error('Error fetching room types:', error);
     } finally {
@@ -60,9 +44,7 @@ const useRoomData = (isNdisFunded) => {
     }
   }, [isNdisFunded]);
 
-  useEffect(() => {
-    fetchRoomTypes();
-  }, [fetchRoomTypes]);
+  useEffect(() => { fetchRoomTypes(); }, [fetchRoomTypes]);
 
   return { roomTypes, setRoomTypes, loading, refetchRooms: fetchRoomTypes };
 };
@@ -222,7 +204,7 @@ const RoomsField = (props) => {
     dispatch(bookingRequestFormActions.setRooms(selectedRoomData));
   }, [roomTypes, dispatch]);
 
-  // Transform room data for HorizontalCardSelection - PROPERLY MEMOIZED
+  // Transform room data for RoomHorizontalCardSelection - PROPERLY MEMOIZED
   const transformRoomData = useCallback((rooms, isAdditional = false) => {
     return rooms.map((room) => {
       let priceLabel = '';
@@ -275,7 +257,7 @@ const RoomsField = (props) => {
         description: (
           <div className="w-full grid grid-cols-12 gap-3">
             <div className="col-span-12">
-              <div className="grid grid-cols-3 gap-x-4 gap-y-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-3">
                 {/* Bedrooms */}
                 <div className="text-left">
                   <div className="flex items-center gap-2 mb-1">
@@ -529,7 +511,7 @@ const RoomsField = (props) => {
         {isNdisFunded ? (
           // NDIS funded: Show studio and ocean_view rooms together
           <div className={`mt-4 ${getRoomContainerClasses(showMainRoomError, selectedMainRoom)}`}>
-            <HorizontalCardSelection
+            <RoomHorizontalCardSelection
               items={transformedMainRoomsForNdis}
               value={selectedMainRoom}
               onChange={handleMainRoomChange}
@@ -541,7 +523,7 @@ const RoomsField = (props) => {
         ) : (
           // Non-NDIS funded: Show all rooms together
           <div className={`mt-4 ${getRoomContainerClasses(showMainRoomError, selectedMainRoom)}`}>
-            <HorizontalCardSelection
+            <RoomHorizontalCardSelection
               items={transformedAllRooms}
               value={selectedMainRoom}
               onChange={handleMainRoomChange}
@@ -613,7 +595,7 @@ const RoomsField = (props) => {
 
               {/* Additional room selection - USE shouldShowError for styling */}
               <div className={`mb-4 ${getRoomContainerClasses(shouldShowError, selectedAdditionalRoom)}`}>
-                <HorizontalCardSelection
+                <RoomHorizontalCardSelection
                   items={transformedStudioRooms}
                   value={selectedAdditionalRoom}
                   onChange={(roomName) => handleAdditionalRoomChange(roomName, roomIndex)}

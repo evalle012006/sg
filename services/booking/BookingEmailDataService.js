@@ -153,6 +153,19 @@ class BookingEmailDataService {
       console.log(`  ✅ Status check passed: '${bookingStatusName}'`);
     }
 
+    // ── 1b. booking_type condition ───────────────────────────────────────────
+    const allowedBookingTypes = (trigger.trigger_conditions || {}).booking_type || [];
+    if (allowedBookingTypes.length > 0) {
+      // Legacy/pre-AOB bookings have booking_type = null; these are treated as 'funded'.
+      const bookingTypeValue = bookingData.booking_type || 'funded';
+
+      if (!allowedBookingTypes.includes(bookingTypeValue)) {
+        console.log(`  ⏭️  Skipped #${trigger.id}: booking_type '${bookingTypeValue}' not in [${allowedBookingTypes.join(', ')}]`);
+        return { triggerId: trigger.id, sent: false, reason: `booking_type '${bookingTypeValue}' not in allowed list` };
+      }
+      console.log(`  ✅ Booking type check passed: '${bookingTypeValue}'`);
+    }
+
     // ── 2. triggerQuestions conditions ───────────────────────────────────────
     const triggerQuestions = trigger.triggerQuestions || trigger.trigger_questions || [];
     if (triggerQuestions.length > 0) {

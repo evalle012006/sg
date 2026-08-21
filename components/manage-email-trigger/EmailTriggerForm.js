@@ -728,6 +728,61 @@ const EmailTriggerForm = ({ onSuccess, onCancel }) => {
               </div>
             </div>
           </div>
+
+          {/* Booking Type Conditions */}
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <label className="block text-sm font-medium text-gray-700">
+                Booking Type Conditions{' '}
+                <span className="text-xs text-gray-500">
+                  (optional — trigger only fires for these booking types)
+                </span>
+              </label>
+            </div>
+            <div className="border rounded p-3 bg-gray-50">
+              <p className="text-xs text-gray-500 mb-2">
+                If none selected, trigger fires for all booking types. Legacy bookings with no booking_type are treated as &quot;funded&quot;.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { name: 'funded', label: 'Funded' },
+                  { name: 'accommodation_only', label: 'Accommodation Only' },
+                ].map(bt => {
+                  const selected = (
+                    formData.trigger_conditions?.booking_type || []
+                  ).includes(bt.name);
+                  return (
+                    <button
+                      key={bt.name}
+                      type="button"
+                      disabled={isViewMode}
+                      onClick={() => {
+                        const current = formData.trigger_conditions?.booking_type || [];
+                        const updated = selected
+                          ? current.filter(s => s !== bt.name)
+                          : [...current, bt.name];
+                        setFormData(prev => ({
+                          ...prev,
+                          trigger_conditions: updated.length > 0
+                            ? { ...prev.trigger_conditions, booking_type: updated }
+                            : (prev.trigger_conditions?.booking_status?.length
+                                ? { booking_status: prev.trigger_conditions.booking_status }
+                                : null),
+                        }));
+                      }}
+                      className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors
+                        ${selected
+                          ? 'bg-purple-600 text-white border-purple-600'
+                          : 'bg-white text-gray-700 border-gray-300 hover:border-purple-400'}
+                        ${isViewMode ? 'opacity-60 cursor-not-allowed' : ''}`}
+                    >
+                      {bt.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
         </>
       )}
 

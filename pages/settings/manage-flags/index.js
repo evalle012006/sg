@@ -53,6 +53,10 @@ export default function ManageFlags() {
         { label: "BOOKING FLAGS", fullLabel: "BOOKING FLAGS" }
     ];
 
+    const [affectedCount, setAffectedCount] = useState(0);
+    const [checkingUsage, setCheckingUsage] = useState(false);
+    const [checkingFlagId, setCheckingFlagId] = useState(null);
+
     const handleTabChange = (index) => {
         const tabNames = ["guest-flags", "booking-flags"];
         setSelectedTab(tabNames[index]);
@@ -171,19 +175,43 @@ export default function ManageFlags() {
         }
     };
 
-    const handleDeleteClick = (flag) => {
+    const handleDeleteClick = async (flag) => {
+        setCheckingUsage(true);
+        setCheckingFlagId(flag.id);
+
+        let affected = 0;
+        try {
+            const response = await fetch('/api/settings/flags', {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: flag.id, confirmed: false })
+            });
+            const data = await response.json();
+
+            if (response.ok && data.confirmationRequired) {
+                affected = data.affectedCount;
+            }
+        } catch (error) {
+            console.error('Error checking flag usage:', error);
+            // fail open — show the generic (non-warning) delete dialog
+        } finally {
+            setCheckingUsage(false);
+            setCheckingFlagId(null);
+        }
+
         setSelectedFlag(flag);
-        setShowDeleteDialog(true);
+        setAffectedCount(affected);
+        setShowDeleteDialog(true); // modal opens once, already correct
     };
 
     const handleConfirmDelete = async () => {
-        if (!selectedFlag) return;
+        if (!selectedFlag || checkingUsage) return;
 
         try {
             const response = await fetch('/api/settings/flags', {
                 method: 'DELETE',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id: selectedFlag.id })
+                body: JSON.stringify({ id: selectedFlag.id, confirmed: true })
             });
 
             const data = await response.json();
@@ -192,6 +220,7 @@ export default function ManageFlags() {
                 toast.success('Flag deleted successfully');
                 setShowDeleteDialog(false);
                 setSelectedFlag(null);
+                setAffectedCount(0);
                 loadFlags();
             } else {
                 toast.error(data.message || 'Failed to delete flag');
@@ -331,7 +360,8 @@ export default function ManageFlags() {
                         </button>
                         <button
                             onClick={() => handleDeleteClick(row)}
-                            className="p-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded"
+                            disabled={checkingUsage && checkingFlagId === row.id}
+                            className="p-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded disabled:opacity-40 disabled:cursor-not-allowed"
                             title="Delete"
                         >
                             <Trash2 className="w-4 h-4" />
@@ -462,17 +492,23 @@ export default function ManageFlags() {
                     </Modal>
                 )}
 
-                {/* Delete Confirmation Dialog */}
                 {showDeleteDialog && selectedFlag && (
                     <Modal
                         show={showDeleteDialog}
                         onClose={() => {
                             setShowDeleteDialog(false);
                             setSelectedFlag(null);
+                            setAffectedCount(0);
                         }}
                         onConfirm={handleConfirmDelete}
                         title="Delete Flag"
-                        description={`Are you sure you want to delete the flag "${selectedFlag.label}"? This action cannot be undone. This flag may be in use by existing guests or bookings, and will render with a default gray badge if so.`}
+                        description={
+                            checkingUsage
+                                ? 'Checking where this flag is used…'
+                                : affectedCount > 0
+                                    ? `"${selectedFlag.label}" is used on ${affectedCount} booking(s). Deleting it will remove this flag from all of them. This cannot be undone. Continue?`
+                                    : `Are you sure you want to delete the flag "${selectedFlag.label}"? This action cannot be undone.`
+                        }
                         confirmLabel="Delete"
                         cancelLabel="Cancel"
                     />
