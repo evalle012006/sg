@@ -18,7 +18,7 @@ export const Page = (props) => {
     }, [props.currentPage]);
 
     useEffect(() => {
-        if (sections?.lenth > 0) {
+        if (sections?.length > 0) {
             dispatch(templateActions.updateSections(sections));
             setCurrentPage({ ...currentPage, Sections: sections });
         }
@@ -75,12 +75,10 @@ export const Page = (props) => {
     };
 
     const moveSection = useCallback((dragIndex, hoverIndex, section, sectionsList) => {
-        dispatch(globalActions.setLoading(true));
         const newSections = arrayMoveImmutable(sectionsList, dragIndex, hoverIndex)
             .map((section, index) => { return { ...section, order: index + 1 } });
         debouncedSyncSectionOrder(hoverIndex, section);
         setSections(newSections);
-        dispatch(globalActions.setLoading(false));
     }, []);
 
     const renderSection = useCallback((section, index) => {
@@ -123,7 +121,7 @@ export const Page = (props) => {
 
             {/* Add New Section Area */}
             <div className="p-10 my-10 text-center text-sky-800 font-bold bg-stone-50">
-                <div className='relative mx-auto w-fit'>
+                <div className='relative mx-auto w-fit mb-10'>
                     <p>Select to add new section</p>
                     <div className='flex space-x-4 mt-10'>
                         <div className='opacity-70 hover:opacity-100 cursor-pointer' onClick={() => createSection('rows')}>

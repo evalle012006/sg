@@ -33,11 +33,29 @@ function GuestList() {
   const [showDeactivateDialog, setShowDeactivateDialog] = useState(false);
   const [showAccountStatusDialog, setShowAccountStatusDialog] = useState(false);
   const [data, setData] = useState([]);
+  const [guestFlagDefs, setGuestFlagDefs] = useState({});
+  const [flagDefsLoaded, setFlagDefsLoaded] = useState(false);
 
   const debounceDeleteGuest = useDebouncedCallback((e, selected) => {
     e.preventDefault();
     handleDelete(selected);
   }, 1000);
+
+  useEffect(() => {
+    fetch('/api/settings/flags')
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data) {
+          const map = {};
+          (data.guest_flags || []).forEach(f => {
+            map[f.value] = { acronym: f.acronym, color: f.color, label: f.label };
+          });
+          setGuestFlagDefs(map);
+        }
+      })
+      .catch(err => console.error('Error loading guest flag definitions:', err))
+      .finally(() => setFlagDefsLoaded(true));
+  }, []);
 
   const handleDelete = async (selected) => {
     if (selected) {
@@ -114,32 +132,27 @@ function GuestList() {
   }
 
   const renderGuestFlags = (flags) => {
-    if (!flags || !Array.isArray(flags)) return null;
-    
-    const flagStyles = {
-      'complex-care': 'bg-amber-500',
-      'banned': 'bg-red-500',
-      'outstanding-invoices': 'bg-fuchsia-500',
-      'specific-room-requirements': 'bg-sky-500',
-      'account-credit': 'bg-green-500',
-      'deceased': 'bg-slate-700',
-      'not-eligible': 'bg-gray-500'
-    };
+    if (!flags || !Array.isArray(flags) || flags.length === 0) return null;
 
     return (
       <div className="flex mt-1">
-        {flags.map((flag, index) => (
-          <span
-            key={index}
-            className={`${index > 0 ? 'ml-1' : ''} ${flagStyles[flag] || 'bg-gray-500'} w-fit px-2 py-1 text-xs text-white rounded-full relative group cursor-help`}
-            title={flag.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
-          >
-            {getFirstLetters(flag)}
-            <span className="absolute bg-black/90 p-2 rounded-md hidden group-hover:block whitespace-nowrap bottom-full left-1/2 transform -translate-x-1/2 mb-1 z-10">
-              {flag.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+        {flags.map((flag, index) => {
+          const def = guestFlagDefs[flag];
+          const label = def?.label || flag.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+          return (
+            <span
+              key={index}
+              className={`${index > 0 ? 'ml-1' : ''} w-fit px-2 py-1 text-xs text-white rounded-full relative group cursor-help`}
+              style={{ backgroundColor: def?.color || '#6B7280' }}
+              title={label}
+            >
+              {def?.acronym || getFirstLetters(flag)}
+              <span className="absolute bg-black/90 p-2 rounded-md hidden group-hover:block whitespace-nowrap bottom-full left-1/2 transform -translate-x-1/2 mb-1 z-10">
+                {label}
+              </span>
             </span>
-          </span>
-        ))}
+          );
+        })}
       </div>
     );
   };
@@ -283,7 +296,7 @@ function GuestList() {
     }
 
     return baseColumns;
-  }, [router, ability]);
+  }, [router, ability, guestFlagDefs]);
 
   async function loadGuests() {
     setIsLoading(true);
@@ -325,7 +338,7 @@ function GuestList() {
     setData(list);
   }, [list]);
 
-  if (isLoading) {
+  if (isLoading || !flagDefsLoaded) {
     return (
       <div className='h-screen flex items-center justify-center'>
         <Spinner />

@@ -51,7 +51,9 @@ export class ApprovalTrackingService {
   static async handleBookingConfirmed(booking, numberOfNights) {
     const allocations = await this.allocateNightsFromApprovals(
       booking.guest.id,
-      numberOfNights
+      numberOfNights,
+      booking.preferred_arrival_date,
+      booking.preferred_departure_date
     );
 
     if (!allocations || allocations.length === 0) {
@@ -131,11 +133,15 @@ export class ApprovalTrackingService {
    * Additional room approvals are manually managed and must never be auto-updated.
    * Ordered by approval_from date (earliest first).
    * @param {number} guestId - The guest ID
+   * @param {Date|string|null} checkInDate - Requested stay check-in date (optional)
+   * @param {Date|string|null} checkOutDate - Requested stay check-out date (optional)
    * @returns {Object} - Object containing approvals array and total remaining nights
    */
-  static async getAllActiveApprovals(guestId) {
+  static async getAllActiveApprovals(guestId, checkInDate = null, checkOutDate = null) {
     const now = moment();
-    
+    const stayStart = checkInDate ? moment(checkInDate) : null;
+    const stayEnd = checkOutDate ? moment(checkOutDate) : null;
+
     // Query FundingApproval table - EXCLUDE additional room approvals
     const approvals = await FundingApproval.findAll({
       where: {
@@ -150,13 +156,29 @@ export class ApprovalTrackingService {
     const approvalsWithRemaining = [];
     
     for (const approval of approvals) {
-      // Skip expired approvals (approval_to is in the past)
-      const isExpired = approval.approval_to && moment(approval.approval_to).isBefore(now, 'day');
-      if (isExpired) {
-        console.log(`⏭️  Skipping expired approval ${approval.id} (expired: ${approval.approval_to})`);
+      // An approval must cover the requested stay window, not just be "not yet expired today".
+      // If stay dates are supplied, check the approval's from/to against the ACTUAL stay,
+      // not against today's date — otherwise a stay booked months in advance can be confirmed
+      // against an approval that will have already expired by the time the guest arrives.
+      // Fall back to comparing against `now` only when no stay dates were supplied
+      // (preserves behaviour for callers like getApprovalSummary that just want a status snapshot).
+      const referenceStart = stayStart || now;
+      const referenceEnd = stayEnd || now;
+
+      const expiresBeforeStay = approval.approval_to &&
+        moment(approval.approval_to).isBefore(referenceEnd, 'day');
+      const notYetStartedForStay = approval.approval_from &&
+        referenceStart.isBefore(moment(approval.approval_from), 'day');
+
+      if (expiresBeforeStay) {
+        console.log(`⏭️  Skipping approval ${approval.id}: approval_to (${approval.approval_to}) is before stay/reference end (${referenceEnd.format('YYYY-MM-DD')})`);
         continue;
       }
-      
+      if (notYetStartedForStay) {
+        console.log(`⏭️  Skipping approval ${approval.id}: stay/reference start (${referenceStart.format('YYYY-MM-DD')}) is before approval_from (${approval.approval_from})`);
+        continue;
+      }
+
       const nightsApproved = approval.nights_approved || 0;
       const nightsUsed = approval.nights_used || 0;
       const remainingNights = Math.max(0, nightsApproved - nightsUsed);
@@ -175,9 +197,8 @@ export class ApprovalTrackingService {
       });
     }
 
-    console.log(`🔍 Found ${approvalsWithRemaining.length} active primary (non-expired) FundingApproval(s) for guest ${guestId} with ${totalRemainingNights} total nights remaining`);
+    console.log(`🔍 Found ${approvalsWithRemaining.length} active primary FundingApproval(s) for guest ${guestId} covering stay [${stayStart ? stayStart.format('YYYY-MM-DD') : 'n/a'} - ${stayEnd ? stayEnd.format('YYYY-MM-DD') : 'n/a'}] with ${totalRemainingNights} total nights remaining`);
     
-    // Log the order for debugging
     if (approvalsWithRemaining.length > 0) {
       console.log(`📅 Approval order (by approval_from date):`);
       approvalsWithRemaining.forEach((item, idx) => {
@@ -193,26 +214,26 @@ export class ApprovalTrackingService {
   }
 
   /**
-   * Allocate nights from multiple approvals in order of earliest approval_from date.
-   * Only allocates from PRIMARY approvals (additional room approvals are excluded automatically
-   * via getAllActiveApprovals).
-   * @param {number} guestId - The guest ID
-   * @param {number} nightsNeeded - Number of nights needed
-   * @returns {Array|null} - Array of allocations [{approval, nightsToUse}] or null if insufficient
-   */
-  static async allocateNightsFromApprovals(guestId, nightsNeeded) {
-    const { approvals, totalRemainingNights, count } = await this.getAllActiveApprovals(guestId);
+ * Allocate nights from multiple approvals in order of earliest approval_from date.
+ * Only allocates from PRIMARY approvals (additional room approvals are excluded automatically
+ * via getAllActiveApprovals).
+ * @param {number} guestId - The guest ID
+ * @param {number} nightsNeeded - Number of nights needed
+ * @param {Date|string|null} checkInDate - Requested stay check-in date (optional)
+ * @param {Date|string|null} checkOutDate - Requested stay check-out date (optional)
+ * @returns {Array|null} - Array of allocations [{approval, nightsToUse}] or null if insufficient
+ */
+static async allocateNightsFromApprovals(guestId, nightsNeeded, checkInDate = null, checkOutDate = null) {
+    const { approvals, totalRemainingNights, count } = await this.getAllActiveApprovals(guestId, checkInDate, checkOutDate);
 
-    // Check if total nights across all approvals is sufficient
     if (totalRemainingNights < nightsNeeded) {
-      console.log(`❌ Insufficient nights: Need ${nightsNeeded}, have ${totalRemainingNights} across ${count} approval(s)`);
+      console.log(`❌ Insufficient nights covering requested stay: Need ${nightsNeeded}, have ${totalRemainingNights} across ${count} approval(s)`);
       return null;
     }
 
     const allocations = [];
     let remainingToAllocate = nightsNeeded;
 
-    // Allocate from approvals in order (earliest approval_from first)
     for (const item of approvals) {
       if (remainingToAllocate <= 0) break;
       
@@ -248,7 +269,7 @@ export class ApprovalTrackingService {
    * @deprecated Use allocateNightsFromApprovals instead for multi-approval support
    */
   static async findAvailableApproval(guestId, nightsNeeded, bookingDate = null) {
-    const allocations = await this.allocateNightsFromApprovals(guestId, nightsNeeded);
+    const allocations = await this.allocateNightsFromApprovals(guestId, nightsNeeded, bookingDate, bookingDate);
     
     if (!allocations || allocations.length === 0) {
       return null;

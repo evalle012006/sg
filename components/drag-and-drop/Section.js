@@ -75,7 +75,7 @@ export const Section = ({ index, currentPage, sections, section, moveSection, ha
 
     useEffect(() => {
         let tempQuestions = [];
-        const columnsLength = 1;
+        let columnsLength = 1;
         if (section.type === "2_columns") {
             columnsLength = 2;
         } else if (section.type === "3_columns") {

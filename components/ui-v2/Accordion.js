@@ -20,8 +20,13 @@ const AccordionItem = ({
   isLastItem,
   origin,
   isNavigating,
-  activeButton // 'next', 'back', 'submit', or null
+  activeButton, // 'next', 'back', 'submit', or null
+  canOpen = true // whether this (currently closed) item is allowed to be opened via header click
 }) => {
+
+  // A closed item is only interactive if it's allowed to be opened.
+  // An already-open item's header click is a no-op, so it isn't treated as clickable either.
+  const isHeaderClickable = !isNavigating && !isOpen && canOpen;
 
   const getStatusBadgeType = () => {
     switch (status) {
@@ -54,8 +59,8 @@ const AccordionItem = ({
     e.preventDefault();
     e.stopPropagation();
     
-    // Prevent clicking during navigation
-    if (isNavigating) {
+    // Prevent clicking during navigation, or if this item isn't allowed to open
+    if (isNavigating || !canOpen) {
       return;
     }
     
@@ -79,7 +84,7 @@ const AccordionItem = ({
       >
         {/* Header - Now clickable */}
         <div 
-          className={`flex items-center justify-between py-4 px-8 ${isOpen ? 'bg-gray-50' : 'bg-white'} transition-colors ${isNavigating ? 'cursor-not-allowed opacity-75' : 'cursor-pointer hover:bg-gray-50'}`}
+          className={`flex items-center justify-between py-4 px-8 ${isOpen ? 'bg-gray-50' : 'bg-white'} transition-colors ${isNavigating ? 'cursor-not-allowed opacity-75' : isHeaderClickable ? 'cursor-pointer hover:bg-gray-50' : 'cursor-default'}`}
           onClick={handleHeaderClick}
         >
           <div className="flex items-center space-x-4 flex-1">
@@ -331,6 +336,7 @@ const Accordion = ({
             status={item.status}
             isOpen={isItemOpen(index)}
             customContent={item.customContent}
+            canOpen={item.canOpen}
             index={index}
             totalItems={items.length}
             onNext={handleNext}

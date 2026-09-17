@@ -80,7 +80,7 @@ const BookingRequestForm = () => {
     const isNdisFunded = useSelector(state => state.bookingRequestForm.isNdisFunded);
     const bookingFormRoomSelected = useSelector(state => state.bookingRequestForm.rooms);
     const [currentTemplateId, setCurrentTemplateId] = useState(null);
-
+    const [pendingAnswerPrompt, setPendingAnswerPrompt] = useState(null);
     const [booking, setBooking] = useState();
     const [guest, setGuest] = useState();
     const router = useRouter();
@@ -3896,12 +3896,17 @@ const BookingRequestForm = () => {
                 title: page.title,
                 description: page.description,
                 status: getPageStatus(page),
+                // Mirrors the gating logic in handleAccordionNavigation's 'header-click' branch:
+                // navigation is blocked unless the target page is already completed.
+                canOpen: Boolean(page.completed),
                 customContent: (
                     <QuestionPage
                         key={contentKey}
                         uuid={uuid}
                         currentPage={page}
                         allPages={stableProcessedFormData}
+                        pendingAnswerPrompt={pendingAnswerPrompt}
+                        setPendingAnswerPrompt={setPendingAnswerPrompt}
                         updatePageData={(data) => {
                             const updateHandler = getUpdateHandler(page.id);
                             updateHandler(data, page.id);
@@ -3944,7 +3949,8 @@ const BookingRequestForm = () => {
         });
     }, [stableProcessedFormData, guest, equipmentChangesState, ndisFormFilters, profileDataLoaded, 
         careAnalysisData, courseAnalysisData, packageFilterCriteria, getEnhancedFormDataForPackages, stayDates,
-        courseOffers, courseOffersLoaded, stableProcessedFormData?.map(p => `${p.id}:${p.completed}`).join('|')]);
+        courseOffers, courseOffersLoaded, stableProcessedFormData?.map(p => `${p.id}:${p.completed}`).join('|'),
+        pendingAnswerPrompt]);
 
     // Centralized scroll function, now explicitly waiting for layoutRef.current.mainContentRef
     const scrollToAccordionItemInLayout = useCallback((index) => {

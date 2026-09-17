@@ -3,7 +3,7 @@ const handlebars = require('handlebars');
 const fs = require('fs');
 const path = require('path');
 
-const RenderPDF = async ({ htmlTemplatePath, pdfData, pdfPath, withLetterHead = false, helpers = {} }) => {
+const RenderPDF = async ({ htmlTemplatePath, pdfData, pdfPath, withLetterHead = false, helpers = {}, headerTemplate = null, footerTemplate = null, margin = null }) => {
 
     // Register custom helpers if provided
     if (helpers && typeof helpers === 'object') {
@@ -66,7 +66,7 @@ const RenderPDF = async ({ htmlTemplatePath, pdfData, pdfPath, withLetterHead = 
                 path: resolvedPdfPath,
                 format: 'A4',
                 printBackground: true,
-                margin: {
+                margin: margin || {
                     top: '0',
                     bottom: '0',
                     left: '0',
@@ -74,6 +74,31 @@ const RenderPDF = async ({ htmlTemplatePath, pdfData, pdfPath, withLetterHead = 
                 },
                 preferCSSPageSize: true,
             };
+        }
+
+        // Native Puppeteer repeating header/footer: Chromium reserves this
+        // margin on EVERY printed page and repeats the templates correctly.
+        // Distinct from the position:fixed CSS approach other templates use
+        // (which only reserves space at the very start/end of a single
+        // continuous flow, not on each page break) - use this path when a
+        // template's content is dynamic-length and can't be pre-chunked
+        // into fixed .page blocks. Caller must supply a margin sized to fit
+        // both templates or content will render underneath them.
+        if (headerTemplate || footerTemplate) {
+            pdfOptions.displayHeaderFooter = true;
+            pdfOptions.headerTemplate = headerTemplate || '<span></span>';
+            pdfOptions.footerTemplate = footerTemplate || '<span></span>';
+            if (margin) {
+                pdfOptions.margin = margin;
+            }
+            // withLetterHead sets preferCSSPageSize: true above, which tells
+            // Chromium to prefer the template's own @page rule for page
+            // setup (including margin) - that conflicts with the margin we
+            // just set here for the header/footer to have room, causing
+            // inconsistent margin/header rendering between the first page
+            // and subsequent ones. The JS margin above must be the sole
+            // source of truth when native header/footer are in play.
+            pdfOptions.preferCSSPageSize = false;
         }
 
         await page.pdf(pdfOptions);

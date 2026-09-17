@@ -371,16 +371,28 @@ async function updateEOI(req, res) {
     }
 }
 
-async function eoiSubmittedTriggerDispatch(eoiRecord, courseNames, courses) {
-  // 🔔 Fire any configured system triggers for course_eoi_submitted
+async function eoiSubmittedTriggerDispatch(eoiRecord, courseNames, courses, formattedPreferredDates) {
   try {
     await EmailTriggerService.evaluateAndSendTriggers(null, {
       course_eoi_submitted: true,
-      guest_email:          eoiRecord.guest_email,
-      guest_name:           eoiRecord.guest_name,
-      course_name:          courseNames,
-      course_id:            courses[0]?.id,
-      eoi_id:               eoiRecord.id,
+      guest_email: eoiRecord.guest_email,
+      guest_name: eoiRecord.guest_name,
+      guest_phone: eoiRecord.guest_phone,
+      course_name: courseNames,
+      course_id: courses[0]?.id,
+      eoi_id: eoiRecord.id,
+      preferred_dates: formattedPreferredDates,
+      comments: eoiRecord.comments || 'None provided',
+      funding_type: eoiRecord.funding_type || 'Not specified',
+      has_sci: eoiRecord.has_sci ? 'Yes' : 'No',
+      sci_levels: eoiRecord.sci_levels || 'Not specified',
+      completing_for: eoiRecord.completing_for === 'myself' ? 'Self' : 'Someone else',
+      is_completing_for_other: eoiRecord.completing_for === 'other',
+      support_name: eoiRecord.support_name || '',
+      support_email: eoiRecord.support_email || '',
+      support_phone: eoiRecord.support_phone || '',
+      support_role: eoiRecord.support_role || '',
+      admin_link: `${process.env.APP_URL}/courses?selectedTab=eoi&eoiId=${eoiRecord.id}`,
     });
   } catch (triggerErr) {
     console.warn('⚠️ course_eoi_submitted trigger dispatch failed (non-fatal):', triggerErr.message);

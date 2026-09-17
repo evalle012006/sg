@@ -13,6 +13,7 @@ import parse from 'html-react-parser';
 import { processCheckboxAnswerWithNoneLogic } from "../../utilities/checkboxHelpers";
 import { stripSimpleParagraphTags } from "../../utilities/common";
 import moment from "moment";
+import AnswerConfirmationModal from "../booking-request-form/AnswerConfirmationModal";
 
 const QuestionPage = ({ 
     uuid,
@@ -45,9 +46,18 @@ const QuestionPage = ({
     onEquipmentValidationChange,
     isConfirmedBooking = false,
     origin = null,
+    pendingAnswerPrompt: pendingAnswerPromptProp = null,
+    setPendingAnswerPrompt: setPendingAnswerPromptProp = null,
 }) => {
     const dispatch = useDispatch();
     const [updatedCurrentPage, setUpdatedCurrentPage] = useState();
+    // Pending answer-confirmation prompt (e.g. Sargood Foundation -> "have NDIS?").
+    // Owned by the parent page when provided (see prop above) — this component remounts
+    // on every contentKey change, which would silently wipe local state. Falls back to
+    // local state only if no parent-managed version was passed in.
+    const [localPendingAnswerPrompt, setLocalPendingAnswerPrompt] = useState(null);
+    const pendingAnswerPrompt = setPendingAnswerPromptProp ? pendingAnswerPromptProp : localPendingAnswerPrompt;
+    const setPendingAnswerPrompt = setPendingAnswerPromptProp || setLocalPendingAnswerPrompt;
     // Track user interaction per question
     const [questionInteractions, setQuestionInteractions] = useState({});
     const updateTimeoutRef = useRef({});
@@ -1012,6 +1022,20 @@ const QuestionPage = ({
                                                 }
                                             }
 
+                                            // Shared by handleCardSelectionFieldChange, handleSelectFieldChange (single-value
+                                            // branch), and handleRadioButtonFieldChange. Deliberately NOT used for
+                                            // multi-select / checkbox / service-cards: those store an array or composite
+                                            // answer, not one flat string, so a single trigger_answer/target_answer match
+                                            // doesn't apply — see questionOptionsHelper.js's hasSelectableAnswers.
+                                            const checkAndTriggerAnswerPrompt = (question, value, secIdx, qIdx) => {
+                                                const activePrompt = (question?.QuestionAnswerPrompts || [])
+                                                    .find(p => p.is_active && (p.trigger_answer === value || p.trigger_answer === value?.label));
+                                                console.log('🔔 [prompt] checkAndTriggerAnswerPrompt called', { value, matched: !!activePrompt, questionId: question?.id });
+                                                if (activePrompt) {
+                                                    setPendingAnswerPrompt({ ...activePrompt, secIdx, qIdx });
+                                                }
+                                            };
+
                                             const handleCardSelectionFieldChange = (value, secIdx, qIdx) => {
                                                 markQuestionAsInteracted(secIdx, qIdx);
                                                 
@@ -1023,6 +1047,10 @@ const QuestionPage = ({
                                                 } else {
                                                     updateSections(value, 'answer', secIdx, qIdx);
                                                 }
+
+                                                // The clicked answer is already committed above (per spec: confirm/cancel
+                                                // both leave it in place — the modal only offers an ADDITIONAL switch).
+                                                checkAndTriggerAnswerPrompt(currentQuestion, value, secIdx, qIdx);
                                             }
 
                                             if (q.type === "health-info") {
@@ -1061,6 +1089,13 @@ const QuestionPage = ({
                                                     }
                                                 } else {
                                                     updateSections(selectedOptions, 'answer', secIdx, qIdx);
+                                                    // Plain 'select' is single-value, same model as card-selection.
+                                                    // 'multi-select' takes this branch too when only 0-1 options are
+                                                    // selected, but selectedOptions here can still be an array in that
+                                                    // branch's original shape — guard so we only match a flat value.
+                                                    if (question?.type === 'select') {
+                                                        checkAndTriggerAnswerPrompt(question, selectedOptions, secIdx, qIdx);
+                                                    }
                                                 }
                                             };
 
@@ -1147,6 +1182,8 @@ const QuestionPage = ({
                                             const handleRadioButtonFieldChange = (e, secIdx, qIdx) => {
                                                 markQuestionAsInteracted(secIdx, qIdx);
                                                 updateSections(e, 'answer', secIdx, qIdx);
+                                                const question = currentPage.Sections[secIdx]?.Questions[qIdx];
+                                                checkAndTriggerAnswerPrompt(question, e, secIdx, qIdx);
                                             }
 
                                             const handleFileUploadChange = async (e, secIdx, qIdx) => {
@@ -2305,6 +2342,24 @@ const QuestionPage = ({
                     </div>
                 </div>
             </div>
+
+            {pendingAnswerPrompt && (
+                <AnswerConfirmationModal
+                    message={pendingAnswerPrompt.modal_message}
+                    confirmLabel={pendingAnswerPrompt.confirm_label}
+                    cancelLabel={pendingAnswerPrompt.cancel_label}
+                    onClose={() => {
+                        console.log('🔔 [prompt] closing via Cancel/backdrop', pendingAnswerPrompt);
+                        setPendingAnswerPrompt(null);
+                    }}
+                    onConfirm={() => {
+                        const { secIdx, qIdx, target_answer } = pendingAnswerPrompt;
+                        console.log('🔔 [prompt] confirming, switching to', target_answer);
+                        updateSections(target_answer, 'answer', secIdx, qIdx, [], null);
+                        setPendingAnswerPrompt(null);
+                    }}
+                />
+            )}
         </React.Fragment>
     )
 }

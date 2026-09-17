@@ -66,7 +66,7 @@ export const templateSlice = createSlice({
             let pageIndex = state.template.Pages.findIndex(page => page.id === state.currentPage.id);
             let sectionIndex = state.template.Pages[pageIndex].Sections.findIndex(section => section.id === action.payload.section_id);
             let currentSectionIndex = state.currentPage.Sections.findIndex(section => section.id === action.payload.section_id);
-            if (pageIndex && sectionIndex && state.template.Pages[pageIndex].Sections[sectionIndex].Questions) {
+            if (pageIndex !== -1 && sectionIndex !== -1 && state.template.Pages[pageIndex].Sections[sectionIndex].Questions) {
                 state.template.Pages[pageIndex].Sections[sectionIndex].Questions = [...state.template.Pages[pageIndex].Sections[sectionIndex].Questions, action.payload.question];
                 state.currentPage.Sections[currentSectionIndex].Questions = [...state.currentPage.Sections[currentSectionIndex].Questions, action.payload.question];
             } else {

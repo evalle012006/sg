@@ -42,6 +42,7 @@ export default function RichTextField({ builderMode, description, onChange, clas
                         editorState={editorState}
                         onEditorStateChange={setEditorState}
                         wrapperClassName={className || ''}
+                        placeholder="Type your question here..."
                         toolbar={{
                             options: ['inline', 'blockType', 'fontSize', 'list', 'textAlign', 'history'],
                             inline: { inDropdown: false },

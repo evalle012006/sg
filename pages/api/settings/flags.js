@@ -1,5 +1,5 @@
 // pages/api/settings/flags.js
-import { Flag, Booking, sequelize } from '../../../models';
+import { Flag, Booking, Guest, sequelize } from '../../../models';
 import { Op } from 'sequelize';
 
 const VALID_TYPES = ['guest', 'booking'];
@@ -164,11 +164,25 @@ export default async function handler(req, res) {
           })
         : [];
 
+      const affectedGuests = flag.type === 'guest'
+        ? await Guest.findAll({
+            attributes: ['id', 'flags'],
+            where: sequelize.where(
+              sequelize.fn('JSON_CONTAINS', sequelize.col('flags'), JSON.stringify(flag.value)),
+              1
+            ),
+          })
+        : [];
+
+      const affectedCount = affectedBookings.length + affectedGuests.length;
+
       if (!confirmed) {
         return res.status(200).json({
-          confirmationRequired: true,
-          affectedCount: affectedBookings.length,
-          message: `This flag is used on ${affectedBookings.length} booking(s).`,
+          confirmationRequired: affectedCount > 0,
+          affectedCount,
+          message: flag.type === 'booking'
+            ? `This flag is used on ${affectedCount} booking(s).`
+            : `This flag is used on ${affectedCount} guest(s).`,
         });
       }
 
@@ -186,6 +200,18 @@ export default async function handler(req, res) {
           );
         }
 
+        if (flag.type === 'guest') {
+          await sequelize.query(
+            `UPDATE guests
+             SET flags = JSON_REMOVE(flags, JSON_UNQUOTE(JSON_SEARCH(flags, 'one', :value)))
+             WHERE JSON_CONTAINS(flags, :quotedValue)`,
+            {
+              replacements: { value: flag.value, quotedValue: JSON.stringify(flag.value) },
+              transaction,
+            }
+          );
+        }
+
         await flag.destroy({ transaction });
         await transaction.commit();
       } catch (err) {
@@ -195,7 +221,7 @@ export default async function handler(req, res) {
 
       return res.status(200).json({
         message: 'Flag deleted successfully',
-        affectedCount: affectedBookings.length,
+        affectedCount,
       });
     }
 

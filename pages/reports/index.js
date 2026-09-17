@@ -265,14 +265,14 @@ const BookingListReport = ({ startDate, endDate, dateFilterMode, showOccupancy }
             ? `${booking.Guest.first_name || ''} ${booking.Guest.last_name || ''}`.trim()
             : '',
           BOOKING_TYPE:   booking.type || '',
-          CREATED:        booking.createdAt ? moment(booking.createdAt).format('DD-MM-YYYY') : '',
+          CREATED:        booking.createdAt ? moment(booking.createdAt).format('DD/MM/YYYY') : '',
           STATUS:         processAnswer(booking.status),
           ELIGIBILITY:    processAnswer(booking.eligibility),
           // Always available from the booking model — no QA fetch needed
           CHECK_IN_DATE:  booking.preferred_arrival_date
-            ? moment(booking.preferred_arrival_date).format('DD-MM-YYYY') : '—',
+            ? moment(booking.preferred_arrival_date).format('DD/MM/YYYY') : '—',
           CHECK_OUT_DATE: booking.preferred_departure_date
-            ? moment(booking.preferred_departure_date).format('DD-MM-YYYY') : '—',
+            ? moment(booking.preferred_departure_date).format('DD/MM/YYYY') : '—',
         };
         if (showOccupancy) {
           row.DATES_OF_STAY    = booking.DATES_OF_STAY    || '—';

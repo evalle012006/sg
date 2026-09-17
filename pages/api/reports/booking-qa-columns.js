@@ -1,6 +1,7 @@
 import moment from 'moment';
-import { Booking, QaPair, Section } from '../../../models';
+import { Booking, QaPair, Section, Question } from '../../../models';
 import { Op } from 'sequelize';
+import { buildPackageAndCourseLookups, resolveQaAnswer } from '../../../lib/server/report-qa-resolver';
 
 /**
  * booking-qa-columns.js
@@ -10,9 +11,13 @@ import { Op } from 'sequelize';
  * via the ColumnSelector. Kept separate from booking-reports so the
  * initial page load stays fast.
  *
+ * Resolves "reference id" style answers (package-selection, course card-selection,
+ * service-cards) into their display values server-side, since the frontend has no
+ * access to the Package/Course tables or the originating Question's option labels.
+ *
  * Returns: { qaByBookingId, availableColumns }
- *   qaByBookingId: { [bookingId]: { [questionText]: answer } }
- *   availableColumns: [ { key, label, sectionOrder, questionId } ]
+ *   qaByBookingId: { [bookingId]: { [questionText]: { answer, question_type } } }
+ *   availableColumns: [ { key, label, sectionOrder, questionId, questionType } ]
  */
 export default async function handler(req, res) {
     if (req.method !== 'GET') {
@@ -63,7 +68,8 @@ export default async function handler(req, res) {
             return res.status(200).json({ qaByBookingId: {}, availableColumns: [] });
         }
 
-        // Fetch all QaPairs for these bookings in two targeted queries
+        // Fetch all QaPairs for these bookings, joined to Question for option_type
+        // (course selection) and options (service-cards labels).
         const sections = await Section.findAll({
             where: {
                 model_id: { [Op.in]: bookingIds },
@@ -73,14 +79,23 @@ export default async function handler(req, res) {
             include: [{
                 model: QaPair,
                 attributes: ['id', 'question', 'answer', 'question_type', 'section_id'],
+                include: [{
+                    model: Question,
+                    attributes: ['id', 'option_type', 'options'],
+                    required: false,
+                }],
             }],
             order: [['order', 'ASC']],
         });
 
-        // Build: qaByBookingId[bookingId][questionText] = answer
+        // First pass: batch-resolve every package/course id referenced across all bookings
+        const allQaPairs = sections.flatMap(section => section.QaPairs || []);
+        const lookups = await buildPackageAndCourseLookups(allQaPairs);
+
+        // Build: qaByBookingId[bookingId][questionText] = { answer, question_type }
         const qaByBookingId = {};
         // Track all unique questions for availableColumns
-        const columnMap = new Map(); // questionText -> { key, label, sectionOrder, questionId }
+        const columnMap = new Map(); // questionText -> { key, label, sectionOrder, questionId, questionType }
 
         let colIndex = 0;
         sections.forEach(section => {
@@ -89,10 +104,13 @@ export default async function handler(req, res) {
 
             (section.QaPairs || []).forEach(qa => {
                 if (!qa.question) return;
+
+                const { answer: resolvedAnswer, question_type: resolvedType } = resolveQaAnswer(qa, lookups);
+
                 // Store both answer and question_type so processAnswer can format correctly
                 qaByBookingId[bookingId][qa.question] = {
-                    answer:        qa.answer ?? '',
-                    question_type: qa.question_type || '',
+                    answer:        resolvedAnswer,
+                    question_type: resolvedType,
                 };
 
                 if (!columnMap.has(qa.question)) {
@@ -101,7 +119,7 @@ export default async function handler(req, res) {
                         label:        qa.question,
                         sectionOrder: section.order,
                         questionId:   qa.id,
-                        questionType: qa.question_type || '',
+                        questionType: resolvedType,
                     });
                 }
             });

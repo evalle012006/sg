@@ -203,29 +203,32 @@ export default async function handler(req, res) {
                                             }
                                         }
 
-                                        const approvalSummary = await ApprovalTrackingService.getAllActiveApprovals(booking.Guest.id);
-                                        console.log(`🃏 Guest ${booking.Guest.id}: ${approvalSummary.count} approval(s), ${approvalSummary.totalRemainingNights} nights remaining`);
+                                        const approvalSummary = await ApprovalTrackingService.getAllActiveApprovals(
+                                            booking.Guest.id,
+                                            checkInDate,
+                                            checkOutDate
+                                        );
+                                        console.log(`🃏 Guest ${booking.Guest.id}: ${approvalSummary.count} approval(s), ${approvalSummary.totalRemainingNights} nights remaining for stay ${moment(checkInDate).format('YYYY-MM-DD')} - ${moment(checkOutDate).format('YYYY-MM-DD')}`);
 
                                         if (approvalSummary.count === 0) {
                                             return res.status(400).json({
-                                                error: 'No active iCare approval found',
-                                                message: `Cannot confirm: guest has no active funding approvals. Requires ${nightsRequested} nights.`
+                                                error: 'No active iCare approval covering this stay',
+                                                message: `Cannot confirm: guest has no funding approval covering the requested stay (${moment(checkInDate).format('DD/MM/YYYY')} - ${moment(checkOutDate).format('DD/MM/YYYY')}). Requires ${nightsRequested} nights.`
                                             });
                                         }
                                         if (approvalSummary.totalRemainingNights < nightsRequested) {
                                             return res.status(400).json({
                                                 error: 'Insufficient approved nights',
-                                                message: `Cannot confirm: requires ${nightsRequested} nights but only ${approvalSummary.totalRemainingNights} remaining across ${approvalSummary.count} approval(s).`
+                                                message: `Cannot confirm: requires ${nightsRequested} nights but only ${approvalSummary.totalRemainingNights} remaining across ${approvalSummary.count} approval(s) covering this stay.`
                                             });
                                         }
 
-                                        const allocations = await ApprovalTrackingService.allocateNightsFromApprovals(booking.Guest.id, nightsRequested);
-                                        if (!allocations || allocations.length === 0) {
-                                            return res.status(400).json({
-                                                error: 'Unable to allocate nights',
-                                                message: `Cannot confirm: unable to allocate ${nightsRequested} nights from available approvals.`
-                                            });
-                                        }
+                                        const allocations = await ApprovalTrackingService.allocateNightsFromApprovals(
+                                            booking.Guest.id,
+                                            nightsRequested,
+                                            checkInDate,
+                                            checkOutDate
+                                        );
 
                                         const allocationSummary = [];
                                         for (const allocation of allocations) {

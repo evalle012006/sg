@@ -38,8 +38,8 @@ const BookingProgressHeader = ({
             {/* Desktop Progress Header */}
             <div className="hidden lg:block w-full bg-gray-100 border-b border-gray-200">
                 <div className="flex items-center justify-between px-6 py-4">
-                    {/* Left - Change pathway link (guest only, first step only) */}
-                    <div className="flex items-center">
+                    {/* Left - Change pathway link + Action Buttons */}
+                    <div className="flex items-center space-x-6">
                         {!origin && onChangePathway && (completedSteps === 0 || completedSteps === 1) && (
                             <button
                                 onClick={onChangePathway}
@@ -48,25 +48,6 @@ const BookingProgressHeader = ({
                                 ← Change booking type
                             </button>
                         )}
-                    </div>
-
-                    {/* Right - Progress Info + Action Buttons */}
-                    <div className="flex items-center space-x-6">
-                        {/* Progress Info */}
-                        <div className="flex items-center space-x-3">
-                            <span className="text-sm font-semibold text-gray-800">
-                                {progress}%
-                            </span>
-                            <div className="w-32 h-3 bg-gray-300 rounded-full overflow-hidden">
-                                <div 
-                                    className="h-full bg-gradient-to-r from-yellow-400 to-yellow-500 rounded-full transition-all duration-500 ease-out"
-                                    style={{ width: `${progress}%` }}
-                                />
-                            </div>
-                        </div>
-                        <div className="text-sm text-gray-600">
-                            <span className="font-medium">{completedSteps}</span> of <span className="font-medium">{totalSteps}</span> page completed
-                        </div>
 
                         {/* Action Buttons */}
                         <div className="flex items-center space-x-3">
@@ -85,6 +66,22 @@ const BookingProgressHeader = ({
                                     onClick={onSaveExit}
                                 />
                             )}
+                        </div>
+                    </div>
+
+                    {/* Right - Progress Info */}
+                    <div className="flex items-center space-x-3">
+                        <span className="text-sm font-semibold text-gray-800">
+                            {progress}%
+                        </span>
+                        <div className="w-32 h-3 bg-gray-300 rounded-full overflow-hidden">
+                            <div 
+                                className="h-full bg-gradient-to-r from-yellow-400 to-yellow-500 rounded-full transition-all duration-500 ease-out"
+                                style={{ width: `${progress}%` }}
+                            />
+                        </div>
+                        <div className="text-sm text-gray-600">
+                            <span className="font-medium">{completedSteps}</span> of <span className="font-medium">{totalSteps}</span> page completed
                         </div>
                     </div>
                 </div>
@@ -124,7 +121,7 @@ const BookingProgressHeader = ({
                 </div>
 
                 {/* Action Buttons - Mobile */}
-                <div className="flex items-center justify-end">
+                <div className="flex items-center justify-start">
                     <div className="flex items-center space-x-2">
                         <Button
                             color="outline"

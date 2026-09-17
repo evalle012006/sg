@@ -85,9 +85,19 @@ function BookingList(props) {
     [pageSize, toggleIncomplete, selectedFilterStatus, selectedFilterEligibility, selectedFilterAccommodationPayment, activeTab, currentPage]
   );
 
+  // Booking Confirmation PDF: statuses allowed to use the feature. Empty
+  // array = no restriction (available for all statuses). Fetched once, not
+  // per-row.
+  const [confirmationPdfAllowedStatuses, setConfirmationPdfAllowedStatuses] = useState([]);
+
   // Initial load - fetch filters and set permissions
   useEffect(() => {
     fetchFilters();
+
+    fetch('/api/settings/booking-confirmation-pdf-statuses')
+      .then(res => res.json())
+      .then(data => setConfirmationPdfAllowedStatuses(data.allowedStatuses || []))
+      .catch(err => console.error('Failed to fetch booking confirmation PDF statuses:', err));
     
     // Set hidden columns based on permissions
     const hiddenCols = [];
@@ -96,6 +106,22 @@ function BookingList(props) {
     }
     setHiddenColumns(hiddenCols);
   }, []);
+
+  // Returns true if the booking's current status is allowed to use the
+  // Booking Confirmation PDF feature (download/email).
+  const isConfirmationPdfAllowed = (booking) => {
+    // Client decision: NDIS bookings already have Summary of Stay, which is
+    // sufficient - never offer Booking Confirmation to them.
+    const funder = getFunder(booking.Sections)?.toLowerCase();
+    if (funder && (['ndis', 'ndia'].some(f => funder.includes(f)))) return false;
+
+    if (!confirmationPdfAllowedStatuses.length) return true; // no restriction configured
+    let statusName = booking.status_name;
+    if (!statusName && typeof booking.status === 'string') {
+      try { statusName = JSON.parse(booking.status)?.name; } catch (e) { /* ignore */ }
+    }
+    return !!statusName && confirmationPdfAllowedStatuses.includes(statusName);
+  };
 
   // Monitor search value changes and trigger debounced search
   useEffect(() => {
@@ -362,6 +388,47 @@ const fetchBookings = async (searchTerm = searchValue, invalidateCache = false) 
         toast.success('Summary sent to your email successfully!');
     } catch (error) {
       console.error('Error sending email:', error);
+      toast.error('Failed to send email. Please try again.');
+    }
+  };
+
+  const handleDownloadConfirmationPDF = async (booking) => {
+    toast.info('Generating PDF. Please wait...');
+    try {
+      const response = await fetch(`/api/bookings/${booking.uuid}/download-confirmation-pdf`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (!response.ok) throw new Error('Failed to generate PDF');
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `booking-confirmation-${booking.uuid}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error('Error downloading booking confirmation PDF:', error);
+      toast.error('Failed to download booking confirmation. Please try again.');
+    }
+  };
+
+  const handleEmailConfirmationPDF = async (booking) => {
+    toast.info('Your email is being sent in the background. Feel free to navigate away or continue with other tasks.');
+    try {
+      const response = await fetch(`/api/bookings/${booking.uuid}/email-confirmation-pdf`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (!response.ok) throw new Error('Failed to send email');
+      toast.success('Booking confirmation sent to guest email successfully!');
+    } catch (error) {
+      console.error('Error sending booking confirmation PDF:', error);
       toast.error('Failed to send email. Please try again.');
     }
   };
@@ -954,6 +1021,30 @@ const fetchBookings = async (searchTerm = searchValue, invalidateCache = false) 
                     handleEmailPDF(original);
                   },
                   hidden: !showSummaryOptions,
+                  icon: () => (
+                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                    </svg>
+                  )
+                },
+                {
+                  label: "Download Booking Confirmation",
+                  action: () => {
+                    handleDownloadConfirmationPDF(original);
+                  },
+                  hidden: !isConfirmationPdfAllowed(rowData),
+                  icon: () => (
+                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  )
+                },
+                {
+                  label: "Send Booking Confirmation via Email",
+                  action: () => {
+                    handleEmailConfirmationPDF(original);
+                  },
+                  hidden: !isConfirmationPdfAllowed(rowData),
                   icon: () => (
                     <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />

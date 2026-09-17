@@ -1,4 +1,4 @@
-import { Page, Question, QuestionDependency, Section, Template, sequelize } from "../../../models";
+import { Page, Question, QuestionDependency, QuestionAnswerPrompt, Section, Template, sequelize } from "../../../models";
 
 // Question types that should skip question_key generation
 const SKIP_KEY_GENERATION_TYPES = ['url', 'file-upload', 'health-info', 'goal-table', 'care-table'];
@@ -86,7 +86,7 @@ export default async function handler(req, res) {
                     model: Section, 
                     include: [{ 
                         model: Question, 
-                        include: [QuestionDependency] 
+                        include: [QuestionDependency, QuestionAnswerPrompt] 
                     }] 
                 }] 
             }] 
@@ -228,6 +228,27 @@ export default async function handler(req, res) {
             );
 
             await Promise.all(dependencyPromises);
+
+            // Create answer-confirmation prompts (e.g. Sargood Foundation -> NDIS)
+            const promptPromises = currentTemplate.Pages.flatMap(page =>
+                page.Sections.flatMap(section =>
+                    section.Questions.flatMap(question =>
+                        (question.QuestionAnswerPrompts || []).map(prompt =>
+                            QuestionAnswerPrompt.create({
+                                question_id: masterDuplicationData.questions[question.id],
+                                trigger_answer: prompt.trigger_answer,
+                                target_answer: prompt.target_answer,
+                                modal_message: prompt.modal_message,
+                                confirm_label: prompt.confirm_label,
+                                cancel_label: prompt.cancel_label,
+                                is_active: prompt.is_active,
+                            }, { transaction: t })
+                        )
+                    )
+                )
+            );
+
+            await Promise.all(promptPromises);
             return newTemplate;
         }).then((newTemplate) => {
             console.log(`Template copied successfully. Original: ${currentTemplate.name} -> Copy: ${newTemplate.name} (ID: ${newTemplate.id})`);

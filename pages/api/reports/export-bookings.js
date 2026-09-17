@@ -1,7 +1,8 @@
 import { processAnswer } from '../../../lib/report-utils';
-import { Booking, Guest, QaPair, Section } from '../../../models';
+import { Booking, Guest, QaPair, Section, Question } from '../../../models';
 import { Op } from 'sequelize';
 import moment from 'moment';
+import { buildPackageAndCourseLookups, resolveQaAnswer } from '../../../lib/server/report-qa-resolver';
 
 export default async function handler(req, res) {
     if (req.method !== 'GET') {
@@ -62,6 +63,11 @@ export default async function handler(req, res) {
                     include: [{
                         model: QaPair,
                         attributes: ['id', 'question', 'answer', 'question_type'],
+                        include: [{
+                            model: Question,
+                            attributes: ['id', 'option_type', 'options'],
+                            required: false,
+                        }],
                     }],
                     separate: true,   // avoids cartesian explosion on JOIN
                     order: [['order', 'ASC']],
@@ -69,6 +75,16 @@ export default async function handler(req, res) {
             ],
             order: [['createdAt', 'DESC']],
         });
+
+        // Batch-resolve every package/course id referenced across all bookings before
+        // mapping rows, so package-selection / course card-selection / service-cards
+        // answers render as names instead of raw ids or "[object Object]".
+        const allQaPairs = bookings.flatMap(booking =>
+            (booking.Sections || []).flatMap(section => section.QaPairs || [])
+        );
+        const lookups = await buildPackageAndCourseLookups(
+            allQaPairs.map(qa => (qa.get ? qa.get({ plain: true }) : qa))
+        );
 
         const processedBookings = bookings.map(booking => {
             const b = booking.get({ plain: true });
@@ -79,12 +95,12 @@ export default async function handler(req, res) {
                 GUEST_EMAIL:      b.Guest?.email || '',
                 GUEST_PHONE:      b.Guest?.phone_number || '',
                 BOOKING_TYPE:     b.type || '',
-                CREATED:          b.createdAt                ? moment(b.createdAt).format('DD-MM-YYYY')                   : '',
+                CREATED:          b.createdAt                ? moment(b.createdAt).format('DD/MM/YYYY')                   : '',
                 STATUS:           processAnswer(b.status),
                 ELIGIBILITY:      processAnswer(b.eligibility),
                 // Keys match BASE_COLUMN_TYPES in reports-index.js
-                CHECK_IN_DATE:    b.preferred_arrival_date   ? moment(b.preferred_arrival_date).format('DD-MM-YYYY')   : '',
-                CHECK_OUT_DATE:   b.preferred_departure_date ? moment(b.preferred_departure_date).format('DD-MM-YYYY') : '',
+                CHECK_IN_DATE:    b.preferred_arrival_date   ? moment(b.preferred_arrival_date).format('DD/MM/YYYY')   : '',
+                CHECK_OUT_DATE:   b.preferred_departure_date ? moment(b.preferred_departure_date).format('DD/MM/YYYY') : '',
             };
 
             // Occupancy columns — only when flag is set
@@ -103,7 +119,8 @@ export default async function handler(req, res) {
                             .sort((a, b) => (a.id || 0) - (b.id || 0))
                             .forEach(qa => {
                                 if (qa?.question) {
-                                    baseData[qa.question] = processAnswer(qa.answer, qa.question_type);
+                                    const { answer, question_type } = resolveQaAnswer(qa, lookups);
+                                    baseData[qa.question] = processAnswer(answer, question_type);
                                 }
                             });
                     });

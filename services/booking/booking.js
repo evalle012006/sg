@@ -1,4 +1,4 @@
-import { Booking, BookingEquipment, CourseOffer, EmailTrigger, Equipment, EquipmentCategory, Guest, Log, Page, QaPair, Question, QuestionDependency } from "../../models";
+import { Booking, BookingEquipment, CourseOffer, EmailTrigger, Equipment, EquipmentCategory, Guest, Log, Page, QaPair, Question, QuestionDependency, QuestionAnswerPrompt } from "../../models";
 import { Room, RoomType, Section, Setting, Template, NotificationLibrary } from "../../models";
 import EntityBuilder from "../common/entityBuilder";
 import _ from 'lodash';
@@ -332,7 +332,7 @@ export class BookingService extends EntityBuilder {
                         include: [{
                             model: QuestionDependency,
                             include: ['dependency']
-                        }],
+                        }, { model: QuestionAnswerPrompt }],
                         raw: true
                     }]
                 }];
@@ -341,7 +341,7 @@ export class BookingService extends EntityBuilder {
                     model: Section,
                     include: [{
                         model: Question,
-                        include: [QuestionDependency]
+                        include: [QuestionDependency, QuestionAnswerPrompt]
                     }]
                 }];
             }

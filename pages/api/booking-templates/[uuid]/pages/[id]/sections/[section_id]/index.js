@@ -12,9 +12,17 @@ export default async function handler(req, res) {
 
             const newSections = arrayMoveImmutable(sections, currentSection.order - 1, req.body.order - 1);
 
-            newSections.forEach(async (section, index) => {
-                await Section.update({ order: index + 1 }, { where: { id: section.id } });
-            })
+            await Promise.all(
+                newSections.map((section, index) =>
+                    Section.update({ order: index + 1 }, { where: { id: section.id } })
+                )
+            );
+
+            const { order, ...rest } = req.body;
+            if (Object.keys(rest).length > 0) {
+                await Section.update(rest, { where: { id: section_id } });
+            }
+            return res.status(200).json({ message: "Section updated" });
         }
 
         await Section.update(req.body, { where: { id: section_id } });

@@ -24,8 +24,11 @@ const HorizontalCardSelection = memo(({
   // Cache for successfully loaded images - persists across re-renders
   const imageLoadCacheRef = useRef({});
   
-  // Track if we've initialized to prevent re-initialization
-  const initializedRef = useRef(false);
+  // Track which itemsKey we've already built imageStates for, so we
+  // re-initialize when the real data arrives (e.g. courses fetched async
+  // after this component mounts with an empty/placeholder items array),
+  // but don't redundantly rebuild on every re-render with the same items.
+  const initializedForKeyRef = useRef(null);
   // undefined = "user has never made a selection here" (sentinel).
   // Deliberately NOT `null` — null is a legitimate value we need to sync TO
   // (e.g. when a parent reconciliation effect clears a stale/unavailable
@@ -100,8 +103,8 @@ const HorizontalCardSelection = memo(({
 
   // Initialize image states only once or when items actually change
   useEffect(() => {
-    // Skip if already initialized and items haven't changed
-    if (initializedRef.current) {
+    // Skip only if we've already built imageStates for this exact set of items
+    if (initializedForKeyRef.current === itemsKey) {
       return;
     }
 
@@ -132,7 +135,7 @@ const HorizontalCardSelection = memo(({
     });
     
     setImageStates(newStates);
-    initializedRef.current = true;
+    initializedForKeyRef.current = itemsKey;
 
     // Clear any existing timeouts for items no longer in the list
     const currentIndices = items.map((_, i) => i);

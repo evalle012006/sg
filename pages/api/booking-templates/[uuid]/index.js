@@ -1,4 +1,4 @@
-import { Page, Question, Section, Template, sequelize, Sequelize, QuestionDependency } from "./../../../../models"
+import { Page, Question, Section, Template, sequelize, Sequelize, QuestionDependency, QuestionAnswerPrompt } from "./../../../../models"
 import StorageService from "../../../../services/storage/storage";
 
 // Question types that have image options that need URL refresh
@@ -154,7 +154,7 @@ export default async function handler(req, res) {
               include: [{
                 model: QuestionDependency,
                 include: ['dependency']
-              }],
+              }, { model: QuestionAnswerPrompt }],
               raw: true
             }]
           }]

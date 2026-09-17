@@ -413,14 +413,15 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
     };
 
     const handleCourseSelect = (courseId) => {
+        if (courseId === null || courseId === undefined) {
+            setSelectedCourse(null);
+            setOffer(prev => ({ ...prev, course_id: null }));
+            return;
+        }
         const course = courses.find(c => c.id.toString() === courseId.toString());
         if (course) {
             setSelectedCourse(course);
-            setOffer(prev => ({
-                ...prev,
-                course_id: course.id
-            }));
-            // ✅ ADD: fetch capacity whenever a new course is selected
+            setOffer(prev => ({ ...prev, course_id: course.id }));
             fetchCourseCapacity(course.id);
         }
     };
@@ -627,7 +628,7 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
     };
 
     const getCourseCards = () => {
-        return courses
+        const cards = courses
             .filter(course => course.status === 'active')
             .map(course => {
                 const now = moment();
@@ -637,13 +638,19 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
                 
                 let statusText = 'Open for booking';
                 let statusColor = 'text-green-600';
+                let isDisabled = false;
+                let disabledMessage;
                 
                 if (courseStart.isBefore(now)) {
                     statusText = 'Course started';
                     statusColor = 'text-red-600';
+                    isDisabled = true;
+                    disabledMessage = 'This course has already started and can no longer accept offers.';
                 } else if (daysLeft < 0) {
                     statusText = 'Booking closed';
                     statusColor = 'text-red-600';
+                    isDisabled = true;
+                    disabledMessage = 'The booking window for this course has closed.';
                 } else if (daysLeft <= 3) {
                     statusText = `${daysLeft} days left to book`;
                     statusColor = 'text-orange-600';
@@ -653,9 +660,14 @@ export default function CourseOfferForm({ mode, offerId, preSelectedCourseId, on
                     value: course.id.toString(),
                     label: course.title,
                     description: `${formatDate(course.start_date)} - ${formatDate(course.end_date)} | Booking deadline: ${formatDate(course.min_end_date)} | ${statusText}`,
-                    imageUrl: course.imageUrl
+                    imageUrl: course.imageUrl,
+                    disabled: isDisabled,
+                    disabledMessage
                 };
             });
+
+        // Selectable courses first; Array.sort is stable so each group keeps its original order
+        return cards.sort((a, b) => Number(a.disabled) - Number(b.disabled));
     };
 
     const availableGuests = useMemo(() => {

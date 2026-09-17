@@ -12,6 +12,7 @@ import {
 import moment from 'moment';
 import { toast } from 'react-toastify';
 import Image from 'next/image';
+import DocumentActionsDropdown from '../../components/booking-comp/document-actions-dropdown';
 import { globalActions } from "../../store/globalSlice";
 import { checklistActions } from '../../store/checklistSlice';
 import { Can, AbilityContext } from "../../services/acl/can";
@@ -1586,6 +1587,47 @@ export default function BookingDetail() {
     }
   };
 
+  const handleDownloadConfirmationPDF = async (booking) => {
+    toast.info('Generating PDF. Please wait...');
+    try {
+      const response = await fetch(`/api/bookings/${booking.uuid}/download-confirmation-pdf`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (!response.ok) throw new Error('Failed to generate PDF');
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `booking-confirmation-${booking.uuid}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error('Error downloading booking confirmation PDF:', error);
+      toast.error('Failed to download booking confirmation. Please try again.');
+    }
+  };
+
+  const handleEmailConfirmationPDF = async (booking) => {
+    toast.info('Your email is being sent in the background. Feel free to navigate away or continue with other tasks.');
+    try {
+      const response = await fetch(`/api/bookings/${booking.uuid}/email-confirmation-pdf`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (!response.ok) throw new Error('Failed to send email');
+      toast.success('Booking confirmation sent to guest email successfully!');
+    } catch (error) {
+      console.error('Error sending booking confirmation PDF:', error);
+      toast.error('Failed to send email. Please try again.');
+    }
+  };
+
   // Fetch booking data
   const fetchBooking = useCallback(async () => {
     if (!uuid) return;
@@ -1758,6 +1800,34 @@ export default function BookingDetail() {
     const funder = getFunder(booking.Sections)?.toLowerCase();
     return booking.complete && funder && (['ndis', 'ndia'].some(f => funder.includes(f)));
   }, [booking, status]);
+
+  // Booking Confirmation PDF: statuses allowed to use the feature. Empty
+  // array = no restriction (available for all statuses). Fetched once.
+  const [confirmationPdfAllowedStatuses, setConfirmationPdfAllowedStatuses] = useState([]);
+
+  useEffect(() => {
+    fetch('/api/settings/booking-confirmation-pdf-statuses')
+      .then(res => res.json())
+      .then(data => setConfirmationPdfAllowedStatuses(data.allowedStatuses || []))
+      .catch(err => console.error('Failed to fetch booking confirmation PDF statuses:', err));
+  }, []);
+
+  const showConfirmationPdfOptions = useMemo(() => {
+    if (!booking) return false;
+
+    // Client decision: NDIS bookings already have Summary of Stay, which is
+    // sufficient - never offer Booking Confirmation to them.
+    const funder = getFunder(booking.Sections)?.toLowerCase();
+    if (funder && (['ndis', 'ndia'].some(f => funder.includes(f)))) return false;
+
+    if (!confirmationPdfAllowedStatuses.length) return true; // no restriction configured
+
+    let statusName = booking.status_name;
+    if (!statusName && typeof booking.status === 'string') {
+      try { statusName = JSON.parse(booking.status)?.name; } catch (e) { /* ignore */ }
+    }
+    return !!statusName && confirmationPdfAllowedStatuses.includes(statusName);
+  }, [booking, confirmationPdfAllowedStatuses]);
 
   // Room setup calculation
   const roomSetupData = useMemo(() => {
@@ -2757,7 +2827,7 @@ export default function BookingDetail() {
       <div className="flex flex-col bg-gray-50 px-6 py-4 h-full overflow-hidden">
         {/* Full Width Header with Breadcrumbs and Edit Button */}
         <div className='mb-4 flex-shrink-0'>
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-y-2">
             <div className="flex items-center space-x-4">
               <div className="text-blue-600">
                 <svg width="18" height="19" viewBox="0 0 18 19" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -2777,32 +2847,69 @@ export default function BookingDetail() {
             {/* Action Buttons */}
             <Can I="Create/Edit" a="Booking">
               {isUser && (
-                <div className="flex items-center space-x-3">
+                <div className="flex items-center flex-wrap gap-2">
                   {/* Summary Options - only show for confirmed bookings with specific funders */}
                   {showSummaryOptions && (
-                    <>
-                      {/* Download Summary Button */}
-                      <button
-                        onClick={() => handleDownloadPDF(booking)}
-                        className="p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                        title="Download Summary of Stay"
-                      >
-                        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    <DocumentActionsDropdown
+                      label="Summary of Stay"
+                      icon={(
+                        <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                         </svg>
-                      </button>
-                      
-                      {/* Email Summary Button */}
-                      <button
-                        onClick={() => handleEmailPDF(booking)}
-                        className="p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                        title="Send Summary of Stay via Email"
-                      >
-                        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                      )}
+                      options={[
+                        {
+                          label: "Download",
+                          action: () => handleDownloadPDF(booking),
+                          icon: () => (
+                            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                            </svg>
+                          ),
+                        },
+                        {
+                          label: "Email",
+                          action: () => handleEmailPDF(booking),
+                          icon: () => (
+                            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                            </svg>
+                          ),
+                        },
+                      ]}
+                    />
+                  )}
+
+                  {/* Booking Confirmation PDF - available for all bookings, subject to status restriction */}
+                  {showConfirmationPdfOptions && (
+                    <DocumentActionsDropdown
+                      label="Confirmation"
+                      icon={(
+                        <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                         </svg>
-                      </button>
-                    </>
+                      )}
+                      options={[
+                        {
+                          label: "Download",
+                          action: () => handleDownloadConfirmationPDF(booking),
+                          icon: () => (
+                            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                            </svg>
+                          ),
+                        },
+                        {
+                          label: "Email",
+                          action: () => handleEmailConfirmationPDF(booking),
+                          icon: () => (
+                            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                            </svg>
+                          ),
+                        },
+                      ]}
+                    />
                   )}
                   
                   {/* Edit Booking Button - Hide for cancelled bookings */}

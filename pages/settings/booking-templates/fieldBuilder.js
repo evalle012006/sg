@@ -4,6 +4,7 @@ import { useDebouncedCallback } from 'use-debounce';
 import { useDispatch, useSelector } from "react-redux";
 import { fetchTemplate, templateActions } from "./../../../store/templateSlice";
 import { HelpCircle, X } from 'lucide-react';
+import ConfirmationPromptManager from "../../../components/booking-comp/ConfirmationPromptManager";
 
 export default function FieldBuilder(props) {
     const [question, setQuestion] = useState(props.question || undefined);
@@ -89,7 +90,13 @@ export default function FieldBuilder(props) {
         } else {
             setQuestion(props.question);
         }
-    }, [props.question?.id]);
+        // Dependency intentionally narrow (id + prompt count only, not the whole object) so
+        // in-progress local edits (typing an option label, etc.) aren't clobbered by unrelated
+        // parent re-renders. QuestionAnswerPrompts length is added specifically because
+        // redux-persist rehydrates stale cached template data before fetchTemplate()'s fresh
+        // fetch resolves — same question id, but the prompt array arrives late, after this
+        // effect would otherwise already have fired and gone stale.
+    }, [props.question?.id, props.question?.QuestionAnswerPrompts?.length]);
 
     // Effect 2: One-time defaults initialisation — only when question ID first appears
     // Uses a ref so it never re-runs on parent re-renders
@@ -820,6 +827,11 @@ export default function FieldBuilder(props) {
             {/* REMOVED: Package Selection Field Controls section - No longer shown in builder mode */}
             
             <RenderQuestion question={question} />
+
+            <ConfirmationPromptManager
+                question={question}
+                onSaved={(prompt) => setQuestion({ ...question, QuestionAnswerPrompts: prompt ? [prompt] : [] })}
+            />
             
             {/* Required checkbox */}
             {!nonRequiredFields.includes(question?.type) && 

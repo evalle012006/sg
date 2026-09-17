@@ -1,5 +1,5 @@
 import { BOOKING_TYPES } from "../../../components/constants";
-import { Address, Booking, BookingEquipment, Course, Equipment, Guest, Page, QaPair, Question, QuestionDependency, Room, RoomType, Section, sequelize, Setting, Template } from "../../../models"
+import { Address, Booking, BookingEquipment, Course, Equipment, Guest, Page, QaPair, Question, QuestionDependency, QuestionAnswerPrompt, Room, RoomType, Section, sequelize, Setting, Template } from "../../../models"
 import { BookingService } from "../../../services/booking/booking";
 import StorageService from "../../../services/storage/storage";
 
@@ -353,7 +353,8 @@ export default async function handler(req, res) {
                                             {
                                                 model: QuestionDependency,
                                                 include: ['dependency']
-                                            }
+                                            },
+                                            { model: QuestionAnswerPrompt }
                                         ],
                                         raw: true
                                     }
@@ -398,7 +399,8 @@ export default async function handler(req, res) {
                                         {
                                             model: QuestionDependency,
                                             include: ['dependency']
-                                        }
+                                        },
+                                        { model: QuestionAnswerPrompt }
                                     ],
                                     raw: true
                                 }
@@ -435,7 +437,7 @@ export default async function handler(req, res) {
                         include: [{
                             model: QuestionDependency, 
                             include: ['dependency']
-                        }],
+                        }, { model: QuestionAnswerPrompt }],
                         raw: true
                     }]
                 }]

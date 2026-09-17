@@ -55,23 +55,6 @@ const EquipmentField = forwardRef((props, ref) => {
     const [imageModalOpen, setImageModalOpen] = useState(false);
     const [selectedImage, setSelectedImage] = useState({ url: '', alt: '' });
 
-    // Map of equipment IDs that are unavailable for the current date range.
-    // null = not yet fetched (no dates available); empty Set = all available.
-    const [availabilityMap, setAvailabilityMap] = useState(null);
-    const [availabilityLoading, setAvailabilityLoading] = useState(false);
-    const availabilityDebounceRef = useRef(null);
-
-    // Returns true when EVERY item in a category is unavailable for the
-    // selected dates (i.e. the guest has literally nothing to pick).
-    // null availabilityMap (no dates yet) never counts as unavailable —
-    // we don't want to relax "required" before we even know the dates.
-    const isCategoryUnavailable = useCallback((categoryName) => {
-        if (!availabilityMap) return false;
-        const categoryEquipments = groupedEquipments[categoryName] || [];
-        if (categoryEquipments.length === 0) return false;
-        return categoryEquipments.every(eq => availabilityMap.has(eq.id));
-    }, [availabilityMap, groupedEquipments]);
-
     // Cleanup on unmount
     useEffect(() => {
         return () => {
@@ -114,15 +97,11 @@ const EquipmentField = forwardRef((props, ref) => {
         return categoryType === 'binary' || categoryType === 'single_select';
     };
 
-    // SINGLE source of truth for "is this category actually required right now".
-    // Wraps isRequiredCategory() and relaxes it to false when every item in the
-    // category is unavailable for the selected dates — otherwise a fully booked-out
-    // required category becomes an un-satisfiable dead end for the guest.
-    // Every call site that previously called isRequiredCategory(...) directly for
-    // rendering/validation purposes should call this instead.
-    const isCategoryEffectivelyRequired = useCallback((categoryName, categoryType) => {
-        return isRequiredCategory(categoryName, categoryType) && !isCategoryUnavailable(categoryName);
-    }, [isCategoryUnavailable, categorySelections]);
+    // SINGLE source of truth for "is this category required". Previously wrapped
+    // to relax to false when a category was fully unavailable — that entire
+    // concept is gone now that guests never see availability at all (equipment
+    // is treated as always orderable; the business hires in extra stock if
+    // needed). isRequiredCategory alone is now authoritative again.
 
     const formatCategoryName = (categoryName) => {
         return categoryName
@@ -171,7 +150,7 @@ const EquipmentField = forwardRef((props, ref) => {
             if (!categoryName || categoryName === 'null') return;
             
             const categoryType = categoryTypes[categoryName];
-            const isRequired = isCategoryEffectivelyRequired(categoryName, categoryType);
+            const isRequired = isRequiredCategory(categoryName, categoryType);
             const hasUserInteraction = touchedState[categoryName] || touchedState[`confirm_${categoryName}`];
             
             if (!hasUserInteraction && !isRequired) {
@@ -198,7 +177,7 @@ const EquipmentField = forwardRef((props, ref) => {
                     allValid = false;
                 }
                 
-                if (confirmSelection === 'yes' && !isCategoryUnavailable(categoryName)) {
+                if (confirmSelection === 'yes') {
                     if (categoryType === 'confirmation_single') {
                         if (!categorySelections[categoryName]) {
                             errors[categoryName] = `Please select an option from ${formatCategoryName(categoryName)}`;
@@ -234,7 +213,7 @@ const EquipmentField = forwardRef((props, ref) => {
         // at least one available option; otherwise there's nothing to select and
         // we shouldn't block the guest on an empty category.
         if (categorySelections['ceiling_hoist'] === 'yes' && !categorySelections['sling'] &&
-            touchedState['sling'] && !isCategoryUnavailable('sling')) {
+            touchedState['sling']) {
             errors['sling'] = 'Please select a sling option when using ceiling hoist';
             allValid = false;
         }
@@ -254,7 +233,7 @@ const EquipmentField = forwardRef((props, ref) => {
         console.log('📋 Validation result:', allValid ? '✅ Valid' : '❌ Invalid', 'Errors:', Object.keys(errors));
         
         return { allValid, errors };
-    }, [groupedEquipments, categoryTypes, categorySelections, acknowledgementChecked, showTiltQuestion, bookingType, isCategoryEffectivelyRequired, isCategoryUnavailable]);
+    }, [groupedEquipments, categoryTypes, categorySelections, acknowledgementChecked, showTiltQuestion, bookingType]);
 
     // CRITICAL: Expose validate method via ref for parent components
     useImperativeHandle(ref, () => ({
@@ -268,7 +247,7 @@ const EquipmentField = forwardRef((props, ref) => {
                 if (!categoryName || categoryName === 'null') return;
                 
                 const categoryType = categoryTypes[categoryName];
-                const isRequired = isCategoryEffectivelyRequired(categoryName, categoryType);
+                const isRequired = isRequiredCategory(categoryName, categoryType);
                 
                 if (isRequired) {
                     touchedUpdates[categoryName] = true;
@@ -294,7 +273,7 @@ const EquipmentField = forwardRef((props, ref) => {
                 touchedUpdates['need_tilt_over_toilet'] = true;
             }
             
-            if (categorySelections['ceiling_hoist'] === 'yes' && !isCategoryUnavailable('sling')) {
+            if (categorySelections['ceiling_hoist'] === 'yes') {
                 touchedUpdates['sling'] = true;
             }
 
@@ -352,32 +331,6 @@ const EquipmentField = forwardRef((props, ref) => {
             });
         }
     }, [uuid]);
-
-    // Re-fetch availability whenever stay dates change.
-    // Debounced 400ms so rapid date-picker changes don't spam the endpoint.
-    useEffect(() => {
-        const checkIn  = stayDates?.checkInDate  ?? null;
-        const checkOut = stayDates?.checkOutDate ?? null;
-
-        if (availabilityDebounceRef.current) {
-            clearTimeout(availabilityDebounceRef.current);
-        }
-
-        if (checkIn && checkOut) {
-            availabilityDebounceRef.current = setTimeout(() => {
-                fetchAvailability(checkIn, checkOut);
-            }, 400);
-        } else {
-            // Dates cleared — reset to "no data" state
-            setAvailabilityMap(null);
-        }
-
-        return () => {
-            if (availabilityDebounceRef.current) {
-                clearTimeout(availabilityDebounceRef.current);
-            }
-        };
-    }, [stayDates?.checkInDate, stayDates?.checkOutDate, fetchAvailability]);
 
     // Function to mark user interaction
     const markUserInteraction = useCallback(() => {
@@ -586,118 +539,6 @@ const EquipmentField = forwardRef((props, ref) => {
         }
     }, [categorySelections, protectedSelections]);
 
-    // Reconciles categorySelections with availabilityMap once dates arrive/change.
-    // Handles the "prefilled shows selected but is now unavailable" bug — clears
-    // the stale selection AND pushes an explicit delete signal into equipmentChanges
-    // so manageBookingEquipment on the backend actually destroys the stale
-    // booking_equipment row rather than just leaving it untouched in the DB while
-    // the UI shows nothing selected.
-    //
-    // uiValue = what categorySelections gets set to (drives what renders).
-    // pushValue = what gets sent to updateEquipmentChangesWithMetaData (drives
-    // what the backend does). These are intentionally decoupled for binary
-    // categories: the UI reverts to "unanswered" (null) rather than falsely
-    // implying the guest declined, but the backend still needs an explicit
-    // 'no' so its `equipment.value === false` branch fires and destroys the row —
-    // an empty/absent value there is silently ignored, not treated as removal.
-    useEffect(() => {
-        if (availabilityMap === null || availabilityMap.size === 0) return;
-        // NOTE: deliberately NOT gated on initializationCompleteRef here.
-        // That's a ref, not state — if fetchAvailability resolves before
-        // initializeCategorySelections finishes (a real race: two independent
-        // async calls with no ordering guarantee), an early bail on the ref
-        // means this effect never gets a second chance once availabilityMap
-        // stops changing. Checking groupedEquipments directly is reactive and
-        // re-evaluates correctly regardless of which async call wins.
-        if (Object.keys(groupedEquipments).length === 0) return;
-
-        const clearedCategories = [];
-
-        setCategorySelections(prev => {
-            let changed = false;
-            const updated = { ...prev };
-
-            Object.entries(groupedEquipments).forEach(([categoryName, categoryEquipments]) => {
-                const categoryType = categoryTypes[categoryName];
-
-                if (categoryType === 'single_select' || categoryType === 'confirmation_single') {
-                    if (updated[categoryName] && availabilityMap.has(updated[categoryName])) {
-                        updated[categoryName] = null;
-                        changed = true;
-                        clearedCategories.push({ categoryName, pushValue: null, isConfirmation: false });
-
-                        // Also reset the confirm_ flag for confirmation_single categories.
-                        // Otherwise confirm_shower_commodes can be left at 'yes' with no
-                        // underlying selection possible (every option unavailable) — a
-                        // dead-end the guest can never satisfy in validation.
-                        if (categoryType === 'confirmation_single') {
-                            const confirmKey = `confirm_${categoryName}`;
-                            if (updated[confirmKey] === 'yes') {
-                                updated[confirmKey] = null;
-                            }
-                        }
-                    }
-                } else if (categoryType === 'multi_select' || categoryType === 'confirmation_multi') {
-                    if (Array.isArray(updated[categoryName]) && updated[categoryName].length > 0) {
-                        const filtered = updated[categoryName].filter(id => !availabilityMap.has(id));
-                        if (filtered.length !== updated[categoryName].length) {
-                            updated[categoryName] = filtered;
-                            changed = true;
-                            clearedCategories.push({ categoryName, pushValue: filtered, isConfirmation: false });
-
-                            // Same dead-end concern as confirmation_single: if every option
-                            // in the category is now gone, reset the confirm_ flag too.
-                            if (categoryType === 'confirmation_multi' && filtered.length === 0) {
-                                const confirmKey = `confirm_${categoryName}`;
-                                if (updated[confirmKey] === 'yes') {
-                                    updated[confirmKey] = null;
-                                }
-                            }
-                        }
-                    }
-                } else if (categoryType === 'binary') {
-                    // Binary categories are a single piece of equipment (Ceiling Hoist,
-                    // Wheelchair Charger, etc.) — 'yes' means that one equipment row exists.
-                    // If it's now unavailable, the prior 'yes' answer is stale and the
-                    // booking_equipment row must be deleted.
-                    if (updated[categoryName] === 'yes') {
-                        const eq = categoryEquipments[0];
-                        if (eq && availabilityMap.has(eq.id)) {
-                            updated[categoryName] = null; // revert to unanswered, not 'no' —
-                            // the guest never declined, availability made the choice moot.
-                            changed = true;
-                            // Push 'no' so updateEquipmentChangesWithMetaData's binary branch
-                            // produces { value: false }, which is what actually triggers the
-                            // destroy in manageBookingEquipment.
-                            clearedCategories.push({ categoryName, pushValue: 'no', isConfirmation: false });
-                        }
-                    }
-                }
-            });
-
-            return changed ? updated : prev;
-        });
-
-        if (clearedCategories.length > 0) {
-            // Treat this as a protected interaction, same as a literal click would be
-            // (see markUserInteraction() in handleCategoryChange). Without this, the
-            // "Controlled props sync" effect further up can overwrite the local
-            // equipmentChanges state with a STALE props.equipmentChanges snapshot —
-            // one captured before the parent has processed this reconciliation's
-            // onChange call — if 2+ seconds pass with no literal click in between.
-            // That silently drops the delete signal for whichever category was just
-            // reconciled (observed in practice: mattress_options vanishing from the
-            // save payload entirely while adaptive_bathroom_options/bed_rails, which
-            // happened to get touched by a subsequent user click, survived).
-            markUserInteraction();
-            setTimeout(() => {
-                clearedCategories.forEach(({ categoryName, pushValue, isConfirmation }) => {
-                    updateEquipmentChangesWithMetaData(categoryName, pushValue, isConfirmation, null);
-                });
-            }, 0);
-        }
-    }, [availabilityMap, groupedEquipments, categoryTypes, markUserInteraction]);
-
     const fetchEquipments = async () => {
         try {
             const res = await fetch("/api/equipments?" + new URLSearchParams({ includeHidden: true }));
@@ -716,33 +557,6 @@ const EquipmentField = forwardRef((props, ref) => {
         }
     };
 
-    // Fetches date-based availability from the new endpoint and stores the
-    // set of UNAVAILABLE equipment IDs. Only called when both dates are present.
-    const fetchAvailability = useCallback(async (checkInDate, checkOutDate) => {
-        if (!checkInDate || !checkOutDate) {
-            setAvailabilityMap(null);
-            return;
-        }
-        setAvailabilityLoading(true);
-        try {
-            const params = new URLSearchParams({ startDate: checkInDate, endDate: checkOutDate });
-            const res = await fetch(`/api/equipments/available-for-dates?${params}`);
-            if (!res.ok) throw new Error('Availability fetch failed');
-            const data = await res.json();
-            // Build a Set of IDs that are NOT available (booked)
-            const unavailable = new Set(
-                data.filter(eq => !eq.available).map(eq => eq.id)
-            );
-            if (mountedRef.current) setAvailabilityMap(unavailable);
-        } catch (err) {
-            console.error('[EquipmentField] fetchAvailability error:', err);
-            // On error, treat all as available rather than blocking the guest
-            if (mountedRef.current) setAvailabilityMap(new Set());
-        } finally {
-            if (mountedRef.current) setAvailabilityLoading(false);
-        }
-    }, []);
-    
     const fetchCurrentBookingEquipments = async (bookingId) => {
         try {
             const res = await fetch(`/api/bookings/${bookingId}/equipments`);
@@ -1452,8 +1266,8 @@ const EquipmentField = forwardRef((props, ref) => {
         const hasSelection = categorySelections[key];
         const categoryType = categoryTypes[categoryName];
         
-        const isRequired = (isCategoryEffectivelyRequired(categoryName, categoryType) ||
-                        (categoryName === 'sling' && categorySelections['ceiling_hoist'] === 'yes' && !isCategoryUnavailable('sling')) ||
+        const isRequired = (isRequiredCategory(categoryName, categoryType) ||
+                        (categoryName === 'sling' && categorySelections['ceiling_hoist'] === 'yes') ||
                         (isConfirmation && (categoryType === 'confirmation_multi' || categoryType === 'confirmation_single')) ||
                         (categoryName === 'need_tilt_over_toilet' && showTiltQuestion));
         
@@ -1687,24 +1501,20 @@ const EquipmentField = forwardRef((props, ref) => {
         const isMultiSelect = categoryType === 'multi_select' || categoryType === 'confirmation_multi';
         const categoryDisplayName = formatCategoryName(categoryName);
         
-        const isRequired = isCategoryEffectivelyRequired(categoryName, categoryType) || 
-                        (categoryName === 'sling' && categorySelections['ceiling_hoist'] === 'yes' && !isCategoryUnavailable('sling'));
+        const isRequired = isRequiredCategory(categoryName, categoryType) || 
+                        (categoryName === 'sling' && categorySelections['ceiling_hoist'] === 'yes');
 
         const useCardSelection = hasImages || categoryName === 'mattress_options';
 
         if (useCardSelection) {
-            const cards = equipments.map(eq => {
-                // availabilityMap === null means no dates entered yet → show all as enabled
-                const isUnavailable = availabilityMap !== null && availabilityMap.has(eq.id);
-                return {
-                    value: eq.id,
-                    label: eq.name,
-                    description: eq.description || '',
-                    imageUrl: eq.image_url || getDefaultImage('equipment'),
-                    disabled: isUnavailable,
-                    disabledMessage: isUnavailable ? 'Not available for your dates' : undefined
-                };
-            });
+            // Availability is never surfaced to guests — equipment inventory/hire
+            // status is an admin-only concern. Guests can always select any item.
+            const cards = equipments.map(eq => ({
+                value: eq.id,
+                label: eq.name,
+                description: eq.description || '',
+                imageUrl: eq.image_url || getDefaultImage('equipment')
+            }));
 
             return (
                 <div>
@@ -1763,7 +1573,7 @@ const EquipmentField = forwardRef((props, ref) => {
                 );
             }
         }
-    }, [categorySelections, categoryTypes, handleCategoryChange, props?.disabled, availabilityMap, isCategoryEffectivelyRequired, isCategoryUnavailable]);
+    }, [categorySelections, categoryTypes, handleCategoryChange, props?.disabled]);
 
     const renderCategorySection = (categoryName, equipments) => {
         const categoryType = categoryTypes[categoryName];
@@ -1946,23 +1756,6 @@ const EquipmentField = forwardRef((props, ref) => {
             )}
             
             <div className="py-4">
-                {/* Availability banner — shown when dates are not yet entered */}
-                {(!stayDates?.checkInDate || !stayDates?.checkOutDate) ? (
-                    <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                        <svg className="mt-0.5 h-4 w-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                        </svg>
-                        <span>Enter your check-in and check-out dates to see real-time equipment availability.</span>
-                    </div>
-                ) : availabilityLoading ? (
-                    <div className="mb-4 flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700">
-                        <svg className="h-4 w-4 animate-spin flex-shrink-0" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                        </svg>
-                        <span>Checking equipment availability for your dates…</span>
-                    </div>
-                ) : null }
                 {buildOrderedSections().map((section, index) => {
                     if (section.type === 'category' || section.type === 'conditional_category') {
                         return renderCategorySection(section.categoryName, section.equipments);

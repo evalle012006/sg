@@ -50,6 +50,7 @@ const flagModel = require('./flag');
 const paymentLinkModel = require('./paymentlink');
 const stripeWebhookEventModel = require('./stripewebhookevent');
 const refundModel = require('./refund');
+const questionAnswerPromptModel = require('./questionanswerprompt');
 
 const env = process.env.NODE_ENV || 'development';
 const config = require(__dirname + '/../config/config.js')[env];
@@ -77,6 +78,7 @@ const Page = pageModel(sequelize, Sequelize.DataTypes)
 const Permission = permissionsModel(sequelize, Sequelize.DataTypes)
 const QaPair = qapairModel(sequelize, Sequelize.DataTypes)
 const Question = questionModel(sequelize, Sequelize.DataTypes)
+const QuestionAnswerPrompt = questionAnswerPromptModel(sequelize, Sequelize.DataTypes)
 const QuestionType = questionTypeModel(sequelize, Sequelize.DataTypes)
 const QuestionDependency = questionDependencyModel(sequelize, Sequelize.DataTypes)
 const Role = rolesModel(sequelize, Sequelize.DataTypes)
@@ -477,6 +479,10 @@ PaymentLink.hasMany(Refund, { foreignKey: 'payment_link_id' });
 
 Refund.belongsTo(User, { foreignKey: 'initiated_by_user_id', as: 'initiatedBy' });
 
+// Question & QuestionAnswerPrompt associations
+Question.hasMany(QuestionAnswerPrompt, { foreignKey: 'question_id' })
+QuestionAnswerPrompt.belongsTo(Question, { foreignKey: 'question_id' })
+
 module.exports = {
   sequelize,
   Sequelize,
@@ -529,4 +535,5 @@ module.exports = {
   PaymentLink,
   StripeWebhookEvent,
   Refund,
+  QuestionAnswerPrompt,
 };
